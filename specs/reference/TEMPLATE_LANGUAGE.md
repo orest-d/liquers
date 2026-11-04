@@ -3,7 +3,7 @@ title: Template Language
 kind: reference
 audience: internal
 area: [core/query, lib/commands]
-reviewed: 2026-10-17
+reviewed: 2026-11-04
 ---
 # Template Language
 
@@ -67,12 +67,16 @@ slot of the query's AST (`QueryTemplate`), and a value fills its slot without be
 | P6 | Inside a link parameter | `cmd-~X~-R/{{key}}~E` | P1–P5 apply inside the link |
 
 A token with a literal `.` outside slots is a filename, any other token an action; the value must
-keep that. A slot cannot stand in a segment header (`-{{r}}/…`, `-R-{{p}}`) or for structure (a
+keep that: a slot's value is checked with the same token predicates the query encoder and the
+pipeline editors use (`liquers_core::escape::is_resource_name`, `is_identifier`, `is_filename`), so
+a template, a `QueryEditor` and `Query::check_encodable` accept the same tokens. A slot cannot stand in a segment header (`-{{r}}/…`, `-R-{{p}}`) or for structure (a
 whole action, a segment, `/-/`): use `{{$$ …}}` there. A number or boolean is written as its text;
 null or a missing name is an error. A **non-scalar** value (a list, a map, records) is allowed only
 as a whole P1 slot of the **last action**, where it becomes a parameter override
 (`Recipe::arguments`) of the argument the slot stands for, named from the command metadata registry;
 a list given to a `multiple` argument supplies one value per element.
+A non-scalar for an earlier action is not supported by templates; a recipe passes it through its
+`pipeline` instead ([`PIPELINES.md`](PIPELINES.md) §5).
 
 A malformed hygienic query is reported in template coordinates. The parser replaces each slot with
 a sentinel token that cannot occur in the text and parses with core's `parse_query`, so its grammar
@@ -205,6 +209,7 @@ positions of §2; `QueryTemplate::try_into_query` succeeds exactly when it has n
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | Slots are checked with the shared `escape::is_*` token predicates; structured values for earlier actions go through a recipe pipeline. | phase-5, `design/composite-command-definition/` |
 | 2026-10-17 | Volatility of the template's queries now makes the render volatile; the `v/` advice is removed. | `design/runtime-volatility` |
 | 2026-10-17 | `_meta`, exact large integers, apply inputs keep their type, a failed ad-hoc query's dependencies (PR #139 review). | `design/liquers-mustache/` |
 | 2026-10-17 | Corrected the volatility rule: `v` before the render action, not a trailing `/v`. | `RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE` |

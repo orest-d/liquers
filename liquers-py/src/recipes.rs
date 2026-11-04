@@ -164,6 +164,19 @@ impl Recipe {
         Ok(dict)
     }
 
+    /// The pipeline that runs before the query, as a dict (its serialized form), or `None`.
+    #[getter]
+    pub fn pipeline<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
+        match &self.inner.pipeline {
+            Some(pipeline) => {
+                let text =
+                    serde_json::to_string(&pipeline.to_json()).map_err(serialization_pyerr)?;
+                Ok(Some(py.import("json")?.call_method1("loads", (text,))?))
+            }
+            None => Ok(None),
+        }
+    }
+
     /// The recipe serialized as JSON.
     pub fn to_json(&self) -> PyResult<String> {
         serde_json::to_string(&self.inner).map_err(serialization_pyerr)

@@ -208,6 +208,10 @@ impl ToolRegistry {
                     let default = match &argument.default {
                         CommandParameterValue::Value(v) => format!("`{v}`"),
                         CommandParameterValue::Query(q) => format!("link `{}`", q.encode()),
+                        CommandParameterValue::Pipeline(p) => match p.to_query_text() {
+                            Ok(text) => format!("pipeline `{text}`"),
+                            Err(_) => "pipeline".to_string(),
+                        },
                         CommandParameterValue::None => String::new(),
                     };
                     let mut kind = type_name(&argument.argument_type);
@@ -341,7 +345,9 @@ fn build_tool(
     for argument in &command.arguments {
         let relative_link = match &argument.default {
             CommandParameterValue::Query(link) => link.has_relative_operand(),
-            CommandParameterValue::Value(_) | CommandParameterValue::None => false,
+            CommandParameterValue::Value(_)
+            | CommandParameterValue::Pipeline(_)
+            | CommandParameterValue::None => false,
         };
         if argument.injected || relative_link {
             hidden.insert(argument.name.clone());
@@ -498,6 +504,23 @@ pub fn check_allowed(
                 check_query(query, allow, cmr)?;
             }
             Step::Plan(nested) => check_allowed(nested, allow, cmr)?,
+            // The pipeline command must be allowed, and so must every command its body runs.
+            Step::PipelineCommand {
+                realm,
+                ns,
+                name,
+                plan,
+                ..
+            } => {
+                let command = CommandKey::new(realm, ns, name);
+                if !allowed(&command, allow) {
+                    return Err(Error::not_supported(format!(
+                        "Command {command} is not allowed in this query; allowed: {}",
+                        allow.join(", ")
+                    )));
+                }
+                check_allowed(plan, allow, cmr)?;
+            }
             Step::GetAsset(_)
             | Step::GetAssetBinary(_)
             | Step::GetAssetMetadata(_)
@@ -511,7 +534,8 @@ pub fn check_allowed(
             | Step::Warning(_)
             | Step::Error(_)
             | Step::SetCwd(_)
-            | Step::UseKeyValue(_) => {}
+            | Step::UseKeyValue(_)
+            | Step::UseValue(_) => {}
         }
     }
     Ok(())
@@ -534,6 +558,13 @@ fn check_parameter(
         | ParameterValue::ParameterLink(_, query, _)
         | ParameterValue::OverrideLink(_, query)
         | ParameterValue::EnumLink(_, query, _) => check_query(query, allow, cmr),
+        // A pipeline is checked through its query form, or else through its own plan.
+        ParameterValue::ParameterPipeline(_, pipeline, _)
+        | ParameterValue::OverridePipeline(_, pipeline)
+        | ParameterValue::DefaultPipeline(_, pipeline) => match pipeline.to_query_with(cmr) {
+            Ok(query) => check_query(&query, allow, cmr),
+            Err(_) => check_allowed(&pipeline.to_plan(cmr)?, allow, cmr),
+        },
         ParameterValue::MultipleParameters(_, items) => {
             for item in items {
                 check_parameter(item, allow, cmr)?;
@@ -545,6 +576,7 @@ fn check_parameter(
         | ParameterValue::OverrideValue(_, _)
         | ParameterValue::Placeholder(_)
         | ParameterValue::Injected(_)
+        | ParameterValue::InputState(_) | ParameterValue::FrameArgument(_, _)
         | ParameterValue::None => Ok(()),
     }
 }

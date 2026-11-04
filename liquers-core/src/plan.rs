@@ -102,7 +102,7 @@ fn unconfigured_namespaces() -> Vec<String> {
 ///
 /// Promoting keeps the link relative; freezing resolves it afterwards, like any other operand. The
 /// result is built as an AST rather than by concatenating text, per `QUERY-BUILDER-TOOLING`.
-fn promote_relative_default_links(
+pub(crate) fn promote_relative_default_links(
     query: &Query,
     cmr: &CommandMetadataRegistry,
 ) -> Result<Query, Error> {
@@ -294,6 +294,9 @@ pub enum Step {
     Evaluate(Query),
     /// Use a query itself as the current value instead of evaluating it.
     UseQueryValue(Query),
+    /// Use a value as the current state: a pipeline's `{value: …}` element (JSON, converted to
+    /// the environment's value when the step runs).
+    UseValue(Value),
     /// Invoke a resolved command with resolved parameters.
     Action {
         /// Command realm selected by the query.
@@ -333,6 +336,26 @@ pub enum Step {
     SetCwd(Key),
     /// Convert a logical key into the current value without loading that key.
     UseKeyValue(Key),
+    /// Run a pipeline command (`CommandDefinition::Pipeline`): its body, planned with the call's
+    /// arguments bound, runs on the current state, which is the body's input state (AC-4).
+    PipelineCommand {
+        /// Realm of the pipeline command.
+        realm: String,
+        /// Namespace of the pipeline command.
+        ns: String,
+        /// Name of the pipeline command.
+        name: String,
+        /// Source position of the call for diagnostics.
+        position: Position,
+        /// The call's arguments that only the caller's own pipeline frame can give (its input
+        /// state, or an argument it was passed so), read when the step runs; usually empty.
+        parameters: ResolvedParameterValues,
+        /// The query this call completes, as [`Step::Action::query`].
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        query: Option<Query>,
+        /// The body, with the call's other arguments bound.
+        plan: Box<Plan>,
+    },
 }
 
 impl Step {
@@ -352,7 +375,9 @@ impl Step {
             | Step::GetResourceDirectory(_)
             | Step::Evaluate(_)
             | Step::UseQueryValue(_)
+            | Step::UseValue(_)
             | Step::Action { .. }
+            | Step::PipelineCommand { .. }
             | Step::Filename(_)
             | Step::Plan(_)
             | Step::SetCwd(_)
@@ -394,7 +419,9 @@ impl Step {
             Step::GetResourceDirectory(_key) => false,
             Step::Evaluate(_) => false,
             Step::UseQueryValue(_) => false,
+            Step::UseValue(_) => false,
             Step::Action { .. } => false,
+            Step::PipelineCommand { .. } => false,
             Step::Filename(_resource_name) => true,
             Step::Info(_) => true,
             Step::Warning(_) => true,
@@ -485,6 +512,18 @@ pub enum ParameterValue {
     MultipleParameters(String, Vec<ParameterValue>),
     /// Parameter supplied by the command execution context rather than query text.
     Injected(String),
+    /// A nested pipeline given as the argument, with no query form (AC-18). A pipeline that has
+    /// one is planned as a `ParameterLink` instead.
+    ParameterPipeline(String, crate::pipeline::Pipeline, Position),
+    /// A pipeline override supplied by a recipe.
+    OverridePipeline(String, crate::pipeline::Pipeline),
+    /// A pipeline default from the command metadata (`CommandParameterValue::Pipeline`).
+    DefaultPipeline(String, crate::pipeline::Pipeline),
+    /// The input state of the innermost pipeline command (`{state: true}`, AC-4).
+    InputState(String),
+    /// An argument of the innermost pipeline command that its caller passed from its own frame
+    /// (the caller's input state): `(argument name, the pipeline command's argument name)`.
+    FrameArgument(String, String),
     /// Intermediate state representing an unresolved parameter.
     None,
 }
@@ -513,6 +552,17 @@ impl Display for ParameterValue {
             ParameterValue::Injected(name) => write!(f, "injected {}", name),
             ParameterValue::None => write!(f, "None"),
             ParameterValue::Placeholder(name) => write!(f, "placeholder {name}"),
+            ParameterValue::ParameterPipeline(name, p, _) => write!(f, "pipeline {name}: {}", p.to_json()),
+            ParameterValue::OverridePipeline(name, p) => {
+                write!(f, "override pipeline {name}: {}", p.to_json())
+            }
+            ParameterValue::DefaultPipeline(name, p) => {
+                write!(f, "default pipeline {name}: {}", p.to_json())
+            }
+            ParameterValue::InputState(name) => write!(f, "input state {name}"),
+            ParameterValue::FrameArgument(name, from) => {
+                write!(f, "pipeline command argument {name}: {from}")
+            }
         }
     }
 }
@@ -606,6 +656,9 @@ impl ParameterValue {
                 CommandParameterValue::Query(q) => {
                     values.push(ParameterValue::DefaultLink(arginfo.name.clone(), q.clone()))
                 }
+                CommandParameterValue::Pipeline(p) => {
+                    values.push(ParameterValue::DefaultPipeline(arginfo.name.clone(), p.clone()))
+                }
                 CommandParameterValue::None => (),
             }
             ParameterValue::MultipleParameters(arginfo.name.clone(), values)
@@ -616,6 +669,9 @@ impl ParameterValue {
                 }
                 CommandParameterValue::Query(q) => {
                     ParameterValue::DefaultLink(arginfo.name.clone(), q.clone())
+                }
+                CommandParameterValue::Pipeline(p) => {
+                    ParameterValue::DefaultPipeline(arginfo.name.clone(), p.clone())
                 }
                 CommandParameterValue::None => {
                     if arginfo.injected {
@@ -638,6 +694,9 @@ impl ParameterValue {
             } // TODO: pass name
             CommandParameterValue::Query(q) => {
                 ParameterValue::DefaultLink(name.to_owned(), q.clone())
+            }
+            CommandParameterValue::Pipeline(p) => {
+                ParameterValue::DefaultPipeline(name.to_owned(), p.clone())
             }
             CommandParameterValue::None => ParameterValue::None,
         }
@@ -814,6 +873,11 @@ impl ParameterValue {
                     q.clone(),
                     pos.to_owned(),
                 )),
+                CommandParameterValue::Pipeline(p) => Ok(ParameterValue::ParameterPipeline(
+                    arginfo.name.clone(),
+                    p.clone(),
+                    pos.to_owned(),
+                )),
                 CommandParameterValue::None => {
                     if e.others_allowed {
                         Self::parse_other_enum_value(&arginfo.name, s, &e.value_type, pos)
@@ -919,6 +983,10 @@ impl ParameterValue {
                                 ))
                                 .with_position(pos))
                             }
+                            ParameterValue::ParameterPipeline(_, _, _)
+                            | ParameterValue::OverridePipeline(_, _)
+                            | ParameterValue::DefaultPipeline(_, _)
+                            | ParameterValue::InputState(_) | ParameterValue::FrameArgument(_, _) => values.push(pv),
                         }
                     }
                     ActionParameter::Link(q, pos) => {
@@ -1011,6 +1079,11 @@ impl ParameterValue {
             ParameterValue::Injected(name) => Some(name.clone()),
             ParameterValue::Placeholder(name) => Some(name.clone()),
             ParameterValue::MultipleParameters(name, _) => Some(name.clone()),
+            ParameterValue::ParameterPipeline(name, _, _)
+            | ParameterValue::OverridePipeline(name, _)
+            | ParameterValue::DefaultPipeline(name, _)
+            | ParameterValue::InputState(name)
+            | ParameterValue::FrameArgument(name, _) => Some(name.clone()),
             ParameterValue::None => None,
         }
     }
@@ -1021,6 +1094,26 @@ impl ParameterValue {
             ParameterValue::ParameterValue(_, v, _) => Some(v.clone()),
             ParameterValue::OverrideValue(_, v) => Some(v.clone()),
             _ => None,
+        }
+    }
+    /// The contained pipeline, when this is a pipeline variant.
+    pub fn pipeline(&self) -> Option<&crate::pipeline::Pipeline> {
+        match self {
+            ParameterValue::ParameterPipeline(_, p, _)
+            | ParameterValue::OverridePipeline(_, p)
+            | ParameterValue::DefaultPipeline(_, p) => Some(p),
+            ParameterValue::DefaultValue(_, _)
+            | ParameterValue::DefaultLink(_, _)
+            | ParameterValue::ParameterValue(_, _, _)
+            | ParameterValue::ParameterLink(_, _, _)
+            | ParameterValue::OverrideValue(_, _)
+            | ParameterValue::OverrideLink(_, _)
+            | ParameterValue::Placeholder(_)
+            | ParameterValue::EnumLink(_, _, _)
+            | ParameterValue::MultipleParameters(_, _)
+            | ParameterValue::Injected(_)
+            | ParameterValue::InputState(_) | ParameterValue::FrameArgument(_, _)
+            | ParameterValue::None => None,
         }
     }
     /// Returns a clone of the contained query, when this is a link variant.
@@ -1048,6 +1141,7 @@ impl ParameterValue {
             ParameterValue::ParameterValue(_, _, pos) => pos.clone(),
             ParameterValue::ParameterLink(_, _, pos) => pos.clone(),
             ParameterValue::EnumLink(_, _, pos) => pos.clone(),
+            ParameterValue::ParameterPipeline(_, _, pos) => pos.clone(),
             _ => Position::unknown(),
         }
     }
@@ -1116,7 +1210,13 @@ impl ParameterValue {
             | ParameterValue::OverrideValue(_, _)
             | ParameterValue::Placeholder(_)
             | ParameterValue::Injected(_)
+            | ParameterValue::InputState(_) | ParameterValue::FrameArgument(_, _)
             | ParameterValue::None => {}
+            // A pipeline's own resources and links are resolved when it is planned, against the
+            // working directory of the step that reads it.
+            ParameterValue::ParameterPipeline(_, _, _)
+            | ParameterValue::OverridePipeline(_, _)
+            | ParameterValue::DefaultPipeline(_, _) => {}
         }
     }
 }
@@ -1283,6 +1383,28 @@ impl ResolvedParameterValues {
         false
     }
 
+    /// Overrides the named parameter with a pipeline, as [`ResolvedParameterValues::override_link`]
+    /// does with a link. Returns `false` when no overridable parameter has that name.
+    pub fn override_pipeline(&mut self, name: &str, pipeline: crate::pipeline::Pipeline) -> bool {
+        for pv in &mut self.0 {
+            if let Some(n) = pv.name() {
+                if n == name {
+                    if pv.is_injected() {
+                        return false;
+                    }
+                    let replacement = ParameterValue::OverridePipeline(n.clone(), pipeline);
+                    *pv = if pv.is_multiple() {
+                        ParameterValue::MultipleParameters(n.clone(), vec![replacement])
+                    } else {
+                        replacement
+                    };
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// Iterates over resolved parameters in command metadata order.
     pub fn iter(&self) -> std::slice::Iter<'_, ParameterValue> {
         self.0.iter()
@@ -1361,63 +1483,60 @@ impl<'a> Iterator for ActionParameterIterator<'a> {
 /// finalization.
 pub struct PlanBuilder<'c> {
     query: Query,
-    command_registry: &'c CommandMetadataRegistry,
-    plan: Plan,
     allow_placeholders: bool,
+    asm: PlanAssembly<'c>,
+}
+
+/// The plan under construction and the facts recorded while building it, shared by
+/// [`PlanBuilder`] and the pipeline planner: both push their steps here and apply each command's
+/// flags through [`PlanAssembly::apply_command_flags`], so a plan means the same whichever built it.
+pub(crate) struct PlanAssembly<'c> {
+    pub(crate) command_registry: &'c CommandMetadataRegistry,
+    pub(crate) plan: Plan,
 
     /// Track volatility during plan building
-    is_volatile: bool,
+    pub(crate) is_volatile: bool,
 
     /// Track payload requirement during plan building.
     /// Mirrors `is_volatile`; a `Required` outcome also forces volatility, since the
     /// commands that set it are registered with `volatile` already set.
-    payload_required: PayloadRequirement,
+    pub(crate) payload_required: PayloadRequirement,
 
     /// Track expiration during plan building (minimum of all command expirations)
-    expires: Expires,
+    pub(crate) expires: Expires,
 }
 
-// The builder takes no configuration, and its behaviour is fixed: it always expands
-// predecessors, and it rejects a missing required argument unless placeholders are allowed
-// (recipes allow them and fill them afterwards). What the three policy questions once asked of it
-// is answered elsewhere (`specs/design/plan-policy/`):
-//
-// - *Caching* is the asset manager's: a [`crate::cache_strategy::CacheStrategy`] on each asset
-//   decides what is registered for reuse, and the plan never reads it.
-// - *Inlining* is a command's `cached: false`, recorded here as [`Plan::uncached_by`]; the
-//   boundary walk steps back past such a command, so it runs inline.
-// - *Volatility* is recorded here from commands, links, `v` and recipe declarations, as
-//   [`Plan::is_volatile`] and [`Plan::volatility_source`]. `v` is positional: `a/b/v/c` is
-//   volatile from `v` onward.
-//
-// `PlanBuilder` also *records* facts it does not act on, for the passes that run after it:
-// [`Plan::predecessor`] and [`Plan::predecessor_steps`] describe a boundary it never cuts, and
-// [`Plan::volatility_source`] distinguishes volatility a boundary may be cut in front of from
-// volatility that forbids one anywhere. The builder always expands; cutting is a separate pass
-// over a frozen plan, so that volatility, payload requirement and expiration are computed over
-// the whole plan before anything is moved.
-impl<'c> PlanBuilder<'c> {
-    /// Creates a builder that expands predecessors and rejects placeholders.
-    pub fn new(query: Query, command_registry: &'c CommandMetadataRegistry) -> Self {
-        PlanBuilder {
-            query,
+impl<'c> PlanAssembly<'c> {
+    pub(crate) fn new(command_registry: &'c CommandMetadataRegistry) -> Self {
+        PlanAssembly {
             command_registry,
             plan: Plan::new(),
-            allow_placeholders: false,
             is_volatile: false,
             payload_required: PayloadRequirement::None,
             expires: Expires::Never,
         }
     }
-    /// Allows missing required arguments to become named placeholders.
-    ///
-    /// This is primarily used by recipes, which apply named overrides after the initial build.
-    pub fn with_placeholders_allowed(mut self) -> Self {
-        self.allow_placeholders = true;
-        self
+
+    /// Writes the recorded facts into the plan, checks it, and returns it.
+    pub(crate) fn finish(&mut self, query: Query) -> Result<Plan, Error> {
+        self.plan.query = query;
+        // Set is_volatile field from builder state
+        self.plan.is_volatile = self.is_volatile;
+        // Set payload_required field from builder state
+        self.plan.payload_required = self.payload_required;
+        // Set expires field from builder state (first-pass estimate)
+        self.plan.expires = self.expires.clone();
+        self.plan.check_consistent()?;
+        Ok(self.plan.clone())
     }
+
+    /// Pushes a step.
+    pub(crate) fn push(&mut self, step: Step) {
+        self.plan.steps.push(step);
+    }
+
     /// Mark plan as volatile and add explanatory Step::Info
-    fn mark_volatile(&mut self, reason: &str, scope: VolatilitySource) {
+    pub(crate) fn mark_volatile(&mut self, reason: &str, scope: VolatilitySource) {
         if !self.is_volatile {
             self.is_volatile = true;
             self.plan.init_info(reason.to_string());
@@ -1429,7 +1548,7 @@ impl<'c> PlanBuilder<'c> {
     }
 
     /// Helper: check if action command is volatile via CommandMetadata
-    fn is_action_volatile(&self, command_key: &CommandKey) -> bool {
+    pub(crate) fn is_action_volatile(&self, command_key: &CommandKey) -> bool {
         if let Some(metadata) = self.command_registry.get(command_key.clone()) {
             metadata.volatile
         } else {
@@ -1442,7 +1561,7 @@ impl<'c> PlanBuilder<'c> {
     /// Mirrors [`Self::mark_volatile`], including its transition guard: the message is
     /// recorded once, on the first command that causes the requirement, and not at all for
     /// a plan that needs no payload.
-    fn mark_payload_required(&mut self, reason: &str) {
+    pub(crate) fn mark_payload_required(&mut self, reason: &str) {
         if !self.payload_required.is_required() {
             self.payload_required = PayloadRequirement::Required;
             self.plan.init_info(reason.to_string());
@@ -1450,7 +1569,7 @@ impl<'c> PlanBuilder<'c> {
     }
 
     /// Helper: read the payload requirement of an action command via CommandMetadata
-    fn action_payload_requirement(&self, command_key: &CommandKey) -> PayloadRequirement {
+    pub(crate) fn action_payload_requirement(&self, command_key: &CommandKey) -> PayloadRequirement {
         if let Some(metadata) = self.command_registry.get(command_key.clone()) {
             metadata.payload_required
         } else {
@@ -1459,7 +1578,7 @@ impl<'c> PlanBuilder<'c> {
     }
 
     /// Update plan expiration by combining command expiration constraints.
-    fn update_expiration(&mut self, command_expires: &Expires) {
+    pub(crate) fn update_expiration(&mut self, command_expires: &Expires) {
         let previous = self.expires.clone();
         self.expires |= command_expires.clone();
         if self.expires != previous {
@@ -1474,7 +1593,7 @@ impl<'c> PlanBuilder<'c> {
     }
 
     /// Look up expiration specification from command metadata
-    fn get_action_expiration(&self, command_key: &CommandKey) -> Expires {
+    pub(crate) fn get_action_expiration(&self, command_key: &CommandKey) -> Expires {
         if let Some(metadata) = self.command_registry.get(command_key.clone()) {
             metadata.expires.clone()
         } else {
@@ -1483,7 +1602,7 @@ impl<'c> PlanBuilder<'c> {
     }
 
     /// Helper: check if parameters contain links to volatile or payload-requiring queries
-    fn check_parameters_for_volatile_links(
+    pub(crate) fn check_parameters_for_volatile_links(
         &mut self,
         params: &ResolvedParameterValues,
     ) -> Result<(), Error> {
@@ -1496,7 +1615,7 @@ impl<'c> PlanBuilder<'c> {
     /// Helper: recursively check a single parameter for volatile or payload-requiring links.
     ///
     /// Both properties are read from the same sub-plan, so a link is only built once.
-    fn check_parameter_for_volatile_links(&mut self, param: &ParameterValue) -> Result<(), Error> {
+    pub(crate) fn check_parameter_for_volatile_links(&mut self, param: &ParameterValue) -> Result<(), Error> {
         match param {
             ParameterValue::DefaultLink(_, query)
             | ParameterValue::ParameterLink(_, query, _)
@@ -1536,145 +1655,8 @@ impl<'c> PlanBuilder<'c> {
         Ok(())
     }
 
-    /// Builds and returns the current preliminary plan.
-    ///
-    /// Reusing a builder after this call is not intended: processing appends to its internal plan.
-    /// The returned plan has not undergone environment-backed dependency finalization and executes
-    /// no commands.
-    pub fn build(&mut self) -> Result<Plan, Error> {
-        let query = self.query.clone();
-        self.plan.query = query.clone();
-        self.process_query(&query)?;
-
-        // Set is_volatile field from builder state
-        self.plan.is_volatile = self.is_volatile;
-
-        // Set payload_required field from builder state
-        self.plan.payload_required = self.payload_required;
-
-        // Set expires field from builder state (first-pass estimate)
-        self.plan.expires = self.expires.clone();
-
-        self.plan.check_consistent()?;
-        Ok(self.plan.clone())
-    }
-
-    fn get_namespaces(&self, query: &Query) -> Result<Vec<String>, Error> {
-        namespaces_for_query(query, self.command_registry)
-    }
-
-    /// Looks up an action's command in `realm` — the realm of the transform segment the action
-    /// was written in, which the caller knows and `query` may no longer show: `process_query`
-    /// passes a reduced query for a segment's first action.
-    fn get_command_metadata(
-        &mut self,
-        query: &Query,
-        realm: &str,
-        action_request: &ActionRequest,
-    ) -> Result<CommandMetadata, Error> {
-        let namespaces = self.get_namespaces(query)?;
-
-        if let Some(command_metadata) = self.command_registry.find_command_in_namespaces(
-            realm,
-            &namespaces,
-            &action_request.name,
-        ) {
-            Ok(command_metadata.resolve_global_enums(self.command_registry)?)
-        } else {
-            Err(Error::action_not_registered(action_request, realm, &namespaces)
-                .with_query(query)
-                .with_position(&action_request.position))
-        }
-    }
-
-    // TODO: RQS realm should should be supported
-    fn process_resource_query(&mut self, rqs: &ResourceQuerySegment) -> Result<(), Error> {
-        // A resource step produces the key's own value: no command's `cached: false` applies.
-        self.plan.uncached_by = None;
-        if let Some(header) = &rqs.header {
-            if !header.name.is_empty() {
-                self.plan.init_warning(format!(
-                    "Resource header name is ignored: '{}'",
-                    header.name
-                ));
-            }
-            if let Some(first) = header.parameters.first() {
-                // A header takes exactly one instruction. Unlike the header *name* above,
-                // which is reserved for a future realm interpretation and so is warned about
-                // rather than rejected, nothing will ever consume a second parameter.
-                if let Some(excess) = header.parameters.get(1) {
-                    return Err(Error::too_many_parameters(
-                        "resource header",
-                        1,
-                        2,
-                        &excess.value,
-                        &excess.position,
-                    ));
-                }
-
-                match first.value.as_str() {
-                    "b" | "bin" | "binary" => {
-                        self.plan.steps.push(Step::GetAssetBinary(rqs.key.clone()));
-                    }
-                    "meta" | "metadata" => {
-                        self.plan
-                            .steps
-                            .push(Step::GetAssetMetadata(rqs.key.clone()));
-                    }
-                    "dir" | "directory" => {
-                        self.plan
-                            .steps
-                            .push(Step::GetAssetDirectory(rqs.key.clone()));
-                    }
-                    "sdir" | "store_directory" => {
-                        self.plan
-                            .steps
-                            .push(Step::GetResourceDirectory(rqs.key.clone()));
-                    }
-                    "r" | "recipe" => {
-                        self.plan.steps.push(Step::GetAssetRecipe(rqs.key.clone()));
-                    }
-                    "data" | "value" => {
-                        self.plan.steps.push(Step::GetAsset(rqs.key.clone()));
-                    }
-                    "stored" | "stored_binary" | "stored_bin" | "sbin" => {
-                        self.plan.steps.push(Step::GetResource(rqs.key.clone()));
-                    }
-                    "stored_meta" | "stored_metadata" => {
-                        self.plan
-                            .steps
-                            .push(Step::GetResourceMetadata(rqs.key.clone()));
-                    }
-                    "cwd" => {
-                        self.plan.steps.push(Step::SetCwd(rqs.key.clone()));
-                    }
-                    "key" => {
-                        self.plan.steps.push(Step::UseKeyValue(rqs.key.clone()));
-                    }
-                    _ => {
-                        return Err(Error::not_supported(format!(
-                            "Unknown resource header instruction '{}'. Valid instructions: \
-                             b, bin, binary, meta, metadata, dir, directory, sdir, \
-                             store_directory, r, recipe, data, value, stored, stored_binary, \
-                             stored_bin, sbin, stored_meta, stored_metadata, cwd, key",
-                            first.value
-                        ))
-                        .with_position(&first.position));
-                    }
-                }
-            } else {
-                // A header with no parameters at all is the plain asset request.
-                self.plan.steps.push(Step::GetAsset(rqs.key.clone()));
-            }
-        } else {
-            //self.plan.steps.push(Step::GetResource(rqs.key.clone()));
-            self.plan.steps.push(Step::GetAsset(rqs.key.clone()));
-        }
-        Ok(())
-    }
-
     /// Applies a command's volatility, payload requirement and expiration to the plan.
-    fn apply_command_flags(&mut self, command_key: &CommandKey) {
+    pub(crate) fn apply_command_flags(&mut self, command_key: &CommandKey) {
         if self.is_action_volatile(command_key) {
             self.mark_volatile(
                 &format!(
@@ -1711,11 +1693,166 @@ impl<'c> PlanBuilder<'c> {
     }
 
     /// Helper: whether an action command's output is worth keeping, via CommandMetadata.
-    fn is_action_cached(&self, command_key: &CommandKey) -> bool {
+    pub(crate) fn is_action_cached(&self, command_key: &CommandKey) -> bool {
         match self.command_registry.get(command_key.clone()) {
             Some(metadata) => metadata.cached(),
             None => true,
         }
+    }
+
+}
+
+// The builder takes no configuration, and its behaviour is fixed: it always expands
+// predecessors, and it rejects a missing required argument unless placeholders are allowed
+// (recipes allow them and fill them afterwards). What the three policy questions once asked of it
+// is answered elsewhere (`specs/design/plan-policy/`):
+//
+// - *Caching* is the asset manager's: a [`crate::cache_strategy::CacheStrategy`] on each asset
+//   decides what is registered for reuse, and the plan never reads it.
+// - *Inlining* is a command's `cached: false`, recorded here as [`Plan::uncached_by`]; the
+//   boundary walk steps back past such a command, so it runs inline.
+// - *Volatility* is recorded here from commands, links, `v` and recipe declarations, as
+//   [`Plan::is_volatile`] and [`Plan::volatility_source`]. `v` is positional: `a/b/v/c` is
+//   volatile from `v` onward.
+//
+// `PlanBuilder` also *records* facts it does not act on, for the passes that run after it:
+// [`Plan::predecessor`] and [`Plan::predecessor_steps`] describe a boundary it never cuts, and
+// [`Plan::volatility_source`] distinguishes volatility a boundary may be cut in front of from
+// volatility that forbids one anywhere. The builder always expands; cutting is a separate pass
+// over a frozen plan, so that volatility, payload requirement and expiration are computed over
+// the whole plan before anything is moved.
+impl<'c> PlanBuilder<'c> {
+    /// Creates a builder that expands predecessors and rejects placeholders.
+    pub fn new(query: Query, command_registry: &'c CommandMetadataRegistry) -> Self {
+        PlanBuilder {
+            query,
+            allow_placeholders: false,
+            asm: PlanAssembly::new(command_registry),
+        }
+    }
+    /// Allows missing required arguments to become named placeholders.
+    ///
+    /// This is primarily used by recipes, which apply named overrides after the initial build.
+    pub fn with_placeholders_allowed(mut self) -> Self {
+        self.allow_placeholders = true;
+        self
+    }
+    /// Builds and returns the current preliminary plan.
+    ///
+    /// Reusing a builder after this call is not intended: processing appends to its internal plan.
+    /// The returned plan has not undergone environment-backed dependency finalization and executes
+    /// no commands.
+    pub fn build(&mut self) -> Result<Plan, Error> {
+        let query = self.query.clone();
+        self.asm.plan.query = query.clone();
+        self.process_query(&query)?;
+        self.asm.finish(query)
+    }
+
+    fn get_namespaces(&self, query: &Query) -> Result<Vec<String>, Error> {
+        namespaces_for_query(query, self.asm.command_registry)
+    }
+
+    /// Looks up an action's command in `realm` — the realm of the transform segment the action
+    /// was written in, which the caller knows and `query` may no longer show: `process_query`
+    /// passes a reduced query for a segment's first action.
+    fn get_command_metadata(
+        &mut self,
+        query: &Query,
+        realm: &str,
+        action_request: &ActionRequest,
+    ) -> Result<CommandMetadata, Error> {
+        let namespaces = self.get_namespaces(query)?;
+
+        if let Some(command_metadata) = self.asm.command_registry.find_command_in_namespaces(
+            realm,
+            &namespaces,
+            &action_request.name,
+        ) {
+            Ok(command_metadata.resolve_global_enums(self.asm.command_registry)?)
+        } else {
+            Err(Error::action_not_registered(action_request, realm, &namespaces)
+                .with_query(query)
+                .with_position(&action_request.position))
+        }
+    }
+
+    // TODO: RQS realm should should be supported
+    fn process_resource_query(&mut self, rqs: &ResourceQuerySegment) -> Result<(), Error> {
+        // A resource step produces the key's own value: no command's `cached: false` applies.
+        self.asm.plan.uncached_by = None;
+        if let Some(header) = &rqs.header {
+            if !header.name.is_empty() {
+                self.asm.plan.init_warning(format!(
+                    "Resource header name is ignored: '{}'",
+                    header.name
+                ));
+            }
+            if let Some(first) = header.parameters.first() {
+                // A header takes exactly one instruction. Unlike the header *name* above,
+                // which is reserved for a future realm interpretation and so is warned about
+                // rather than rejected, nothing will ever consume a second parameter.
+                if let Some(excess) = header.parameters.get(1) {
+                    return Err(Error::too_many_parameters(
+                        "resource header",
+                        1,
+                        2,
+                        &excess.value,
+                        &excess.position,
+                    ));
+                }
+
+                match first.value.as_str() {
+                    "b" | "bin" | "binary" => {
+                        self.asm.push(Step::GetAssetBinary(rqs.key.clone()));
+                    }
+                    "meta" | "metadata" => {
+                        self.asm.push(Step::GetAssetMetadata(rqs.key.clone()));
+                    }
+                    "dir" | "directory" => {
+                        self.asm.push(Step::GetAssetDirectory(rqs.key.clone()));
+                    }
+                    "sdir" | "store_directory" => {
+                        self.asm.push(Step::GetResourceDirectory(rqs.key.clone()));
+                    }
+                    "r" | "recipe" => {
+                        self.asm.push(Step::GetAssetRecipe(rqs.key.clone()));
+                    }
+                    "data" | "value" => {
+                        self.asm.push(Step::GetAsset(rqs.key.clone()));
+                    }
+                    "stored" | "stored_binary" | "stored_bin" | "sbin" => {
+                        self.asm.push(Step::GetResource(rqs.key.clone()));
+                    }
+                    "stored_meta" | "stored_metadata" => {
+                        self.asm.push(Step::GetResourceMetadata(rqs.key.clone()));
+                    }
+                    "cwd" => {
+                        self.asm.push(Step::SetCwd(rqs.key.clone()));
+                    }
+                    "key" => {
+                        self.asm.push(Step::UseKeyValue(rqs.key.clone()));
+                    }
+                    _ => {
+                        return Err(Error::not_supported(format!(
+                            "Unknown resource header instruction '{}'. Valid instructions: \
+                             b, bin, binary, meta, metadata, dir, directory, sdir, \
+                             store_directory, r, recipe, data, value, stored, stored_binary, \
+                             stored_bin, sbin, stored_meta, stored_metadata, cwd, key",
+                            first.value
+                        ))
+                        .with_position(&first.position));
+                    }
+                }
+            } else {
+                // A header with no parameters at all is the plain asset request.
+                self.asm.push(Step::GetAsset(rqs.key.clone()));
+            }
+        } else {
+            //self.asm.push(Step::GetResource(rqs.key.clone()));
+            self.asm.push(Step::GetAsset(rqs.key.clone()));
+        }
+        Ok(())
     }
 
     /// `prefix` is the query the action completes (see `Step::Action::query`). It differs from
@@ -1745,14 +1882,14 @@ impl<'c> PlanBuilder<'c> {
             // volatile while the prefix ahead of it stays pure. So `a/b/v/c` cuts `a/b` as a
             // cached boundary, and `v` at the head still makes the whole query volatile, because
             // no candidate prefix is then free of it.
-            self.mark_volatile("Volatile due to instruction 'v'", VolatilitySource::Positional);
+            self.asm.mark_volatile("Volatile due to instruction 'v'", VolatilitySource::Positional);
             return Ok(()); // Don't create Step::Action for 'v'
         }
 
         let command_metadata = self.get_command_metadata(query, realm, action_request)?;
 
         // `uncached_by` describes the last action only: this action's commands decide it afresh.
-        self.plan.uncached_by = None;
+        self.asm.plan.uncached_by = None;
 
         // Check if command is volatile
         let command_key = CommandKey::new(
@@ -1761,7 +1898,7 @@ impl<'c> PlanBuilder<'c> {
             &command_metadata.namespace,
             &command_metadata.name,
         );
-        self.apply_command_flags(&command_key);
+        self.asm.apply_command_flags(&command_key);
 
         match &command_metadata.definition {
             command_metadata::CommandDefinition::Registered => {
@@ -1773,10 +1910,10 @@ impl<'c> PlanBuilder<'c> {
                 )?;
 
                 // Check parameters for links to volatile queries
-                self.check_parameters_for_volatile_links(&parameters)?;
+                self.asm.check_parameters_for_volatile_links(&parameters)?;
 
-                let prefix = promote_relative_default_links(prefix, self.command_registry)?;
-                self.plan.steps.push(Step::Action {
+                let prefix = promote_relative_default_links(prefix, self.asm.command_registry)?;
+                self.asm.push(Step::Action {
                     origin: ActionOrigin::Direct,
                     realm: command_metadata.realm.clone(),
                     ns: command_metadata.namespace.clone(),
@@ -1786,6 +1923,23 @@ impl<'c> PlanBuilder<'c> {
                     query: Some(prefix),
                 });
             }
+            command_metadata::CommandDefinition::Pipeline { pipeline } => {
+                let parameters = ResolvedParameterValues::from_action(
+                    action_request,
+                    &command_metadata,
+                    self.allow_placeholders,
+                )?;
+                let prefix = promote_relative_default_links(prefix, self.asm.command_registry)?;
+                crate::pipeline::PipelinePlanBuilder::new(self.asm.command_registry)
+                    .expand_pipeline_command(
+                        &mut self.asm,
+                        &command_metadata,
+                        pipeline,
+                        parameters,
+                        &action_request.position,
+                        Some(prefix),
+                    )?;
+            }
             command_metadata::CommandDefinition::Alias {
                 command,
                 head_parameters,
@@ -1794,20 +1948,20 @@ impl<'c> PlanBuilder<'c> {
                 // Validated against the registry, not trusted: the alias may come from a
                 // deserialized registry or a language binding that never ran `register_alias`.
                 let target = self
-                    .command_registry
+                    .asm.command_registry
                     .alias_target(&command_metadata)?
                     .ok_or_else(|| Error::alias_target_not_registered(&original_key, command))?;
                 // A planning diagnostic, not an executed step: an executed step between the input
                 // and the action would replace the input's metadata with the context's (the
                 // action's `origin` already records the alias structurally).
-                self.plan.init_info(format!(
+                self.asm.plan.init_info(format!(
                     "Command '{}' is an alias of '{}'",
                     original_key, &command
                 ));
 
                 // The alias's own flags were applied above; the target's apply as well, so an
                 // alias can never make a volatile or payload-requiring command look stable.
-                self.apply_command_flags(command);
+                self.asm.apply_command_flags(command);
 
                 let parameters = ResolvedParameterValues::from_alias_action(
                     action_request,
@@ -1818,11 +1972,11 @@ impl<'c> PlanBuilder<'c> {
                 )?;
 
                 // Check parameters for links to volatile queries
-                self.check_parameters_for_volatile_links(&parameters)?;
+                self.asm.check_parameters_for_volatile_links(&parameters)?;
 
                 // The query as written: it names the alias, as a cut at this point would.
-                let prefix = promote_relative_default_links(prefix, self.command_registry)?;
-                self.plan.steps.push(Step::Action {
+                let prefix = promote_relative_default_links(prefix, self.asm.command_registry)?;
+                self.asm.push(Step::Action {
                     realm: command.realm.clone(),
                     ns: command.namespace.clone(),
                     action_name: command.name.clone(),
@@ -1902,16 +2056,14 @@ impl<'c> PlanBuilder<'c> {
             };
 
             if !query_without_q_and_filename.is_empty() {
-                self.plan
-                    .steps
-                    .push(Step::UseQueryValue(query_without_q_and_filename));
+                self.asm.push(Step::UseQueryValue(query_without_q_and_filename));
             }
             // The value is the query itself, not any command's output.
-            self.plan.uncached_by = None;
+            self.asm.plan.uncached_by = None;
 
             // Add filename as separate step if present
             if let Some(filename) = filename {
-                self.plan.steps.push(Step::Filename(filename));
+                self.asm.push(Step::Filename(filename));
             }
 
             return Ok(());
@@ -1933,9 +2085,7 @@ impl<'c> PlanBuilder<'c> {
             }
             if transform.is_filename() {
                 //eprintln!("FILENAME {}", &transform);
-                self.plan
-                    .steps
-                    .push(Step::Filename(transform.filename.unwrap().clone()));
+                self.asm.push(Step::Filename(transform.filename.unwrap().clone()));
                 return Ok(());
             }
         }
@@ -1961,9 +2111,9 @@ impl<'c> PlanBuilder<'c> {
                     // Strip the "q" instruction and create Step::UseQueryValue
                     let query_without_q = self.strip_q_instruction(p);
                     if !query_without_q.is_empty() {
-                        self.plan.steps.push(Step::UseQueryValue(query_without_q));
+                        self.asm.push(Step::UseQueryValue(query_without_q));
                     }
-                    self.plan.uncached_by = None;
+                    self.asm.plan.uncached_by = None;
                 } else {
                     // The builder always expands. Cutting a boundary is a policy decision made
                     // after freezing, when the steps are in execution order and every operand is
@@ -1974,11 +2124,11 @@ impl<'c> PlanBuilder<'c> {
                     // every level of the recursion, so recording there would let the outermost
                     // level overwrite the inner one with the whole action chain — cutting would
                     // then swallow the last action, leaving a recipe's overrides nothing to patch.
-                    let recorded = promote_relative_default_links(p, self.command_registry)?;
+                    let recorded = promote_relative_default_links(p, self.asm.command_registry)?;
                     self.process_query(p)?;
                     if remainder_is_action {
-                        self.plan.predecessor = Some(recorded);
-                        self.plan.predecessor_steps = self.plan.steps.len();
+                        self.asm.plan.predecessor = Some(recorded);
+                        self.asm.plan.predecessor_steps = self.asm.plan.steps.len();
                     }
                 }
             }
@@ -1999,9 +2149,7 @@ impl<'c> PlanBuilder<'c> {
                         return Ok(());
                     }
                     if tqs.is_filename() {
-                        self.plan
-                            .steps
-                            .push(Step::Filename(tqs.filename.as_ref().unwrap().clone()));
+                        self.asm.push(Step::Filename(tqs.filename.as_ref().unwrap().clone()));
                         return Ok(());
                     }
                     return Err(Error::not_supported(format!(
@@ -2014,18 +2162,42 @@ impl<'c> PlanBuilder<'c> {
         Ok(())
     }
 
+    /// Plans `query` onto `asm`, as [`PlanBuilder::build`] plans onto its own assembly; the
+    /// pipeline planner hands a representable run to the query planner this way. The assembly
+    /// is returned whatever the outcome.
+    pub(crate) fn process_on(
+        asm: PlanAssembly<'c>,
+        query: &Query,
+        allow_placeholders: bool,
+    ) -> (PlanAssembly<'c>, Result<(), Error>) {
+        let mut builder = PlanBuilder {
+            query: query.clone(),
+            allow_placeholders,
+            asm,
+        };
+        let result = builder.process_query(query);
+        (builder.asm, result)
+    }
+
     /// Applies a value override to the last action built so far.
     ///
     /// Returns `false` when the last action has no matching overridable parameter.
     pub fn override_value(&mut self, name: &str, value: Value) -> bool {
-        self.plan.override_value(name, value)
+        self.asm.plan.override_value(name, value)
     }
 
     /// Applies a query-link override to the last action built so far.
     ///
     /// Returns `false` when the last action has no matching overridable parameter.
     pub fn override_link(&mut self, name: &str, query: Query) -> bool {
-        self.plan.override_link(name, query)
+        self.asm.plan.override_link(name, query)
+    }
+
+    /// Applies a pipeline override to the last action built so far.
+    ///
+    /// Returns `false` when the last action has no matching overridable parameter.
+    pub fn override_pipeline(&mut self, name: &str, pipeline: crate::pipeline::Pipeline) -> bool {
+        self.asm.plan.override_pipeline(name, pipeline)
     }
 }
 
@@ -2314,6 +2486,10 @@ impl Plan {
             if let Step::Action {
                 query: Some(prefix),
                 ..
+            }
+            | Step::PipelineCommand {
+                query: Some(prefix),
+                ..
             } = step
             {
                 *prefix = scoped.resolve_query_scoped(prefix);
@@ -2357,7 +2533,18 @@ impl Plan {
                 Step::Plan(nested) => {
                     nested.freeze_cwd_with(step_cursor)?;
                 }
-                Step::Filename(_) | Step::Info(_) | Step::Warning(_) | Step::Error(_) => {}
+                // The body's relative operands resolve against the caller's working key, and a
+                // working directory the body sets stays inside it.
+                Step::PipelineCommand { plan: body, .. } => {
+                    let mut scoped = step_cursor.clone();
+                    body.freeze_cwd_with(&mut scoped)?;
+                    step_cursor.absorb_diagnostics(&scoped);
+                }
+                Step::Filename(_)
+                | Step::Info(_)
+                | Step::Warning(_)
+                | Step::Error(_)
+                | Step::UseValue(_) => {}
             }
         }
         Ok(())
@@ -2538,8 +2725,10 @@ impl Plan {
                 | Step::GetResourceDirectory(_) => reads += 1,
                 Step::Evaluate(_)
                 | Step::UseQueryValue(_)
+                | Step::UseValue(_)
                 | Step::UseKeyValue(_)
                 | Step::Action { .. }
+                | Step::PipelineCommand { .. }
                 | Step::Filename(_)
                 | Step::Info(_)
                 | Step::Warning(_)
@@ -2682,7 +2871,9 @@ impl Plan {
                 | Step::GetResourceDirectory(_)
                 | Step::Evaluate(_)
                 | Step::UseQueryValue(_)
+                | Step::UseValue(_)
                 | Step::Action { .. }
+                | Step::PipelineCommand { .. }
                 | Step::Filename(_)
                 | Step::Plan(_)
                 | Step::SetCwd(_)
@@ -2725,7 +2916,9 @@ impl Plan {
                 | Step::GetResourceDirectory(_)
                 | Step::Evaluate(_)
                 | Step::UseQueryValue(_)
+                | Step::UseValue(_)
                 | Step::Action { .. }
+                | Step::PipelineCommand { .. }
                 | Step::Filename(_)
                 | Step::Plan(_)
                 | Step::SetCwd(_)
@@ -2790,6 +2983,17 @@ impl Plan {
         if let Some(i) = self.last_action_index() {
             if let Step::Action { parameters, .. } = &mut self.steps[i] {
                 return parameters.override_link(name, query);
+            }
+        }
+        false
+    }
+
+    /// Overrides the named parameter on the last action step with a pipeline, as
+    /// [`Plan::override_link`] does with a link.
+    pub fn override_pipeline(&mut self, name: &str, pipeline: crate::pipeline::Pipeline) -> bool {
+        if let Some(i) = self.last_action_index() {
+            if let Step::Action { parameters, .. } = &mut self.steps[i] {
+                return parameters.override_pipeline(name, pipeline);
             }
         }
         false
@@ -2954,7 +3158,13 @@ fn collect_parameter_dependencies(
         | ParameterValue::OverrideValue(_, _)
         | ParameterValue::Placeholder(_)
         | ParameterValue::Injected(_)
+        | ParameterValue::InputState(_) | ParameterValue::FrameArgument(_, _)
         | ParameterValue::None => {}
+        // The dependencies of a pipeline argument are those of its own plan, recorded when it is
+        // planned.
+        ParameterValue::ParameterPipeline(_, _, _)
+        | ParameterValue::OverridePipeline(_, _)
+        | ParameterValue::DefaultPipeline(_, _) => {}
     }
 }
 
@@ -3431,6 +3641,25 @@ impl<E: Environment> DependencyWalk<E> {
                     scan.nesting -= 1;
                     nested?;
                 }
+                // A pipeline command's definition is its metadata: editing the pipeline
+                // invalidates what was computed through it (AC-8). Its body's own steps are
+                // dependencies as they would be in the caller, so they are scanned in place.
+                Step::PipelineCommand {
+                    realm,
+                    ns,
+                    name,
+                    plan: body,
+                    ..
+                } => {
+                    scan.dependencies.insert(PlanDependency::new(
+                        DependencyKey::for_command_metadata(&CommandKey::new(realm, ns, name)),
+                        DependencyRelation::CommandMetadata,
+                    ));
+                    scan.nesting += 1;
+                    let nested = self.scan_plan(body, cursor, scan);
+                    scan.nesting -= 1;
+                    nested?;
+                }
                 Step::Action {
                     realm,
                     ns,
@@ -3477,6 +3706,7 @@ impl<E: Environment> DependencyWalk<E> {
                 | Step::GetResourceDirectory(_)
                 | Step::UseKeyValue(_)
                 | Step::UseQueryValue(_)
+                | Step::UseValue(_)
                 | Step::Filename(_)
                 | Step::Info(_)
                 | Step::Warning(_)
@@ -4323,25 +4553,25 @@ mod tests {
         let mut builder = PlanBuilder::new(query, &cr);
 
         // Initially not volatile
-        assert!(!builder.is_volatile);
-        assert_eq!(builder.plan.init_steps.len(), 0);
+        assert!(!builder.asm.is_volatile);
+        assert_eq!(builder.asm.plan.init_steps.len(), 0);
 
         // Mark as volatile
-        builder.mark_volatile("Test reason", VolatilitySource::Positional);
+        builder.asm.mark_volatile("Test reason", VolatilitySource::Positional);
 
         // Should be volatile now
-        assert!(builder.is_volatile);
-        assert_eq!(builder.plan.init_steps.len(), 1);
+        assert!(builder.asm.is_volatile);
+        assert_eq!(builder.asm.plan.init_steps.len(), 1);
 
         // Verify Step::Info was added
-        match &builder.plan.init_steps[0] {
+        match &builder.asm.plan.init_steps[0] {
             Step::Info(msg) => assert_eq!(msg, "Test reason"),
             _ => panic!("Expected Step::Info"),
         }
 
         // Calling again should not add another Step::Info (idempotency)
-        builder.mark_volatile("Another reason", VolatilitySource::Positional);
-        assert_eq!(builder.plan.init_steps.len(), 1);
+        builder.asm.mark_volatile("Another reason", VolatilitySource::Positional);
+        assert_eq!(builder.asm.plan.init_steps.len(), 1);
     }
 
     #[test]
@@ -4363,15 +4593,15 @@ mod tests {
         // Test volatile command
         // Note: CommandMetadata stores namespace="root", so match it directly
         let volatile_key = CommandKey::new("", "root", "volatile_cmd");
-        assert!(builder.is_action_volatile(&volatile_key));
+        assert!(builder.asm.is_action_volatile(&volatile_key));
 
         // Test non-volatile command
         let normal_key = CommandKey::new("", "root", "normal_cmd");
-        assert!(!builder.is_action_volatile(&normal_key));
+        assert!(!builder.asm.is_action_volatile(&normal_key));
 
         // Test unknown command
         let unknown_key = CommandKey::new("", "root", "unknown_cmd");
-        assert!(!builder.is_action_volatile(&unknown_key));
+        assert!(!builder.asm.is_action_volatile(&unknown_key));
     }
 
     #[test]
@@ -4386,7 +4616,7 @@ mod tests {
 
         // Test when marked as volatile
         let mut builder2 = PlanBuilder::new(query, &cr);
-        builder2.mark_volatile("Test volatility", VolatilitySource::Positional);
+        builder2.asm.mark_volatile("Test volatility", VolatilitySource::Positional);
         let plan2 = builder2.build().unwrap();
         assert!(plan2.is_volatile);
     }
@@ -4463,11 +4693,11 @@ mod tests {
 
         // Check parameters for volatile links
         builder
-            .check_parameters_for_volatile_links(&params)
+            .asm.check_parameters_for_volatile_links(&params)
             .unwrap();
 
         // Builder should now be marked as volatile
-        assert!(builder.is_volatile);
+        assert!(builder.asm.is_volatile);
 
         // Build the plan
         let plan = builder.build().unwrap();
@@ -4488,11 +4718,11 @@ mod tests {
         let mut builder = PlanBuilder::new(query, &cr);
 
         // Initially not volatile
-        assert!(!builder.is_volatile);
+        assert!(!builder.asm.is_volatile);
 
         // Mark as volatile
-        builder.mark_volatile("test reason", VolatilitySource::Positional);
-        assert!(builder.is_volatile);
+        builder.asm.mark_volatile("test reason", VolatilitySource::Positional);
+        assert!(builder.asm.is_volatile);
 
         // Build the plan
         let plan = builder.build().unwrap();
@@ -4639,16 +4869,16 @@ mod tests {
         let builder = PlanBuilder::new(query, &cr);
 
         assert_eq!(
-            builder.action_payload_requirement(&CommandKey::new("", "root", "payload_cmd")),
+            builder.asm.action_payload_requirement(&CommandKey::new("", "root", "payload_cmd")),
             PayloadRequirement::Required
         );
         assert_eq!(
-            builder.action_payload_requirement(&CommandKey::new("", "root", "normal_cmd")),
+            builder.asm.action_payload_requirement(&CommandKey::new("", "root", "normal_cmd")),
             PayloadRequirement::None
         );
         // Unknown command must not claim a payload requirement.
         assert_eq!(
-            builder.action_payload_requirement(&CommandKey::new("", "root", "unknown_cmd")),
+            builder.asm.action_payload_requirement(&CommandKey::new("", "root", "unknown_cmd")),
             PayloadRequirement::None
         );
     }
@@ -4687,20 +4917,20 @@ mod tests {
         let query = parse_query("").unwrap();
         let mut builder = PlanBuilder::new(query, &cr);
 
-        assert_eq!(builder.payload_required, PayloadRequirement::None);
-        assert_eq!(builder.plan.init_steps.len(), 0);
+        assert_eq!(builder.asm.payload_required, PayloadRequirement::None);
+        assert_eq!(builder.asm.plan.init_steps.len(), 0);
 
-        builder.mark_payload_required("Test reason");
-        assert_eq!(builder.payload_required, PayloadRequirement::Required);
-        assert_eq!(builder.plan.init_steps.len(), 1);
-        match &builder.plan.init_steps[0] {
+        builder.asm.mark_payload_required("Test reason");
+        assert_eq!(builder.asm.payload_required, PayloadRequirement::Required);
+        assert_eq!(builder.asm.plan.init_steps.len(), 1);
+        match &builder.asm.plan.init_steps[0] {
             Step::Info(msg) => assert_eq!(msg, "Test reason"),
             _ => panic!("Expected Step::Info"),
         }
 
         // Transition guard: a second cause must not add a second message.
-        builder.mark_payload_required("Another reason");
-        assert_eq!(builder.plan.init_steps.len(), 1);
+        builder.asm.mark_payload_required("Another reason");
+        assert_eq!(builder.asm.plan.init_steps.len(), 1);
     }
 
     #[test]
@@ -5931,7 +6161,9 @@ mod tests {
                 | Step::SetCwd(key) => key,
                 Step::Evaluate(_)
                 | Step::UseQueryValue(_)
+                | Step::UseValue(_)
                 | Step::Action { .. }
+                | Step::PipelineCommand { .. }
                 | Step::Plan(_)
                 | Step::Filename(_)
                 | Step::Info(_)
@@ -7161,7 +7393,9 @@ mod tests {
         plan.steps
             .iter()
             .filter_map(|step| match step {
-                Step::Action { query, .. } => Some(query.as_ref().map(|q| q.encode())),
+                Step::Action { query, .. } | Step::PipelineCommand { query, .. } => {
+                    Some(query.as_ref().map(|q| q.encode()))
+                }
                 Step::GetResource(_)
                 | Step::GetResourceMetadata(_)
                 | Step::GetResourceDirectory(_)
@@ -7172,6 +7406,7 @@ mod tests {
                 | Step::GetAssetDirectory(_)
                 | Step::Evaluate(_)
                 | Step::UseQueryValue(_)
+                | Step::UseValue(_)
                 | Step::Filename(_)
                 | Step::Info(_)
                 | Step::Warning(_)

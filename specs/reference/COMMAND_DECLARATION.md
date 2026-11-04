@@ -3,7 +3,7 @@ title: Command Declaration Format
 kind: reference
 audience: internal
 area: [core/commands, web, py]
-reviewed: 2026-10-18
+reviewed: 2026-11-04
 ---
 # Command Declaration Format
 
@@ -257,7 +257,7 @@ of its own, so a field added to `CommandMetadata` is declarable immediately with
 | `presets`, `next` | same | UI affordances: ready-made parameter sets, suggested follow-on commands |
 | `state_argument` | `state_argument` | Present means the command transforms an input state; absent means a *source* command. Raw `CommandMetadata` reads an omitted field the other way (the conventional `state` argument) and `null` as a source command, so the build stage writes an absent one as `null` |
 | `arguments` | `arguments` | A list; merged by name — §2.1 |
-| `definition` | `definition` | `Registered` (default) or an `Alias` of another command — contract and validation in [`COMMAND_ALIASES.md`](COMMAND_ALIASES.md) |
+| `definition` | `definition` | `Registered` (default), an `Alias` of another command — contract and validation in [`COMMAND_ALIASES.md`](COMMAND_ALIASES.md) — or a `Pipeline` (`!Pipeline {pipeline: […]}`), a pipeline command whose arguments are its placeholders ([`PIPELINES.md`](PIPELINES.md) §4) |
 | `hints` | `hints` | **Usage** hints — how to *use* the command. Metadata; survives export; omitted when empty — §6 |
 | `registration` | *(none)* | **Registration** hints — how to *register and call* it. Declaration-only, dropped at build — §6 |
 | `conventions` | *(none)* | Declaration-only; disables conventions — §3.3 |
@@ -275,7 +275,7 @@ shared. `impl_version` is supplied at registration.
 | `label` | `label` | Derived from `name` when absent — §4 |
 | `description` | `description` | Prose explaining the argument (tooltip, help text); empty when absent and then not serialized |
 | `type` | `argument_type` | `type` is an accepted spelling of `argument_type` |
-| `default` | `default` | §3.3 |
+| `default` | `default` | §3.3. Besides `!Value` and `!Query`, a default may be a pipeline: `!pipeline […]` (YAML) or `{"pipeline": …}` (JSON), planned as a link when it has a query form |
 | `multiple` | `multiple` | Variadic: consumes every remaining action parameter. Must be the last query-consuming argument; it cannot be injected |
 | `injected` | `injected` | Supplied from the context, never from the query; may follow `multiple` |
 | `gui_info` | `gui_info` | Preferred entry widget |
@@ -526,6 +526,7 @@ so no query parameter is consumed by either — that is conventions.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | §4.1 `definition: Pipeline`; pipeline defaults (`!pipeline`). | phase-5, `design/composite-command-definition/` |
 | 2026-10-18 | Reviewed against `liquers-py` (phase-5). §9: how the shipped Python integration differs from the worked example (no `arguments=` on its decorators; the context passed positionally). | `design/liquers-py/` (phase-5) |
 | 2026-10-18 | §7: `CommandDeclaration::check` returns the full report; `build`'s refusal is its summary, and a deserialization failure is one entry. | `design/web-environ-validation-report/` |
 | 2026-10-11 | §4 intro, §4.1 `hints`, §4.2 `description`, §6.1: command-level `hints` and argument `description` reach the metadata; the dropped-key warning for command `hints` (`WarningKind::DroppedKey`) is removed. | `design/command-metadata-descriptions-and-hints/` |

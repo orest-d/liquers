@@ -62,16 +62,17 @@ Every optional field is omitted when empty rather than serialized as `null`, so 
 |---|---|---|
 | `index` | always | Position in the input, 0-based. `0` for a single query. |
 | `source` | always | The query text exactly as supplied. |
-| `encoded` | parsed successfully | The query re-encoded from the parsed `Query`. |
+| `encoded` | parsed successfully, or a pipeline with a query form | The query re-encoded from the parsed `Query` (for a pipeline: its query form). |
 | `line` | input came from `--query-file` | True 1-based source line, preserved across skipped blanks and `#` comments. |
 | `title` | input was a recipe list | The recipe's title. |
 | `recipe_check` | input was a recipe list | `Stored` or `AdHoc` — see `recipes-and-overlays.md`. |
 | `status` | always | `Ok`, `Warning` or `Error`. |
 | `query` | level `Parse` or `Plan`, `--detail full` | The parsed `Query`. |
-| `plan` | level `Plan`, `--detail full` | The built `Plan`. |
+| `plan` | level `Plan`, `--detail full` (or `--emit plan`) | The built `Plan`. |
+| `pipeline` | a `--pipeline` input, a recipe with a `pipeline`, or `--emit pipeline` | The input's pipeline form (serialized `Pipeline`; positions as `pos`). |
 | `key` | recipe resolves to a storage key | Where the result would land. Serialized as a list of `{name, position}`, not a string. |
 | `error` | `status == Error` | Serialized `Error` with `error_type`, `message`, `position`, `query`, `key`. |
-| `warnings` | non-empty | List of `{source, message}`; `source` is `PlanError`, `StepError` or `StepWarning`. |
+| `warnings` | non-empty | List of `{source, message}`; `source` is `PlanError`, `StepError`, `StepWarning` or `NotRepresentable` (a pipeline with no query form; the message names the rule). |
 
 ### On `encoded`
 
@@ -114,6 +115,8 @@ whose key is the variant name. From `liquers-core/src/plan.rs`:
 | `Evaluate`, `UseQueryValue` | `Query` | |
 | `Info`, `Warning`, `Error` | `String` | `Error`/`Warning` steps are what produce `status: Warning`. |
 | `Plan` | nested `Plan` | |
+| `UseValue` | JSON value | A pipeline `value` element: the value becomes the state. |
+| `PipelineCommand` | `{realm, ns, name, position, parameters, query, plan}` | A pipeline command call; `plan` is its expanded body. |
 | `SetCwd`, `UseKeyValue` | `Key` | |
 
 Other `plan` fields: `query`, `init_steps`, `is_volatile`, `payload_required`, `expires`, `error`,

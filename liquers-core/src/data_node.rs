@@ -478,7 +478,11 @@ impl DataNode for Value {
             Value::F64(_) => NodeKind::Float,
             Value::Text(_) | Value::Query(_) | Value::Key(_) => NodeKind::Text,
             Value::Array(_) | Value::AssetInfo(_) => NodeKind::List,
-            Value::Object(_) | Value::Metadata(_) | Value::Recipe(_) | Value::CommandMetadata(_) => {
+            Value::Object(_)
+            | Value::Metadata(_)
+            | Value::Recipe(_)
+            | Value::Pipeline(_)
+            | Value::CommandMetadata(_) => {
                 NodeKind::Map
             }
             Value::Bytes(_) => NodeKind::Opaque,
@@ -500,6 +504,7 @@ impl DataNode for Value {
             | Value::Metadata(_)
             | Value::AssetInfo(_)
             | Value::Recipe(_)
+            | Value::Pipeline(_)
             | Value::CommandMetadata(_) => None,
         }
     }
@@ -507,7 +512,9 @@ impl DataNode for Value {
         match self {
             Value::Object(map) => map.get(name).map(|v| NodeRef::Borrowed(v as &dyn DataNode)),
             Value::Metadata(m) => m.get(name),
-            Value::Recipe(_) | Value::CommandMetadata(_) => snapshot_field(self, name),
+            Value::Recipe(_) | Value::Pipeline(_) | Value::CommandMetadata(_) => {
+                snapshot_field(self, name)
+            }
             Value::None
             | Value::Bool(_)
             | Value::I32(_)
@@ -535,6 +542,7 @@ impl DataNode for Value {
             | Value::Bytes(_)
             | Value::Metadata(_)
             | Value::Recipe(_)
+            | Value::Pipeline(_)
             | Value::CommandMetadata(_)
             | Value::Query(_)
             | Value::Key(_) => None,
@@ -559,6 +567,7 @@ impl DataNode for Value {
             | Value::Bytes(_)
             | Value::Metadata(_)
             | Value::Recipe(_)
+            | Value::Pipeline(_)
             | Value::CommandMetadata(_)
             | Value::Query(_)
             | Value::Key(_) => Box::new(std::iter::empty()),
@@ -568,7 +577,7 @@ impl DataNode for Value {
         match self {
             Value::Object(map) => Box::new(map.keys().map(|k| Cow::Borrowed(k.as_str()))),
             Value::Metadata(m) => m.keys(),
-            Value::Recipe(_) | Value::CommandMetadata(_) => snapshot_keys(self),
+            Value::Recipe(_) | Value::Pipeline(_) | Value::CommandMetadata(_) => snapshot_keys(self),
             Value::None
             | Value::Bool(_)
             | Value::I32(_)
@@ -596,6 +605,7 @@ impl DataNode for Value {
             | Value::Metadata(_)
             | Value::AssetInfo(_)
             | Value::Recipe(_)
+            | Value::Pipeline(_)
             | Value::CommandMetadata(_)
             | Value::Query(_)
             | Value::Key(_) => self.items().nth(i),
@@ -605,6 +615,7 @@ impl DataNode for Value {
         match self {
             Value::Query(q) => Ok(serde_json::Value::String(q.encode())),
             Value::Key(k) => Ok(serde_json::Value::String(k.encode())),
+            Value::Pipeline(p) => Ok(p.to_json()),
             Value::None
             | Value::Bool(_)
             | Value::I32(_)

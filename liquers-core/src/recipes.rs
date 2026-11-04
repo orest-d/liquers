@@ -42,9 +42,7 @@ use crate::{
     expiration::Expires,
     metadata::{AssetInfo, Status},
     parse::{parse_key, parse_query},
-    plan::{
-        analyze_plan_dependencies, ParameterValue, Plan, PlanBuilder, Step, VolatilitySource,
-    },
+    plan::{analyze_plan_dependencies, ParameterValue, Plan, Step, VolatilitySource},
     query::{Key, Position, Query, ResourceName},
 };
 
@@ -62,6 +60,12 @@ pub struct Recipe {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[serde(default)]
     pub query: String,
+
+    /// A pipeline that runs before `query`, which continues from its state; alone, it is the
+    /// whole recipe (`specs/reference/PIPELINES.md`). It takes literal values only: a
+    /// placeholder is a planning error.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pipeline: Option<crate::pipeline::Pipeline>,
     /// Human-facing recipe title.
     /// The size is not enforced, but this should ideally be a short string, preferably a single line
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -177,6 +181,7 @@ impl Recipe {
     pub fn new(query: String, title: String, description: String) -> Result<Recipe, Error> {
         Ok(Recipe {
             query: parse_query(&query)?.encode(),
+            pipeline: None,
             title,
             description,
             arguments: HashMap::new(),
@@ -215,12 +220,74 @@ impl Recipe {
     /// Provider-backed recipes normally need a filename so they can be addressed in a directory;
     /// ad-hoc recipes do not.
     pub fn filename(&self) -> Result<Option<ResourceName>, Error> {
-        Ok(self.get_query()?.filename())
+        let from_query = self.get_query()?.filename();
+        match (&from_query, &self.pipeline) {
+            (None, Some(p)) if self.query.is_empty() => {
+                Ok(p.filename.as_ref().map(|f| ResourceName::new(f.clone())))
+            }
+            _ => Ok(from_query),
+        }
     }
 
-    /// Returns the query filename extension, if present.
+    /// Returns the query filename extension, if present (the pipeline's, for a recipe that is
+    /// only a pipeline).
     pub fn extension(&self) -> Result<Option<String>, Error> {
-        Ok(self.get_query()?.extension())
+        Ok(self.filename()?.and_then(|f| f.extension()))
+    }
+
+    /// The recipe's `pipeline` followed by its query, as one pipeline; `None` without a pipeline.
+    ///
+    /// Refused when the pipeline has a placeholder, when it has a filename while a query is
+    /// present, when the query starts with a resource (the pipeline's state would be discarded),
+    /// or when `arguments` or `links` have no query to override (AC-15).
+    pub fn combined_pipeline(&self) -> Result<Option<crate::pipeline::Pipeline>, Error> {
+        use crate::pipeline::{ElementKind, Located};
+        let Some(pipeline) = &self.pipeline else {
+            return Ok(None);
+        };
+        if let Some(name) = pipeline.placeholders().into_iter().next() {
+            return Err(Error::invalid_pipeline(format!(
+                "placeholder '{name}' in a recipe pipeline: a recipe takes literal values only"
+            )));
+        }
+        let query = self.get_query()?;
+        if query.is_empty() {
+            if self.has_arguments() {
+                return Err(Error::invalid_pipeline(
+                    "recipe arguments and links override the query's last action, but the \
+                     recipe has no query"
+                        .to_string(),
+                ));
+            }
+            return Ok(Some(pipeline.clone()));
+        }
+        if pipeline.filename.is_some() {
+            return Err(Error::invalid_pipeline(
+                "a recipe pipeline followed by a query takes its filename from the query"
+                    .to_string(),
+            ));
+        }
+        if matches!(
+            query.segments.first(),
+            Some(crate::query::QuerySegment::Resource(_))
+        ) {
+            return Err(Error::invalid_pipeline(format!(
+                "the recipe query '{}' starts with a resource, which discards the state of the \
+                 pipeline before it",
+                query.encode()
+            )));
+        }
+        let mut tail = crate::pipeline::Pipeline::try_from(&query)?;
+        let mut combined = pipeline.clone();
+        combined.filename = tail.filename.take();
+        if tail.realm == combined.realm {
+            combined.elements.append(&mut tail.elements);
+        } else {
+            combined
+                .elements
+                .push(Located::new(ElementKind::Pipeline(tail)));
+        }
+        Ok(Some(combined))
     }
 
     /// Returns the data format the recipe's query declares: its filename extension.
@@ -249,9 +316,9 @@ impl Recipe {
     pub fn has_arguments(&self) -> bool {
         !self.arguments.is_empty() || !self.links.is_empty()
     }
-    /// Returns whether the recipe contains a valid query and no overrides.
+    /// Returns whether the recipe contains a valid query, no overrides and no pipeline.
     pub fn is_pure_query(&self) -> bool {
-        !self.has_arguments() && self.get_query().is_ok()
+        !self.has_arguments() && self.pipeline.is_none() && self.get_query().is_ok()
     }
 
     // TODO: Non-persistent recipes. Aliases definitely would benefit from this.
@@ -261,7 +328,7 @@ impl Recipe {
     /// are converted to absolute logical form.
     pub fn key(&self) -> Result<Option<Key>, Error> {
         let query = self.get_query()?;
-        if !self.has_arguments() {
+        if !self.has_arguments() && self.pipeline.is_none() {
             if let Some(key) = query.key() {
                 if let Some(cwd) = &self.cwd {
                     let cwd = parse_key(cwd)?;
@@ -295,8 +362,14 @@ impl Recipe {
     ///   under-reports both, and no consumer can ask the plan whether it is volatile.
     pub fn to_plan(&self, cmr: &CommandMetadataRegistry) -> Result<Plan, Error> {
         let query = self.get_query()?;
-        let mut planbuilder = PlanBuilder::new(query.clone(), cmr).with_placeholders_allowed();
-        let mut plan = planbuilder.build()?;
+        let mut plan = match self.combined_pipeline()? {
+            Some(combined) => crate::pipeline::PipelinePlanBuilder::new(cmr)
+                .with_placeholders_allowed()
+                .plan_pipeline(&combined)?,
+            None => crate::pipeline::PipelinePlanBuilder::new(cmr)
+                .with_placeholders_allowed()
+                .plan_query(&query)?,
+        };
 
         // Overrides apply in name order, so warnings and the first reported error do not depend
         // on `HashMap` iteration order. A name must be one of the arguments of the command the
@@ -321,6 +394,14 @@ impl Recipe {
                         plan.init_warning(note);
                     }
                     if !(plan.override_link(name, link)) {
+                        return Err(not_in_last_action("Argument", name, &query));
+                    }
+                }
+                ConvertedOverride::Pipeline(pipeline, note) => {
+                    if let Some(note) = note {
+                        plan.init_warning(note);
+                    }
+                    if !(plan.override_pipeline(name, pipeline)) {
                         return Err(not_in_last_action("Argument", name, &query));
                     }
                 }
@@ -492,6 +573,7 @@ impl fmt::Display for Recipe {
 impl From<&Query> for Recipe {
     fn from(query: &Query) -> Self {
         Recipe {
+            pipeline: None,
             query: query.encode(),
             title: "Ad-hoc query".to_string(),
             description: "".to_string(),
@@ -511,6 +593,7 @@ impl From<&Query> for Recipe {
 impl From<Query> for Recipe {
     fn from(query: Query) -> Self {
         Recipe {
+            pipeline: None,
             query: query.encode(),
             title: "Ad-hoc query".to_string(),
             description: "".to_string(),
@@ -530,6 +613,7 @@ impl From<Query> for Recipe {
 impl From<Key> for Recipe {
     fn from(key: Key) -> Self {
         Recipe {
+            pipeline: None,
             query: Query::from(key).encode(),
             title: "Ad-hoc key-query".to_string(),
             description: "".to_string(),
@@ -549,6 +633,7 @@ impl From<Key> for Recipe {
 impl From<&Key> for Recipe {
     fn from(key: &Key) -> Self {
         Recipe {
+            pipeline: None,
             query: Query::from(key).encode(),
             title: "Ad-hoc key-query".to_string(),
             description: "".to_string(),
@@ -1891,9 +1976,10 @@ impl<E: Environment> AsyncRecipeProvider<E> for RecipeProviderChain<E> {
 
 /// An override value converted to its argument's type: a value, or a link (an enum alias whose
 /// alternative is a query). The note, when present, becomes a planning warning.
-enum ConvertedOverride {
+pub(crate) enum ConvertedOverride {
     Value(Value, Option<String>),
     Link(Query, Option<String>),
+    Pipeline(crate::pipeline::Pipeline, Option<String>),
 }
 
 fn not_in_last_action(what: &str, name: &str, query: &Query) -> Error {
@@ -1988,11 +2074,16 @@ impl ConvertedOverride {
                 argument_type_name(&arg.argument_type),
                 &format!("argument '{}': a link alias inside a variadic override", arg.name),
             )),
+            ConvertedOverride::Pipeline(_, _) => Err(Error::conversion_error_with_message(
+                "pipeline",
+                argument_type_name(&arg.argument_type),
+                &format!("argument '{}': a pipeline alias inside a variadic override", arg.name),
+            )),
         }
     }
 }
 
-fn convert_scalar(arg: &ArgumentInfo, value: &Value) -> Result<ConvertedOverride, Error> {
+pub(crate) fn convert_scalar(arg: &ArgumentInfo, value: &Value) -> Result<ConvertedOverride, Error> {
     let expected = argument_type_name(&arg.argument_type);
     let refuse = || {
         Error::conversion_error_with_message(
@@ -2072,6 +2163,13 @@ fn convert_scalar(arg: &ArgumentInfo, value: &Value) -> Result<ConvertedOverride
                         q.encode()
                     );
                     Ok(ConvertedOverride::Link(q, Some(note)))
+                }
+                CommandParameterValue::Pipeline(p) => {
+                    let note = format!(
+                        "Argument '{}': enum alias '{}' expanded to a pipeline",
+                        arg.name, s
+                    );
+                    Ok(ConvertedOverride::Pipeline(p, Some(note)))
                 }
                 CommandParameterValue::None => Ok(ConvertedOverride::Value(value.clone(), None)),
             },

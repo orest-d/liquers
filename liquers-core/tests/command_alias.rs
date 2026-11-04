@@ -404,3 +404,35 @@ async fn alias_head_link_is_evaluated() -> Result<(), Box<dyn std::error::Error>
     );
     Ok(())
 }
+
+/// AC-10 of `composite-command-definition`: the alias queries plan the same in both modes.
+#[test]
+fn alias_queries_plan_equal_in_both_modes() -> Result<(), Box<dyn std::error::Error>> {
+    use liquers_core::pipeline::{PipelinePlanBuilder, PlanningMode};
+    let env = environment()?;
+    let cmr = &env.command_registry.command_metadata_registry;
+    for text in [
+        "text-abcdef/first",
+        "text-abcdef/first-3",
+        "text-abcdef/first-1-2",
+        "text-abcdef/pick-0-3",
+        "text-x/tagged-a-b-c",
+        "text-x/broken",
+        "text-abc/join_hello",
+        "ticker/text-a/first",
+    ] {
+        let q = parse_query(text)?;
+        let d = PipelinePlanBuilder::new(cmr).with_mode(PlanningMode::Delegate).plan_query(&q);
+        let n = PipelinePlanBuilder::new(cmr).with_mode(PlanningMode::Native).plan_query(&q);
+        match (d, n) {
+            (Ok(d), Ok(n)) => assert_eq!(
+                serde_json::to_value(&d)?,
+                serde_json::to_value(&n)?,
+                "{text}"
+            ),
+            (Err(d), Err(n)) => assert_eq!(d.error_type, n.error_type, "{text}"),
+            (d, n) => panic!("{text}: delegate {:?}, native {:?}", d.is_ok(), n.is_ok()),
+        }
+    }
+    Ok(())
+}

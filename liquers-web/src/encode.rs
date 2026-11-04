@@ -4,8 +4,9 @@
 //!
 //! `liquers_core::escape::encode_token` (re-exported as `liquers_core::query::encode_token`)
 //! escapes every character the grammar cannot carry literally, so **any** string is representable:
-//! `12:30`, `a,b`, `café`, `日本`, `😀`. This module is a thin wrapper that adds one thing the core
-//! encoder deliberately does not have — a check for the empty string.
+//! `12:30`, `a,b`, `café`, `日本`, `😀`. This module is a thin wrapper over it. The empty string is
+//! representable too: it is the empty token, and `cmd-` parses back as one empty parameter. An
+//! earlier version refused it; `composite-command-definition` (AC-36) lifted that refusal.
 //!
 //! ```javascript
 //! liquers.encodeParam("hello world");   // "hello~.world"
@@ -34,23 +35,14 @@
 //! encodes, every build decodes. Only a *hand-written* query using an exotic name — `~ncheck~` —
 //! differs, and the parser says so by name when it does.
 
-use liquers_core::error::{Error, ErrorType};
 use liquers_core::escape::encode_token;
 
 /// Encodes a string as an action-parameter token.
 ///
-/// Infallible except for the empty string: every other value is representable, because
-/// `encode_token` escapes anything the grammar cannot carry.
-pub fn encode_param(text: &str) -> Result<String, Error> {
-    if text.is_empty() {
-        return Err(Error::from_error(
-            ErrorType::ParameterError,
-            "An empty string cannot be encoded as a query parameter: the grammar requires at \
-             least one character. Omit the parameter, or use its default."
-                .to_string(),
-        ));
-    }
-    Ok(encode_token(text))
+/// Infallible: every string is representable, because `encode_token` escapes anything the
+/// grammar cannot carry, and the empty string is the empty token.
+pub fn encode_param(text: &str) -> String {
+    encode_token(text)
 }
 
 #[cfg(test)]
@@ -77,7 +69,7 @@ mod tests {
     /// with itself by construction. Building a query, parsing it, and reading the argument back is
     /// what catches a divergence from `parameter_text`.
     fn roundtrip(value: &str) -> String {
-        let encoded = encode_param(value).unwrap_or_else(|e| panic!("encode {value:?}: {e}"));
+        let encoded = encode_param(value);
         let query = liquers_core::parse::parse_query(&format!("cmd-{encoded}"))
             .unwrap_or_else(|e| panic!("parse {encoded:?} (from {value:?}): {e}"));
         decoded_parameter(&query)
@@ -128,17 +120,19 @@ mod tests {
     /// the `entities-html5` asymmetry, and `liquers-web` is the build where it matters.
     #[wasm_bindgen_test]
     fn web_encoder_output_is_decodable_without_the_full_entity_table() {
-        assert_eq!(encode_param("12:30").ok(), Some("12~ncolon~30".to_owned()));
-        assert_eq!(encode_param("café").ok(), Some("caf~UE9~".to_owned()));
+        assert_eq!(encode_param("12:30"), "12~ncolon~30");
+        assert_eq!(encode_param("café"), "caf~UE9~");
         // `hellip` is curated, so the ellipsis has a name even here; `check` is not, so its
         // character encodes numerically rather than to a name this build could not read back.
         assert_eq!(roundtrip("…"), "…");
         assert_eq!(roundtrip("✓"), "✓");
     }
 
+    /// AC-36 of `composite-command-definition`: the empty string is the empty token, and it
+    /// parses back as one empty parameter.
     #[wasm_bindgen_test]
-    fn web_encode_param_refuses_the_empty_string() {
-        let err = encode_param("").err().expect("empty must be refused");
-        assert_eq!(err.error_type, ErrorType::ParameterError);
+    fn web_encode_param_accepts_the_empty_string() {
+        assert_eq!(encode_param(""), "");
+        assert_eq!(roundtrip(""), "");
     }
 }

@@ -2,11 +2,11 @@
 id: RECIPE-OVERRIDE-ONLY-LAST-ACTION
 kind: issue
 title: Argument overrides can target only the last action of a query
-status: draft
+status: closed
 priority: P3
 complexity: M
 area: [core/plan]
-design: recipe-override-addressing
+design: composite-command-definition
 created: 2026-10-17
 github:
 ---
@@ -49,3 +49,12 @@ Designed together with `RECIPE-CANNOT-PARAMETERIZE-RESOURCE-KEY` in
 `specs/design/recipe-override-addressing/` (bulk design 2026-10-20; strong overlap T2/T3). Still
 reproduces at HEAD: `Plan::override_value` / `override_link` (`liquers-core/src/plan.rs`) and
 `Recipe::to_plan` / `not_in_last_action` (`liquers-core/src/recipes.rs`) are unchanged.
+
+**2026-11-01, maintainer decision.** Positional addressing (`1.values`, `is_in.values`) is dropped.
+An argument of an earlier action is given through a recipe **pipeline** instead
+(`specs/design/composite-command-definition/`, AC-15), so this issue moves to that design.
+`recipe-override-addressing` keeps only the resource-key hole (`@key`).
+
+## Resolution
+
+Resolved by `specs/design/composite-command-definition/` (PR #238) as the maintainer decided on 2026-11-01: an argument of an earlier action is given in the recipe's `pipeline`, which runs before its `query`; overrides keep addressing the last action. The example above is now `pipeline: ["-R/data/sales.csv/-/ns-pl/from_csv", {action: is_in, ns: pl, arguments: {column: region, values: [EU, US]}}]` with `query: ns-pl/head-10/eu.csv`. Evidence: `liquers-core/tests/recipe_pipelines.rs` and `liquers-lib/tests/pipeline_polars.rs` `recipe_pipeline_eu_csv`. Follow-up: `RECIPE-OVERRIDES-MISS-A-FINAL-PIPELINE-COMMAND`.

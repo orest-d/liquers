@@ -400,3 +400,62 @@ fn long_form_openers_are_disjoint_from_the_legacy_set() {
         );
     }
 }
+
+/// AC-34 — each whole-token predicate accepts exactly what the parser reads back as that token.
+#[test]
+fn predicates_match_parser() {
+    use crate::parse::parse_query;
+    use crate::query::QuerySegment;
+    let samples = [
+        "", "a", "A", "_", "a1", "1a", "from_csv", "a.b", "a-b", "-a", "a b", "a/b", "é", ".",
+        "..", ".hidden", "a..b", "data.tar.gz", "x.", ".x", "ns", "Rx", "rx", "a_b.c-d", "~",
+    ];
+    for s in samples {
+        // Identifier: a single-action query whose action is named `s`.
+        let as_action = parse_query(s)
+            .ok()
+            .and_then(|q| q.action())
+            .map(|a| a.name == s && a.parameters.is_empty())
+            .unwrap_or(false)
+            && parse_query(s).map(|q| q.filename().is_none()).unwrap_or(false);
+        assert_eq!(is_identifier(s), as_action, "identifier {s:?}");
+
+        // Key segment: `-R/s` reads a one-segment key `s`.
+        let as_key = parse_query(&format!("-R/{s}"))
+            .ok()
+            .and_then(|q| q.key())
+            .map(|k| k.0.len() == 1 && k.0[0].name == s)
+            .unwrap_or(false);
+        assert_eq!(is_resource_name(s), as_key, "resource name {s:?}");
+
+        // Filename: `x/s` reads action `x` with filename `s`.
+        let as_filename = parse_query(&format!("x/{s}"))
+            .ok()
+            .and_then(|q| q.filename())
+            .map(|f| f.name == s)
+            .unwrap_or(false);
+        assert_eq!(is_filename(s), as_filename, "filename {s:?}");
+
+        // Header parameter: `-R-s/a` reads one header parameter `s`.
+        let as_header_value = parse_query(&format!("-R-{s}/a"))
+            .ok()
+            .and_then(|q| match q.segments.first() {
+                Some(QuerySegment::Resource(r)) => r.header.clone(),
+                Some(QuerySegment::Transform(_)) | None => None,
+            })
+            .map(|h| h.parameters.len() == 1 && h.parameters[0].value == s)
+            .unwrap_or(false);
+        assert_eq!(is_header_value(s), as_header_value, "header value {s:?}");
+
+        // Realm name: `-s/x` reads a transform header named `s` (empty: the short header `-/`).
+        let as_realm = parse_query(&format!("-R/k/-{s}/x"))
+            .ok()
+            .and_then(|q| match q.segments.get(1) {
+                Some(QuerySegment::Transform(t)) => t.header.clone(),
+                Some(QuerySegment::Resource(_)) | None => None,
+            })
+            .map(|h| h.name == s && h.parameters.is_empty())
+            .unwrap_or(false);
+        assert_eq!(is_realm_name(s), as_realm, "realm name {s:?}");
+    }
+}

@@ -15,10 +15,12 @@ use clap::{Parser, ValueEnum};
 use liquers_core::command_metadata::CommandMetadataRegistry;
 use liquers_core::error::{Error, ErrorType};
 use liquers_core::recipes::RecipeList;
+use liquers_core::pipeline::Pipeline;
 use liquers_core::validate::{
-    apply_cwd, build_report, cwd_conflict_error, from_json_or_yaml, split_query_lines,
-    validate_query, validate_recipes, RegistryProvenance, ValidationLevel,
-    ValidationRegistryBuilder, ValidationResult, ValidationStatus,
+    apply_cwd, build_report, cwd_conflict_error, from_json_or_yaml, pipeline_from_build_args,
+    split_query_lines, validate_pipeline, validate_query, validate_recipes, with_pipeline_form,
+    RegistryProvenance, ValidationLevel, ValidationRegistryBuilder, ValidationResult,
+    ValidationStatus,
 };
 
 /// Environment variable consulted when no `--registry-file` is given.
@@ -38,6 +40,16 @@ enum Detail {
     Summary,
     /// Everything, including the serialized Query and Plan.
     Full,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+enum Emit {
+    /// The query form: a pipeline without one is an error naming the rule.
+    Query,
+    /// The pipeline form of every input.
+    Pipeline,
+    /// The plan, even with `--detail summary`.
+    Plan,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
@@ -79,9 +91,25 @@ struct Cli {
     #[arg(long, value_name = "FILE", conflicts_with_all = ["queries", "recipes"])]
     query_file: Option<String>,
 
-    /// A RecipeList (recipes.yaml shape) from FILE, or `-` for stdin.
+    /// A RecipeList (recipes.yaml shape) from FILE, or `-` for stdin. A recipe may have a
+    /// `pipeline`.
     #[arg(long, value_name = "FILE", conflicts_with = "queries")]
     recipes: Option<String>,
+
+    /// A pipeline (JSON or YAML; a bare list or `{elements: …}`) from FILE, or `-` for stdin.
+    #[arg(long, value_name = "FILE", conflicts_with_all = ["queries", "recipes", "query_file"])]
+    pipeline: Option<String>,
+
+    /// A query spelled as shell arguments: `R:<key>` reads a resource, `A:<name>` starts an
+    /// action, `P:<value>` adds a parameter. Values need no escaping. Put it last.
+    #[arg(long, value_name = "PART", num_args = 1.., allow_hyphen_values = true,
+        conflicts_with_all = ["queries", "recipes", "query_file", "pipeline"])]
+    build: Vec<String>,
+
+    /// Also show a form of each input: `query` (a pipeline without one is an error), `pipeline`
+    /// or `plan` (kept under `--detail summary`). Repeatable.
+    #[arg(long, value_enum, value_name = "FORM")]
+    emit: Vec<Emit>,
 
     /// Merge a serialized command registry (JSON or YAML). Repeatable, applied in order.
     #[arg(long, value_name = "FILE")]
@@ -159,7 +187,24 @@ fn run() -> Result<i32, Error> {
         None => ValidationLevel::Parse,
     };
 
-    let results = if let Some(source) = &cli.recipes {
+    let require_query = cli.emit.contains(&Emit::Query);
+    let results = if let Some(source) = &cli.pipeline {
+        let text = read_input(source)?;
+        let value: serde_json::Value = from_json_or_yaml(source, &text)?;
+        let pipeline = Pipeline::from_json(&value)?;
+        vec![validate_pipeline(
+            &pipeline,
+            source.clone(),
+            0,
+            level,
+            require_query,
+            &registry,
+        )]
+    } else if !cli.build.is_empty() {
+        let pipeline = pipeline_from_build_args(&cli.build)?;
+        let text = pipeline.to_query_text()?;
+        vec![validate_query(&text, 0, level, &registry)]
+    } else if let Some(source) = &cli.recipes {
         validate_recipe_input(source, cli.cwd.as_deref(), level, &registry)?
     } else if let Some(source) = &cli.query_file {
         let text = read_input(source)?;
@@ -178,16 +223,30 @@ fn run() -> Result<i32, Error> {
             .collect()
     } else {
         return Err(Error::general_error(
-            "No input. Pass a query after `--`, or use --query-file or --recipes.".to_string(),
+            "No input. Pass a query after `--`, or use --query-file, --recipes, --pipeline or \
+             --build."
+                .to_string(),
         ));
     };
 
+    let results = if cli.emit.contains(&Emit::Pipeline) {
+        results.into_iter().map(with_pipeline_form).collect()
+    } else {
+        results
+    };
     let mut report = build_report(level, provenance, results);
 
     if cli.detail == Detail::Summary {
+        let keep_plan = cli.emit.contains(&Emit::Plan);
+        let keep_pipeline = cli.emit.contains(&Emit::Pipeline);
         for result in &mut report.results {
             result.query = None;
-            result.plan = None;
+            if !keep_plan {
+                result.plan = None;
+            }
+            if !keep_pipeline {
+                result.pipeline = None;
+            }
         }
     }
 

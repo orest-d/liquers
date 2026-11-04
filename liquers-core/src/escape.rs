@@ -209,6 +209,108 @@ pub fn is_resource_name_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_' || c == '.'
 }
 
+// Token classes of the query grammar, shared by the parser (`crate::parse`), the encodability
+// check (`crate::query::Query::check_encodable`), the pipeline editors and `liquers-template`. All
+// are ASCII: a `char` is tested as itself, never through its low byte.
+
+/// Whether a character may start an identifier (an action name or a namespace).
+#[inline]
+pub fn is_identifier_start_char(c: char) -> bool {
+    c.is_ascii_alphabetic() || c == '_'
+}
+
+/// Whether a character may continue an identifier.
+#[inline]
+pub fn is_identifier_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_'
+}
+
+/// Whether a character may appear in a filename after its first `.`.
+#[inline]
+pub fn is_filename_suffix_char(c: char) -> bool {
+    is_identifier_char(c) || c == '.' || c == '-'
+}
+
+/// Whether a character may appear in a segment header parameter.
+#[inline]
+pub fn is_header_value_char(c: char) -> bool {
+    is_identifier_char(c) || c == '.'
+}
+
+/// Whether `s` is an identifier: an action name or a namespace.
+///
+/// ASCII letters, digits and `_`, not starting with a digit, and not empty.
+///
+/// ```
+/// use liquers_core::escape::is_identifier;
+/// assert!(is_identifier("from_csv"));
+/// assert!(!is_identifier("2x"));
+/// assert!(!is_identifier(""));
+/// ```
+pub fn is_identifier(s: &str) -> bool {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) if is_identifier_start_char(c) => chars.all(is_identifier_char),
+        Some(_) | None => false,
+    }
+}
+
+/// Whether `s` is a realm name: the name of a transform segment header (`-name/`).
+///
+/// Empty (the default realm), or an ASCII lowercase letter followed by identifier characters.
+/// A resource header (`-Rname/`) accepts any identifier characters after its `R`, a superset;
+/// a pipeline's realm must be writable as either, so this is the narrower of the two.
+pub fn is_realm_name(s: &str) -> bool {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => true,
+        Some(c) if c.is_ascii_lowercase() => chars.all(is_identifier_char),
+        Some(_) => false,
+    }
+}
+
+/// Whether `s` is a resource name: one segment of a key.
+///
+/// Not empty; [resource name characters](is_resource_name_char), with `-` allowed after the
+/// first. `.` and `..` are valid: they are the relative segments.
+pub fn is_resource_name(s: &str) -> bool {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) if is_resource_name_char(c) => {
+            chars.all(|c| is_resource_name_char(c) || c == '-')
+        }
+        Some(_) | None => false,
+    }
+}
+
+/// Whether `s` is a segment header parameter (the `p` of `-R-p/` or `-name-p/`).
+///
+/// Identifier characters and `.`; may be empty.
+pub fn is_header_value(s: &str) -> bool {
+    s.chars().all(is_header_value_char)
+}
+
+/// Whether `s` is a filename, the last token of a transform segment.
+///
+/// A stem of identifier characters (possibly empty), a `.`, then at least one character of
+/// identifier characters, `.` and `-`.
+///
+/// ```
+/// use liquers_core::escape::is_filename;
+/// assert!(is_filename("report.html"));
+/// assert!(is_filename("data.tar.gz"));
+/// assert!(!is_filename("report"));
+/// assert!(!is_filename("my file.txt"));
+/// ```
+pub fn is_filename(s: &str) -> bool {
+    let Some((stem, suffix)) = s.split_once('.') else {
+        return false;
+    };
+    stem.chars().all(is_identifier_char)
+        && !suffix.is_empty()
+        && suffix.chars().all(is_filename_suffix_char)
+}
+
 /// Characters a name or numeric body may contain, between the opener and the closing `~`.
 fn is_body_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_' || c == '-'
