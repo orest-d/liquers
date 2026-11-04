@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 219
+Total rows: 221
 - P2: 66
-- P3: 153
+- P3: 155
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -113,11 +113,13 @@ Total rows: 219
 | [`GUIDE-SECTION-ANCHORS-DIFFER-BETWEEN-RENDERERS`](issues/GUIDE-SECTION-ANCHORS-DIFFER-BETWEEN-RENDERERS.md) | issue | Section links between chapters break in the EPUB and PDF | draft |  |  | P3 | S | docs |  | 2026-11-01 |
 | [`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`](issues/LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT.md) | issue | Language exception class and stack are lost in transport | accepted |  |  | P3 | S | web |  | 2026-08-08 |
 | [`LIQUERS-DOCS-DUPLICATES-MARKDOWN-PARSING`](issues/LIQUERS-DOCS-DUPLICATES-MARKDOWN-PARSING.md) | issue | liquers-docs parses Markdown with its own helpers instead of liquers-markdown | draft |  |  | P3 | S | docs |  | 2026-11-01 |
+| [`PIPELINE-COMMAND-OPERAND-TYPES-UNCHECKED`](issues/PIPELINE-COMMAND-OPERAND-TYPES-UNCHECKED.md) | issue | A pipeline command's placeholder operand types and GUI info are not checked or inferred | draft |  |  | P3 | S | core/commands | [notation](design/composite-command-definition/notation-and-integration.md)  [phase1](design/composite-command-definition/phase1-high-level-design.md)  [phase2](design/composite-command-definition/phase2-architecture.md)  [phase3](design/composite-command-definition/phase3-examples.md)  [phase4](design/composite-command-definition/phase4-implementation.md)  [pipeline](design/composite-command-definition/pipeline-and-plan.md)  [pipeline](design/composite-command-definition/pipeline-structure-and-sources.md)  [recipe](design/composite-command-definition/recipe-and-pipeline-structures.md)  | 2026-11-04 |
 | [`PLAN-DEFAULT-LINK-PROMOTION-USES-THE-QUERYS-LAST-NS`](issues/PLAN-DEFAULT-LINK-PROMOTION-USES-THE-QUERYS-LAST-NS.md) | issue | Relative default links are promoted using the query's last ns, not each action's own | draft |  |  | P3 | S | core/plan |  | 2026-11-01 |
 | [`PY-ABI3T-WHEEL-NOT-USED`](issues/PY-ABI3T-WHEEL-NOT-USED.md) | issue | liquers-py builds a cp315t wheel because the abi3t wheel does not import | draft |  |  | P3 | S | py;build |  | 2026-11-01 |
 | [`PY-ADD-PYTHON-COMMAND-STILL-DECLARES-PYCALL-ALIASES`](issues/PY-ADD-PYTHON-COMMAND-STILL-DECLARES-PYCALL-ALIASES.md) | issue | CommandMetadataRegistry.add_python_command is still public and declares aliases of a pycall command that does not exist | draft |  |  | P3 | S | py |  | 2026-10-27 |
 | [`QUERY-SYNTAX-HAS-NO-INCLUDABLE-SECTION`](issues/QUERY-SYNTAX-HAS-NO-INCLUDABLE-SECTION.md) | issue | Query Language section of PROJECT_OVERVIEW cannot be included in the user guides | draft |  |  | P3 | S | docs |  | 2026-11-01 |
 | [`RECIPE-MISSING-RECIPE-IS-A-GENERAL-ERROR`](issues/RECIPE-MISSING-RECIPE-IS-A-GENERAL-ERROR.md) | issue | Asking a recipe provider for a recipe it does not have raises a General error, not KeyNotFound | draft |  |  | P3 | S | core/assets;core/error |  | 2026-11-01 |
+| [`RECIPE-OVERRIDES-MISS-A-FINAL-PIPELINE-COMMAND`](issues/RECIPE-OVERRIDES-MISS-A-FINAL-PIPELINE-COMMAND.md) | issue | Recipe argument and link overrides do not reach a pipeline command that is the query's last action | draft |  |  | P3 | S | core/plan | [notation](design/composite-command-definition/notation-and-integration.md)  [phase1](design/composite-command-definition/phase1-high-level-design.md)  [phase2](design/composite-command-definition/phase2-architecture.md)  [phase3](design/composite-command-definition/phase3-examples.md)  [phase4](design/composite-command-definition/phase4-implementation.md)  [pipeline](design/composite-command-definition/pipeline-and-plan.md)  [pipeline](design/composite-command-definition/pipeline-structure-and-sources.md)  [recipe](design/composite-command-definition/recipe-and-pipeline-structures.md)  | 2026-11-04 |
 | [`RUSTDOC-PRIVATE-INTRA-DOC-LINKS-RECUR`](issues/RUSTDOC-PRIVATE-INTRA-DOC-LINKS-RECUR.md) | issue | Public rustdoc in liquers-core and liquers-records links private items again | draft |  |  | P3 | S | docs;core/plan;core/assets;records |  | 2026-11-03 |
 | [`RUSTDOC-WASM-CRATE-NOT-MERGED-INTO-API-TREE`](issues/RUSTDOC-WASM-CRATE-NOT-MERGED-INTO-API-TREE.md) | issue | liquers-web's Rust API page does not link the other crates and is missing from the API search | draft |  |  | P3 | S | web;docs |  | 2026-11-02 |
 | [`TEMPLATE-DIAGNOSTICS-CHECK-COMMANDS-A-Q-QUOTES`](issues/TEMPLATE-DIAGNOSTICS-CHECK-COMMANDS-A-Q-QUOTES.md) | issue | Template diagnostics report unknown commands in a query part that a later q quotes, which the planner never resolves | draft |  |  | P3 | S | core/query;lib/commands |  | 2026-10-26 |

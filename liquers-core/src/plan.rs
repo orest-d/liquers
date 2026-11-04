@@ -336,6 +336,26 @@ pub enum Step {
     SetCwd(Key),
     /// Convert a logical key into the current value without loading that key.
     UseKeyValue(Key),
+    /// Run a pipeline command (`CommandDefinition::Pipeline`): its body, planned with the call's
+    /// arguments bound, runs on the current state, which is the body's input state (AC-4).
+    PipelineCommand {
+        /// Realm of the pipeline command.
+        realm: String,
+        /// Namespace of the pipeline command.
+        ns: String,
+        /// Name of the pipeline command.
+        name: String,
+        /// Source position of the call for diagnostics.
+        position: Position,
+        /// The call's arguments that only the caller's own pipeline frame can give (its input
+        /// state, or an argument it was passed so), read when the step runs; usually empty.
+        parameters: ResolvedParameterValues,
+        /// The query this call completes, as [`Step::Action::query`].
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        query: Option<Query>,
+        /// The body, with the call's other arguments bound.
+        plan: Box<Plan>,
+    },
 }
 
 impl Step {
@@ -357,6 +377,7 @@ impl Step {
             | Step::UseQueryValue(_)
             | Step::UseValue(_)
             | Step::Action { .. }
+            | Step::PipelineCommand { .. }
             | Step::Filename(_)
             | Step::Plan(_)
             | Step::SetCwd(_)
@@ -400,6 +421,7 @@ impl Step {
             Step::UseQueryValue(_) => false,
             Step::UseValue(_) => false,
             Step::Action { .. } => false,
+            Step::PipelineCommand { .. } => false,
             Step::Filename(_resource_name) => true,
             Step::Info(_) => true,
             Step::Warning(_) => true,
@@ -499,6 +521,9 @@ pub enum ParameterValue {
     DefaultPipeline(String, crate::pipeline::Pipeline),
     /// The input state of the innermost pipeline command (`{state: true}`, AC-4).
     InputState(String),
+    /// An argument of the innermost pipeline command that its caller passed from its own frame
+    /// (the caller's input state): `(argument name, the pipeline command's argument name)`.
+    FrameArgument(String, String),
     /// Intermediate state representing an unresolved parameter.
     None,
 }
@@ -535,6 +560,9 @@ impl Display for ParameterValue {
                 write!(f, "default pipeline {name}: {}", p.to_json())
             }
             ParameterValue::InputState(name) => write!(f, "input state {name}"),
+            ParameterValue::FrameArgument(name, from) => {
+                write!(f, "pipeline command argument {name}: {from}")
+            }
         }
     }
 }
@@ -958,7 +986,7 @@ impl ParameterValue {
                             ParameterValue::ParameterPipeline(_, _, _)
                             | ParameterValue::OverridePipeline(_, _)
                             | ParameterValue::DefaultPipeline(_, _)
-                            | ParameterValue::InputState(_) => values.push(pv),
+                            | ParameterValue::InputState(_) | ParameterValue::FrameArgument(_, _) => values.push(pv),
                         }
                     }
                     ActionParameter::Link(q, pos) => {
@@ -1054,7 +1082,8 @@ impl ParameterValue {
             ParameterValue::ParameterPipeline(name, _, _)
             | ParameterValue::OverridePipeline(name, _)
             | ParameterValue::DefaultPipeline(name, _)
-            | ParameterValue::InputState(name) => Some(name.clone()),
+            | ParameterValue::InputState(name)
+            | ParameterValue::FrameArgument(name, _) => Some(name.clone()),
             ParameterValue::None => None,
         }
     }
@@ -1083,7 +1112,7 @@ impl ParameterValue {
             | ParameterValue::EnumLink(_, _, _)
             | ParameterValue::MultipleParameters(_, _)
             | ParameterValue::Injected(_)
-            | ParameterValue::InputState(_)
+            | ParameterValue::InputState(_) | ParameterValue::FrameArgument(_, _)
             | ParameterValue::None => None,
         }
     }
@@ -1181,7 +1210,7 @@ impl ParameterValue {
             | ParameterValue::OverrideValue(_, _)
             | ParameterValue::Placeholder(_)
             | ParameterValue::Injected(_)
-            | ParameterValue::InputState(_)
+            | ParameterValue::InputState(_) | ParameterValue::FrameArgument(_, _)
             | ParameterValue::None => {}
             // A pipeline's own resources and links are resolved when it is planned, against the
             // working directory of the step that reads it.
@@ -1894,6 +1923,23 @@ impl<'c> PlanBuilder<'c> {
                     query: Some(prefix),
                 });
             }
+            command_metadata::CommandDefinition::Pipeline { pipeline } => {
+                let parameters = ResolvedParameterValues::from_action(
+                    action_request,
+                    &command_metadata,
+                    self.allow_placeholders,
+                )?;
+                let prefix = promote_relative_default_links(prefix, self.asm.command_registry)?;
+                crate::pipeline::PipelinePlanBuilder::new(self.asm.command_registry)
+                    .expand_pipeline_command(
+                        &mut self.asm,
+                        &command_metadata,
+                        pipeline,
+                        parameters,
+                        &action_request.position,
+                        Some(prefix),
+                    )?;
+            }
             command_metadata::CommandDefinition::Alias {
                 command,
                 head_parameters,
@@ -2440,6 +2486,10 @@ impl Plan {
             if let Step::Action {
                 query: Some(prefix),
                 ..
+            }
+            | Step::PipelineCommand {
+                query: Some(prefix),
+                ..
             } = step
             {
                 *prefix = scoped.resolve_query_scoped(prefix);
@@ -2482,6 +2532,13 @@ impl Plan {
                 }
                 Step::Plan(nested) => {
                     nested.freeze_cwd_with(step_cursor)?;
+                }
+                // The body's relative operands resolve against the caller's working key, and a
+                // working directory the body sets stays inside it.
+                Step::PipelineCommand { plan: body, .. } => {
+                    let mut scoped = step_cursor.clone();
+                    body.freeze_cwd_with(&mut scoped)?;
+                    step_cursor.absorb_diagnostics(&scoped);
                 }
                 Step::Filename(_)
                 | Step::Info(_)
@@ -2671,6 +2728,7 @@ impl Plan {
                 | Step::UseValue(_)
                 | Step::UseKeyValue(_)
                 | Step::Action { .. }
+                | Step::PipelineCommand { .. }
                 | Step::Filename(_)
                 | Step::Info(_)
                 | Step::Warning(_)
@@ -2815,6 +2873,7 @@ impl Plan {
                 | Step::UseQueryValue(_)
                 | Step::UseValue(_)
                 | Step::Action { .. }
+                | Step::PipelineCommand { .. }
                 | Step::Filename(_)
                 | Step::Plan(_)
                 | Step::SetCwd(_)
@@ -2859,6 +2918,7 @@ impl Plan {
                 | Step::UseQueryValue(_)
                 | Step::UseValue(_)
                 | Step::Action { .. }
+                | Step::PipelineCommand { .. }
                 | Step::Filename(_)
                 | Step::Plan(_)
                 | Step::SetCwd(_)
@@ -3098,7 +3158,7 @@ fn collect_parameter_dependencies(
         | ParameterValue::OverrideValue(_, _)
         | ParameterValue::Placeholder(_)
         | ParameterValue::Injected(_)
-        | ParameterValue::InputState(_)
+        | ParameterValue::InputState(_) | ParameterValue::FrameArgument(_, _)
         | ParameterValue::None => {}
         // The dependencies of a pipeline argument are those of its own plan, recorded when it is
         // planned.
@@ -3578,6 +3638,25 @@ impl<E: Environment> DependencyWalk<E> {
                 Step::Plan(nested_plan) => {
                     scan.nesting += 1;
                     let nested = self.scan_plan(nested_plan, cursor, scan);
+                    scan.nesting -= 1;
+                    nested?;
+                }
+                // A pipeline command's definition is its metadata: editing the pipeline
+                // invalidates what was computed through it (AC-8). Its body's own steps are
+                // dependencies as they would be in the caller, so they are scanned in place.
+                Step::PipelineCommand {
+                    realm,
+                    ns,
+                    name,
+                    plan: body,
+                    ..
+                } => {
+                    scan.dependencies.insert(PlanDependency::new(
+                        DependencyKey::for_command_metadata(&CommandKey::new(realm, ns, name)),
+                        DependencyRelation::CommandMetadata,
+                    ));
+                    scan.nesting += 1;
+                    let nested = self.scan_plan(body, cursor, scan);
                     scan.nesting -= 1;
                     nested?;
                 }
@@ -6084,6 +6163,7 @@ mod tests {
                 | Step::UseQueryValue(_)
                 | Step::UseValue(_)
                 | Step::Action { .. }
+                | Step::PipelineCommand { .. }
                 | Step::Plan(_)
                 | Step::Filename(_)
                 | Step::Info(_)
@@ -7313,7 +7393,9 @@ mod tests {
         plan.steps
             .iter()
             .filter_map(|step| match step {
-                Step::Action { query, .. } => Some(query.as_ref().map(|q| q.encode())),
+                Step::Action { query, .. } | Step::PipelineCommand { query, .. } => {
+                    Some(query.as_ref().map(|q| q.encode()))
+                }
                 Step::GetResource(_)
                 | Step::GetResourceMetadata(_)
                 | Step::GetResourceDirectory(_)

@@ -504,6 +504,23 @@ pub fn check_allowed(
                 check_query(query, allow, cmr)?;
             }
             Step::Plan(nested) => check_allowed(nested, allow, cmr)?,
+            // The pipeline command must be allowed, and so must every command its body runs.
+            Step::PipelineCommand {
+                realm,
+                ns,
+                name,
+                plan,
+                ..
+            } => {
+                let command = CommandKey::new(realm, ns, name);
+                if !allowed(&command, allow) {
+                    return Err(Error::not_supported(format!(
+                        "Command {command} is not allowed in this query; allowed: {}",
+                        allow.join(", ")
+                    )));
+                }
+                check_allowed(plan, allow, cmr)?;
+            }
             Step::GetAsset(_)
             | Step::GetAssetBinary(_)
             | Step::GetAssetMetadata(_)
@@ -559,7 +576,7 @@ fn check_parameter(
         | ParameterValue::OverrideValue(_, _)
         | ParameterValue::Placeholder(_)
         | ParameterValue::Injected(_)
-        | ParameterValue::InputState(_)
+        | ParameterValue::InputState(_) | ParameterValue::FrameArgument(_, _)
         | ParameterValue::None => Ok(()),
     }
 }

@@ -179,6 +179,9 @@ pub fn commands_doc<E: Environment>(
                     };
                     let _ = writeln!(md, "Alias for `{}/{}`\n", alias_ns, command.name);
                 }
+                CommandDefinition::Pipeline { pipeline } => {
+                    let _ = writeln!(md, "Pipeline command: `{}`\n", pipeline.to_json());
+                }
             }
 
             // Collect non-injected arguments

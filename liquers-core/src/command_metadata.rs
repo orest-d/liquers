@@ -898,6 +898,11 @@ pub enum CommandDefinition {
         command: CommandKey,
         head_parameters: Vec<CommandParameterValue>,
     },
+    /// A pipeline command: a call runs `pipeline` on its input, with the command's arguments
+    /// bound to the pipeline's placeholders (`specs/reference/PIPELINES.md`).
+    Pipeline {
+        pipeline: crate::pipeline::Pipeline,
+    },
 }
 
 /// CommandPreset is a structure that holds a preset for a command with parameters (action) for user convinience.
@@ -1304,6 +1309,58 @@ impl CommandMetadata {
                 }
             }
         }
+        if let CommandDefinition::Pipeline { pipeline } = &self.definition {
+            issues.append(self.check_pipeline_definition(pipeline));
+        }
+        issues
+    }
+
+    /// The checks of a pipeline command's definition that need no registry (AC-6): every
+    /// placeholder is a declared argument, no argument is injected, the body has no filename,
+    /// and a source command does not read the input state. An argument no placeholder uses is a
+    /// warning.
+    fn check_pipeline_definition(&self, pipeline: &crate::pipeline::Pipeline) -> IssueReport {
+        let mut issues = IssueReport::default();
+        let issue = |severity, message: String| {
+            Issue::command_registry(severity, &self.realm, &self.namespace, &self.name, message)
+        };
+        let placeholders = pipeline.placeholders();
+        for name in &placeholders {
+            if !self.arguments.iter().any(|a| &a.name == name) {
+                issues.extend([issue(
+                    IssueSeverity::Error,
+                    format!("Placeholder '{name}' is not a declared argument"),
+                )]);
+            }
+        }
+        for argument in &self.arguments {
+            if argument.injected {
+                issues.extend([issue(
+                    IssueSeverity::Error,
+                    format!(
+                        "Argument '{}' is injected; a pipeline command's steps inject their own",
+                        argument.name
+                    ),
+                )]);
+            } else if !placeholders.contains(&argument.name) {
+                issues.extend([issue(
+                    IssueSeverity::Warning,
+                    format!("Argument '{}' is used by no placeholder", argument.name),
+                )]);
+            }
+        }
+        if let Some(filename) = &pipeline.filename {
+            issues.extend([issue(
+                IssueSeverity::Error,
+                format!("A pipeline command's body has no filename, but it names '{filename}'"),
+            )]);
+        }
+        if self.state_argument.is_none() && pipeline.uses_input_state() {
+            issues.extend([issue(
+                IssueSeverity::Error,
+                "A source command (no state argument) reads the input state".to_string(),
+            )]);
+        }
         issues
     }
 
@@ -1415,9 +1472,179 @@ impl CommandMetadataRegistry {
         let mut report = IssueReport::default();
         for command in &self.commands {
             report.append(command.check());
+            report.append(self.check_pipeline_command(command));
         }
         report.append(self.check_default_namespaces());
         report
+    }
+
+    /// The checks of a pipeline command that need the registry (AC-6, AC-7): every step's
+    /// command resolves (through the element's `ns`, else the default namespaces, in the realm
+    /// of the pipeline that holds it), every named argument is an argument of that command, and
+    /// no pipeline command reaches itself. Empty for any other command.
+    pub fn check_pipeline_command(&self, command: &CommandMetadata) -> IssueReport {
+        let mut issues = IssueReport::default();
+        let CommandDefinition::Pipeline { pipeline } = &command.definition else {
+            return issues;
+        };
+        let issue = |message: String| {
+            Issue::command_registry(
+                IssueSeverity::Error,
+                &command.realm,
+                &command.namespace,
+                &command.name,
+                message,
+            )
+        };
+        for (realm, action) in pipeline.actions(&command.realm) {
+            let explicit = action.ns.as_ref().map(|n| n.0.clone()).unwrap_or_default();
+            let namespaces = self.lookup_namespaces(&explicit);
+            let found = if action.action == command.name
+                && namespaces.contains(&command.namespace)
+                && realm == command.realm
+            {
+                Some(command.clone())
+            } else {
+                self.find_command_in_namespaces(&realm, &namespaces, &action.action)
+            };
+            match found {
+                None => issues.extend([issue(format!(
+                    "Step command '{}' is not registered (realm '{realm}', namespaces {:?})",
+                    action.action, namespaces
+                ))]),
+                Some(step) => {
+                    for name in action.arguments.keys() {
+                        if !step.arguments.iter().any(|a| &a.name == name && !a.injected) {
+                            issues.extend([issue(format!(
+                                "'{name}' is not an argument of step command '{}'",
+                                step.key()
+                            ))]);
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(chain) = self.pipeline_cycle(command) {
+            let names: Vec<String> = chain.iter().map(|k| k.to_string()).collect();
+            issues.extend([issue(format!(
+                "Pipeline command cycle: {}",
+                names.join(" -> ")
+            ))]);
+        }
+        issues
+    }
+
+    /// Fills what a pipeline command's arguments leave out from the slots their placeholders
+    /// fill (AC-3): an `any` type takes the slot's type, and the last argument becomes variadic
+    /// when it fills a variadic slot whole. Also makes the command `payload: required` when a
+    /// step's command is (AC-20). Steps that do not resolve are left to the checks.
+    pub fn complete_pipeline_command(&self, command: &mut CommandMetadata) {
+        let CommandDefinition::Pipeline { pipeline } = &command.definition else {
+            return;
+        };
+        let mut slots: Vec<(String, ArgumentInfo, bool)> = Vec::new();
+        for (realm, action) in pipeline.actions(&command.realm) {
+            let explicit = action.ns.as_ref().map(|n| n.0.clone()).unwrap_or_default();
+            let namespaces = self.lookup_namespaces(&explicit);
+            let Some(step) = self.find_command_in_namespaces(&realm, &namespaces, &action.action)
+            else {
+                continue;
+            };
+            if step.payload_required.is_required() {
+                command.payload_required = step.payload_required.clone();
+            }
+            let positional: Vec<&ArgumentInfo> =
+                step.arguments.iter().filter(|a| !a.injected).collect();
+            for (i, parameter) in action.parameters.iter().enumerate() {
+                let (slot, whole) = match positional.get(i) {
+                    Some(slot) => (*slot, true),
+                    None => match positional.last() {
+                        Some(last) if last.multiple => (*last, false),
+                        Some(_) | None => continue,
+                    },
+                };
+                collect_slot(&parameter.item, slot, whole, &mut slots);
+            }
+            for (name, argument) in &action.arguments {
+                if let Some(slot) = positional.iter().find(|a| &a.name == name) {
+                    collect_slot(&argument.item, slot, true, &mut slots);
+                }
+            }
+        }
+        let last_free = command.arguments.iter().rposition(|a| !a.injected);
+        for (index, argument) in command.arguments.iter_mut().enumerate() {
+            for (name, slot, whole) in &slots {
+                if name != &argument.name {
+                    continue;
+                }
+                if argument.argument_type == ArgumentType::Any {
+                    argument.argument_type = slot.argument_type.clone();
+                }
+                if *whole && slot.multiple && !argument.multiple && Some(index) == last_free {
+                    argument.multiple = true;
+                }
+            }
+        }
+        fn collect_slot(
+            source: &crate::pipeline::Source,
+            slot: &ArgumentInfo,
+            whole: bool,
+            out: &mut Vec<(String, ArgumentInfo, bool)>,
+        ) {
+            use crate::pipeline::Source;
+            match source {
+                Source::Placeholder(name) => out.push((name.clone(), slot.clone(), whole)),
+                Source::Multiple(items) => {
+                    for item in items {
+                        collect_slot(item, slot, false, out);
+                    }
+                }
+                Source::Value(_) | Source::Link(_) | Source::Pipeline(_) | Source::State(_) => {}
+            }
+        }
+    }
+
+    /// The chain from `command` back to itself through pipeline command bodies, if there is one.
+    pub fn pipeline_cycle(&self, command: &CommandMetadata) -> Option<Vec<CommandKey>> {
+        fn walk(
+            cmr: &CommandMetadataRegistry,
+            start: &CommandMetadata,
+            current: &CommandMetadata,
+            chain: &mut Vec<CommandKey>,
+        ) -> bool {
+            let CommandDefinition::Pipeline { pipeline } = &current.definition else {
+                return false;
+            };
+            if chain.len() > crate::pipeline::MAX_PIPELINE_DEPTH {
+                return false;
+            }
+            for (realm, action) in pipeline.actions(&current.realm) {
+                let explicit = action.ns.as_ref().map(|n| n.0.clone()).unwrap_or_default();
+                let namespaces = cmr.lookup_namespaces(&explicit);
+                let next = if action.action == start.name
+                    && namespaces.contains(&start.namespace)
+                    && realm == start.realm
+                {
+                    chain.push(start.key());
+                    return true;
+                } else {
+                    cmr.find_command_in_namespaces(&realm, &namespaces, &action.action)
+                };
+                if let Some(next) = next {
+                    if chain.contains(&next.key()) {
+                        continue;
+                    }
+                    chain.push(next.key());
+                    if walk(cmr, start, &next, chain) {
+                        return true;
+                    }
+                    chain.pop();
+                }
+            }
+            false
+        }
+        let mut chain = vec![command.key()];
+        walk(self, command, command, &mut chain).then_some(chain)
     }
 
     /// Checks [`Self::default_namespaces`]: a namespace no registered command lives in is a
@@ -1591,7 +1818,7 @@ impl CommandMetadataRegistry {
     /// built by `CommandRegistry::register_alias`. See `specs/reference/COMMAND_ALIASES.md`.
     pub fn alias_target(&self, alias: &CommandMetadata) -> Result<Option<CommandMetadata>, Error> {
         let (target_key, head_parameters) = match &alias.definition {
-            CommandDefinition::Registered => return Ok(None),
+            CommandDefinition::Registered | CommandDefinition::Pipeline { .. } => return Ok(None),
             CommandDefinition::Alias {
                 command,
                 head_parameters,
@@ -1606,7 +1833,9 @@ impl CommandMetadataRegistry {
             .ok_or_else(|| Error::alias_target_not_registered(&alias_key, target_key))?;
         match &target.definition {
             CommandDefinition::Registered => {}
-            CommandDefinition::Alias { .. } => {
+            // An alias's target is a registered command: aliasing an alias or a pipeline
+            // command is a chain the planner does not follow.
+            CommandDefinition::Alias { .. } | CommandDefinition::Pipeline { .. } => {
                 return Err(Error::alias_chain_not_supported(&alias_key, target_key));
             }
         }

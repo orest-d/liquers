@@ -548,6 +548,22 @@ pub struct Context<E: Environment> {
     /// and fails the asset with it (see [`Self::error`]). Shared across context clones, so every
     /// step of one evaluation sees it.
     logged_error: Arc<std::sync::Mutex<Option<String>>>,
+
+    /// The frame of the pipeline command whose body this context runs, if any: its input state
+    /// and the arguments its caller passed from its own frame (AC-4). Lexically scoped: copied
+    /// by clones, replaced for a nested pipeline command's body, absent in another asset's
+    /// context.
+    pipeline_frame: Option<Arc<PipelineFrame<E::Value>>>,
+}
+
+/// What a pipeline command's body reads at run time: the command's input state, and the
+/// arguments its caller could only give from its own frame.
+pub struct PipelineFrame<V: crate::value::ValueInterface> {
+    /// The state the pipeline command was applied to.
+    pub input: State<V>,
+    /// Arguments resolved by the caller when the step ran, by the pipeline command's argument
+    /// name.
+    pub arguments: std::collections::BTreeMap<String, Arc<V>>,
 }
 
 impl<E: Environment> Context<E> {
@@ -575,6 +591,7 @@ impl<E: Environment> Context<E> {
             resolved_dependencies: Arc::new(Mutex::new(Vec::new())),
             volatile_set: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             logged_error: Arc::new(std::sync::Mutex::new(None)),
+            pipeline_frame: None,
         }
     }
 
@@ -1182,7 +1199,20 @@ impl<E: Environment> Context<E> {
             resolved_dependencies: self.resolved_dependencies.clone(),
             volatile_set: self.volatile_set.clone(),
             logged_error: self.logged_error.clone(),
+            pipeline_frame: self.pipeline_frame.clone(),
         }
+    }
+
+    /// The frame of the pipeline command whose body this context runs, if any.
+    pub fn pipeline_frame(&self) -> Option<&PipelineFrame<E::Value>> {
+        self.pipeline_frame.as_deref()
+    }
+
+    /// This context running the body of a pipeline command, whose frame is `frame`.
+    pub fn with_pipeline_frame(&self, frame: PipelineFrame<E::Value>) -> Self {
+        let mut context = self.clone();
+        context.pipeline_frame = Some(Arc::new(frame));
+        context
     }
 
     /// Sends a secondary-progress update to the current asset.
@@ -1296,6 +1326,7 @@ impl<E: Environment> Context<E> {
             resolved_dependencies: self.resolved_dependencies.clone(),
             volatile_set: self.volatile_set.clone(),
             logged_error: self.logged_error.clone(),
+            pipeline_frame: self.pipeline_frame.clone(),
         }
     }
     /// Returns the current working key used for relative query resolution.
@@ -1552,6 +1583,7 @@ impl<E: Environment> Clone for Context<E> {
             resolved_dependencies: self.resolved_dependencies.clone(),
             volatile_set: self.volatile_set.clone(),
             logged_error: self.logged_error.clone(),
+            pipeline_frame: self.pipeline_frame.clone(),
         }
     }
 }
@@ -2104,6 +2136,7 @@ mod tests {
                 resolved_dependencies: Arc::new(Mutex::new(Vec::new())),
                 volatile_set: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 logged_error: Arc::new(std::sync::Mutex::new(None)),
+                pipeline_frame: None,
             },
             service_rx,
         )

@@ -44,7 +44,7 @@ mod convert;
 mod editor;
 mod plan;
 pub use convert::{ArgRef, ElementPath};
-pub use plan::{PipelinePlanBuilder, PlanningMode, DEFAULT_PLANNING_MODE};
+pub use plan::{PipelinePlanBuilder, PlanningMode, DEFAULT_PLANNING_MODE, MAX_PIPELINE_DEPTH};
 pub use editor::{ActionEditor, PipelineEditor, QueryEditor};
 
 /// A value together with where it came from.
@@ -300,6 +300,83 @@ impl Pipeline {
         }
     }
 
+    /// Every action this pipeline runs, with the realm it is looked up in: its own elements,
+    /// nested pipelines, evaluated pipelines, pipeline arguments and inlined query text. An
+    /// empty `realm` here is replaced by `default_realm`; a nested pipeline's empty realm is the
+    /// root realm. Quoted text (`query_value`, `q`) never runs and is skipped.
+    pub(crate) fn actions(&self, default_realm: &str) -> Vec<(String, ActionElement)> {
+        let realm = if self.realm.is_empty() {
+            default_realm.to_owned()
+        } else {
+            self.realm.clone()
+        };
+        let mut out = Vec::new();
+        self.collect_actions(&realm, &mut out);
+        out
+    }
+
+    fn collect_actions(&self, realm: &str, out: &mut Vec<(String, ActionElement)>) {
+        fn source(s: &Source, out: &mut Vec<(String, ActionElement)>) {
+            match s {
+                Source::Pipeline(p) => p.collect_actions(&p.realm, out),
+                Source::Multiple(items) => items.iter().for_each(|item| source(item, out)),
+                Source::Value(_) | Source::Placeholder(_) | Source::Link(_) | Source::State(_) => {}
+            }
+        }
+        for element in &self.elements {
+            match &element.item {
+                ElementKind::Action(a) => {
+                    out.push((realm.to_owned(), a.clone()));
+                    a.parameters.iter().for_each(|p| source(&p.item, out));
+                    a.arguments.values().for_each(|p| source(&p.item, out));
+                }
+                ElementKind::Pipeline(p) => p.collect_actions(&p.realm, out),
+                ElementKind::Evaluate(Operand::Literal(QueryOrPipeline::Pipeline(p))) => {
+                    p.collect_actions(&p.realm, out)
+                }
+                ElementKind::Text(text) => {
+                    if let Ok(p) = crate::parse::parse_query(text)
+                        .and_then(|q| Pipeline::try_from(&q))
+                    {
+                        p.collect_actions(realm, out)
+                    }
+                }
+                ElementKind::Evaluate(_)
+                | ElementKind::Value(_)
+                | ElementKind::Resource { .. }
+                | ElementKind::KeyValue(_)
+                | ElementKind::Cwd(_)
+                | ElementKind::QueryValue(_)
+                | ElementKind::Quote
+                | ElementKind::Volatile => {}
+            }
+        }
+    }
+
+    /// Whether the first element that does something sets the state, so a pipeline command
+    /// with this body is a source command and has no input (AC-5).
+    pub fn first_sets_state(&self) -> bool {
+        for element in &self.elements {
+            match &element.item {
+                ElementKind::Value(_)
+                | ElementKind::Resource { .. }
+                | ElementKind::KeyValue(_)
+                | ElementKind::Evaluate(_)
+                | ElementKind::QueryValue(_) => return true,
+                ElementKind::Action(_) | ElementKind::Quote => return false,
+                ElementKind::Pipeline(p) => return p.first_sets_state(),
+                ElementKind::Text(text) => {
+                    return crate::parse::parse_query(text)
+                        .and_then(|q| Pipeline::try_from(&q))
+                        .is_ok_and(|p| p.first_sets_state())
+                }
+                // These set neither the state nor anything a source needs.
+                ElementKind::Cwd(_) | ElementKind::Volatile => {}
+            }
+        }
+        false
+    }
+
     /// Every placeholder name used anywhere in this pipeline, nested pipelines included.
     pub fn placeholders(&self) -> BTreeSet<String> {
         let mut names = BTreeSet::new();
@@ -394,6 +471,17 @@ impl Pipeline {
     /// pipeline. An unbound placeholder is an error naming it. Extra entries in `values` are
     /// ignored. The input state is not a placeholder and is left as it is.
     pub fn bind(&self, values: &BTreeMap<String, Json>) -> Result<Pipeline, Error> {
+        let sources = values
+            .iter()
+            .map(|(name, value)| (name.clone(), Source::Value(value.clone())))
+            .collect();
+        self.bind_sources(&sources)
+    }
+
+    /// [`Self::bind`] with sources: a placeholder bound to a link or a pipeline becomes that
+    /// source in an action argument, and query text in `evaluate` / `query_value`. A placeholder
+    /// bound to itself stays a placeholder: the caller gives it when the step runs.
+    pub(crate) fn bind_sources(&self, values: &BTreeMap<String, Source>) -> Result<Pipeline, Error> {
         let lookup = |name: &str| {
             values.get(name).ok_or_else(|| {
                 Error::invalid_pipeline(format!("placeholder '{name}' is not bound"))
@@ -403,9 +491,22 @@ impl Pipeline {
             match op {
                 Operand::Literal(s) => Ok(Operand::Literal(s.clone())),
                 Operand::Placeholder(name) => match lookup(name)? {
-                    Json::String(s) => Ok(Operand::Literal(s.clone())),
+                    Source::Value(Json::String(s)) => Ok(Operand::Literal(s.clone())),
                     other => Err(Error::invalid_pipeline(format!(
-                        "placeholder '{name}' must be text here, not {other}"
+                        "placeholder '{name}' must be text here, not {}",
+                        source_label(other)
+                    ))),
+                },
+            }
+        };
+        let value = |op: &Operand<Json>| -> Result<Operand<Json>, Error> {
+            match op {
+                Operand::Literal(v) => Ok(Operand::Literal(v.clone())),
+                Operand::Placeholder(name) => match lookup(name)? {
+                    Source::Value(v) => Ok(Operand::Literal(v.clone())),
+                    other => Err(Error::invalid_pipeline(format!(
+                        "placeholder '{name}' must be a literal value here, not {}",
+                        source_label(other)
                     ))),
                 },
             }
@@ -416,37 +517,45 @@ impl Pipeline {
                     Operand::Literal(QueryOrPipeline::Query(q)) => {
                         Ok(Operand::Literal(QueryOrPipeline::Query(q.clone())))
                     }
-                    Operand::Literal(QueryOrPipeline::Pipeline(p)) => {
-                        Ok(Operand::Literal(QueryOrPipeline::Pipeline(p.bind(values)?)))
-                    }
+                    Operand::Literal(QueryOrPipeline::Pipeline(p)) => Ok(Operand::Literal(
+                        QueryOrPipeline::Pipeline(p.bind_sources(values)?),
+                    )),
                     Operand::Placeholder(name) => match lookup(name)? {
-                        Json::String(s) => Ok(Operand::Literal(QueryOrPipeline::Query(s.clone()))),
-                        other => Ok(Operand::Literal(QueryOrPipeline::Pipeline(
+                        Source::Value(Json::String(s)) | Source::Link(s) => {
+                            Ok(Operand::Literal(QueryOrPipeline::Query(s.clone())))
+                        }
+                        Source::Pipeline(p) => {
+                            Ok(Operand::Literal(QueryOrPipeline::Pipeline(p.clone())))
+                        }
+                        Source::Value(other) => Ok(Operand::Literal(QueryOrPipeline::Pipeline(
                             Pipeline::from_json(other)?,
+                        ))),
+                        other @ (Source::Placeholder(_)
+                        | Source::State(_)
+                        | Source::Multiple(_)) => Err(Error::invalid_pipeline(format!(
+                            "placeholder '{name}' must be a query or a pipeline here, not {}",
+                            source_label(other)
                         ))),
                     },
                 }
             };
-        fn source(
-            s: &Source,
-            values: &BTreeMap<String, Json>,
-        ) -> Result<Source, Error> {
+        fn source(s: &Source, values: &BTreeMap<String, Source>) -> Result<Source, Error> {
             match s {
-                Source::Placeholder(name) => values
-                    .get(name)
-                    .map(|v| Source::Value(v.clone()))
-                    .ok_or_else(|| {
-                        Error::invalid_pipeline(format!("placeholder '{name}' is not bound"))
-                    }),
-                Source::Pipeline(p) => Ok(Source::Pipeline(p.bind(values)?)),
-                // A placeholder bound to an array is spliced in place (V4); a scalar binding, or
-                // an array written literally, is one element.
+                Source::Placeholder(name) => values.get(name).cloned().ok_or_else(|| {
+                    Error::invalid_pipeline(format!("placeholder '{name}' is not bound"))
+                }),
+                Source::Pipeline(p) => Ok(Source::Pipeline(p.bind_sources(values)?)),
+                // A placeholder bound to an array (or to several sources) is spliced in place
+                // (V4); a scalar binding, or an array written literally, is one element.
                 Source::Multiple(items) => {
                     let mut bound = Vec::with_capacity(items.len());
                     for item in items {
                         match (item, source(item, values)?) {
                             (Source::Placeholder(_), Source::Value(Json::Array(entries))) => {
                                 bound.extend(entries.into_iter().map(Source::Value))
+                            }
+                            (Source::Placeholder(_), Source::Multiple(entries)) => {
+                                bound.extend(entries)
                             }
                             (_, other) => bound.push(other),
                         }
@@ -478,12 +587,7 @@ impl Pipeline {
                         .map(|(k, v)| Ok((k.clone(), argument(v)?)))
                         .collect::<Result<_, Error>>()?,
                 }),
-                ElementKind::Value(Operand::Literal(v)) => {
-                    ElementKind::Value(Operand::Literal(v.clone()))
-                }
-                ElementKind::Value(Operand::Placeholder(name)) => {
-                    ElementKind::Value(Operand::Literal(lookup(name)?.clone()))
-                }
+                ElementKind::Value(op) => ElementKind::Value(value(op)?),
                 ElementKind::Resource { resource, read } => ElementKind::Resource {
                     resource: text(resource)?,
                     read: *read,
@@ -492,7 +596,7 @@ impl Pipeline {
                 ElementKind::Cwd(op) => ElementKind::Cwd(text(op)?),
                 ElementKind::Evaluate(op) => ElementKind::Evaluate(query_or_pipeline(op)?),
                 ElementKind::QueryValue(op) => ElementKind::QueryValue(query_or_pipeline(op)?),
-                ElementKind::Pipeline(p) => ElementKind::Pipeline(p.bind(values)?),
+                ElementKind::Pipeline(p) => ElementKind::Pipeline(p.bind_sources(values)?),
             };
             elements.push(Located {
                 item,
@@ -503,6 +607,18 @@ impl Pipeline {
             elements,
             ..self.clone()
         })
+    }
+}
+
+/// What a source is, for messages.
+fn source_label(source: &Source) -> &'static str {
+    match source {
+        Source::Value(_) => "a value",
+        Source::Placeholder(_) => "the caller's input state",
+        Source::Link(_) => "a link",
+        Source::Pipeline(_) => "a pipeline",
+        Source::State(_) => "the input state",
+        Source::Multiple(_) => "several values",
     }
 }
 

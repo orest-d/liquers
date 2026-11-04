@@ -343,6 +343,7 @@ fn collect_step_warnings(
         | Step::UseQueryValue(_)
         | Step::UseValue(_)
         | Step::Action { .. }
+        | Step::PipelineCommand { .. }
         | Step::Filename(_)
         | Step::Info(_)
         | Step::SetCwd(_)

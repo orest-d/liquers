@@ -439,6 +439,24 @@ impl Error {
         }
         self
     }
+    /// A pipeline command reached itself through its body (directly or through another), or
+    /// expansion went deeper than the limit; `chain` is the commands in expansion order.
+    pub fn pipeline_cycle(chain: &[CommandKey]) -> Self {
+        let names: Vec<String> = chain.iter().map(command_label).collect();
+        Error::new(
+            ErrorType::ParameterError,
+            format!("Pipeline command cycle: {}", names.join(" -> ")),
+        )
+    }
+    /// Names the pipeline command whose body failed, like [`Self::with_alias`] for an alias.
+    /// Applying it twice for the same command has no further effect.
+    pub fn with_pipeline(mut self, command: &CommandKey) -> Self {
+        let suffix = format!(" (in pipeline command '{}')", command_label(command));
+        if !self.message.ends_with(&suffix) {
+            self.message.push_str(&suffix);
+        }
+        self
+    }
     pub fn conversion_error<W: Display, T: Display>(what: W, to: T) -> Self {
         Error::new(
             ErrorType::ConversionError,

@@ -234,7 +234,7 @@ fn collect_parameter_dependency_queries(
         | ParameterValue::ParameterPipeline(_, _, _)
         | ParameterValue::OverridePipeline(_, _)
         | ParameterValue::DefaultPipeline(_, _)
-        | ParameterValue::InputState(_)
+        | ParameterValue::InputState(_) | ParameterValue::FrameArgument(_, _)
         | ParameterValue::None => {}
     }
 }
@@ -311,6 +311,9 @@ fn schedule_plan_dependencies_from<'a, E: Environment>(
                 }
                 Step::Plan(nested_plan) => {
                     schedule_plan_dependencies_from(nested_plan, context, cursor, seen).await?;
+                }
+                Step::PipelineCommand { plan: body, .. } => {
+                    schedule_plan_dependencies_from(body, context, cursor, seen).await?;
                 }
                 Step::SetCwd(key) => {
                     if rooted_resource_step == Some(step_index) {
@@ -392,6 +395,23 @@ fn resolve_absolute_query_resource_step(step: Step) -> Step {
         Step::Warning(message) => Step::Warning(message),
         Step::Error(message) => Step::Error(message),
         Step::Plan(plan) => Step::Plan(plan),
+        Step::PipelineCommand {
+            realm,
+            ns,
+            name,
+            position,
+            parameters,
+            query,
+            plan,
+        } => Step::PipelineCommand {
+            realm,
+            ns,
+            name,
+            position,
+            parameters,
+            query,
+            plan,
+        },
     }
 }
 
@@ -508,6 +528,7 @@ pub(crate) fn apply_plan_state<E: Environment>(
 fn step_can_suspend(step: &Step) -> bool {
     match step {
         Step::Action { .. }
+        | Step::PipelineCommand { .. }
         | Step::Evaluate(_)
         | Step::GetAsset(_)
         | Step::GetAssetBinary(_)
@@ -566,6 +587,7 @@ async fn log_init_steps<E: Environment>(plan: &Plan, context: &Context<E>) -> Re
             | Step::UseQueryValue(_)
             | Step::UseValue(_)
             | Step::Action { .. }
+            | Step::PipelineCommand { .. }
             | Step::Filename(_)
             | Step::Plan(_)
             | Step::SetCwd(_)
@@ -630,6 +652,77 @@ fn input_state_unavailable(name: &str) -> Error {
     ))
 }
 
+/// The value a frame-reading parameter (`InputState`, `FrameArgument`) has in `context`'s
+/// pipeline frame; `None` for any other parameter.
+fn frame_value<E: Environment>(
+    context: &Context<E>,
+    parameter: &ParameterValue,
+) -> Option<Result<Arc<E::Value>, Error>> {
+    match parameter {
+        ParameterValue::InputState(name) => Some(match context.pipeline_frame() {
+            Some(frame) => frame.input.value(),
+            None => Err(input_state_unavailable(name)),
+        }),
+        ParameterValue::FrameArgument(name, from) => Some(
+            context
+                .pipeline_frame()
+                .and_then(|frame| frame.arguments.get(from).cloned())
+                .ok_or_else(|| input_state_unavailable(name)),
+        ),
+        ParameterValue::DefaultValue(_, _)
+        | ParameterValue::DefaultLink(_, _)
+        | ParameterValue::ParameterValue(_, _, _)
+        | ParameterValue::ParameterLink(_, _, _)
+        | ParameterValue::OverrideValue(_, _)
+        | ParameterValue::OverrideLink(_, _)
+        | ParameterValue::Placeholder(_)
+        | ParameterValue::EnumLink(_, _, _)
+        | ParameterValue::MultipleParameters(_, _)
+        | ParameterValue::Injected(_)
+        | ParameterValue::ParameterPipeline(_, _, _)
+        | ParameterValue::OverridePipeline(_, _)
+        | ParameterValue::DefaultPipeline(_, _)
+        | ParameterValue::None => None,
+    }
+}
+
+/// Runs a pipeline command's body on `input`: the caller's frame-reading arguments are read in
+/// the caller's `context`, then the body runs in a frame whose input is `input` (AC-4).
+fn run_pipeline_command<E: Environment>(
+    key: CommandKey,
+    position: crate::query::Position,
+    parameters: ResolvedParameterValues,
+    plan: Plan,
+    input: State<E::Value>,
+    context: Context<E>,
+    envref: EnvRef<E>,
+) -> crate::maybe_send::BoxFuture<'static, Result<State<E::Value>, Error>> {
+    async move {
+        let mut arguments = std::collections::BTreeMap::new();
+        for parameter in &parameters.0 {
+            if let (Some(name), Some(value)) = (parameter.name(), frame_value(&context, parameter))
+            {
+                arguments.insert(name, value.map_err(|e| e.with_position(&position))?);
+            }
+        }
+        let frame = crate::context::PipelineFrame {
+            input: input.clone(),
+            arguments,
+        };
+        apply_plan_state(plan, input, context.with_pipeline_frame(frame), envref)
+            .await
+            .map_err(|e| {
+                let e = if e.position.is_unknown() {
+                    e.with_position(&position)
+                } else {
+                    e
+                };
+                e.with_pipeline(&key)
+            })
+    }
+    .maybe_boxed()
+}
+
 fn materialize_nested_parameter<'a, E: Environment>(
     context: &'a Context<E>,
     parameter: &'a ParameterValue,
@@ -674,7 +767,15 @@ fn materialize_nested_parameter<'a, E: Environment>(
                 name.clone(),
                 evaluate_pipeline_argument(context, pipeline).await?.try_into_json_value()?,
             )),
-            ParameterValue::InputState(name) => Err(input_state_unavailable(name)),
+            ParameterValue::InputState(name) | ParameterValue::FrameArgument(name, _) => {
+                match frame_value(context, parameter) {
+                    Some(value) => Ok(ParameterValue::OverrideValue(
+                        name.clone(),
+                        value?.try_into_json_value()?,
+                    )),
+                    None => Err(input_state_unavailable(name)),
+                }
+            }
             ParameterValue::MultipleParameters(name, values) => {
                 let mut materialized = Vec::with_capacity(values.len());
                 for value in values {
@@ -711,7 +812,7 @@ fn attach_parameter_link_context(error: Error, parameter: &ParameterValue, query
         | ParameterValue::Injected(_)
         | ParameterValue::OverridePipeline(_, _)
         | ParameterValue::DefaultPipeline(_, _)
-        | ParameterValue::InputState(_)
+        | ParameterValue::InputState(_) | ParameterValue::FrameArgument(_, _)
         | ParameterValue::None => error,
     }
 }
@@ -862,8 +963,8 @@ pub fn do_step<E: Environment>(
                         .await
                         .map_err(|error| error.with_position(&param.position()))?;
                     arguments.set_value(i, value);
-                } else if let ParameterValue::InputState(name) = param {
-                    return Err(input_state_unavailable(name).with_position(&position));
+                } else if let Some(value) = frame_value(&context, param) {
+                    arguments.set_value(i, value.map_err(|e| e.with_position(&position))?);
                 }
             }
             let ce = envref.get_command_executor();
@@ -922,6 +1023,21 @@ pub fn do_step<E: Environment>(
         Step::Plan(plan) => {
             async move { apply_plan(plan, input, context, envref).await }.maybe_boxed()
         }
+        Step::PipelineCommand {
+            realm,
+            ns,
+            name,
+            position,
+            parameters,
+            query: _,
+            plan,
+        } => async move {
+            let key = CommandKey::new(&realm, &ns, &name);
+            run_pipeline_command(key, position, parameters, *plan, input, context, envref)
+                .await?
+                .value()
+        }
+        .maybe_boxed(),
         Step::GetAsset(key) => async move {
             let key = context.resolve_key_from_cwd(&key)?;
             let asset_state = context.get_dependency_state(&key.into()).await?;
@@ -1129,6 +1245,31 @@ pub(crate) fn do_step_state<E: Environment>(
         }
         .maybe_boxed(),
         Step::Plan(plan) => apply_plan_state(plan, input, context, envref),
+        Step::PipelineCommand {
+            realm,
+            ns,
+            name,
+            position,
+            parameters,
+            query,
+            plan,
+        } => async move {
+            let key = CommandKey::new(&realm, &ns, &name);
+            let state = run_pipeline_command(
+                key,
+                position,
+                parameters,
+                *plan,
+                input,
+                context.clone(),
+                envref,
+            )
+            .await?;
+            // As an action: the result is described by the prefix this call completes.
+            let metadata = prefix_metadata(&context, query.as_ref()).await?;
+            Ok(state_of(state.value()?, metadata))
+        }
+        .maybe_boxed(),
         Step::Action { ref query, .. } => {
             let query = query.clone();
             async move {
@@ -1400,6 +1541,23 @@ impl<E: Environment> RequiresPayload<E> for Step {
             Step::Warning(_) => Ok(PayloadRequirement::None),
             Step::Error(_) => Ok(PayloadRequirement::None),
             Step::Plan(plan) => plan.requires_payload(env).await,
+            Step::PipelineCommand {
+                realm,
+                ns,
+                name,
+                plan,
+                ..
+            } => {
+                if let Some(cmd) = env
+                    .get_command_metadata_registry()
+                    .find_command(realm, ns, name)
+                {
+                    if cmd.payload_required.is_required() {
+                        return Ok(PayloadRequirement::Required);
+                    }
+                }
+                plan.requires_payload(env).await
+            }
             Step::SetCwd(_) => Ok(PayloadRequirement::None),
             Step::UseKeyValue(_) => Ok(PayloadRequirement::None),
         }

@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use serde_json::Value as Json;
 
 use crate::command_metadata::{
-    ArgumentInfo, CommandDefinition, CommandMetadata, CommandMetadataRegistry,
+    ArgumentInfo, CommandDefinition, CommandKey, CommandMetadata, CommandMetadataRegistry,
 };
 use crate::error::Error;
 use crate::parse::{parse_key, parse_query};
@@ -49,9 +49,15 @@ pub struct PipelinePlanBuilder<'c> {
     cmr: &'c CommandMetadataRegistry,
     mode: PlanningMode,
     allow_placeholders: bool,
-    /// Placeholder values, present while planning a pipeline command's body.
-    bindings: Option<BTreeMap<String, Json>>,
+    /// Placeholder values, present while planning a pipeline command's body. A placeholder
+    /// bound to itself is given by the caller when the step runs.
+    bindings: Option<BTreeMap<String, Source>>,
+    /// The pipeline commands being expanded, outermost first.
+    stack: Vec<CommandKey>,
 }
+
+/// How deep pipeline commands may nest before expansion is refused as a cycle.
+pub const MAX_PIPELINE_DEPTH: usize = 16;
 
 impl<'c> PipelinePlanBuilder<'c> {
     /// A builder in [`DEFAULT_PLANNING_MODE`] that refuses missing arguments and placeholders.
@@ -61,6 +67,7 @@ impl<'c> PipelinePlanBuilder<'c> {
             mode: DEFAULT_PLANNING_MODE,
             allow_placeholders: false,
             bindings: None,
+            stack: Vec::new(),
         }
     }
 
@@ -74,14 +81,6 @@ impl<'c> PipelinePlanBuilder<'c> {
     /// fills afterwards (as [`PlanBuilder::with_placeholders_allowed`]).
     pub fn with_placeholders_allowed(mut self) -> Self {
         self.allow_placeholders = true;
-        self
-    }
-
-    /// Plans a pipeline command's body: `bindings` fill its placeholders, and the input state
-    /// (`{state: true}`) may be read.
-    #[allow(dead_code)] // used by pipeline command expansion
-    pub(crate) fn for_definition(mut self, bindings: BTreeMap<String, Json>) -> Self {
-        self.bindings = Some(bindings);
         self
     }
 
@@ -156,7 +155,7 @@ impl<'c> PipelinePlanBuilder<'c> {
     /// (AC-11).
     fn bound(&self, pipeline: &Pipeline) -> Result<Pipeline, Error> {
         match &self.bindings {
-            Some(bindings) => pipeline.bind(bindings),
+            Some(bindings) => pipeline.bind_sources(bindings),
             None => match pipeline.placeholders().into_iter().next() {
                 Some(name) => Err(Error::invalid_pipeline(format!(
                     "placeholder '{name}' outside a pipeline command definition"
@@ -536,7 +535,7 @@ impl<'c> PipelinePlanBuilder<'c> {
         asm.apply_command_flags(&key);
 
         let (mut parameters, step_key, origin) = match &metadata.definition {
-            CommandDefinition::Registered => (
+            CommandDefinition::Registered | CommandDefinition::Pipeline { .. } => (
                 ResolvedParameterValues::from_action(&request, &metadata, allow)?,
                 key.clone(),
                 ActionOrigin::Direct,
@@ -606,9 +605,14 @@ impl<'c> PipelinePlanBuilder<'c> {
                     | ParameterValue::ParameterPipeline(_, _, _)
                     | ParameterValue::OverridePipeline(_, _)
                     | ParameterValue::DefaultPipeline(_, _)
-                    | ParameterValue::InputState(_) => {}
+                    | ParameterValue::InputState(_) | ParameterValue::FrameArgument(_, _) => {}
                 }
             }
+        }
+        if let CommandDefinition::Pipeline { pipeline } = &metadata.definition {
+            return self.expand_pipeline_command(
+                asm, &metadata, pipeline, parameters, position, prefix,
+            );
         }
         asm.check_parameters_for_volatile_links(&parameters)?;
         asm.push(Step::Action {
@@ -619,6 +623,122 @@ impl<'c> PipelinePlanBuilder<'c> {
             parameters,
             origin,
             query: prefix,
+        });
+        Ok(())
+    }
+
+    /// Expands a call of a pipeline command into [`Step::PipelineCommand`]: the call's
+    /// `parameters`, resolved against the command's own arguments, are bound to the body's
+    /// placeholders, and the body is planned by a child builder that keeps the expansion stack.
+    pub(crate) fn expand_pipeline_command(
+        &self,
+        asm: &mut PlanAssembly<'c>,
+        metadata: &CommandMetadata,
+        pipeline: &Pipeline,
+        parameters: ResolvedParameterValues,
+        position: &Position,
+        prefix: Option<Query>,
+    ) -> Result<(), Error> {
+        let key = metadata.key();
+        if self.stack.contains(&key) || self.stack.len() >= MAX_PIPELINE_DEPTH {
+            let mut chain = self.stack.clone();
+            chain.push(key.clone());
+            return Err(Error::pipeline_cycle(&chain).with_position(position));
+        }
+        asm.check_parameters_for_volatile_links(&parameters)?;
+        let mut bindings = BTreeMap::new();
+        let mut runtime = Vec::new();
+        for (i, parameter) in parameters.0.iter().enumerate() {
+            let name = match parameter.name() {
+                Some(name) => name,
+                None => metadata
+                    .arguments
+                    .get(i)
+                    .map(|a| a.name.clone())
+                    .unwrap_or_default(),
+            };
+            match binding_source(&key, &name, parameter, i, position)? {
+                Some(source) => {
+                    bindings.insert(name, source);
+                }
+                None => {
+                    bindings.insert(name.clone(), Source::Placeholder(name));
+                    runtime.push(parameter.clone());
+                }
+            }
+        }
+        let mut body_pipeline = pipeline.clone();
+        if body_pipeline.realm.is_empty() {
+            body_pipeline.realm = metadata.realm.clone();
+        }
+        let mut stack = self.stack.clone();
+        stack.push(key.clone());
+        let child = PipelinePlanBuilder {
+            cmr: self.cmr,
+            mode: PlanningMode::Native,
+            allow_placeholders: false,
+            bindings: Some(bindings),
+            stack,
+        };
+        let mut body = child
+            .plan_pipeline(&body_pipeline)
+            .map_err(|e| e.with_pipeline(&key))?;
+
+        asm.plan
+            .init_info(format!("Command '{}' is a pipeline command", key));
+        // The body's flags are the call's, as an alias's target's are.
+        if body.is_volatile {
+            asm.mark_volatile(
+                &format!("Volatile due to pipeline command '{}'", key),
+                VolatilitySource::Positional,
+            );
+        }
+        if body.payload_required.is_required() {
+            asm.mark_payload_required(&format!(
+                "Payload required due to pipeline command '{}'",
+                key
+            ));
+        }
+        if !body.expires.is_never() {
+            asm.update_expiration(&body.expires.clone());
+        }
+        asm.plan.init_steps.append(&mut body.init_steps);
+        asm.plan.uncached_by = body.uncached_by.clone();
+        // The body's prefixes are not queries of the caller: nothing is cut or cached inside it.
+        for step in body.steps.iter_mut() {
+            match step {
+                Step::Action { query, .. } | Step::PipelineCommand { query, .. } => *query = None,
+                Step::GetAsset(_)
+                | Step::GetAssetBinary(_)
+                | Step::GetAssetMetadata(_)
+                | Step::GetAssetRecipe(_)
+                | Step::GetAssetDirectory(_)
+                | Step::GetResource(_)
+                | Step::GetResourceMetadata(_)
+                | Step::GetResourceDirectory(_)
+                | Step::Evaluate(_)
+                | Step::UseQueryValue(_)
+                | Step::UseValue(_)
+                | Step::Filename(_)
+                | Step::Info(_)
+                | Step::Warning(_)
+                | Step::Error(_)
+                | Step::Plan(_)
+                | Step::SetCwd(_)
+                | Step::UseKeyValue(_) => {}
+            }
+        }
+        body.predecessor = None;
+        body.predecessor_steps = 0;
+        body.query = Query::default();
+        asm.push(Step::PipelineCommand {
+            realm: key.realm.clone(),
+            ns: key.namespace.clone(),
+            name: key.name.clone(),
+            position: position.clone(),
+            parameters: ResolvedParameterValues(runtime),
+            query: prefix,
+            plan: Box::new(body),
         });
         Ok(())
     }
@@ -728,6 +848,14 @@ impl<'c> PipelinePlanBuilder<'c> {
                 "argument '{name}': {{state: false}} is not a source"
             ))
             .with_position(position)),
+            // Bound to itself: the caller gives it when the step runs.
+            Source::Placeholder(placeholder)
+                if self.bindings.as_ref().is_some_and(|b| {
+                    matches!(b.get(placeholder), Some(Source::Placeholder(p)) if p == placeholder)
+                }) =>
+            {
+                Ok(ParameterValue::FrameArgument(name, placeholder.clone()))
+            }
             Source::Placeholder(placeholder) => Err(Error::invalid_pipeline(format!(
                 "placeholder '{placeholder}' outside a pipeline command definition"
             ))
@@ -742,7 +870,75 @@ impl<'c> PipelinePlanBuilder<'c> {
     }
 }
 
-/// The resource name of a pipeline's `filename`, checked as a query filename is (P2).
+/// The source a pipeline command's argument binds its placeholder to; `None` when only the
+/// caller's frame can give it, when the step runs.
+fn binding_source(
+    command: &CommandKey,
+    name: &str,
+    parameter: &ParameterValue,
+    index: usize,
+    position: &Position,
+) -> Result<Option<Source>, Error> {
+    Ok(Some(match parameter {
+        ParameterValue::DefaultValue(_, v)
+        | ParameterValue::ParameterValue(_, v, _)
+        | ParameterValue::OverrideValue(_, v) => Source::Value(v.clone()),
+        ParameterValue::DefaultLink(_, q)
+        | ParameterValue::ParameterLink(_, q, _)
+        | ParameterValue::OverrideLink(_, q)
+        | ParameterValue::EnumLink(_, q, _) => Source::Link(q.encode()),
+        ParameterValue::ParameterPipeline(_, p, _)
+        | ParameterValue::OverridePipeline(_, p)
+        | ParameterValue::DefaultPipeline(_, p) => Source::Pipeline(p.clone()),
+        ParameterValue::MultipleParameters(_, items) => {
+            let mut sources = Vec::with_capacity(items.len());
+            for item in items {
+                match binding_source(command, name, item, index, position)? {
+                    Some(source) => sources.push(source),
+                    None => {
+                        return Err(Error::invalid_argument(
+                            &command.to_string(),
+                            name,
+                            "cannot take the input state as one of several values",
+                        )
+                        .with_position(position))
+                    }
+                }
+            }
+            if sources.iter().all(|s| matches!(s, Source::Value(_))) {
+                Source::Value(Json::Array(
+                    sources
+                        .into_iter()
+                        .filter_map(|s| match s {
+                            Source::Value(v) => Some(v),
+                            Source::Placeholder(_)
+                            | Source::Link(_)
+                            | Source::Pipeline(_)
+                            | Source::State(_)
+                            | Source::Multiple(_) => None,
+                        })
+                        .collect(),
+                ))
+            } else {
+                Source::Multiple(sources)
+            }
+        }
+        ParameterValue::InputState(_) | ParameterValue::FrameArgument(_, _) => return Ok(None),
+        ParameterValue::Injected(_) => {
+            return Err(Error::invalid_argument(
+                &command.to_string(),
+                name,
+                "is injected, which a pipeline command's argument cannot be",
+            )
+            .with_position(position))
+        }
+        ParameterValue::Placeholder(_) => {
+            return Err(Error::missing_argument(index, name, position).with_command_key(command))
+        }
+        ParameterValue::None => Source::Value(Json::Null),
+    }))
+}
+
 /// The last action of `prefix` when its last segment is a transform ending in one.
 fn last_action(prefix: &Query) -> Option<ActionRequest> {
     match prefix.segments.last()? {
@@ -769,6 +965,7 @@ fn query_filename_step(filename: &str, query: &Query) -> Result<crate::query::Re
     }
 }
 
+/// The resource name of a pipeline's `filename`, checked as a query filename is (P2).
 fn filename_step(filename: &str) -> Result<crate::query::ResourceName, Error> {
     if !crate::escape::is_filename(filename) {
         return Err(Error::invalid_token(filename, "filename"));

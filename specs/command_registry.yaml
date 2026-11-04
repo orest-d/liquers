@@ -51,6 +51,8 @@
 #             MetadataRecord gains the never-stored `inferred` fact; persist_defaults retired.
 # 2026-11-01  markdown-navigation: new group markdown (ns-md: outline, section, sections,
 #             links, table) on the liquers-markdown block parser.
+# 2026-11-04  composite-command-definition Step 11: commands_doc describes pipeline
+#             commands (impl_version only).
 # CHANGELOG-END
 commands:
 - realm: store_config
@@ -441,7 +443,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 6423aef87ab655cc24ce07768723b144
+  impl_version: 86d440cffc3753f77b38bcf9c51f6182
 - namespace: dep
   name: command_metadata
   label: Command Metadata

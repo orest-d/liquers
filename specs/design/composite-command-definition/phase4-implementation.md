@@ -31,7 +31,7 @@ Exhaustive matches that new variants reach outside `liquers-core`:
 - [x] Step 8: `PipelinePlanBuilder` in `Delegate` mode, `Step::UseValue`, entry points (70bce02)
 - [x] Step 9: `Native` mode and the dual-mode corpus test (33acfdc)
 - [x] Step 10: Recipe pipelines (399b6a5)
-- [ ] Step 11: Pipeline commands
+- [x] Step 11: Pipeline commands
 - [ ] Step 12: `liquers-validate` pipeline support
 - [ ] Step 13: Cross-crate arms, registry export, polars integration test, build matrix
 
@@ -311,3 +311,34 @@ Decisions made while implementing, none of which changes an approved contract:
   planner's. They are now taken from the query's own prefixes when they are the same query. The
   dual-mode test now also plans every corpus query as parsed, not only in canonical form, so
   positions are compared: 290 of 290 equal.
+
+### Step 11 notes
+- `CommandRegistry::register_pipeline` registers metadata only. It makes the command a source
+  command when the body's first element sets the state, fills an `any` argument type (and a
+  whole variadic last argument) from the slot its placeholder fills, makes the command
+  `payload: required` when a step's command is, and refuses registration on any error issue of
+  `CommandMetadata::check` or `CommandMetadataRegistry::check_pipeline_command` (undeclared
+  placeholder, injected argument, body filename, a source command reading the input state, an
+  unresolved step command or argument, a cycle). An unused argument is a warning. An alias whose
+  target is a pipeline command is refused as a chain.
+- Both builders expand a call through `PipelinePlanBuilder::expand_pipeline_command`: the call
+  is resolved against the command's own arguments, each argument becomes a binding `Source`
+  (`Pipeline::bind_sources`, which `bind` now wraps), and the body is planned by a child builder
+  in `Native` mode that carries the expansion stack, so a repeated key or a depth over
+  `MAX_PIPELINE_DEPTH` (16) is `Error::pipeline_cycle`. The body's flags and planning
+  diagnostics fold into the caller; its actions record no prefix query. The step is
+  `Step::PipelineCommand`; `freeze_cwd` freezes the body against the caller's working key, and
+  the dependency scan records the command's metadata key and scans the body in place.
+- Deviation from Phase 2: an argument bound to the caller's own input state cannot be bound at
+  planning time, so it stays a placeholder bound to itself. The step's `parameters` hold those
+  arguments (`InputState`, or a `FrameArgument` passed on), the interpreter reads them in the
+  caller's frame, and the body reads them through the new
+  `ParameterValue::FrameArgument(argument, placeholder)`. `Context` carries the frame
+  (`PipelineFrame`: input state and those arguments), lexically scoped.
+- Deferred, filed: recipe overrides of a final pipeline command
+  (`RECIPE-OVERRIDES-MISS-A-FINAL-PIPELINE-COMMAND`); operand type checks and `gui_info`
+  inference (`PIPELINE-COMMAND-OPERAND-TYPES-UNCHECKED`). Injection is forwarded as for any step
+  (the body's actions resolve injected arguments from the same context); only the payload half
+  of AC-20 has a test.
+- `commands_doc` describes pipeline commands, so `specs/command_registry.yaml` was regenerated
+  (an `impl_version` change only).

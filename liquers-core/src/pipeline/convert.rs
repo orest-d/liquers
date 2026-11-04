@@ -390,6 +390,7 @@ impl TryFrom<&crate::plan::ParameterValue> for Pipeline {
             | P::MultipleParameters(_, _)
             | P::Injected(_)
             | P::InputState(_)
+            | P::FrameArgument(_, _)
             | P::None => Err(Error::conversion_error_with_message(
                 parameter.to_string(),
                 "Pipeline",

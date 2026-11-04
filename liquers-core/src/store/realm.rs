@@ -465,6 +465,7 @@ impl StoreConfigFunctions {
                 | Step::UseValue(_)
                 | Step::Filename(_)
                 | Step::Plan(_)
+                | Step::PipelineCommand { .. }
                 | Step::SetCwd(_)
                 | Step::UseKeyValue(_) => {
                     return Err(context.refuse_step(step));
@@ -563,6 +564,7 @@ impl StoreConfigFunctions {
                 Step::Warning(message) => out.push(message_step(LogEntryKind::Warning, message)),
                 Step::Error(message) => out.push(message_step(LogEntryKind::Error, message)),
                 Step::Plan(nested) => self.compile_plan(nested, stage, context, out)?,
+                Step::PipelineCommand { .. } => return Err(context.refuse_step(step)),
                 Step::SetCwd(_) => {
                     return Err(
                         context.error("sets a working directory, which is not supported", None)
@@ -624,6 +626,7 @@ impl CompileContext<'_> {
             Step::Filename(_) => "an output filename",
             Step::SetCwd(_) => "a working directory",
             Step::Plan(_) => "a nested plan",
+            Step::PipelineCommand { .. } => "a pipeline command",
             Step::Action { .. } | Step::Info(_) | Step::Warning(_) | Step::Error(_) => "a step",
         };
         self.error(&format!("contains {what}"), None)
@@ -681,7 +684,7 @@ fn check_literals(
             | ParameterValue::DefaultPipeline(name, _) => Err(format!(
                 "parameter '{name}' is a pipeline; only literals are allowed"
             )),
-            ParameterValue::InputState(name) => Err(format!(
+            ParameterValue::InputState(name) | ParameterValue::FrameArgument(name, _) => Err(format!(
                 "parameter '{name}' is the input state; only literals are allowed"
             )),
             ParameterValue::None => Err("a parameter is unresolved".to_string()),
@@ -809,7 +812,7 @@ pub fn string_parameter(parameters: &ResolvedParameterValues, name: &str) -> Res
             | ParameterValue::ParameterPipeline(_, _, _)
             | ParameterValue::OverridePipeline(_, _)
             | ParameterValue::DefaultPipeline(_, _)
-            | ParameterValue::InputState(_)
+            | ParameterValue::InputState(_) | ParameterValue::FrameArgument(_, _)
             | ParameterValue::None => {}
         }
     }
@@ -847,7 +850,7 @@ pub fn string_list_parameter(
                         | ParameterValue::ParameterPipeline(_, _, _)
                         | ParameterValue::OverridePipeline(_, _)
                         | ParameterValue::DefaultPipeline(_, _)
-                        | ParameterValue::InputState(_)
+                        | ParameterValue::InputState(_) | ParameterValue::FrameArgument(_, _)
                         | ParameterValue::None => {
                             return Err(Error::configuration_error(format!(
                                 "parameter '{name}' has an element that is not a literal"
