@@ -3,7 +3,7 @@ title: Python Integration
 kind: reference
 audience: both
 area: [py, core/value, core/error, lib/value, core/store, store/config, core/assets]
-reviewed: 2026-11-02
+reviewed: 2026-11-04
 ---
 # Python Integration
 
@@ -19,7 +19,8 @@ for stores and recipe providers, [`design/liquers-py-store/`](../design/liquers-
 and [`design/liquers-py-recipes/`](../design/liquers-py-recipes/DESIGN.md); for records, packaging
 and type declarations, [`design/liquers-py-records/`](../design/liquers-py-records/DESIGN.md),
 [`design/liquers-py-package/`](../design/liquers-py-package/DESIGN.md) and
-[`design/liquers-py-stubs/`](../design/liquers-py-stubs/DESIGN.md).
+[`design/liquers-py-stubs/`](../design/liquers-py-stubs/DESIGN.md); for data nodes,
+[`design/liquers-py-data-nodes/`](../design/liquers-py-data-nodes/DESIGN.md).
 
 ## 1. Layout
 
@@ -71,7 +72,8 @@ frozen; the others hold their own copy of the value.
 | `ErrorType`, `Error` | `liquers_core::error`; `Error` is a data object, not the exception (§6) |
 | `Environment`, `Issue` | the environment handle (§3) and one `IssueReport` finding |
 | `Context`, `AssetRef` | a command's context and an asset reference, each watching its environment's shut flag |
-| `State` | a snapshot of a value, converted to Python, and a copy of its metadata; `record_view()` gives the record view behind it, or `None` |
+| `State` | a snapshot of a value and a copy of its metadata; `value` converts to Python on first access (§5), `record_view()` gives the record view behind it, or `None`, and `data_node()` reads it in place (§14) |
+| `NodeKind`, `DataNode`, `data_node` | a data node's kind, a view of one, and the function making a view (§14) |
 | `RecordView`, `RecordColumn`, `RecordBuffer`, `RecordSchema`, `FieldSchema`, `FieldType`, `KeyRole`, `ChunkOrigin`, `RecordSource`, `RecordStream`, `RecordChunk` | `liquers_records` views, sources and schema types (§11) |
 
 `Plan.to_json` / `to_yaml` and `Plan.from_json` / `from_yaml` round-trip within one version
@@ -160,6 +162,7 @@ under a lock.
 | `import_metadata(yaml)` | adds command metadata from a document with a `commands` list; only an unparseable document raises here, other problems surface through `validate()` and the next build |
 | `validate()` | the issues the next build would meet, as `lq.Issue` |
 | `evaluate_async(query)`, `evaluate_state_async(query)`, `get_asset_async(query)`, `store_set_async(key, data)` | the same, awaitable (§7) |
+| `data_node(x)` | `x` as an `lq.DataNode` read at the top level; a folder or record source state reads with `_async` (§14) |
 | `shutdown()` | stops the environment |
 | `live_handle_count()` | static, `debug-handles` only: Python callables held by every environment's registrations |
 
@@ -251,7 +254,8 @@ asset, and waits with `wait_for_dependency`. `info`, `warning` and `error` appen
 log. An `error` entry also fails the evaluation: the command keeps running, and once it returns
 the query raises `ExecutionError` with the first such message, whatever the command returned
 (`Context::error` in core). `is_cancelled()` reads the asset's cancellation flag.
-`evaluate_async(query)` is the awaitable `evaluate`, for `async def` commands.
+`evaluate_async(query)` is the awaitable `evaluate`, for `async def` commands. `data_node(x)` gives `x` as an
+`lq.DataNode`, a state read through this context (§14).
 
 ## 5. Values
 
@@ -289,6 +293,12 @@ is rebuilt with `polars.read_parquet` and an image with `PIL.Image.open`, raisin
 `ConversionError` when the library is missing. A record view becomes `lq.RecordView` (or, with
 exactly one row and one field, that cell's scalar) and a record source `lq.RecordSource` (§11).
 Every other extended variant (UI values) raises `ConversionError` with its type identifier.
+
+**When a state converts.** `lq.State` holds the Liquers state and converts its value on the first
+read of `State.value`, once (the result is kept, so identity holds between reads); a value that
+cannot be converted raises there, not at `evaluate_state`. `record_view()` and `data_node()` read
+the Liquers value without converting it, so a polars frame can be read cell by cell with polars
+never imported.
 
 **The opaque type.** `PyObjectValue` has the type identifier `py.Object` and the `type_name`
 `module.QualName` of the object's class. It holds a `Py<PyAny>`, which is `Send + Sync`; dropping
@@ -761,10 +771,66 @@ same change.
 generated; values are `Any`, so a checker cannot follow a value through a query; generating the
 declarations from the PyO3 signatures can be revisited when PyO3's own stub generation matures.
 
+## 14. Data nodes
+
+A data node is Liquers' read-only, field-by-field view of a value (`liquers_core::data_node`):
+templates walk one, and Python reads one with `lq.DataNode`. liquers-py provides both directions.
+
+**Python data read by Liquers.** A retained Python object (`py.Object`, §5) answers
+`Value::data_node` with a `PyNode` (`data_node.rs`) over the live object, so a template renders a
+`dict` holding a `datetime` without the dict ever being converted. `node_of` classifies, in order:
+
+| Python | Node |
+|---|---|
+| `None`, `bool`, `int` (in `i64`), `float`, `str` | the scalar; a scalar subclass (`IntEnum`) reads as its base |
+| `int` outside `i64` | `Opaque`; `to_json` raises the conversion's `ConversionError` |
+| `bytes`, `bytearray`, `memoryview` | `Opaque` |
+| `lq.Query`, `lq.Key`, `lq.RecordView` | their Liquers value's own node |
+| exact `dict` | a map of its `str` keys (other keys are skipped) |
+| exact `list`, `tuple` | a list |
+| a class with `__liquers_data__ = True` | `keys` + `__getitem__` → map; `__len__` + `__getitem__` → list; `__index__` → integer; `__float__` → float; none → `Opaque` |
+| a class with a `__liquers_data__` method | the method's result, called once per node, classified as above (its own opt-in ignored) |
+| anything else, container subclasses included (`OrderedDict`) | `Opaque` |
+
+The opt-in is read from the type, so an instance attribute or `__getattr__` never runs; only code
+a class opted in runs. A raise inside an opted-in protocol makes that node `Opaque`, since a lookup
+has no error channel; `KeyError` / `IndexError` mean missing. Every lookup takes the GIL again
+through `attach_off_worker`. `to_json` walks once with an identity set and raises
+`ConversionError` for a cycle, a non-`str` key (named), an out-of-range `int`, a non-finite
+`float` or an `Opaque` member.
+
+**Liquers data read by Python.** `lq.DataNode` is a view: a root and a path, resolved on each
+read, so a live Python object is seen as it is now. Members: `kind` (`lq.NodeKind`), `scalar`,
+`node[key]` / `node[i]` (`KeyError` / `IndexError`), `get(key, default=None)`, `keys()`,
+`len(node)`, iteration (child views of a list, keys of a map), `bool(node)`, `to_json()`, and the
+awaitable `get_async(key)` (`None` when missing), `scalar_async()`, `len_async()`,
+`to_json_async()`. There is no `keys_async`: core's `AsyncDataNode` has none.
+
+| Made by | Root | Reads |
+|---|---|---|
+| `lq.data_node(x)`, `State.data_node()` | `x` through `node_of`, or the state's Liquers value | sync |
+| `context.data_node(state)` | the state read through the running command's context (`ContextHost::node_of`) | a folder or record source with `_async`; `GeneralError` once the command returned |
+| `env.data_node(state)` | the state read at the top level | a folder or record source with `_async`, each read one closure asset (`ASSETS.md` §Closure assets); `GeneralError` after `shutdown()` |
+
+A value needing a context is one `liquers_lib::template::host::context_node_kind` names: a directory
+listing (`-R-dir/…`, a map) or a record source (a list). Its sync members raise `NotSupportedError`
+naming the `_async` form; its `kind` is known without a read. Anything else is a plain node, read
+sync whichever way it was made.
+
+**Async reads.** A `Node` or `Command` read is a lookup future on the liquers-py runtime
+(`aio::awaitable`). An `Env` read is a run (`closure.rs` `awaitable_run`): spawned so it always
+ends, cancelled on `shutdown()` (the awaitable raises `CancelledError`), and cancelled when the
+awaiting task is cancelled — the asset is private to the call, so nobody else waits for it. A
+shared asset the read was waiting for (a file it reads) is not cancelled (§7).
+
+**Open problems.** `ASYNC-DATA-NODE-HAS-NO-KEYS`. A 10 000-entry `dict` rendered with a section
+takes about 0.2 s in a debug build, one GIL hold per lookup.
+
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | §14 Data nodes (Python data read in place, `lq.DataNode` views and their roots, async reads); §5 `State.value` converts on first access; §2 and §3 list the new names. | `design/liquers-py-data-nodes/` |
 | 2026-11-02 | §8: the generated API reference exists (pdoc, published on the documentation site); the limitation is lifted. | design `py-api-reference` |
 | 2026-11-01 | §11 Records (classes, crossing, building with `fields=`, Arrow/pandas/polars routes, buffers, where a source reads, traversal and its blocking-call messages), §12 Packaging (version, wheels, extras and `require`'s import-first rule, native requirements, the release pipeline and its approval), §13 Type declarations; §1, §2, §5 and §8 updated: records cross to Python, type stubs exist and release wheels are built. | `design/liquers-py-records/`, `design/liquers-py-package/`, `design/liquers-py-stubs/` (phase-5) |
 | 2026-11-01 | §9 Stores and §10 Recipe providers written in Python (registration, protocol, threads, `lq.Store`, `env.recipes`); §1-§3 and §8 updated; the Python recipe provider limitation is lifted. | `design/liquers-py-store/`, `design/liquers-py-recipes/` (phase-5) |
