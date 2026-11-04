@@ -10,6 +10,7 @@
 //! [COLUMNAR]: https://arrow.apache.org/docs/format/Columnar.html
 
 use std::marker::PhantomData;
+use std::ops::Range;
 use std::sync::Arc;
 
 use liquers_core::error::Error;
@@ -95,6 +96,13 @@ impl AlignedBuffer {
         }
     }
 
+    /// Where the storage starts — how a test observes that a round trip moved a buffer rather
+    /// than copying it.
+    #[cfg(test)]
+    pub(crate) fn storage_ptr(&self) -> *const u8 {
+        self.chunks.as_ptr().cast()
+    }
+
     /// Takes over this buffer's storage as a growable [`AlignedBytesMut`] — a move, no byte copy,
     /// when this `AlignedBuffer` is the storage's only handle (`Arc::try_unwrap` succeeds); a
     /// single copy otherwise. `pub(crate)`: `mutable.rs`'s `RecordBatch::into_mut` is the only
@@ -169,6 +177,45 @@ impl AlignedBytesMut {
     pub(crate) fn set(&mut self, offset: usize, bytes: &[u8]) {
         let flat: &mut [u8] = bytemuck::cast_slice_mut(&mut self.chunks);
         flat[offset..offset + bytes.len()].copy_from_slice(bytes);
+    }
+
+    /// The bytes written so far, mutably — how a caller rewrites a run of them (a bitmap byte, a
+    /// tail of offsets) in place.
+    pub(crate) fn as_bytes_mut(&mut self) -> &mut [u8] {
+        let len = self.len;
+        let flat: &mut [u8] = bytemuck::cast_slice_mut(&mut self.chunks);
+        &mut flat[..len]
+    }
+
+    /// Replaces the bytes in `range` with `bytes`, moving the bytes after the range once — how
+    /// `ColumnMut::set` changes the length of one variable-length cell. A same-length replacement
+    /// writes in place; the padding past the new end stays zero. `range` must lie within the
+    /// written bytes; one that does not is clamped to them.
+    pub(crate) fn splice(&mut self, range: Range<usize>, bytes: &[u8]) {
+        let old_len = self.len;
+        let end = range.end.min(old_len);
+        let start = range.start.min(end);
+        let new_len = old_len - (end - start) + bytes.len();
+        if new_len > old_len {
+            let needed_chunks = new_len.div_ceil(ALIGNMENT);
+            if needed_chunks > self.chunks.len() {
+                self.chunks.resize(needed_chunks, AlignedChunk([0u8; ALIGNMENT]));
+            }
+        }
+        let flat: &mut [u8] = bytemuck::cast_slice_mut(&mut self.chunks);
+        flat.copy_within(end..old_len, start + bytes.len());
+        flat[start..start + bytes.len()].copy_from_slice(bytes);
+        if new_len < old_len {
+            flat[new_len..old_len].fill(0);
+            self.chunks.truncate(new_len.div_ceil(ALIGNMENT));
+        }
+        self.len = new_len;
+    }
+
+    /// Where the storage starts; see [`AlignedBuffer::storage_ptr`].
+    #[cfg(test)]
+    pub(crate) fn storage_ptr(&self) -> *const u8 {
+        self.chunks.as_ptr().cast()
     }
 
     /// Shortens the buffer to `len` bytes (no-op when it is not longer), zeroing the dropped
@@ -256,6 +303,12 @@ impl<T: bytemuck::Pod> Buffer<T> {
 
     /// The inverse of [`Buffer::into_aligned`] — wraps an already-built `AlignedBuffer` back into
     /// a typed `Buffer<T>`, e.g. the frozen result of [`AlignedBytesMut::freeze`].
+    /// See [`AlignedBuffer::storage_ptr`].
+    #[cfg(test)]
+    pub(crate) fn storage_ptr(&self) -> *const u8 {
+        self.data.storage_ptr()
+    }
+
     pub(crate) fn from_aligned(data: AlignedBuffer) -> Self {
         Buffer { data, _marker: PhantomData }
     }
@@ -505,11 +558,225 @@ impl Bitmap {
     pub fn iter_ones(&self) -> impl Iterator<Item = usize> + '_ {
         (0..self.len).filter(move |&i| self.get(i))
     }
+
+    /// Takes over this bitmap's storage as a growable [`BitmapMut`] — a move when this bitmap is
+    /// the storage's only handle, one copy otherwise ([`AlignedBuffer::into_mut`]). Storage beyond
+    /// the `len.div_ceil(8)` bytes the bits need is dropped, storage short of them is
+    /// zero-filled, and the padding bits of the last byte are cleared.
+    pub(crate) fn into_mut(self) -> BitmapMut {
+        let Bitmap { bits, len } = self;
+        let needed = len.div_ceil(8);
+        let mut bytes = bits.into_mut();
+        if bytes.len() > needed {
+            bytes.truncate(needed);
+        } else if bytes.len() < needed {
+            bytes.extend_from_slice(&vec![0u8; needed - bytes.len()]);
+        }
+        let mut bitmap = BitmapMut { bytes, len };
+        bitmap.clear_padding();
+        bitmap
+    }
+
+    /// See [`AlignedBuffer::storage_ptr`].
+    #[cfg(test)]
+    pub(crate) fn storage_ptr(&self) -> *const u8 {
+        self.bits.storage_ptr()
+    }
+}
+
+/// The growable counterpart of [`Bitmap`], over [`AlignedBytesMut`]: packed LSB-first from the
+/// start, so [`BitmapMut::freeze`] hands its storage to a new `Bitmap` without copying, and
+/// [`Bitmap::into_mut`] takes a bitmap over the same way. Bits beyond `len` are kept clear.
+/// `pub(crate)`: `ColumnMut` (`mutable.rs`) is the public mutable surface it backs.
+#[derive(Debug, Clone)]
+pub(crate) struct BitmapMut {
+    bytes: AlignedBytesMut,
+    len: usize,
+}
+
+impl BitmapMut {
+    #[cfg(test)]
+    pub(crate) fn new() -> Self {
+        BitmapMut { bytes: AlignedBytesMut::new(), len: 0 }
+    }
+
+    pub(crate) fn with_capacity(bits: usize) -> Self {
+        BitmapMut { bytes: AlignedBytesMut::with_capacity(bits.div_ceil(8)), len: 0 }
+    }
+
+    /// `len` bits, all set to `value`.
+    pub(crate) fn filled(len: usize, value: bool) -> Self {
+        let fill = if value { 0xFF } else { 0x00 };
+        let mut bytes = AlignedBytesMut::with_capacity(len.div_ceil(8));
+        bytes.extend_from_slice(&vec![fill; len.div_ceil(8)]);
+        let mut bitmap = BitmapMut { bytes, len };
+        bitmap.clear_padding();
+        bitmap
+    }
+
+    /// Bits, not bytes.
+    pub(crate) fn len(&self) -> usize {
+        self.len
+    }
+
+    pub(crate) fn reserve(&mut self, additional_bits: usize) {
+        let needed = (self.len + additional_bits).div_ceil(8);
+        self.bytes.reserve(needed.saturating_sub(self.bytes.len()));
+    }
+
+    pub(crate) fn push(&mut self, value: bool) {
+        if self.len % 8 == 0 {
+            self.bytes.extend_from_slice(&[0]);
+        }
+        self.len += 1;
+        self.set(self.len - 1, value);
+    }
+
+    /// `false` beyond `len`.
+    #[cfg(test)]
+    pub(crate) fn get(&self, i: usize) -> bool {
+        i < self.len
+            && self
+                .bytes
+                .as_bytes()
+                .get(i / 8)
+                .is_some_and(|byte| (byte >> (i % 8)) & 1 == 1)
+    }
+
+    /// Sets bit `i`; an `i` at or beyond `len` is ignored — callers check the row first.
+    pub(crate) fn set(&mut self, i: usize, value: bool) {
+        if i >= self.len {
+            return;
+        }
+        if let Some(byte) = self.bytes.as_bytes_mut().get_mut(i / 8) {
+            if value {
+                *byte |= 1 << (i % 8);
+            } else {
+                *byte &= !(1 << (i % 8));
+            }
+        }
+    }
+
+    /// Shortens to `len` bits (no-op when it is not longer), clearing the dropped bits.
+    pub(crate) fn truncate(&mut self, len: usize) {
+        if len >= self.len {
+            return;
+        }
+        self.bytes.truncate(len.div_ceil(8));
+        self.len = len;
+        self.clear_padding();
+    }
+
+    /// Set bits among the first `len`.
+    pub(crate) fn count_ones(&self) -> usize {
+        self.bytes.as_bytes().iter().map(|byte| byte.count_ones() as usize).sum()
+    }
+
+    /// Consumes this bitmap into an immutable [`Bitmap`] — a move, not a copy.
+    pub(crate) fn freeze(self) -> Bitmap {
+        Bitmap { bits: self.bytes.freeze(), len: self.len }
+    }
+
+    /// Clears the bits of the last byte beyond `len`, so `count_ones` and a later `push` see none.
+    fn clear_padding(&mut self) {
+        let remainder = self.len % 8;
+        if remainder != 0 {
+            if let Some(last) = self.bytes.as_bytes_mut().last_mut() {
+                *last &= (1u8 << remainder) - 1;
+            }
+        }
+    }
+
+    /// See [`AlignedBuffer::storage_ptr`].
+    #[cfg(test)]
+    pub(crate) fn storage_ptr(&self) -> *const u8 {
+        self.bytes.storage_ptr()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `column-mut-zero-copy-validity` AC-1, AC-3: an unshared bitmap moves both ways; a shared
+    /// one is copied and the original left alone.
+    #[test]
+    fn bitmap_into_mut_and_freeze_reuse_unshared_storage() {
+        let bitmap = Bitmap::from_bools(&[true, false, true, true, false, true, false, false, true]);
+        let expected = bitmap.clone();
+        let original = bitmap.storage_ptr();
+        // `expected` shares the storage, so this round trip must copy.
+        let mut copied = bitmap.into_mut();
+        assert_ne!(copied.storage_ptr(), original);
+        copied.set(0, false);
+        assert!(expected.get(0), "the shared original is untouched");
+
+        let alone = expected.clone();
+        drop(expected);
+        let original = alone.storage_ptr();
+        let moved = alone.into_mut();
+        assert_eq!(moved.storage_ptr(), original);
+        let frozen = moved.freeze();
+        assert_eq!(frozen.storage_ptr(), original);
+        assert_eq!(
+            frozen,
+            Bitmap::from_bools(&[true, false, true, true, false, true, false, false, true])
+        );
+    }
+
+    #[test]
+    fn bitmap_mut_push_set_truncate_match_bitmap() {
+        let bools: Vec<bool> = (0..21).map(|i| i % 3 != 0).collect();
+        let mut built = BitmapMut::with_capacity(4);
+        for &b in &bools {
+            built.push(b);
+        }
+        assert_eq!(built.len(), 21);
+        assert_eq!(built.count_ones(), bools.iter().filter(|&&b| b).count());
+        built.set(1, false);
+        assert!(!built.get(1));
+        built.set(1, true);
+        built.set(99, true); // ignored, out of range
+        assert!(!built.get(99));
+        assert_eq!(built.clone().freeze(), Bitmap::from_bools(&bools));
+
+        built.truncate(10);
+        built.push(true);
+        let mut expected = bools[..10].to_vec();
+        expected.push(true);
+        assert_eq!(built.freeze(), Bitmap::from_bools(&expected));
+
+        let filled = BitmapMut::filled(13, true);
+        assert_eq!(filled.count_ones(), 13);
+        assert_eq!(filled.freeze(), Bitmap::from_bools(&[true; 13]));
+        assert_eq!(BitmapMut::new().freeze(), Bitmap::new(0));
+    }
+
+    /// AC-5's primitive: a longer, a shorter and a same-length replacement move only the tail.
+    #[test]
+    fn aligned_bytes_mut_splice_moves_the_tail() {
+        let mut bytes = AlignedBytesMut::new();
+        bytes.extend_from_slice(b"aaabbbccc");
+        bytes.splice(3..6, b"BBBBB");
+        assert_eq!(bytes.as_bytes(), b"aaaBBBBBccc");
+        bytes.splice(3..8, b"b");
+        assert_eq!(bytes.as_bytes(), b"aaabccc");
+        bytes.splice(0..3, b"xyz");
+        assert_eq!(bytes.as_bytes(), b"xyzbccc");
+        bytes.splice(7..7, b"!");
+        assert_eq!(bytes.as_bytes(), b"xyzbccc!");
+
+        // Across a chunk boundary, and back: the padding past the end stays zero.
+        let long = vec![7u8; 100];
+        bytes.splice(4..4, &long);
+        assert_eq!(bytes.len(), 108);
+        assert_eq!(&bytes.as_bytes()[..4], b"xyzb");
+        assert_eq!(&bytes.as_bytes()[104..], b"ccc!");
+        bytes.splice(4..104, b"");
+        assert_eq!(bytes.as_bytes(), b"xyzbccc!");
+        bytes.extend_from_slice(&[0u8; 60]);
+        assert!(bytes.as_bytes()[8..].iter().all(|&b| b == 0));
+    }
 
     #[test]
     fn aligned_buffer_alignment_is_64_bytes() {

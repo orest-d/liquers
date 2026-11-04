@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 216
+Total rows: 215
 - P2: 62
-- P3: 154
+- P3: 153
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -128,7 +128,6 @@ Total rows: 216
 | [`WEB-PIPELINE-EDITOR-HAS-NO-DEFINITION-MODE`](issues/WEB-PIPELINE-EDITOR-HAS-NO-DEFINITION-MODE.md) | feature | The JavaScript pipeline editors have no command-definition mode, so they refuse placeholders | draft |  |  | P3 | S | web |  | 2026-11-04 |
 | [`WEB-UNREGISTER-DEPENDS-ON-FIRST-EVALUATION`](issues/WEB-UNREGISTER-DEPENDS-ON-FIRST-EVALUATION.md) | issue | unregisterCommand removes a built-in command before the first evaluation but not after it | draft |  |  | P3 | S | web |  | 2026-10-26 |
 | [`WEBUI-SHORTCUTS-RUN-IN-EVERY-MOUNT`](issues/WEBUI-SHORTCUTS-RUN-IN-EVERY-MOUNT.md) | issue | With two web UI mounts on one page, an unfocused menu shortcut runs in both | draft |  |  | P3 | S | lib/ui;web |  | 2026-10-31 |
-| [`COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY`](issues/COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY.md) | issue | ColumnMut always copies validity, and rebuilds the whole column to overwrite one Text/Binary cell | draft | ready | not-eligible | P3 | M | records | [design](design/column-mut-zero-copy-validity/DESIGN.md) | 2026-09-26 |
 | [`DEPENDENCY-ANALYSIS-REWALKS-UPSTREAM-PER-EVALUATION`](issues/DEPENDENCY-ANALYSIS-REWALKS-UPSTREAM-PER-EVALUATION.md) | feature | Each plan analysis re-walks the whole upstream recipe graph | draft | ready | not-eligible | P3 | M | core/plan;core/assets | [design](design/payload-requirement-skips-dependency-analysis/DESIGN.md) | 2026-10-08 |
 | [`ASSET-EVENT-STREAM-CARRIES-ONLY-EXPIRATIONS`](issues/ASSET-EVENT-STREAM-CARRIES-ONLY-EXPIRATIONS.md) | feature | The manager event stream announces expirations only, not new versions, additions or removals | draft | needs-decision | not-eligible | P3 | M | core/assets | [design](design/asset-event-kinds/DESIGN.md) | 2026-10-21 |
 | [`ASSET-EVENTS-ARE-NOT-DELIVERED-OUT-OF-PROCESS`](issues/ASSET-EVENTS-ARE-NOT-DELIVERED-OUT-OF-PROCESS.md) | feature | Manager-level asset events cannot be followed from another process | draft | needs-decision | not-eligible | P3 | M | axum | [design](design/asset-events-over-websocket/DESIGN.md) | 2026-10-21 |
