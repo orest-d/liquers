@@ -2,7 +2,7 @@
 id: POLARS-DATAFRAME-IPC-NOT-SERIALIZABLE
 kind: issue
 title: A polars DataFrame cannot be written or read as Arrow IPC although polars is built with ipc
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [lib/polars]
@@ -41,3 +41,7 @@ Example: `Value::from_polars_dataframe(df).as_bytes("feather")` returns "Polars 
 data_format 'feather' is not implemented yet"; `-R/data/sales.feather/-/ns-pl/head-5` fails the same
 way. Design: `specs/design/polars-dataframe-ipc/` (also adopts the `arrow` spelling, as
 `liquers-records` does). JSON and NDJSON are filed separately as `POLARS-DATAFRAME-JSON-NOT-SERIALIZABLE`.
+
+## Resolution
+
+Closed 2026-11-03 by design `polars-dataframe-ipc`, PR #249. IPC is read and written under four spellings and declared by `polars.DataFrame`'s `TypeInfo`; a stored binary file now reaches `ns-pl` uncorrupted.
