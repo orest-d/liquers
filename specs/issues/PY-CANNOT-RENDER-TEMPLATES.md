@@ -32,8 +32,9 @@ github:
 
 ## Impact
 
-Python users can render templates only through hand-built query text. `TEMPLATE` is `NS` in
-`liquers-py/README.md`'s conformance matrix (guide §6 Python, "Templates and data nodes").
+Python users can render templates only through hand-built query text. `TEMPLATE` is `NS` for
+liquers-py (guide §6 Python, "Templates and data nodes"); `liquers-py/README.md`'s conformance
+matrix has no `TEMPLATE` row.
 
 ## Expected behaviour
 

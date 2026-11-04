@@ -453,9 +453,6 @@ deliberately folded behind a broader line.
 - design `lib-integration-test-feature-gates`
 - design `lib-polars-ethnum-rust-1-98`
 - design `library-no-panic-lint`
-- design `liquers-py-data-nodes`
-- design `liquers-py-pipelines`
-- design `liquers-py-templates`
 - design `liquers-web-records-bridge`
 - design `listdir-keys-deep-child-check`
 - design `macro-argument-hints-and-query-literals`
@@ -714,6 +711,7 @@ deliberately folded behind a broader line.
 - feature `VALUE-TYPE-DEFINITION-MACRO`
 - feature `WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS`
 - feature `WEB-API-REFERENCE-NOT-GENERATED`
+- feature `WEB-CANNOT-USE-PIPELINES`
 - feature `WEB-HAS-NO-READ-WRITE-REMOTE-STORE`
 - feature `WEB-HAS-NO-TEMPLATE-COMMANDS`
 - feature `WEB-QUERY-EDITOR-NOT-LIVE`

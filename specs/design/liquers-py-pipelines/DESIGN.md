@@ -9,15 +9,16 @@ readiness: needs-decision
 autofix: not-eligible
 area: [py, core/commands]
 issues: [PIPELINES-NOT-IN-LANGUAGE-BINDINGS]
-affects_docs: [specs/reference/PYTHON_INTEGRATION.md, specs/guides/PYTHON_GUIDE.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, liquers-py/README.md, specs/README.md, specs/reference/PIPELINES.md]
+affects_docs: [specs/reference/PYTHON_INTEGRATION.md, specs/guides/PYTHON_GUIDE.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, liquers-py/README.md, specs/README.md, specs/reference/PIPELINES.md, specs/guides/PIPELINE_GUIDE.md]
 created: 2026-11-04
 ---
 # liquers-py-pipelines — evaluate, convert, edit and register pipelines from Python
 
 The `PIPELINE` feature for liquers-py: milestone M6 of the liquers-py plan, together with
 [`liquers-py-templates`](../liquers-py-templates/DESIGN.md) and
-[`liquers-py-data-nodes`](../liquers-py-data-nodes/DESIGN.md). Full form (`L`). Takes the Python
-half of `PIPELINES-NOT-IN-LANGUAGE-BINDINGS`; whether it also takes that of
+[`liquers-py-data-nodes`](../liquers-py-data-nodes/DESIGN.md). Full form (`L`). Implements
+`PIPELINES-NOT-IN-LANGUAGE-BINDINGS`, narrowed to Python (the JavaScript half is
+`WEB-CANNOT-USE-PIPELINES`); whether it also takes that of
 `QUERY-BUILDER-NOT-IN-BINDINGS` (design `query-builder-in-bindings`) is Phase 1 question 6.
 
 Phase 1 written and reviewed twice on 2026-11-04; waiting at the Phase 1 gate.

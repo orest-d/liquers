@@ -9,7 +9,7 @@ readiness: needs-decision
 autofix: not-eligible
 area: [py, lib/value]
 issues: [PY-STRUCTURES-ARE-OPAQUE-TO-DATA-NODE-READERS]
-affects_docs: [specs/reference/PYTHON_INTEGRATION.md, specs/guides/PYTHON_GUIDE.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, liquers-py/README.md, specs/README.md]
+affects_docs: [specs/reference/PYTHON_INTEGRATION.md, specs/guides/PYTHON_GUIDE.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, liquers-py/README.md, specs/README.md, specs/guides/TEMPLATE_GUIDE.md]
 created: 2026-11-04
 ---
 # liquers-py-data-nodes — Python data read in place, and Liquers values read field by field
