@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 220
+Total rows: 221
 - P2: 67
-- P3: 153
+- P3: 154
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -106,6 +106,7 @@ Total rows: 220
 | [`VARIADIC-KEY-OR-QUERY-LINK-FAILS-TO-MATERIALIZE`](issues/VARIADIC-KEY-OR-QUERY-LINK-FAILS-TO-MATERIALIZE.md) | issue | A key or query link inside a multiple argument fails, because Key and Query values have no JSON form | draft | needs-decision | not-eligible | P3 | S | core/plan;core/value | [design](design/variadic-key-query-link-text/DESIGN.md) | 2026-10-26 |
 | [`ASYNC-DATA-NODE-HAS-NO-KEYS`](issues/ASYNC-DATA-NODE-HAS-NO-KEYS.md) | issue | An async data node cannot list the field names of a map | draft |  |  | P3 | S | core/value |  | 2026-11-04 |
 | [`BYTES-VALUE-HAS-NO-NAMED-DATA-FORMAT`](issues/BYTES-VALUE-HAS-NO-NAMED-DATA-FORMAT.md) | issue | A bytes value cannot be serialized in a named data format such as csv, so raw CSV bytes cannot be a record chunk | draft |  |  | P3 | S | core/value;records |  | 2026-11-01 |
+| [`CONTEXT-APPLY-AD-HOC-SKIPS-RELATIVE-PIPELINE-KEYS`](issues/CONTEXT-APPLY-AD-HOC-SKIPS-RELATIVE-PIPELINE-KEYS.md) | issue | Context::apply_ad_hoc refuses a relative query but not a relative key inside a recipe's pipeline | draft |  |  | P3 | S | core/context |  | 2026-11-04 |
 | [`DRAFT-MARKERS-LOOK-ALIKE`](issues/DRAFT-MARKERS-LOOK-ALIKE.md) | issue | Draft builds show every editorial marker the same way | draft |  |  | P3 | S | docs |  | 2026-11-01 |
 | [`DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE`](issues/DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE.md) | issue | Removing a computed value with a stored record leaves an empty data file at its key | draft |  |  | P3 | S | core/assets;core/store |  | 2026-10-27 |
 | [`GUIDE-SECTION-ANCHORS-DIFFER-BETWEEN-RENDERERS`](issues/GUIDE-SECTION-ANCHORS-DIFFER-BETWEEN-RENDERERS.md) | issue | Section links between chapters break in the EPUB and PDF | draft |  |  | P3 | S | docs |  | 2026-11-01 |

@@ -40,6 +40,7 @@ Rejected:
 | `PY-REPRS-SHOW-RUST-DEBUG-FORMAT` | draft | P3 | New classes need reprs | No | No | `Pipeline([…])` as `to_list()`'s repr |
 | `PY-CANNOT-RENDER-TEMPLATES` (design `liquers-py-templates`) | draft | P2 | The declaration slot, `declare`, `CommandDefinition` accessors | Yes (lands first) | No: a prerequisite, ordered first | Lands before this design |
 | `PY-STRUCTURES-ARE-OPAQUE-TO-DATA-NODE-READERS` (design `liquers-py-data-nodes`) | draft | P2 | `closure.rs` | Yes (lands first) | No: a prerequisite, ordered first | Lands before this design |
+| `CONTEXT-APPLY-AD-HOC-SKIPS-RELATIVE-PIPELINE-KEYS` (filed with this phase) | draft | P3 | A relative key in a pipeline evaluated in a command is not refused by core | No | No | liquers-py checks first (`pipeline_has_relative_key`) |
 | `PY-COMMAND-DECORATOR-CANNOT-SET-REALM` | draft | P3 | A pipeline command has no realm parameter | No | No | Realm `""`, as decorators; that issue adds it to both |
 | `PY-METADATA-FIELDS-ARE-METHODS` | draft | P3 | New members | No | No | Fields are properties (`pipeline`, `index`), operations methods |
 
@@ -94,10 +95,17 @@ fn pipeline_recipe(pipeline: CorePipeline) -> Recipe;   // `Recipe { pipeline: S
 - `Context.evaluate` / `evaluate_async`: a representable pipeline evaluates its query
   (`to_query_with`), so the dependency and the cache are the query's; any other goes to
   `context.apply_ad_hoc(pipeline_recipe(p), State::new())`, whose dependencies are passed on.
+  `apply_ad_hoc` checks only a recipe's query for relative keys (`reject_relative_query`), so
+  liquers-py first refuses a pipeline with a relative resource or key operand
+  (`pipeline_has_relative_key`, a walk of its elements) with the same error a relative query gets;
+  the core gap is filed as `CONTEXT-APPLY-AD-HOC-SKIPS-RELATIVE-PIPELINE-KEYS`.
 
 **Editors** (`pipeline.rs`). Frozen classes with interior `std::sync::Mutex` (free-threaded safe);
-every method locks, edits a **clone** of the core editor, and stores it only on success, so a
-refused step, including the second step of one Python call, leaves the editor unchanged (AC-7).
+every method first converts its Python arguments (`json_slot`, `pipeline_from_py`, which run
+Python code), then locks with `lock_py_attached` (as `EnvCell::lock` does, so a GC pass cannot
+deadlock a second thread on the lock), edits a **clone** of the core editor, and stores it only on
+success, so a refused step, including the second step of one Python call, leaves the editor
+unchanged (AC-7).
 
 ```rust
 #[pyclass(frozen, name = "PipelineEditor", module = "liquers")]

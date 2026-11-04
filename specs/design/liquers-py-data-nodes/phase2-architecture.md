@@ -66,7 +66,9 @@ pub(crate) fn node_of(py: Python<'_>, object: &Bound<'_, PyAny>) -> PyNode;
   (a non-finite one keeps its `Scalar::Float`, and `to_json` raises `ConversionError`); `str`;
   `bytes` / `bytearray` / `memoryview` `Opaque`; the three wrappers; exact `dict`; exact `list` /
   `tuple`; then the opt-in. Scalar subclasses (an `IntEnum`) are read as their base type, as
-  conversion does; container subclasses are not (Decision 1).
+  conversion does; container subclasses are not (Decision 1), so an `OrderedDict` or a
+  `defaultdict` converts as a map but reads as `Opaque` when retained. §Data nodes documents it,
+  with the remedy (subclass and set `__liquers_data__ = True`).
 - **Opt-in.** `__liquers_data__` is looked up on the type (`type(obj).__liquers_data__`), so an
   instance `__getattr__` never runs. `True` picks the protocol shape (map before list before
   `__index__` before `__float__`; none of them gives `Opaque`). A callable is called once on the
@@ -100,7 +102,7 @@ pub struct DataNode { root: Arc<Root>, path: Arc<[Step]>, kind: liquers_core::da
 enum Step { Key(String), Index(usize) }
 enum Root {
     Node(AnyNode),                                        // lq.data_node(x), State.data_node()
-    Command { state: CoreState<Value>, context: crate::context::Context }, // context.data_node
+    Command { state: CoreState<Value>, context: crate::context::Context }, // `clone_handle()`
     Env { state: CoreState<Value>, scope: Scope },        // env.data_node; `Scope::from_envref`
 }
 ```
@@ -119,7 +121,8 @@ Python members: `kind`; `scalar` (`None` for a non-scalar; `Scalar::UInt` gives 
   through an await.
 - **Roots.** `Node`: the node itself. `Command`: `ContextHost::new(core_context, Key::new())
   .node_of(&state)` while the `lq.Context` handle is valid, `GeneralError` after
-  (`crate::context::Context::core`). `Env`: synchronously `Value::data_node(value)` when
+  (`crate::context::Context::core`); `cwd` is irrelevant here, since `node_of` never reads it
+  (only query tags and partials do). `Env`: synchronously `Value::data_node(value)` when
   `liquers_lib::template::host::context_node_kind(&value)` is `None`, else the root is async;
   asynchronously, every read runs one closure asset whose body builds
   `ContextHost::node_of(&state)` in the asset's context, walks the path there, and returns
@@ -149,8 +152,8 @@ pub(crate) fn awaitable_run<'py, T: Send + 'static>(py: Python<'py>, shut: &Arc<
 
 **State** (`liquers-py/src/asset.rs`). `State` keeps `core: CoreState<Value>` and `scope: Scope`;
 `value` converts on first access into a `pyo3::sync::PyOnceLock<Py<PyAny>>` and raises the
-conversion's error there; `record_view()` reads `core`. `State::from_core` no longer converts and
-cannot fail on the value. Gains `data_node()`.
+conversion's error there; `record_view()` reads `core`. `State::from_core` no longer converts;
+it still returns `Result` (its `Py::new` calls can fail), so the call sites keep their `?`. Gains `data_node()`.
 
 **liquers-lib** (`template/host.rs`): `pub fn context_node_kind(value: &Value) -> Option<NodeKind>`,
 the kind `ContextHost::node_of` gives a value that needs a context (`Map` for a directory listing,
@@ -168,8 +171,7 @@ new methods.
   `ConversionError` constructor made `pub(crate)`.
 - `liquers-py/src/asset.rs`: lazy `State`; `data_node()`. Call sites of `State::from_core`
   (`environment.rs` `evaluate_state`, `asset.rs` `AssetRef::get_state`, `aio.rs` `ToPy::State`,
-  `command.rs` `prepare_call`) drop the `?`
-  on conversion.
+  `command.rs` `prepare_call`) are unchanged: only where a conversion error surfaces moves.
 - `liquers-py/src/context.rs`, `environment.rs`: `data_node`.
 - `liquers-py/src/lib.rs`: register the classes and `data_node`.
 - `liquers-py/python/liquers/__init__.py`, `__init__.pyi`, `_native.pyi`: names and stubs.

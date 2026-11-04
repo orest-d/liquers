@@ -179,12 +179,15 @@ impl<E: Environment<Value = Value>> TopLevelRender<E> {
 ```
 
 - `host.rs` `ContextHost`: field `warnings: std::sync::Mutex<Vec<LogEntry>>`; `warn` builds a
-  `LogEntry` of kind `Warning` with the error's message and `position`, adds it to the context's
+  `LogEntry` of kind `Warning` whose message is `error.to_string()` (the text logged today) and
+  whose `position` is the error's, adds it to the context's
   log (`Context::add_log_entry`) and keeps it; `pub fn take_warnings(&self) -> Vec<LogEntry>`.
 - `commands.rs`: `render` and `expand` build a `RenderRequest` (`Text`, their frames as now,
   `ErrorMode::parse(errors)?`, `cwd`, escaping from `context.get_metadata()`) and return
   `Value::from(render_in_context(context, request).await?.text)`. Registrations unchanged, so
   `specs/command_registry.yaml` is unchanged.
+- Parsing: `render_top_level` parses text once to fail early (AC-9); `render_in_context` parses it
+  again. The second parse is accepted: it is cheap, and it keeps `RenderRequest` plain data.
 - Sync and async: `render_top_level` is sync (parsing and `closure_asset` only); the rest is async.
 - Errors: a parse error (`parse_template`); a link whose state is not text
   (`State::try_into_string`); `ErrorMode::parse` in the commands; the render's own errors. No new

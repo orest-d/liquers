@@ -62,10 +62,10 @@ render logged, and `run` hands back the warnings.
   THEN the asset's log holds `hello` and its metadata records the dependency on `a.txt`
 - **AC-3** Cancelling a running closure
   WHEN the body waits forever and `asset().cancel()` is called from another task
-  THEN `run` returns, the asset is `Cancelled`, and the body's future was dropped
+  THEN `run` returns the cancellation error, the asset is `Cancelled`, and the body's future was dropped
 - **AC-4** Cancelling before the run
   WHEN `asset().cancel()` is called before `run`
-  THEN the body is never invoked and the asset is `Cancelled`
+  THEN `run` returns `Ok(None)`, the body is never invoked, and the asset is `Cancelled`
 - **AC-5** A failing closure
   WHEN the body returns `Err`, and in another asset panics
   THEN both assets are `Error`, `run` returns the error, and the panic's message is named
@@ -114,9 +114,14 @@ volatility, `create_context`, install the payload, call the closure, collect pen
 The closure's `T` is written to a slot the harness future borrows, so no `'static` bound is
 needed and nothing is stored in the asset.
 
-The asset is created `Submitted`, so `AssetRef::cancel` before the run marks it `Cancelled` (a
-`Recipe` asset is "not started, nothing to cancel") and the harness's `is_finished` check then
-skips the body. `AssetData` gains `runs_closure: bool`; `InlineRunClaim::drop` reads it and marks a
+`AssetData::new_ext` starts an asset at `Status::None`; `closure_asset` sets `Submitted` with
+`AssetData::set_status` before `to_ref()`, so `AssetRef::cancel` before the run marks it `Cancelled`
+(a `Recipe` or `None` asset is "not started, nothing to cancel"). `run` / `run_inline` then claim
+the asset queue-free: under the write lock, `Submitted` becomes `Processing` (as
+`try_claim_for_run_inline` does), and an asset already `Cancelled` returns `Ok(None)` without
+calling the body. So a cancel during the run sees `Processing` and takes the request-and-wait
+path, never the "not started" one. The native path claims itself because `run_with_future` does
+not claim (only the queue's `JobStarted` and the inline claim set `Processing`). `AssetData` gains `runs_closure: bool`; `InlineRunClaim::drop` reads it and marks a
 dropped closure run `Cancelled` instead of repairing it to `Recipe`, because the closure is
 consumed and the placeholder recipe would run instead.
 
@@ -143,8 +148,9 @@ impl<E: Environment> ClosureAsset<E> {
     /// The asset, to cancel, follow or read. Clone it before `run` to cancel a running closure.
     pub fn asset(&self) -> &AssetRef<E>;
     /// Runs `body` under the spawning harness (native). `Ok(Some(t))` when the body produced its
-    /// value, `Ok(None)` when it never ran or was cancelled, `Err` when it failed. Await it to the
-    /// end: dropping it is not cancellation (the service loop task would be left behind).
+    /// value; `Ok(None)` when it never ran (cancelled before the claim); `Err` when it failed or
+    /// was cancelled mid-run (`settle_run`'s cancellation error). Await it to the end: dropping it
+    /// is not cancellation (the service loop task would be left behind).
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn run<T, F, Fut>(self, body: F, payload: Option<E::Payload>) -> Result<Option<T>, Error>
     where F: FnOnce(Context<E>) -> Fut, Fut: Future<Output = Result<(E::Value, T), Error>>;
@@ -170,9 +176,12 @@ async fn compute_closure<T, F, Fut>(&self, body: F, payload: Option<E::Payload>,
 - `AssetData`: field `runs_closure: bool`, `false` in every constructor, set by `closure_asset`.
 - `InlineRunClaim::drop`, arm `Status::Processing | Status::Dependencies`: when `runs_closure`,
   `mark_cancelled` with the cause `"the closure run was dropped"` and send
-  `StatusChanged(Cancelled)` and `JobFinished`; otherwise the existing repair. The `try_write`
-  failure branch is unchanged (a later claim of an abandoned closure asset sees `runs_closure` and
-  cancels instead of running the placeholder recipe: `try_claim_for_run_inline` gains that check).
+  `StatusChanged(Cancelled)` and `JobFinished`; otherwise the existing repair. When `try_write`
+  fails the asset is marked abandoned as today, but nobody will claim a closure asset again (its
+  `ClosureAsset` is consumed), so the repair moves to the readers: `AssetRef::get` and `poll_state`,
+  on an asset with `inline_run_abandoned && runs_closure` still in flight, mark it `Cancelled` and
+  release the waiters. The check sits only on the abandoned path; the closure's own claim goes
+  through the `Submitted` arm.
 - Errors: a body error and a panic go through `settle_run` like a command's
   (`Error::general_error("evaluation panicked: …")` for the panic); `closure_asset` fails only
   with `try_get_envref`'s error. No new constructor.

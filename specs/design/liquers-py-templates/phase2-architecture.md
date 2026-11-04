@@ -79,8 +79,10 @@ fn frames(py: Python<'_>, state: Option<&Bound<'_, PyAny>>, data: Option<&Bound<
 
 - Top level (sync): build the request, `render_top_level(&envref, request)?` (a parse error raises
   here, AC-9 of `template-render-in-env`), keep `asset().clone()`, then
-  `closure::wait_for_run(py, shut, asset, render.run())`. `Ok(None)` (cancelled before producing)
-  raises `lq.CancelledError`. Async: `closure::awaitable_run(py, shut, asset, render.run(),
+  `closure::wait_for_run(py, shut, asset, render.run())`. `Ok(None)` (cancelled before it ran)
+  raises `lq.CancelledError`, as the cancellation error of a mid-run cancel does (its type is
+  `Cancelled`). After an interrupt, `wait_for_run` waits for the run to settle with signals
+  deferred, bounded by `STOP_GRACE`, so a second Ctrl-C cannot leave it unsettled. Async: `closure::awaitable_run(py, shut, asset, render.run(),
   ToPy::Rendered…)` (`liquers-py-data-nodes`), never `aio::awaitable`, whose `select!` against
   shutdown would drop the run.
 - `closure.rs` gains the sync wait this design is the first user of:
@@ -119,7 +121,8 @@ impl EnvCell { pub(crate) fn declare(&self, py: Python<'_>, command: DeclaredCom
   (`CommandRegistry::register_alias` / `register_pipeline`, then the overrides on the returned
   `CommandMetadata`).
 - `declare` replaces an entry with the same key (and a Python command with that key, as
-  `register_py_command` replaces), then runs `configured_builder` on the new declarations plus
+  `register_py_command` replaces); symmetrically, registering a Python command removes a declared
+  command with its key, so the last registration wins either way (tested). Then runs `configured_builder` on the new declarations plus
   `builder.validate()`. An error raises and leaves the declarations unchanged; otherwise the state
   becomes `Pending`, as for a new Python command. `unregister` removes a declared command too.
 - `template_command` builds `Alias { target: template/render, head_parameters: [the link],
@@ -131,11 +134,14 @@ impl EnvCell { pub(crate) fn declare(&self, py: Python<'_>, command: DeclaredCom
 ```rust
 #[pyclass(frozen, name = "Link", module = "liquers")]
 pub struct Link(pub liquers_core::query::Query);   // `lq.link(q)` parses a str or takes an lq.Query/lq.Key
-impl Link { fn _declaration(&self) -> serde_json::Value /* {"Query": <the query's serde form>} */; }
 ```
 
-`_baseline` accepts an `lq.Link` default and writes `argument["default"] = link._declaration()`;
-the existing `CommandParameterValue` deserializer reads it as a `Query` default, which the
+`_DEFAULT_TYPES` in `_commands.py` admits `Link`, and `_baseline` keeps the `lq.Link` object as the
+default in the declaration document. `py_to_json` (`environment.rs`), which turns that document
+into JSON with `json.dumps`, passes it a `default=` hook that turns an `lq.Link` into
+`{"Query": …}`: `Link._declaration()` builds `serde_json::to_value(&query)` (the derived struct form
+of `Query` that `specs/command_registry.yaml` also holds) and returns it through
+`store::json_to_py`. The existing `CommandParameterValue` deserializer reads it as a `Query` default, which the
 interpreter resolves at execution (`liquers-py/src/command.rs` receives the resolved value). An
 `lq.Key` annotation keeps `argument_type: any`. Nothing else in the decorators changes.
 
@@ -165,7 +171,7 @@ supplied by `liquers-py-pipelines`; `None` until it lands).
 | `strict` render, a tag fails | the tag's error with its position → `lq.LiquersError` subclass (AC-7) |
 | `data` not a mapping | Python `TypeError`, before any asset |
 | Template is neither `str`, `lq.Query` nor `lq.Key`; `cwd` not an `lq.Key` | `TypeError` |
-| `errors` not a mode | `ErrorMode::parse` error → `lq.ParameterError` |
+| `errors` not a mode | `ErrorMode::parse`'s `Error::general_error` → `lq.GeneralError` |
 | A link that is not text | `State::try_into_string` → `lq.ConversionError` |
 | Sync form inside an `async def` command, or on liquers-py's loop thread | `check_blocking_call` (as `evaluate`) |
 | Top-level wait interrupted / environment shut | the asset is cancelled, then `KeyboardInterrupt` / the shutdown error |
