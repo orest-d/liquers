@@ -3,7 +3,7 @@ title: Assets Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-27
+reviewed: 2026-11-04
 ---
 # Assets Specification
 
@@ -73,6 +73,21 @@ stored-records walk), `trigger_dependency_audit` (per key, over the upstream clo
 value, typically on start). What each consistency policy guarantees is in
 [`DEPENDENCIES_STATUS.md` §Consistency policies](DEPENDENCIES_STATUS.md#consistency-policies). How
 to implement and test one: [`ASSET_MANAGER_IMPLEMENTATION_GUIDE.md`](../guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md).
+
+#### Closure assets
+
+`AssetManager::closure_asset(title) -> ClosureAsset` builds an ad-hoc asset that runs a Rust
+closure instead of a recipe. Like `apply`'s asset it is in no map, never reused, not keyed and
+never stored, and it takes no job-queue slot. It starts `Submitted` with a placeholder recipe
+titled `title`, and the handle is returned first: `closure.asset()` is what a caller clones to
+cancel the run or read the asset afterwards. `run(body, payload)` (native) and `run_inline` (both
+targets) consume the handle and run `body(context)` under the same harness as a recipe, so the
+closure gets the asset's `Context` and its reads are recorded as the asset's dependencies. The body
+returns the asset's value and a result of its own: `Ok(Some(t))` when it produced, `Ok(None)` when
+the asset was cancelled before the run claimed it (the body never runs), and `Err` for a failure,
+a panic (the asset is `Error`) or a cancellation mid-run (the asset is `Cancelled`). Dropping a
+native `run` is not cancelling it; a dropped `run_inline` ends the asset `Cancelled` instead of
+repairing it to its placeholder recipe. Design: `design/ad-hoc-closure-asset/`.
 
 #### Key ownership
 
@@ -1298,6 +1313,7 @@ each with an `ExpiryReason` (§Why an asset is `Expired`). The rules are in
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | §Closure assets: `AssetManager::closure_asset` runs a Rust closure as an ad-hoc asset. | `design/ad-hoc-closure-asset/` |
 | 2026-10-27 | An inferred record at a recipe key is read as a file with no metadata (reuse and the version check follow `ExternalChangePolicy`); `remove` deletes such an entry as a dropped computed value, dependents not expired. | `design/storage-none-computed-values/` |
 | 2026-10-27 | An uncached keyed write re-checks its recorded inputs and expires the stored copy when one was superseded during the run. | `design/uncached-write-back-rechecks-dependency-versions/` |
 | 2026-10-27 | §Remove Semantics and §Settling a run: a mutation of a key waits for the replaced asset's value write under way and skips a later one; `remove` re-reads the stored entry after the cancel. | `design/replaced-asset-write-gate/` |

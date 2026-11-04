@@ -18,6 +18,31 @@
 //! [`EnvRef::evaluate`](crate::context::EnvRef::evaluate) or an [`AssetManager`].
 //! Direct `AssetData` access is primarily framework infrastructure.
 //!
+//! # Main components
+//!
+//! - [`AssetManager`]: builds and owns every asset ([`get_asset`](AssetManager::get_asset),
+//!   [`get`](AssetManager::get), [`apply`](AssetManager::apply),
+//!   [`closure_asset`](AssetManager::closure_asset)).
+//! - [`AssetRef`]: the handle a caller reads, waits on and cancels.
+//! - [`ClosureAsset`]: an ad-hoc asset that runs a Rust closure with an asset's context.
+//! - [`DefaultAssetManager`] (queued, native) and [`ImmediateAssetManager`] (inline, wasm32).
+//!
+//! # Where it is used
+//!
+//! - [`EnvRef::evaluate`](crate::context::EnvRef::evaluate) and
+//!   [`interpreter`](crate::interpreter), which plan a query and evaluate it through the manager.
+//! - [`Context`], whose nested evaluations and dependency waits go through the asset of the
+//!   running command.
+//! - The servers and bindings that expose assets: `liquers-axum`'s asset API, `liquers-py`'s
+//!   `AssetRef`, `liquers-web`; and every test that builds an environment.
+//!
+//! # Related concepts
+//!
+//! - [`store`](crate::store): raw data access by key; the asset manager builds assets over it,
+//!   with status, notifications, caching and recomputation from recipes.
+//! - [`recipes`](crate::recipes): how a key is computed; an asset is one evaluation of a recipe.
+//! - [`State`]: a value with its metadata, which an asset holds once it is ready.
+//!
 //! # Public API, at a glance
 //!
 //! An asset is **constructed and managed by an [`AssetManager`]**. Nothing evaluates an
@@ -30,6 +55,7 @@
 //! | Evaluate a query with a payload | [`EnvRef::evaluate_immediately`](crate::context::EnvRef::evaluate_immediately) → [`AssetManager::apply`] |
 //! | Fetch a keyed resource | [`AssetManager::get`] |
 //! | Apply a recipe to a state you supply | [`AssetManager::apply`] |
+//! | Run your own Rust closure with an asset's [`Context`] | [`AssetManager::closure_asset`] → [`ClosureAsset::run`] |
 //! | Wait for a value | [`AssetRef::get`] |
 //! | Look without waiting | [`AssetRef::poll_state`], [`AssetRef::status`] |
 //! | Describe an asset to a client | [`AssetRef::get_asset_info`] |
@@ -113,6 +139,7 @@
 //! | [`AssetManager::get`], or [`AssetManager::get_asset`] on a pure key query | yes, with that key |
 //! | [`AssetManager::get_asset`] on any other query | no |
 //! | [`AssetManager::apply`] | no — ad hoc, never in a map |
+//! | [`AssetManager::closure_asset`] | no — ad hoc, never in a map, never stored |
 //!
 //! It is then passed to the constructors as `key: Option<Key>`
 //! ([`AssetData::new`], [`AssetData::new_ext`]), recorded on the asset, and read back with
@@ -132,10 +159,17 @@
 //! |---|---|---|---|---|
 //! | [`AssetManager::get_asset`] / [`AssetManager::get`] | empty | no | for a key | queued: a scheduled handle; inline: after evaluation |
 //! | [`AssetManager::apply`] | supplied | optional | no | after evaluation, on both managers |
+//! | [`AssetManager::closure_asset`] + [`ClosureAsset::run`] / [`run_inline`](ClosureAsset::run_inline) | empty | optional | no | the handle at once; `run` after the closure |
 //!
 //! `apply` evaluates before returning and takes no job-queue slot: its asset is in no map, never
 //! reused and not keyed, so queueing buys nothing, while taking a slot from inside a command that
 //! already holds one is a deadlock shape.
+//!
+//! A closure asset runs a Rust closure in place of a recipe, through the same harness, so the
+//! closure gets the asset's context (status, cancellation, log, dependency recording, nested
+//! evaluation). The handle comes first, so the caller can cancel it; `run` consumes it, so the
+//! closure runs at most once. Dropping a native `run` is not cancelling it; a dropped `run_inline`
+//! ends the asset `Cancelled`.
 //!
 //! # Typical lifecycle
 //!
@@ -308,6 +342,28 @@
 //! and require a Tokio runtime when constructed because they spawn background
 //! tasks. [`ImmediateAssetManager`] is spawn-free and timer-free, runs evaluation
 //! in the caller's task, and is the manager used for browser-compatible execution.
+//!
+//! # Examples
+//!
+//! A closure run as an ad-hoc asset, then the asset read back:
+//!
+//! ```
+//! # use liquers_core::{assets::AssetManager, context::{Environment, SimpleEnvironment}};
+//! # use liquers_core::value::{Value, ValueInterface};
+//! # #[tokio::main]
+//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let envref = SimpleEnvironment::<Value>::new().to_ref();
+//! let closure = envref.get_asset_manager().closure_asset("example")?;
+//! let asset = closure.asset().clone();
+//! let answer = closure.run(|_context| async { Ok((Value::from("x"), 42)) }, None).await?;
+//! assert_eq!(answer, Some(42));
+//! assert_eq!(asset.get().await?.try_into_string()?, "x");
+//! # Ok(()) }
+//! ```
+//!
+//! Longer examples: `liquers-core/tests/closure_asset.rs` (closure assets),
+//! `liquers-core/tests/asset_cancellation.rs` (cancellation), `liquers-core/tests/apply_ad_hoc.rs`
+//! (ad-hoc recipes); more in `liquers-core/tests/`.
 //!
 
 use std::{
@@ -900,6 +956,11 @@ pub struct AssetData<E: Environment> {
     /// left behind: the `Processing` / `Dependencies` status then has no live runner, and the
     /// next inline claim takes the run over instead of waiting for it. Cleared by every claim.
     inline_run_abandoned: Arc<AtomicBool>,
+    /// Set by [`AssetManager::closure_asset`]: the asset runs a closure, which a run consumes. A
+    /// dropped inline run then ends `Cancelled` instead of being repaired to `Recipe`, because
+    /// the placeholder recipe is not what the asset was for and nobody could run the closure
+    /// again.
+    runs_closure: bool,
 
     /// An outside change [`Self::try_fast_track`] found in the stored bytes, waiting to be applied
     /// with [`AssetManager::apply_external_change`].
@@ -1394,6 +1455,7 @@ impl<E: Environment> AssetData<E> {
             recipe_sets_title: false,
             recipe_sets_description: false,
             inline_run_abandoned: Arc::new(AtomicBool::new(false)),
+            runs_closure: false,
             pending_external_change: None,
             fast_track_refusal: None,
             evaluation_session: std::sync::Weak::new(),
@@ -2123,6 +2185,21 @@ impl<E: Environment> AssetData<E> {
         self.metadata
             .set_primary_progress(&ProgressEntry::done("Cancelled".to_string()));
         true
+    }
+
+    /// Ends a closure asset whose inline run was dropped: `Cancelled`, with its waiters released.
+    /// Used by `InlineRunClaim::drop` and, when that could not take the lock, by the readers.
+    fn cancel_dropped_closure_run(&mut self) {
+        let cause = self.identify_in_error(Error::cancelled(
+            "the closure run was dropped".to_string(),
+        ));
+        self.cancellation.request(cause.clone());
+        if self.mark_cancelled(cause) {
+            let _ = self
+                .notification_tx
+                .send(AssetNotificationMessage::StatusChanged(Status::Cancelled));
+            let _ = self.notification_tx.send(AssetNotificationMessage::JobFinished);
+        }
     }
 
     /// Poll the cached binary data and metadata without any async operations.
@@ -4377,6 +4454,94 @@ impl<E: Environment> AssetRef<E> {
         self.run_with_future_inline(self.compute(payload)).await
     }
 
+    /// Claims a closure asset's native run: `Submitted` becomes `Processing` under the write lock,
+    /// so a cancel from now on is a request the run answers. `Ok(false)`: it was cancelled before
+    /// the claim, and the closure must not run. The inline harness claims through
+    /// [`Self::try_claim_for_run_inline`] instead.
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn claim_closure_run(&self) -> Result<bool, Error> {
+        let mut lock = self.data.write().await;
+        match lock.status {
+            Status::Submitted => {
+                lock.set_status(Status::Processing)?;
+                let _ = lock
+                    .notification_tx
+                    .send(AssetNotificationMessage::StatusChanged(Status::Processing));
+                Ok(true)
+            }
+            Status::Cancelled => Ok(false),
+            Status::None
+            | Status::Directory
+            | Status::Recipe
+            | Status::Dependencies
+            | Status::Processing
+            | Status::Partial
+            | Status::Error
+            | Status::Storing
+            | Status::Ready
+            | Status::Expired
+            | Status::Source
+            | Status::Override
+            | Status::Volatile => Err(lock.identify_in_error(Error::general_error(format!(
+                "closure asset cannot run from status {:?}",
+                lock.status
+            )))),
+        }
+    }
+
+    /// The evaluation body of a closure asset ([`ClosureAsset`]): [`Self::compute`] with the
+    /// closure in place of the recipe. The closure gets this asset's context, with `payload`
+    /// installed; what it read is recorded as the asset's dependencies, and its result `T` is
+    /// written to `out`. A panic is an error, as in `compute`.
+    async fn compute_closure<T, F, Fut>(
+        &self,
+        body: F,
+        payload: Option<E::Payload>,
+        out: &mut Option<T>,
+    ) -> Result<RecipeEvaluation<E::Value>, Error>
+    where
+        F: FnOnce(Context<E>) -> Fut,
+        Fut: std::future::Future<Output = Result<(E::Value, T), Error>>,
+    {
+        use futures::FutureExt;
+        let evaluation = async {
+            self.resolve_volatility_before_evaluation().await;
+            let mut context = self.create_context().await;
+            if let Some(payload) = payload {
+                context.set_payload(payload);
+            }
+            let context_for_deps = context.clone(); // shares pending_dependencies
+            let (value, result) = match body(context).await {
+                Ok(produced) => produced,
+                Err(error) => {
+                    // As `evaluate_recipe_outcome`: a failed run keeps what it read.
+                    let observed_deps = context_for_deps.take_pending_dependencies().await;
+                    let mut lock = self.data.write().await;
+                    for dep in observed_deps {
+                        let _ = lock.metadata.add_dependency(dep);
+                    }
+                    return Err(error);
+                }
+            };
+            context_for_deps.check_resolved_volatility().await?;
+            let dependencies = context_for_deps.take_pending_dependencies().await;
+            *out = Some(result);
+            Ok(RecipeEvaluation {
+                value: Arc::new(value),
+                dependencies,
+                origin: ValueOrigin::Computed,
+            })
+        };
+        // AssertUnwindSafe: see `compute`; the partial state is discarded with the error.
+        match std::panic::AssertUnwindSafe(evaluation).catch_unwind().await {
+            Ok(result) => result,
+            Err(panic) => Err(Error::general_error(format!(
+                "evaluation panicked: {}",
+                panic_message(panic.as_ref())
+            ))),
+        }
+    }
+
     /// Fetch initial state and recipe of the asset
     /// Used by: `evaluate_recipe_outcome` in this module.
     async fn initial_state_and_recipe(&self) -> (State<E::Value>, Recipe) {
@@ -5731,8 +5896,26 @@ impl<E: Environment> AssetRef<E> {
     /// Expired data is intentionally hidden; use
     /// [`Self::poll_state_any_status`] for explicit recovery.
     pub async fn poll_state(&self) -> Option<State<E::Value>> {
+        self.repair_abandoned_closure_run().await;
         let lock = self.data.read().await;
         lock.poll_state()
+    }
+
+    /// A closure asset whose dropped inline run could not take the lock to end itself is ended
+    /// here, by the next reader: nobody else will ever claim it (see `InlineRunClaim::drop`).
+    async fn repair_abandoned_closure_run(&self) {
+        let abandoned = {
+            let lock = self.data.read().await;
+            lock.runs_closure
+                && is_in_flight(lock.status)
+                && lock.inline_run_abandoned.load(Ordering::Acquire)
+        };
+        if abandoned {
+            let mut lock = self.data.write().await;
+            if lock.inline_run_abandoned.swap(false, Ordering::AcqRel) {
+                lock.cancel_dropped_closure_run();
+            }
+        }
     }
 
     /// Polls state while also allowing retained `Expired` data.
@@ -6698,6 +6881,75 @@ pub struct VersionVerificationReport {
     pub changed: Vec<(Key, ExternalChangeAction)>,
 }
 
+/// An ad-hoc asset that runs a closure, made by [`AssetManager::closure_asset`].
+///
+/// Code outside a command that needs a [`Context`] for its own Rust work (a top-level template
+/// render, a binding's read of a context-bound value) runs it here: the closure gets the asset's
+/// context, with its status, cancellation, log, dependency recording and nested evaluation, and
+/// returns the asset's value plus a result of its own. `run` consumes the handle, so a closure
+/// runs at most once. To cancel, clone [`Self::asset`] first and call [`AssetRef::cancel`].
+///
+/// ```ignore
+/// let closure = envref.get_asset_manager().closure_asset("template render")?;
+/// let asset = closure.asset().clone(); // to cancel it, or read it afterwards
+/// let warnings = closure
+///     .run(|context| async move { Ok((Value::from("12"), vec!["w"])) }, None)
+///     .await?; // Some(vec!["w"]); None if it was cancelled before it ran
+/// ```
+pub struct ClosureAsset<E: Environment> {
+    asset: AssetRef<E>,
+}
+
+impl<E: Environment> ClosureAsset<E> {
+    /// The asset, to cancel, follow or read. Clone it before `run` to cancel a running closure.
+    pub fn asset(&self) -> &AssetRef<E> {
+        &self.asset
+    }
+
+    /// Runs `body` under the spawning harness (native).
+    ///
+    /// `Ok(Some(t))` when the body produced its value (the asset is then `Ready` with it);
+    /// `Ok(None)` when it never ran, because the asset was cancelled before the run claimed it;
+    /// `Err` when the body failed or panicked (the asset is `Error`) or was cancelled mid-run (the
+    /// asset is `Cancelled`, and the body's future was dropped). Await it to the end: dropping it
+    /// is not cancellation.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn run<T, F, Fut>(self, body: F, payload: Option<E::Payload>) -> Result<Option<T>, Error>
+    where
+        F: FnOnce(Context<E>) -> Fut,
+        Fut: std::future::Future<Output = Result<(E::Value, T), Error>>,
+    {
+        if !self.asset.claim_closure_run().await? {
+            return Ok(None);
+        }
+        let mut out = None;
+        self.asset
+            .run_with_future(self.asset.compute_closure(body, payload, &mut out))
+            .await?;
+        Ok(out)
+    }
+
+    /// As [`Self::run`], under the single-task harness (wasm32, immediate-mode managers).
+    ///
+    /// If this future is dropped while the body runs, the asset ends `Cancelled` (never repaired
+    /// to its placeholder recipe) and its waiters are released.
+    pub async fn run_inline<T, F, Fut>(
+        self,
+        body: F,
+        payload: Option<E::Payload>,
+    ) -> Result<Option<T>, Error>
+    where
+        F: FnOnce(Context<E>) -> Fut,
+        Fut: std::future::Future<Output = Result<(E::Value, T), Error>>,
+    {
+        let mut out = None;
+        self.asset
+            .run_with_future_inline(self.asset.compute_closure(body, payload, &mut out))
+            .await?;
+        Ok(out)
+    }
+}
+
 /// Asset evaluation, keyed mutation, recovery, directory, and lifecycle service.
 ///
 /// An [`Environment`] selects one implementation through its `AssetManager`
@@ -6790,6 +7042,31 @@ pub trait AssetManager<E: Environment>:
         // An error is already recorded in the asset's status and metadata.
         let _ = asset_ref.run_inline(None).await;
         Ok(asset_ref)
+    }
+    /// A new [closure asset](ClosureAsset): an ad-hoc asset that runs a Rust closure through the
+    /// same harness as a recipe, so the closure gets the asset's [`Context`].
+    ///
+    /// Like [`Self::apply`], the asset is in no key or query map, never reused, not keyed and
+    /// never stored, and it takes no job-queue slot. It starts `Submitted`, with a placeholder
+    /// recipe titled `title`, so cancelling it before [`ClosureAsset::run`] ends it `Cancelled`
+    /// without running the closure. Fails only when the environment is gone.
+    fn closure_asset(&self, title: &str) -> Result<ClosureAsset<E>, Error> {
+        let recipe = Recipe {
+            title: title.to_string(),
+            ..Recipe::default()
+        };
+        let mut data = AssetData::new_ext(
+            self.next_id_for_asset(),
+            recipe,
+            State::new(),
+            None,
+            self.try_get_envref()?,
+        );
+        data.runs_closure = true;
+        data.set_status(Status::Submitted)?;
+        Ok(ClosureAsset {
+            asset: data.to_ref(),
+        })
     }
     /// Applies a recipe to a supplied state and evaluates it before returning.
     ///
@@ -10152,6 +10429,11 @@ impl<E: Environment> Drop for InlineRunClaim<E> {
         // permanently unrunnable. (PR #61 review, comment 2.)
         if let Ok(mut lock) = self.asset.data.try_write() {
             match lock.status {
+                Status::Processing | Status::Dependencies if lock.runs_closure => {
+                    // The closure was consumed with the run: nothing can run it again, so the
+                    // dropped run is final (`specs/design/ad-hoc-closure-asset/`, AC-6).
+                    lock.cancel_dropped_closure_run();
+                }
                 Status::Processing | Status::Dependencies => {
                     let _ = lock.set_status(Status::Recipe);
                     // Observers (a UI reading status) learn of the repair, and a caller parked in
@@ -10218,6 +10500,9 @@ impl<E: Environment> AssetRef<E> {
                 true
             }
             // Active, unless the runner's claim was dropped without being able to repair it.
+            // A closure run is never taken over: its closure was consumed by the dropped run.
+            // Readers end such an asset `Cancelled` (`AssetRef::poll_state`).
+            Status::Processing | Status::Dependencies if lock.runs_closure => false,
             Status::Processing | Status::Dependencies => {
                 if lock.inline_run_abandoned.swap(false, Ordering::AcqRel) {
                     let _ = lock.metadata.add_log_entry(LogEntry::warning(
