@@ -262,7 +262,7 @@ impl CommandKey {
 /// `ArgumentInfo(name)` describes an argument of any type with no default. Read it from
 /// `CommandMetadata.arguments`.
 #[pyclass(module = "liquers")]
-pub struct ArgumentInfo(liquers_core::command_metadata::ArgumentInfo);
+pub struct ArgumentInfo(pub liquers_core::command_metadata::ArgumentInfo);
 
 #[pymethods]
 impl ArgumentInfo {
@@ -330,8 +330,7 @@ impl ArgumentInfo {
                 Ok(py.import("json")?.call_method1("loads", (text,))?.unbind())
             }
             CommandParameterValue::Pipeline(pipeline) => {
-                let text = serde_json::to_string(pipeline).map_err(serialization_pyerr)?;
-                Ok(py.import("json")?.call_method1("loads", (text,))?.unbind())
+                Ok(Py::new(py, crate::pipeline::Pipeline(pipeline.clone()))?.into_any())
             }
         }
     }
@@ -384,8 +383,7 @@ fn parameter_value_to_py(
             Ok(py.import("json")?.call_method1("loads", (text,))?.unbind())
         }
         CommandParameterValue::Pipeline(pipeline) => {
-            let text = serde_json::to_string(pipeline).map_err(serialization_pyerr)?;
-            Ok(py.import("json")?.call_method1("loads", (text,))?.unbind())
+            Ok(Py::new(py, crate::pipeline::Pipeline(pipeline.clone()))?.into_any())
         }
     }
 }
@@ -441,16 +439,13 @@ impl CommandDefinition {
         }
     }
 
-    /// A pipeline command's body as its serialized form (a list), or `None`.
+    /// A pipeline command's body, an `lq.Pipeline`, or `None`.
     #[getter]
-    pub fn pipeline(&self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
+    pub fn pipeline(&self) -> Option<crate::pipeline::Pipeline> {
         use liquers_core::command_metadata::CommandDefinition as Core;
         match &self.0 {
-            Core::Pipeline { pipeline } => {
-                let text = serde_json::to_string(pipeline).map_err(serialization_pyerr)?;
-                Ok(Some(py.import("json")?.call_method1("loads", (text,))?.unbind()))
-            }
-            Core::Registered | Core::Alias { .. } => Ok(None),
+            Core::Pipeline { pipeline } => Some(crate::pipeline::Pipeline(pipeline.clone())),
+            Core::Registered | Core::Alias { .. } => None,
         }
     }
 

@@ -1,3 +1,35 @@
+//! Recipes from Python: `lq.Recipe` and `lq.RecipeList`, wrapping the core types.
+//!
+//! A recipe names a result: a query (optionally after a pipeline), with a title, a description
+//! and argument and link overrides. Python reads recipes from providers and builds them for
+//! `recipes.yaml`; nothing here evaluates one.
+//!
+//! # Main components
+//!
+//! - [`Recipe`] (`lq.Recipe`): one recipe; `Recipe.pipeline` is an `lq.Pipeline` or `None`.
+//! - [`RecipeList`] (`lq.RecipeList`): a folder's recipes, the form of its `recipes.yaml`.
+//!
+//! # Where it is used
+//!
+//! - `recipe_provider.rs`: `env.recipes.recipe(key)` returns an `lq.Recipe`; a Python provider
+//!   returns them.
+//! - `value.rs`: a recipe value crosses as `lq.Recipe`.
+//!
+//! # Related concepts
+//!
+//! - `liquers_core::recipes`: the types; `specs/reference/RECIPES_AND_PLANS.md`.
+//! - `pipeline.rs`: `lq.Pipeline`.
+//!
+//! # Examples
+//!
+//! Executed in `liquers-py/tests/test_RECIPE_*.py` and `test_PIPELINE_evaluate.py`:
+//!
+//! ```python
+//! env.store_set("r/recipes.yaml", "recipes:\n  - pipeline:\n      - {action: hello}\n"
+//!               "    query: ns-lui/to_text/out.txt\n")
+//! assert env.recipes.recipe("r/out.txt").pipeline == lq.Pipeline([{"action": "hello"}])
+//! ```
+
 use crate::error::serialization_pyerr;
 use crate::expiration::Expires;
 use liquers_core::recipes::Recipe as CoreRecipe;
@@ -164,17 +196,10 @@ impl Recipe {
         Ok(dict)
     }
 
-    /// The pipeline that runs before the query, as a dict (its serialized form), or `None`.
+    /// The pipeline that runs before the query, an `lq.Pipeline`, or `None`.
     #[getter]
-    pub fn pipeline<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
-        match &self.inner.pipeline {
-            Some(pipeline) => {
-                let text =
-                    serde_json::to_string(&pipeline.to_json()).map_err(serialization_pyerr)?;
-                Ok(Some(py.import("json")?.call_method1("loads", (text,))?))
-            }
-            None => Ok(None),
-        }
+    pub fn pipeline(&self) -> Option<crate::pipeline::Pipeline> {
+        self.inner.pipeline.clone().map(crate::pipeline::Pipeline)
     }
 
     /// The recipe serialized as JSON.

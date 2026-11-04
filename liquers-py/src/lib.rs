@@ -26,6 +26,7 @@ pub mod closure;
 pub mod data_node;
 pub mod declared;
 pub mod template;
+pub mod pipeline;
 pub mod records;
 pub mod runtime;
 pub mod store;
@@ -111,6 +112,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     crate::records::register(m)?;
     crate::data_node::register(m)?;
     crate::template::register(m)?;
+    crate::pipeline::register(m)?;
 
     // The Liquers version, in the form Python packaging uses (PEP 440); `liquers.__version__`.
     m.add("__version__", pep440(liquers_core::VERSION))?;

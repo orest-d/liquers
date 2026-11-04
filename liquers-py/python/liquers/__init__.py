@@ -115,6 +115,11 @@ from liquers._native import (
     Diagnostic,
     Link,
     link,
+    # Pipelines
+    Pipeline,
+    PipelineEditor,
+    QueryEditor,
+    ActionEditor,
     StoreArgumentInfo,
     Store,
     # Records
@@ -199,6 +204,10 @@ __all__ = [
     "Diagnostic",
     "Link",
     "link",
+    "Pipeline",
+    "PipelineEditor",
+    "QueryEditor",
+    "ActionEditor",
     "StoreArgumentInfo",
     "Store",
     "FieldType",

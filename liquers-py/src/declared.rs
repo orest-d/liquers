@@ -1,5 +1,5 @@
 //! Commands defined by declaration, with no Python callable: template commands (aliases of
-//! `template/render`), and pipeline commands once `liquers-py-pipelines` lands.
+//! `template/render`) and pipeline commands.
 //!
 //! An environment rebuilds its registry from scratch whenever a declaration changes (a new Python
 //! command, an import), so a command registered only in the built registry would vanish at the
@@ -13,6 +13,7 @@
 //! - [`Overrides`]: the metadata a declaration sets on the registered command (label, doc,
 //!   filename).
 //! - [`template_command`]: the declaration `Environment.template_command` makes.
+//! - [`DeclaredCommand::Pipeline`]: the declaration `Environment.pipeline_command` makes.
 //!
 //! # Where it is used
 //!
@@ -21,8 +22,10 @@
 //!
 //! # Related concepts
 //!
-//! - `liquers_core::commands::CommandRegistry::register_alias`: what an alias declaration calls.
-//! - `specs/guides/TEMPLATE_GUIDE.md` §3: template commands.
+//! - `liquers_core::commands::CommandRegistry::register_alias`: what an alias declaration calls;
+//!   `register_pipeline`: what a pipeline declaration calls.
+//! - `specs/guides/TEMPLATE_GUIDE.md` §3: template commands; `specs/guides/PIPELINE_GUIDE.md`:
+//!   pipeline commands.
 //!
 //! # Examples
 //!
@@ -38,6 +41,7 @@ use liquers_core::command_metadata::{ArgumentInfo, CommandKey, CommandMetadata, 
 use liquers_core::commands::CommandRegistry;
 use liquers_core::context::Environment;
 use liquers_core::error::Error;
+use liquers_core::pipeline::Pipeline;
 use liquers_core::query::Query;
 
 /// Metadata a declaration sets on its command; `None` keeps what registration made.
@@ -74,12 +78,19 @@ pub(crate) enum DeclaredCommand {
         arguments: Option<Vec<ArgumentInfo>>,
         overrides: Overrides,
     },
+    /// A pipeline command: `pipeline` run with `arguments` bound to its placeholders.
+    Pipeline {
+        key: CommandKey,
+        pipeline: Pipeline,
+        arguments: Vec<ArgumentInfo>,
+        overrides: Overrides,
+    },
 }
 
 impl DeclaredCommand {
     pub(crate) fn key(&self) -> &CommandKey {
         match self {
-            DeclaredCommand::Alias { key, .. } => key,
+            DeclaredCommand::Alias { key, .. } | DeclaredCommand::Pipeline { key, .. } => key,
         }
     }
 
@@ -113,6 +124,16 @@ impl DeclaredCommand {
                     head_parameters.clone(),
                     arguments,
                 )?;
+                overrides.apply(metadata);
+                Ok(())
+            }
+            DeclaredCommand::Pipeline {
+                key,
+                pipeline,
+                arguments,
+                overrides,
+            } => {
+                let metadata = registry.register_pipeline(key.clone(), pipeline.clone(), arguments.clone())?;
                 overrides.apply(metadata);
                 Ok(())
             }
