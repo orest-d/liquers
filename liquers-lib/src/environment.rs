@@ -11,7 +11,6 @@
 use std::sync::Arc;
 
 use liquers_core::{
-    assets::AssetManager,
     commands::{CommandRegistry, PayloadType},
     context::{EnvRef, Environment, GenericEnvironment},
     environment_builder::{AssetManagerKind, AssetManagerOptions, DefaultKind, EnvironmentBuilder},

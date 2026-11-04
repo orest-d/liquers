@@ -26,6 +26,8 @@ created: <YYYY-MM-DD>
 ### Problem Example
 ### Scope and Acceptance Criteria
 <Scenarios: `- **AC-1** <name>` then a WHEN line and a THEN line (DOCS_STRUCTURE_GUIDE.md §5.2.1).>
+### Documentation Intent
+- API docs: <the modules whose module doc changes, or none — why (API_DOCUMENTATION_GUIDE.md §3)>
 ### Design Readiness
 <Or `### Open Questions` when no readiness is assessed. Add `### Design Dependencies` and
 `### Scope Changes` when they apply.>
@@ -34,7 +36,8 @@ created: <YYYY-MM-DD>
 ### Solution
 <Chosen approach; rejected alternatives in one line each; known issues that block or must go first.>
 ### Changes
-<Files and symbols; new or changed signatures only; errors; sync/async; commands; documents.>
+<Files and symbols; new or changed signatures only; errors; sync/async; commands; documents and
+the module docs that change.>
 ### Risks
 <Files, tests likely to change, compatibility, recovery, certainty, in a few lines.>
 
@@ -48,11 +51,12 @@ created: <YYYY-MM-DD>
 <A checklist, one item per step: `- [ ] 1. <file and symbol> — <change> — <proof command>`.
 Tick each step when its proof passes and append the commit.>
 ### Validation
-<Final checks; documents and generated files to update.>
+<Final checks, `check_api_docs.py` on the touched files among them; documents and generated files
+to update.>
 
 ## Phase 5: Documentation
 <Added after implementation, only for `workflow: liquers-project`: what was built versus approved,
-documents reviewed, issues closed and filed.>
+documents and module docs reviewed, issues closed and filed.>
 ```
 
 Convert to the full form when the design grows to `L`: move each section into its phase file and

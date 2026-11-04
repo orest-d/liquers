@@ -6,7 +6,6 @@ use liquers_core::{
     state::State,
     value::ValueInterface,
 };
-use liquers_macro::register_command;
 
 use crate::{
     egui::{widgets::display_asset_info, UIValueExtension},

@@ -18,19 +18,21 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$repo_root"
 
+# --out is made absolute here, against the directory the script was invoked from, because TypeDoc
+# runs from the work directory below (WEB-DOCS-SCRIPT-RELATIVE-OUT-PATH-LANDS-IN-WORK-DIR).
 out="$repo_root/target/liquers-web-docs"
 features=()
 while [ $# -gt 0 ]; do
     case "$1" in
-        --out) out="$2"; shift ;;
+        --out) out="$(mkdir -p "$2" && cd "$2" && pwd)"; shift ;;
         --features) features=(--features "$2"); shift ;;
         -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
         *) echo "build-liquers-web-docs.sh: unknown option $1" >&2; exit 2 ;;
     esac
     shift
 done
+cd "$repo_root"
 
 TYPEDOC_VERSION="${TYPEDOC_VERSION:-0.28.20}"
 TYPESCRIPT_VERSION="${TYPESCRIPT_VERSION:-5.9.3}"

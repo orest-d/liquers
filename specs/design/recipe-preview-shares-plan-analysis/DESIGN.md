@@ -3,8 +3,8 @@ id: RECIPE-PREVIEW-SHARES-PLAN-ANALYSIS
 kind: design
 title: A recipe preview builds and analyses its plan through the same function as make_plan
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [247]
 readiness: ready
 autofix: not-eligible
 area: [core/plan]
@@ -13,8 +13,9 @@ created: 2026-10-20
 ---
 # A recipe preview builds and analyses its plan through the same function as make_plan
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20. Phases 1-4 are written but not
-approved, and nothing is implemented.
+> **Complete on 2026-11-03**: implemented in #247.
+
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20. Phases 1-4 written; implemented on 2026-11-03.
 
 ## Phase 1: High-Level Design
 
@@ -151,14 +152,24 @@ Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-core --lib recipes::tests interp
 
 ### Steps
 
-- [ ] 1. The two `recipes.rs` tests; both pass at HEAD. Record the cycle message. Proof: the run command.
-- [ ] 2. `interpreter.rs` `make_recipe_plan` and its test. Proof: `--lib interpreter::tests`.
-- [ ] 3. `recipes.rs`: replace the two calls; delete `create_plan_with_init_metadata`. Proof: step-1
+- [x] 1. The two `recipes.rs` tests; both pass at HEAD. Record the cycle message. Proof: the run command.
+- [x] 2. `interpreter.rs` `make_recipe_plan` and its test. Proof: `--lib interpreter::tests`.
+- [x] 3. `recipes.rs`: replace the two calls; delete `create_plan_with_init_metadata`. Proof: step-1
   tests unchanged. Rollback: revert the file.
-- [ ] 4. `RECIPES_AND_PLANS.md` line and History; close the issue with a resolution naming what was mitigated
+- [x] 4. `RECIPES_AND_PLANS.md` line and History; close the issue with a resolution naming what was mitigated
   before. Proof: `python3 scripts/docs_index.py --check`.
 
 ### Validation
 
 `cargo test -p liquers-core --lib --tests`; `cargo test -p liquers-lib --lib --tests` (directory
 listings use `get_asset_info`); diff review.
+
+### Implementation notes (2026-11-03)
+
+- Since this design was written, `Recipe::plan_with_dependencies` became public (for liquers-py's
+  providers) and carried the `let _`. It now delegates to `make_recipe_plan`, so the Python
+  providers get the same `Err` on a failed analysis.
+- The tests are an integration file, `liquers-core/tests/recipe_preview_plan.rs`, since they need
+  a recipe provider and the asset manager. The volatile upstream is declared by its recipe, as in
+  the Phase 3 example. An upstream that runs a volatile *command* is not seen by the walk, which
+  was already true at HEAD; filed as `UPSTREAM-COMMAND-VOLATILITY-INVISIBLE-TO-DEPENDENCY-WALK`.

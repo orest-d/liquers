@@ -74,5 +74,33 @@ class CompactSectionTests(unittest.TestCase):
         self.assertIn("real phase 2", phase2)
 
 
+class ApiDocsLineTests(unittest.TestCase):
+    PHASE1 = "## Documentation Intent\n- Reference: none\n- Guide: none\n"
+
+    def test_phase1_without_api_docs_line_fails_after_gate_date(self):
+        problems = validate_phase.api_docs_line_problems(self.PHASE1, {"created": "2026-11-03"})
+        self.assertEqual(len(problems), 1)
+        self.assertIn("API docs", problems[0])
+
+    def test_phase1_without_api_docs_line_passes_before_gate_date(self):
+        self.assertEqual(
+            validate_phase.api_docs_line_problems(self.PHASE1, {"created": "2026-11-02"}), []
+        )
+
+    def test_phase1_with_api_docs_line_passes(self):
+        for line in ("- API docs: none — docs only\n", "- **API docs:** `liquers_core::commands`\n"):
+            with self.subTest(line=line):
+                problems = validate_phase.api_docs_line_problems(
+                    self.PHASE1 + line, {"created": "2026-12-01"}
+                )
+                self.assertEqual(problems, [])
+
+    def test_api_docs_line_inside_a_fence_does_not_count(self):
+        text = self.PHASE1 + "```markdown\n- API docs: none\n```\n"
+        self.assertEqual(
+            len(validate_phase.api_docs_line_problems(text, {"created": "2026-12-01"})), 1
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

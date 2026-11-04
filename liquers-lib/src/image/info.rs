@@ -1,5 +1,5 @@
 use super::util::try_to_image;
-use crate::value::{ExtValueInterface, Value};
+use crate::value::Value;
 use image::GenericImageView;
 use liquers_core::{error::Error, state::State};
 use std::sync::Arc;
@@ -55,6 +55,7 @@ pub fn colortype(state: &State<Value>) -> Result<Value, Error> {
 mod tests {
     use super::*;
     use image::DynamicImage;
+    use crate::value::ExtValueInterface;
     use liquers_core::{state::State, value::ValueInterface};
     use std::sync::Arc;
 

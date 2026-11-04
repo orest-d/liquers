@@ -37,20 +37,22 @@ pub enum Value {
     Key(crate::query::Key),
 }
 
-/// How Liquers writes an `f64` to JSON, which has no representation for NaN or ±infinity.
-///
-/// Two conversions, used in different places:
-/// - [`to_number`] is strict: a non-finite float is a `ConversionError`. `try_into_json_value`
-///   uses it, because a `serde_json::Value` cannot hold the float and any stand-in (`null`, a
-///   string) would bind as a different value.
-/// - [`to_json`] / [`from_json`] are lossless: a non-finite float is written as one of the strings
-///   [`NAN`], [`INFINITY`], [`NEG_INFINITY`] (the protobuf JSON mapping's tokens), and reading also
-///   accepts `null` as NaN. The JSON byte path uses them wherever the value is known to be a float.
-///
-/// [`serialize`] / [`deserialize`] make this a serde `with`-module for a field that is always a
-/// float: `#[serde(with = "liquers_core::value::json_f64")]`. Do not put it on a variant of an
-/// untagged enum — a token would read back as text. See `specs/guides/SERIALIZATION_GUIDE.md`.
 pub mod json_f64 {
+    //! How Liquers writes an `f64` to JSON, which has no representation for NaN or ±infinity.
+    //!
+    //! Two conversions, used in different places:
+    //! - [`to_number`] is strict: a non-finite float is a `ConversionError`. `try_into_json_value`
+    //!   uses it, because a `serde_json::Value` cannot hold the float and any stand-in (`null`, a
+    //!   string) would bind as a different value.
+    //! - [`to_json`] / [`from_json`] are lossless: a non-finite float is written as one of the
+    //!   strings [`NAN`], [`INFINITY`], [`NEG_INFINITY`] (the protobuf JSON mapping's tokens), and
+    //!   reading also accepts `null` as NaN. The JSON byte path uses them wherever the value is
+    //!   known to be a float.
+    //!
+    //! [`serialize`] / [`deserialize`] make this a serde `with`-module for a field that is always a
+    //! float: `#[serde(with = "liquers_core::value::json_f64")]`. Do not put it on a variant of an
+    //! untagged enum — a token would read back as text. See `specs/guides/SERIALIZATION_GUIDE.md`.
+
     use crate::error::{Error, ErrorType};
 
     pub const NAN: &str = "NaN";

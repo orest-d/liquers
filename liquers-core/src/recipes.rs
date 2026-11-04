@@ -640,12 +640,11 @@ pub trait AsyncRecipeProvider<E: Environment>:
         eprintln!("Getting asset info for recipe at key {}", key);
         let recipe = self.recipe(key, envref.clone()).await?;
         let mut asset_info = recipe.get_asset_info()?;
-        match create_plan_with_init_metadata(&recipe, envref, Some(key)).await {
+        match crate::interpreter::make_recipe_plan(envref, &recipe, key).await {
             Ok(plan) => {
                 asset_info.is_volatile = plan.is_volatile;
-                // Currently always `None`, and deliberately kept: both callers of
-                // `create_plan_with_init_metadata` pass `Some(key)`, so the plan is built with
-                // `to_plan_for_key`, which rejects a recipe requiring a payload — keys are a
+                // Currently always `None`, and deliberately kept: `make_recipe_plan` builds the
+                // plan with `to_plan_for_key`, which rejects a recipe requiring a payload — keys are a
                 // payload boundary. A payload-requiring recipe therefore takes the `Err` arm
                 // below and is reported as an error, never reaching this projection. The line
                 // stays so the three plan-derived fields are projected consistently and so this
@@ -672,34 +671,26 @@ pub trait AsyncRecipeProvider<E: Environment>:
     }
 }
 
-async fn create_plan_with_init_metadata<E: Environment>(
-    // TODO: missleading name, use conventioanl plan building functionality
-    recipe: &Recipe,
-    envref: EnvRef<E>,
-    key: Option<&Key>,
-) -> Result<Plan, Error> {
-    recipe.plan_with_dependencies(envref, key).await
-}
-
 impl Recipe {
     /// The recipe's plan for `key` (or, without a key, its ad-hoc plan) with dependency analysis,
     /// as [`DefaultRecipeProvider`] builds it. For a recipe provider outside this crate (a Python
     /// one, `specs/design/liquers-py-recipes/`), so its `recipe_plan` matches the built-in one.
     ///
-    /// A failing dependency analysis is ignored, as it is for the built-in providers
-    /// (`RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING`).
+    /// A failing dependency analysis (a cycle, for one) is returned as `Err`, as `make_plan`
+    /// returns it for a query. With a key this is `interpreter::make_recipe_plan`.
     pub async fn plan_with_dependencies<E: Environment>(
         &self,
         envref: EnvRef<E>,
         key: Option<&Key>,
     ) -> Result<Plan, Error> {
-        let cmr = envref.get_command_metadata_registry();
-        let mut plan = match key {
-            Some(key) => self.to_plan_for_key(cmr, key)?,
-            None => self.to_plan(cmr)?,
-        };
-        let _ = analyze_plan_dependencies(envref, &mut plan, None).await; // TODO: looks suspicious, this should be done in plan building or checking
-        Ok(plan)
+        match key {
+            Some(key) => crate::interpreter::make_recipe_plan(envref, self, key).await,
+            None => {
+                let mut plan = self.to_plan(envref.get_command_metadata_registry())?;
+                analyze_plan_dependencies(envref, &mut plan, None).await?;
+                Ok(plan)
+            }
+        }
     }
 }
 
@@ -885,7 +876,7 @@ impl<E: Environment> AsyncRecipeProvider<E> for DefaultRecipeProvider {
                 Error::general_error(format!("No recipe found for key {} (recipe plan)", key))
                     .with_key(key),
             )?;
-            create_plan_with_init_metadata(recipe, envref, Some(key))
+            crate::interpreter::make_recipe_plan(envref, recipe, key)
                 .await
                 .map_err(|e| e.with_key(key))
         } else {

@@ -182,12 +182,17 @@ impl std::fmt::Display for Version {
 /// A key that uniquely identifies a dependency within the dependency manager.
 ///
 /// Encodes the type of the resource as a prefix:
-/// - `-R/{encoded_key}`             — a keyed asset (the most common kind)
-/// - `-R-dir/{encoded_key}`         — a directory listing asset
+/// - `-R/{encoded_key}`             — a keyed asset (the most common kind); `-R` for the root key
+/// - `-R-dir/{encoded_key}`         — a directory listing asset; `-R-dir` for the root listing
 /// - `-R-recipe/{encoded_key}`      — the recipe file for a keyed asset
 /// - `ns-dep/command_metadata-{ck}` — command metadata for a registered command
 /// - `ns-dep/command_impl-{ck}`     — command implementation stamp for a registered command
 /// - Any other string               — a raw / ad-hoc dependency key
+///
+/// The root spellings are the encodings of the queries `-R` and `-R-dir`, so a dependency
+/// recorded from a query and one built from a key name the same node. Records written before this
+/// rule may say `-R/` or `-R-dir/`; [`DependencyKey::canonical`] maps them when they are loaded.
+/// See `specs/design/root-listing-dependency-key-spelling/`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct DependencyKey(String);
@@ -295,8 +300,23 @@ impl DependencyKey {
     }
 
     /// `-R-dir/{key}` — dependency on the directory listing at `key`.
+    /// The root listing is `-R-dir`, the encoding of that query.
     pub fn from_dir_key(key: &Key) -> Self {
-        DependencyKey(format!("-R-dir/{}", key.encode()))
+        if key.is_empty() {
+            DependencyKey("-R-dir".to_string())
+        } else {
+            DependencyKey(format!("-R-dir/{}", key.encode()))
+        }
+    }
+
+    /// The canonical spelling of this key: the root spellings `-R/` and `-R-dir/` (written by
+    /// earlier versions) become `-R` and `-R-dir`; every other key is returned unchanged.
+    pub(crate) fn canonical(self) -> Self {
+        match self.0.as_str() {
+            "-R/" => DependencyKey("-R".to_string()),
+            "-R-dir/" => DependencyKey("-R-dir".to_string()),
+            _ => self,
+        }
     }
 
     /// `ns-dep/command_metadata-{ck}` — dependency on a command's metadata (signature/docs).
@@ -310,10 +330,14 @@ impl DependencyKey {
     }
 }
 
-/// `-R/{encoded_key}` — standard asset key dependency.
+/// `-R/{encoded_key}` — standard asset key dependency; `-R` for the root key.
 impl From<&Key> for DependencyKey {
     fn from(key: &Key) -> Self {
-        DependencyKey(format!("-R/{}", key.encode()))
+        if key.is_empty() {
+            DependencyKey("-R".to_string())
+        } else {
+            DependencyKey(format!("-R/{}", key.encode()))
+        }
     }
 }
 
@@ -3179,6 +3203,40 @@ impl From<MetadataRecord> for Metadata {
 
 #[cfg(test)]
 mod tests {
+    /// The root listing and root key have one spelling each, the query's
+    /// (`design/root-listing-dependency-key-spelling/`).
+    mod root_spellings {
+        use crate::metadata::DependencyKey;
+        use crate::parse::{parse_key, parse_query};
+        use crate::query::Key;
+
+        #[test]
+        fn root_dir_dependency_key_is_the_query_encoding() {
+            let root = DependencyKey::from_dir_key(&Key::new());
+            assert_eq!(root.as_str(), "-R-dir");
+            assert_eq!(root, DependencyKey::from(&parse_query("-R-dir").unwrap()));
+            assert!(root.to_query().is_ok());
+            assert_eq!(root.dir_key().unwrap(), Some(Key::new()));
+
+            let nested = DependencyKey::from_dir_key(&parse_key("a/b").unwrap());
+            assert_eq!(nested.as_str(), "-R-dir/a/b");
+
+            let root_key = DependencyKey::from(&Key::new());
+            assert_eq!(root_key.as_str(), "-R");
+            assert!(root_key.is_pure_key());
+            assert_eq!(root_key.key().unwrap(), Some(Key::new()));
+        }
+
+        #[test]
+        fn canonical_maps_old_root_spellings() {
+            assert_eq!(DependencyKey::new("-R-dir/").canonical().as_str(), "-R-dir");
+            assert_eq!(DependencyKey::new("-R/").canonical().as_str(), "-R");
+            assert_eq!(DependencyKey::new("-R-dir/a").canonical().as_str(), "-R-dir/a");
+            assert_eq!(DependencyKey::new("-R/a").canonical().as_str(), "-R/a");
+            assert_eq!(DependencyKey::new("-R-dir").canonical().as_str(), "-R-dir");
+        }
+    }
+
     /// `created` and `etag` (`design/store-adapters/`, Phase 4 step 1).
     mod backend_facts {
         use crate::metadata::{BackendTime, Metadata, MetadataRecord, TimePrecision};

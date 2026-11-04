@@ -2,7 +2,7 @@
 id: WORKSPACE-SERDE-DERIVE-UNDECLARED
 kind: issue
 title: Three crates use serde derive macros without declaring the `derive` feature
-status: accepted
+status: closed
 priority: P2
 complexity: S
 area: [build, core/value, lib/ui, axum]
@@ -80,3 +80,7 @@ Found on 2026-08-09 while implementing M1 Step 1 of `specs/design/liquers-web-st
 `opendal` optional in `liquers-store` immediately surfaced it there. The other three crates were
 then checked and have the same declaration gap; they were left alone because fixing them was
 outside that milestone's scope.
+
+## Resolution
+
+Closed 2026-11-03 by design `serde-derive-feature-declared`, PR #245. liquers-lib and liquers-axum now declare `serde` with `derive`; the dead `serde_derive` declarations (lib, axum, store) and `liquers-store`'s unused `serde` are gone.

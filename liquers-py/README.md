@@ -174,7 +174,8 @@ run from the repository root, does the whole loop: it creates (or reuses) a virt
 scripts/test-liquers-py.sh` really tests 3.13), installs `maturin`, `pytest`, `polars`, `pillow`,
 `pyarrow`, `pandas` and `pdoc` into it (wheels only; a test needing a missing package skips), and on
 CPython 3.14 with the GIL the pinned `mypy` and `pyright` for the `STUBS` checks, runs `maturin develop --features debug-handles` to build and install the `liquers` package,
-runs `pytest liquers-py/tests`, builds the API reference with `scripts/build-liquers-py-docs.sh`
+runs `pytest liquers-py/tests`, then the package docstring's `>>>` example
+(`pytest --doctest-modules`, `specs/guides/API_DOCUMENTATION_GUIDE.md` §8), builds the API reference with `scripts/build-liquers-py-docs.sh`
 (`pdoc`, into `target/liquers-py-docs/`; published at
 <https://orest-d.github.io/liquers/api/python/liquers.html>), and then runs the crate's Rust
 unit tests. Extra arguments are passed to pytest (`bash scripts/test-liquers-py.sh -k parse`).
