@@ -1808,7 +1808,8 @@ impl<E: Environment> AssetData<E> {
 
                 if let Metadata::MetadataRecord(ref mr) = self.metadata {
                     for dep_record in mr.get_dependencies() {
-                        if let Some(dm_version) = dm.get_version(&dep_record.key).await {
+                        let canonical_key = dep_record.key.clone().canonical();
+                        if let Some(dm_version) = dm.get_version(&canonical_key).await {
                             if !dm_version.matches(&dep_record.version) {
                                 eprintln!(
                                     "Asset {} stale: dependency {} version mismatch (stored={:?}, DM={:?})",
@@ -2443,6 +2444,9 @@ pub(crate) async fn stored_dependency_walk<E: Environment, M: AssetManager<E> + 
     dep_key: &crate::metadata::DependencyKey,
     memo: &mut StoredWalkMemo,
 ) -> StoredDependencyState {
+    // A record written before the root listing had one spelling may name it `-R-dir/`; walk and
+    // register the canonical key, which is the one a later write refreshes.
+    let dep_key = &dep_key.clone().canonical();
     if let Some(state) = memo.done.get(dep_key) {
         return state.clone();
     }
@@ -2479,9 +2483,10 @@ pub(crate) async fn stored_dependency_walk<E: Environment, M: AssetManager<E> + 
                 if record.version.is_unknown() {
                     continue;
                 }
-                let state = match memo.done.get(&record.key) {
+                let record_key = record.key.clone().canonical();
+                let state = match memo.done.get(&record_key) {
                     Some(state) => state.clone(),
-                    None => match stored_leaf(manager, &record.key, memo).await {
+                    None => match stored_leaf(manager, &record_key, memo).await {
                         StoredLeaf::Final(state) => state,
                         StoredLeaf::Expand(frame) => {
                             memo.on_path.insert(frame.key.clone());

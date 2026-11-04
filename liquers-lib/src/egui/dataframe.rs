@@ -2,6 +2,28 @@ use egui::{Color32, RichText};
 use egui_extras::{Column, TableBuilder};
 use polars::prelude::*;
 
+/// `df` sorted by `sort_state` (column index, ascending), or unchanged when there is no sort
+/// state, the index is out of range, or the sort fails. The rows a table shows are this frame's.
+fn sorted_frame(df: &DataFrame, sort_state: Option<(usize, bool)>) -> DataFrame {
+    let Some((col_idx, ascending)) = sort_state else {
+        return df.clone();
+    };
+    let Some(col_name) = df.get_column_names().get(col_idx).map(|s| s.to_string()) else {
+        return df.clone();
+    };
+    let options = polars::prelude::SortMultipleOptions {
+        descending: vec![!ascending],
+        ..Default::default()
+    };
+    match df.sort([col_name.as_str()], options) {
+        Ok(sorted_df) => sorted_df,
+        Err(_) => {
+            eprintln!("Failed to sort dataframe by column: {}", col_name);
+            df.clone()
+        }
+    }
+}
+
 /// Display a polars DataFrame as a sortable table in egui.
 /// Data types are indicated by color:
 /// - Positive numbers: green
@@ -12,6 +34,7 @@ pub fn display_polars_dataframe(
     df: &DataFrame,
     sort_state: &mut Option<(usize, bool)>,
 ) -> egui::Response {
+    let df = sorted_frame(df, *sort_state);
     let columns = df.columns();
     let nrows = df.height();
     let ncols = columns.len();
@@ -20,29 +43,6 @@ pub fn display_polars_dataframe(
         .iter()
         .map(|s| s.to_string())
         .collect();
-
-    let mut df = df.clone();
-    // Sorting logic
-    if let Some((col_idx, ascending)) = *sort_state {
-        let col_name = &col_names[col_idx];
-        let by: Vec<String> = vec![col_name.clone()];
-        let options = polars::prelude::SortMultipleOptions {
-            descending: vec![!ascending],
-            ..Default::default()
-        };
-        match df.sort(&by, options) {
-            Ok(sorted_df) => {
-                eprintln!(
-                    "Dataframe sorted by column: {} ascending: {}",
-                    col_name, ascending
-                );
-                df = sorted_df;
-            }
-            Err(_) => {
-                eprintln!("Failed to sort dataframe by column: {}", col_name);
-            }
-        }
-    }
 
     let missing_icon = |ui: &mut egui::Ui| {
         // Show a yellow 'ⁿ̷ₐ' as missing value indicator
@@ -317,4 +317,26 @@ pub fn display_polars_dataframe(
             });
     })
     .response
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sorted_frame_orders_rows() {
+        let df = df!("n" => [3i64, 1, 2], "s" => ["c", "a", "b"]).unwrap();
+        let asc = sorted_frame(&df, Some((0, true)));
+        let n: Vec<_> = asc.column("n").unwrap().i64().unwrap().iter().collect();
+        assert_eq!(n, vec![Some(1), Some(2), Some(3)]);
+        let s: Vec<_> = asc.column("s").unwrap().str().unwrap().iter().collect();
+        assert_eq!(s, vec![Some("a"), Some("b"), Some("c")]);
+
+        let desc = sorted_frame(&df, Some((1, false)));
+        let n: Vec<_> = desc.column("n").unwrap().i64().unwrap().iter().collect();
+        assert_eq!(n, vec![Some(3), Some(2), Some(1)]);
+
+        assert!(sorted_frame(&df, None).equals(&df));
+        assert!(sorted_frame(&df, Some((9, true))).equals(&df));
+    }
 }

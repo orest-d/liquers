@@ -122,10 +122,10 @@ impl UIValueExtension for Value {
             Self::Base(SimpleValue::Text { value }) => {
                 ui.label(value);
             }
-            Self::Base(SimpleValue::Array { value }) => {
+            Self::Base(SimpleValue::Array { .. }) => {
                 ui.label(RichText::new("Array").italics());
             }
-            Self::Base(SimpleValue::Object { value }) => {
+            Self::Base(SimpleValue::Object { .. }) => {
                 ui.label(RichText::new("Object").italics());
             }
             Self::Base(SimpleValue::Bytes { value }) => {

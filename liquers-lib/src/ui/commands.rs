@@ -298,7 +298,7 @@ pub fn ui_spec<E: Environment<Value = Value>>(
             context.warning(&format!(
                 "Keyboard shortcut '{}' defined {} times (will use first occurrence)",
                 shortcut, count
-            ));
+            ))?;
         }
     }
 

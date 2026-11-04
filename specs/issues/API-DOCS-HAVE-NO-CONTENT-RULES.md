@@ -2,7 +2,7 @@
 id: API-DOCS-HAVE-NO-CONTENT-RULES
 kind: feature
 title: API documentation has no content rules, no place in the design process and no user-facing home
-status: accepted
+status: closed
 priority: P2
 complexity: L
 area: [docs]
@@ -50,6 +50,17 @@ Requested by the owner on 2026-11-01 (GitHub #232):
 
 Bringing existing module docs up to the rules is `MODULE-DOCS-DO-NOT-FOLLOW-THE-API-DOC-RULES`.
 Generating the site is `USER-DOCUMENTATION-CANNOT-BE-GENERATED`.
+
+## Resolution
+
+Closed on 2026-11-03 by design `api-documentation-rules` (branch `claude/funny-noether-o4vjv7`):
+`specs/guides/API_DOCUMENTATION_GUIDE.md` holds the rules (items 1-2); the `liquers-project` skill
+asks for API docs in Phases 1, 2, 4 and 5 and `validate_phase.py` refuses a new Phase 1 without
+the `- API docs:` line (item 3); `scripts/check_api_docs.py` reports the gaps and `build-matrix.yml`
+denies broken intra-doc links; `liquers_core::commands`, the `liquers` package and `liquers_web`
+are the worked examples. Item 4, the user documentation folder, was delivered by
+`user-documentation-guides` (`docs/`, the site and every API reference). Item 5 remains
+`MODULE-DOCS-DO-NOT-FOLLOW-THE-API-DOC-RULES`.
 
 ## Discovery
 

@@ -26,9 +26,9 @@ use liquers_core::state::State;
 use liquers_core::value::ValueInterface;
 
 use liquers_records::{
-    place_chunk, view_from_chunk_value, ChunkList, ChunkResolver, CompareOp, ContextResolver,
+    ChunkResolver, CompareOp, ContextResolver,
     FieldRole, FieldSchema, FieldType, FieldValue, JsonOrient, ReadSchema, RecordBatchMut,
-    RecordSchema, RecordSource, RecordView, RecordViewMut, RowId,
+    RecordSchema, RecordView, RecordViewMut, RowId,
 };
 
 use crate::value::{ExtValueInterface, Value};
@@ -844,6 +844,7 @@ mod tests {
     }
 
     use super::*;
+    use liquers_records::RecordSource;
     use liquers_core::interpreter::evaluate;
     use liquers_core::query::Key;
     use liquers_core::store::{AsyncMemoryStore, AsyncStore};

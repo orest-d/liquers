@@ -67,6 +67,8 @@ nom = "8.0.0"
 nom_locate = "5.0.0"
 regex = "1.13.1"
 serde = "1.0.229"
+# The derive macros come from `#[macro_use] extern crate serde_derive;` in src/lib.rs, so
+# this crate does not depend on any package turning on `serde/derive`.
 serde_derive = "1.0.229"
 serde_json = { version = "1.0.151", features = ["float_roundtrip"] }  # exact f64 round trips in pipelines (composite-command-definition)
 serde_yaml = "0.9.34"

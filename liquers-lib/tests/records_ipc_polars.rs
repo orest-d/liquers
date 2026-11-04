@@ -103,6 +103,32 @@ fn ipc_written_by_records_reads_in_polars() -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
+/// IPC bytes written by `liquers-records` read as a `polars.DataFrame` value through the codec
+/// (`design/polars-dataframe-ipc/`, AC-4).
+#[test]
+fn ipc_written_by_records_reads_as_polars_value() -> Result<(), Box<dyn std::error::Error>> {
+    use liquers_core::value::DefaultValueSerializer;
+    use liquers_lib::value::{ExtValueInterface, Value};
+
+    let schema = Arc::new(RecordSchema::new(vec![
+        FieldSchema::new("id", FieldType::Int),
+        FieldSchema::new("label", FieldType::Text),
+    ])?);
+    let mut batch = RecordBatchMut::with_capacity(schema, 2);
+    batch.append_row(&[FieldValue::Int(1), FieldValue::Text(Arc::from("alice"))])?;
+    batch.append_row(&[FieldValue::Int(2), FieldValue::Null])?;
+    let bytes = write_table(&batch.freeze()?, TableFormat::Ipc, &WriteOptions::default())?;
+
+    let value = Value::deserialize_from_bytes(&bytes, "polars.DataFrame", "ipc")?;
+    let df = value.as_polars_dataframe()?;
+    assert_eq!(df.height(), 2);
+    assert_eq!(df.column("id")?.get(0)?, AnyValue::Int64(1));
+    assert_eq!(df.column("id")?.get(1)?, AnyValue::Int64(2));
+    assert_eq!(df.column("label")?.get(0)?, AnyValue::String("alice"));
+    assert_eq!(df.column("label")?.get(1)?, AnyValue::Null);
+    Ok(())
+}
+
 #[test]
 fn ipc_written_by_polars_reads_in_records() -> Result<(), Box<dyn std::error::Error>> {
     // No `label: Text` column here (unlike the other direction): `polars::prelude::DataType::

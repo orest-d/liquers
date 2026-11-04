@@ -16,6 +16,21 @@ pub enum PolarsDataFormat {
     Xlsx,
 }
 
+impl PolarsDataFormat {
+    /// Whether the format is binary, so its bytes must not pass through a text conversion.
+    pub fn is_binary(&self) -> bool {
+        match self {
+            PolarsDataFormat::Parquet
+            | PolarsDataFormat::Ipc
+            | PolarsDataFormat::Avro
+            | PolarsDataFormat::Xlsx => true,
+            PolarsDataFormat::Csv { .. } | PolarsDataFormat::Json | PolarsDataFormat::NdJson => {
+                false
+            }
+        }
+    }
+}
+
 fn serialization_error(message: impl Into<String>) -> Error {
     Error::new(ErrorType::SerializationError, message.into())
 }
@@ -29,7 +44,7 @@ pub fn parse_polars_data_format(data_format: &str) -> Result<PolarsDataFormat, E
         "csv_semicolon" | "csv:semicolon" => PolarsDataFormat::Csv { separator: b';' },
         "csv_pipe" | "csv:pipe" => PolarsDataFormat::Csv { separator: b'|' },
         "parquet" => PolarsDataFormat::Parquet,
-        "ipc" | "feather" | "arrow_ipc" => PolarsDataFormat::Ipc,
+        "ipc" | "feather" | "arrow_ipc" | "arrow" => PolarsDataFormat::Ipc,
         "json" => PolarsDataFormat::Json,
         "ndjson" | "jsonl" => PolarsDataFormat::NdJson,
         "avro" => PolarsDataFormat::Avro,
@@ -72,11 +87,13 @@ pub fn deserialize_dataframe_from_reader<T: AsRef<[u8]> + Send + Sync>(
         PolarsDataFormat::Parquet => ParquetReader::new(reader).finish().map_err(|e| {
             serialization_error(format!("Failed to deserialize Parquet DataFrame: {}", e))
         }),
+        PolarsDataFormat::Ipc => IpcReader::new(reader).finish().map_err(|e| {
+            serialization_error(format!("Failed to deserialize IPC DataFrame: {}", e))
+        }),
         PolarsDataFormat::Xlsx => Err(serialization_error(
             "XLSX deserialization is not supported by current Polars integration",
         )),
-        PolarsDataFormat::Ipc
-        | PolarsDataFormat::Json
+        PolarsDataFormat::Json
         | PolarsDataFormat::NdJson
         | PolarsDataFormat::Avro => Err(serialization_error(format!(
             "Polars deserialization for data_format '{}' is not implemented yet",
@@ -116,11 +133,19 @@ pub fn serialize_dataframe_to_writer<W: Write>(
             })?;
             Ok(())
         }
+        PolarsDataFormat::Ipc => {
+            // Arrow IPC file format (Feather v2), uncompressed: polars' default, and what the
+            // `liquers-records` reader requires.
+            let mut df = df.clone();
+            IpcWriter::new(writer).finish(&mut df).map_err(|e| {
+                serialization_error(format!("Failed to serialize IPC DataFrame: {}", e))
+            })?;
+            Ok(())
+        }
         PolarsDataFormat::Xlsx => Err(serialization_error(
             "XLSX serialization is not supported by current Polars integration",
         )),
-        PolarsDataFormat::Ipc
-        | PolarsDataFormat::Json
+        PolarsDataFormat::Json
         | PolarsDataFormat::NdJson
         | PolarsDataFormat::Avro => Err(serialization_error(format!(
             "Polars serialization for data_format '{}' is not implemented yet",
@@ -171,6 +196,52 @@ mod tests {
             parse_polars_data_format("parquet").unwrap(),
             PolarsDataFormat::Parquet
         );
+    }
+
+    #[test]
+    fn test_parse_polars_data_format_ipc_aliases() {
+        for spelling in ["ipc", "feather", "arrow_ipc", "arrow", "Feather"] {
+            assert_eq!(
+                parse_polars_data_format(spelling).unwrap(),
+                PolarsDataFormat::Ipc,
+                "{spelling}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_ipc_roundtrip() {
+        let date = DataType::Date;
+        let df = df![
+            "id" => &[1i64, 2, 3],
+            "amount" => &[Some(1.5f64), Some(f64::NAN), None],
+            "label" => &["a", "b", "c"],
+            "flag" => &[true, false, true],
+            "day" => &[0i32, 19000, 20000],
+        ]
+        .unwrap()
+        .lazy()
+        .with_column(col("day").cast(date))
+        .collect()
+        .unwrap();
+        let mut bytes = Vec::new();
+        serialize_dataframe_to_writer(&df, "ipc", &mut bytes).unwrap();
+        let restored = deserialize_dataframe_from_reader(Cursor::new(bytes), "ipc").unwrap();
+
+        assert_eq!(restored.schema(), df.schema());
+        for name in ["id", "label", "flag", "day"] {
+            assert!(
+                restored
+                    .column(name)
+                    .unwrap()
+                    .equals_missing(df.column(name).unwrap()),
+                "{name}"
+            );
+        }
+        let amount: Vec<Option<f64>> = restored.column("amount").unwrap().f64().unwrap().iter().collect();
+        assert_eq!(amount[0], Some(1.5));
+        assert!(amount[1].is_some_and(f64::is_nan));
+        assert_eq!(amount[2], None);
     }
 
     #[test]

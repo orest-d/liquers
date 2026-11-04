@@ -118,7 +118,7 @@ impl RasterImage {
 
     /// Encode the RasterImage as PNG and return the bytes.
     pub fn to_png_bytes(&self) -> Result<Vec<u8>, image::ImageError> {
-        use image::{codecs::png::PngEncoder, ColorType, Rgba, RgbaImage};
+        use image::{codecs::png::PngEncoder, Rgba, RgbaImage};
         let mut img = RgbaImage::new(self.width as u32, self.height as u32);
         for (i, &(r, g, b, a)) in self.pixels.iter().enumerate() {
             let x = (i % self.width) as u32;

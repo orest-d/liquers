@@ -57,6 +57,22 @@ REQUIRED_COMPACT = {
     4: ["Steps", "Validation"],
     5: [],
 }
+# Designs created on or after this date name the modules whose API docs change: an `- API docs:`
+# line in Phase 1 (`specs/guides/API_DOCUMENTATION_GUIDE.md` §11). Older designs are not re-opened.
+API_DOCS_LINE = "2026-11-03"
+API_DOCS_RE = re.compile(r"(?mi)^\s*-\s*\**API docs\**\s*:")
+
+
+def api_docs_line_problems(phase1: str, fields: dict) -> list[str]:
+    """The §11 error for a new design whose Phase 1 has no `- API docs:` line."""
+    if fields.get("created", "") < API_DOCS_LINE or API_DOCS_RE.search(blank_fences(phase1)):
+        return []
+    return [
+        "Phase 1 has no `- API docs:` line (the modules whose module doc is created or changed, "
+        "or `none` with the reason; API_DOCUMENTATION_GUIDE.md §11)"
+    ]
+
+
 # Size limits from SKILL.md §Design depth, as characters (≈ 3,000 per page). Warnings only.
 MAX_CHARS_FULL = {1: 6000, 2: 9000, 3: 9000, 4: 9000, 5: 9000}
 MAX_CHARS_COMPACT_TOTAL = {"S": 9000, "M": 15000}
@@ -290,6 +306,8 @@ def validate_phase(slug: str, phase: int) -> bool:
     extra_errors, extra_warnings = scenario_and_progress_problems(
         load_docs_index(specs_dir), design_file, fields, phase, new_style
     )
+    if phase == 1:
+        extra_errors += api_docs_line_problems(content, fields)
     for message in extra_errors:
         ok = False
         print(f"[ERROR] {message}")

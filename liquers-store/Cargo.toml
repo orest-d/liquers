@@ -11,12 +11,6 @@ crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 liquers-core={path="../liquers-core"}
-# `derive` is required: config.rs imports `Serialize`/`Deserialize` from `serde` as derive
-# macros. Until the `opendal` dependency became optional this crate compiled without declaring
-# it, because OpenDAL enabled `serde/derive` and Cargo unified the feature — an accident, not a
-# guarantee, and it broke the moment OpenDAL could be turned off.
-serde = { version = "1.0.229", features = ["derive"] }
-serde_derive = "1.0.229"
 serde_json = "1.0.151"
 serde_yaml = "0.9.34"
 opendal = { version = "0.55.0", optional = true }

@@ -79,7 +79,8 @@ pub fn thumb(
 
     let img = try_to_image(state)?;
     let filter = parse_filter_type(&method)?;
-    let result = Arc::as_ref(&img).thumbnail(max_width, max_height);
+    // `resize` fits the image within the box, keeping its aspect ratio, with the named filter.
+    let result = Arc::as_ref(&img).resize(max_width, max_height, filter);
 
     Ok(Value::from_image(Arc::new(result)))
 }
@@ -233,6 +234,28 @@ mod tests {
         // Should preserve aspect ratio: 2:1 becomes 100:50
         assert_eq!(w, 100);
         assert!(h <= 100);
+    }
+
+    /// The thumbnail is resampled with the named `method`: on a one-pixel checkerboard `nearest`
+    /// keeps pure black and white, `triangle` averages neighbours, so the two differ.
+    #[test]
+    fn test_thumb_uses_method_filter() {
+        let board = image::RgbaImage::from_fn(200, 100, |x, y| {
+            if (x + y) % 2 == 0 {
+                image::Rgba([0, 0, 0, 255])
+            } else {
+                image::Rgba([255, 255, 255, 255])
+            }
+        });
+        let state = State::new().with_data(Value::from_image(Arc::new(DynamicImage::ImageRgba8(board))));
+        let nearest = thumb(&state, 50, 50, "nearest".to_string()).unwrap().as_image().unwrap();
+        let triangle = thumb(&state, 50, 50, "triangle".to_string()).unwrap().as_image().unwrap();
+        assert_eq!(Arc::as_ref(&nearest).dimensions(), (50, 25));
+        assert_eq!(Arc::as_ref(&triangle).dimensions(), (50, 25));
+        assert_ne!(
+            Arc::as_ref(&nearest).to_rgba8().into_raw(),
+            Arc::as_ref(&triangle).to_rgba8().into_raw()
+        );
     }
 
     #[test]

@@ -33,8 +33,9 @@ signatures after reading `specs/guides/COMMAND_REGISTRATION_GUIDE.md`: an argume
 location (the working directory, a sibling file) is a default link such as `query "-R-key/."`.>
 
 ## Documentation Architecture
-<For each document to create or update: exact path, kind, audience, area, and the change. The
-proposed `affects_docs` set. Links to add in `specs/README.md`.>
+<For each document to create or update: exact path, kind, audience, area, and the change. One row
+per module whose API doc changes, naming which of the five parts (`API_DOCUMENTATION_GUIDE.md` §3).
+The proposed `affects_docs` set. Links to add in `specs/README.md`.>
 
 ## Risks
 | Assessment | Finding |
