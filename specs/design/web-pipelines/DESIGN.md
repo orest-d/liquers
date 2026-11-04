@@ -4,7 +4,7 @@ kind: design
 title: Pipelines from JavaScript - evaluate, convert, edit and register
 form: compact
 workflow: liquers-project
-phase: documentation
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [web]
@@ -16,7 +16,7 @@ created: 2026-11-04
 # Pipelines from JavaScript - evaluate, convert, edit and register
 
 The `liquers-web` half of `PIPELINES-NOT-IN-LANGUAGE-BINDINGS`; `liquers-py` stays with the issue.
-Written and implemented together on 2026-11-04 at the owner's request ("design and implement the
+Written and implemented together on 2026-11-04 (accepted by the owner the same day) at the owner's request ("design and implement the
 pipeline support"), so Phases 1-4 record what was built and why, and Phase 5 what it changed.
 
 ## Phase 1: High-Level Design
