@@ -632,6 +632,7 @@ deliberately folded behind a broader line.
 - design `web-records-single-cell-scalar`
 - design `web-value04-bytes-identifier`
 - design `workspace-rustfmt-check`
+- feature `AD-HOC-ASSET-CANNOT-RUN-A-CLOSURE`
 - feature `AGENT-CANNOT-PROPOSE-A-COMMAND`
 - feature `AGENT-MEMORY-HAS-NO-INDEXES-OR-CONTEXT-PACKS`
 - feature `AGENT-MEMORY-HAS-NO-MIGRATE-COMMAND`
@@ -672,6 +673,7 @@ deliberately folded behind a broader line.
 - feature `PY-CANNOT-RENDER-TEMPLATES`
 - feature `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`
 - feature `PY-COMMAND-DECORATOR-CANNOT-SET-REALM`
+- feature `PY-HAS-NO-VALIDATING-QUERY-EDITOR`
 - feature `PY-STRUCTURES-ARE-OPAQUE-TO-DATA-NODE-READERS`
 - feature `QUERY-BUILDER-NOT-IN-BINDINGS`
 - feature `QUERY-CANNOT-CHOOSE-A-DATA-FORMAT`

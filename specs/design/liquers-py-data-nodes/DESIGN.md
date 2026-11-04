@@ -5,7 +5,7 @@ title: "Data nodes in liquers-py: Python data read in place, and Liquers values 
 workflow: liquers-project
 status: in_review
 phase: high-level
-readiness: needs-decision
+readiness: ready
 autofix: not-eligible
 area: [py, lib/value]
 issues: [PY-STRUCTURES-ARE-OPAQUE-TO-DATA-NODE-READERS]
@@ -19,7 +19,8 @@ The `DATANODE` feature for liquers-py: milestone M6 of the liquers-py plan, toge
 adapter) and [`liquers-py-pipelines`](../liquers-py-pipelines/DESIGN.md). Full form (`L`).
 Requires the core hook of `foreign-value-data-node`, in its own PR.
 
-Phase 1 written and reviewed twice on 2026-11-04; waiting at the Phase 1 gate.
+Phase 1 written and reviewed twice on 2026-11-04. At the gate Orest decided question 2 (opt-in);
+revised and waiting at the Phase 1 gate.
 
 ## Phases
 

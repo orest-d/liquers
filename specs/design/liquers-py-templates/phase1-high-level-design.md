@@ -11,9 +11,9 @@ function: the `TEMPLATE` feature of `LANGUAGE-INTEGRATION_GUIDE.md` (`TEMPLATE_L
 
 ## Design Readiness
 
-- **Readiness:** `needs-decision` (questions 1 and 8)
+- **Readiness:** `needs-decision` (question 8)
 - **Automatic fixing:** `not-eligible`: an `L` feature with new public Python API.
-- **Leading issue:** question 1, the top-level route. Source issue `PY-CANNOT-RENDER-TEMPLATES`
+- **Leading issue:** question 8, link defaults. Source issue `PY-CANNOT-RENDER-TEMPLATES`
   (P2 L, filed with this design).
 - **Explanation:** the in-command half needs nothing new in Rust. `ContextHost::new(context, cwd)`
   and `liquers_template::render` are what the `ns-template/render` command uses. The top-level half
@@ -22,22 +22,20 @@ function: the `TEMPLATE` feature of `LANGUAGE-INTEGRATION_GUIDE.md` (`TEMPLATE_L
   `liquers-py/src/environment.rs`) have no slot for them yet, nor for pipeline commands. The first
   M6 design to land adds one slot for both (open question 7).
 - **Open questions:**
-  1. **Open design: the top-level route** (guide question 4). Recommended: the guide's route,
-     an ad-hoc `apply` of `ns-template/render` through `render_in_env(envref, template, state, …)`
-     of `template-render-in-env`, which lands first in its own PR. The asset runs through `run`,
-     with status, cancellation (liquers-py cancels it when the wait is interrupted) and its log
-     (the warnings). The `data` of `expand` becomes the ad-hoc state *unconverted*, as a retained
-     `py.Object`. With `liquers-py-data-nodes` and its core hook, the renderer then reads the `dict`
-     in place, through the adapter. The cost: two frames at the top level (a state *and* `data`)
-     are not possible, so `env.render(template, state, data=…)` with both raises
-     `NotSupportedError`. A core primitive that runs a closure as an ad-hoc asset would lift this
-     limit; it is filed as an issue in Phase 2. Inside a command, both frames work, because the
-     command's `Context` is used.
-     Alternatives:
-     - That core primitive now (an `AssetManager` change, `L`).
-     - A context built on a temporary asset (`AssetRef::new_temporary` and `Context::new`). This
-       is rejected, as `template-render-in-env` rejects it: it runs outside `run`, with no status
-       transitions, and on wasm no service loop processes its messages.
+  1. **Decided (Decision 1): the top-level route** (guide question 4). Everything that works in a
+     command works at the top level. The top-level render runs the same code as inside a command
+     (`ContextHost` and `liquers_template::render`, with frames given directly), inside an ad-hoc
+     asset that a new core primitive provides: the asset manager runs a closure as an ad-hoc asset,
+     through `run`, with status, cancellation, log and dependencies, and hands the closure the
+     asset's `Context` (`AD-HOC-ASSET-CANNOT-RUN-A-CLOSURE`, filed with this decision; its own
+     design and PR, landed first). So two frames work at the top level, the `data` `dict` is read
+     in place through the adapter, and the template text never travels inside a query.
+     liquers-py cancels the asset when a wait is interrupted. `template-render-in-env` is then
+     replaced by a thin helper over the primitive (`render_top_level(envref, template, frames,
+     options)` in `liquers-lib`), which that design's Scope Change records. Rejected: the ad-hoc
+     `apply` of `ns-template/render` (one frame only, the data converted to a `Value`), and a
+     context built on a temporary asset (it runs outside `run`: no status transitions, and on wasm
+     no service loop processes its messages).
   2. **Proposed resolution: template as text or link** (guide question 2). A `str` is template text. An
      `lq.Query` is a link to the template, read as a dependency. An `lq.Key` means `-R/<key>`.
      Nothing is guessed from the string's content.
@@ -74,6 +72,13 @@ function: the `TEMPLATE` feature of `LANGUAGE-INTEGRATION_GUIDE.md` (`TEMPLATE_L
      against the root, and the docs say so. This changes the decorator API of every command.
      Alternative: land it in `py-command-decorator-declaration-keywords`, which owns argument
      declarations, and land that design first.
+
+## Decisions
+
+Orest, 2026-11-04, at the Phase 1 gate, on question 1 (the two-frame limit at the top level),
+quoted: "why would template work only in commands - if the environment is available, it should be
+possible outside the commands too?" Taken as Decision 1: a core primitive gives the top level the
+same render as a command. Landing order data nodes, templates, pipelines: "ok".
 
 ## Problem Example
 
@@ -132,8 +137,8 @@ source command returning its argument). The queries validate with those commands
   WHEN a command with `cwd: lq.Key = lq.link("-R-key/.")` renders `-R/templates/page.md` under `-R-cwd/templates/-/page`, and `env.render` gets `cwd=lq.parse_key("templates")`
   THEN both give `"Header body"` (TEMPLATE11)
 - **AC-12** Two frames at the top level
-  WHEN `context.render(template, state={"a": 1}, data={"b": 2})` renders `{{a}}{{b}}` inside a command, and `env.render` is called with the same arguments
-  THEN the first returns `12`, and the second raises `NotSupportedError` naming the two-frame limit (question 1)
+  WHEN `env.render(template, state={"a": 1}, data={"b": 2})` renders `{{a}}{{b}}` at the top level, and `context.render` does the same inside a command
+  THEN both return `12`, as the command does with the same state and `data` (Decision 1)
 - **AC-13** Async forms agree
   WHEN `await env.expand_async(…)` and `await context.render_async(…)` in an `async def` command are used for AC-1 and AC-6
   THEN they give the same text, and the sync form inside an `async def` command raises
@@ -150,8 +155,8 @@ Commands: aliases and link defaults. Assets: an ad-hoc asset at the top level, t
 ## Crate Placement
 
 `liquers-py`: `src/template.rs` new; `environment.rs`, `context.rs`, `command.rs`,
-`command_metadata.rs`, `_commands.py`, the stubs. `render_in_env` comes from
-`template-render-in-env` (`liquers-lib`), in its own PR first.
+`command_metadata.rs`, `_commands.py`, the stubs. The closure primitive (`liquers-core`) and
+`render_top_level` (`liquers-lib`) land first, in their own PR (Decision 1).
 
 ## Documentation Intent
 
@@ -166,16 +171,16 @@ Commands: aliases and link defaults. Assets: an ad-hoc asset at the top level, t
 
 ## Design Dependencies
 
-- `template-render-in-env` / `TEMPLATE-TOP-LEVEL-RENDER-HAS-NO-HOST`: **requires** (question 1),
-  in its own PR first.
+- `AD-HOC-ASSET-CANNOT-RUN-A-CLOSURE` and `template-render-in-env` /
+  `TEMPLATE-TOP-LEVEL-RENDER-HAS-NO-HOST`: **requires** (Decision 1). The primitive needs a design
+  of its own (`L`); `template-render-in-env` is re-based on it. Both land first, in their own PR.
 - `liquers-py-data-nodes`: **requires** (lands first), so `data` is read in place. Without it,
   `expand` would convert `data`, and one unconvertible member would blank the whole `dict`.
 - `liquers-py-pipelines`: **overlaps**. Both add the declaration slot and the
   `lq.CommandDefinition` accessors (question 7); whichever lands first adds them.
 - `py-command-decorator-declaration-keywords`: **overlaps** (question 8).
-- `liquers-mustache` (complete): **requires** the commands and `ContextHost`.
 
 ## References
 
-- Guide §TEMPLATE and Appendix A; `liquers-lib/src/template/commands.rs`, `host.rs`;
-  `liquers-core/src/commands.rs` `register_alias`; `liquers-py/python/liquers/_commands.py` `_baseline`
+- Guide §TEMPLATE and Appendix A; `liquers-lib/src/template/`; `commands.rs` `register_alias`;
+  `_commands.py` `_baseline`

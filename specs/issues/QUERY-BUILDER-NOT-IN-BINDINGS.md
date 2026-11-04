@@ -1,11 +1,11 @@
 ---
 id: QUERY-BUILDER-NOT-IN-BINDINGS
 kind: feature
-title: Python and JavaScript have no validating query builder
+title: JavaScript has no validating query builder
 status: draft
 priority: P3
 complexity: M
-area: [py, web]
+area: [web]
 design: query-builder-in-bindings
 created: 2026-10-21
 github:
@@ -48,3 +48,8 @@ wrapper over the core builder that returns a `Query` (or its text) and maps a co
 Split off on 2026-10-21 by the bulk design of `QUERY-BUILDER-TOOLING`, whose first slice is
 deliberately the core API, the `liquers-encode` CLI and the two existing consumers. Depends on
 `design/query-builder/` landing first.
+
+**Scope split, 2026-11-04.** Narrowed to JavaScript. The core `QueryBuilder` this issue names was
+replaced by `QueryEditor` / `PipelineEditor` (`composite-command-definition`); the JavaScript
+wrapper should target those. The Python half is `PY-HAS-NO-VALIDATING-QUERY-EDITOR`, implemented by
+`liquers-py-pipelines` (Orest at its Phase 1 gate: "agreed").

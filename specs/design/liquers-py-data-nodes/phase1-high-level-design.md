@@ -2,34 +2,32 @@
 
 ## Purpose
 
-Let core read Python data in place as a `DataNode`, with no structural conversion first, so a
-template reads the readable fields of a `dict` that conversion refuses, and three fields of a large
-structure cost three lookups instead of a copy. Also let a Python command read one field of a
-Liquers value (a record view, a frame) without converting all of it. This is the `DATANODE`
-feature of `LANGUAGE-INTEGRATION_GUIDE.md` (§DATANODE), the data side of
-[`liquers-py-templates`](../liquers-py-templates/DESIGN.md), and milestone M6 of the liquers-py
-plan, with [`liquers-py-pipelines`](../liquers-py-pipelines/DESIGN.md).
+Let core read Python data in place as a `DataNode`, without converting it first: a template reads
+the readable fields of a `dict` that conversion refuses, and three fields of a large structure cost
+three lookups, not a copy. Let Python read one field of a Liquers value without converting it. The
+`DATANODE` feature of `LANGUAGE-INTEGRATION_GUIDE.md`; milestone M6, with
+[`liquers-py-templates`](../liquers-py-templates/DESIGN.md) and
+[`liquers-py-pipelines`](../liquers-py-pipelines/DESIGN.md).
 
 ## Design Readiness
 
-- **Readiness:** `needs-decision` (questions 1 and 2)
+- **Readiness:** `ready` (Orest decided question 2 at the gate; the rest are proposed resolutions)
 - **Automatic fixing:** `not-eligible`: an `L` feature with new public Python classes.
-- **Leading issue:** question 2, the opt-in protocol. Source issue
+- **Leading issue:** question 1's two deviations from the guide. Source issue
   `PY-STRUCTURES-ARE-OPAQUE-TO-DATA-NODE-READERS` (P2 L, filed with this design).
 - **Explanation:** `DataNode`, `AnyNode`, `NodeRef` and `Scalar` exist in `liquers-core/src/data_node.rs`.
   `PyObjectValue` (`liquers-py/src/value.rs`) is a `ForeignValue`, which has no hook to answer as a
   node. That hook is `foreign-value-data-node`, a small and ready core design that lands first in
   its own PR.
-- **Open questions** (the guide's six; 1 and 3–6 have proposed resolutions):
-  1. **Open design: the mapping** (guide question 1). `None` → `Null`; `bool` → `Bool`, tested
-     before `int`; `int` → `Integer` within `i64`; `float` → `Float`, and a non-finite one fails
-     `to_json`; `str` → `Text`; `bytes` and `bytearray` → `Opaque`, never `Text`; `dict` → `Map`
-     in insertion order; `list` and `tuple` → `List`, with random access. Liquers wrappers that
-     hold a value without copying it (`lq.Query`, `lq.Key`, `lq.RecordView`) answer through that
-     value's own node. Anything else is `Opaque`, including a polars frame or an image inside a
-     Python structure, because reading those would mean converting them whole. One table beside
-     VALUE's table. Two deliberate differences from conversion, which keeps a refused structure
-     as `py.Object`, never raising in permissive mode:
+- **Open questions** (the guide's six; 2 decided, the others proposed resolutions):
+  1. **Proposed resolution: the mapping** (guide question 1). `None` → `Null`; `bool` →
+     `Bool`, tested before `int`; `int` → `Integer` within `i64`; `float` → `Float`, and a
+     non-finite one fails `to_json`; `str` → `Text`; `bytes`, `bytearray` and `memoryview` →
+     `Opaque`, never `Text`; exact `dict` → `Map` in insertion order; exact `list` and `tuple` → `List`, with
+     random access. Liquers wrappers that hold a value without copying it (`lq.Query`, `lq.Key`,
+     `lq.RecordView`) answer through that value's own node. Every other object is `Opaque` unless its class opts in (question 2). One table beside VALUE's table. Two
+     deliberate differences from conversion, which keeps a refused structure as `py.Object`,
+     never raising in permissive mode:
      - **An integer above `i64::MAX`.** VALUE refuses it with `ConversionError`, but a `DataNode`
        lookup cannot fail. So its node is `Opaque`, and `to_json` raises that same
        `ConversionError`. This is a stated deviation from the guide's "the same conversion error",
@@ -37,13 +35,21 @@ plan, with [`liquers-py-pipelines`](../liquers-py-pipelines/DESIGN.md).
        would make the node accept what VALUE refuses.
      - **A non-`str` key.** It is not visible through `get` or `keys`. `to_json` raises
        `ConversionError` naming the key.
-  2. **Open design: which other objects read as maps** (guide question 2). Recommended: an opt-in
-     protocol. A class defines `__liquers_data__(self)`, returning a `dict`, `list` or scalar,
-     which is called once when its node is built. This runs Python code, and the docs say so.
-     Nothing else runs code: `dict`, `list` and `tuple`, subclasses included, are read through
-     their data (`PyDict` / `PyList` access, never `__getitem__`, properties or `__getattr__`)
-     (DATANODE07). Alternative: also read dataclasses and named tuples automatically from their
-     fields.
+  2. **Decided (Decision 1): standard types, and classes that opt in to their protocols**
+     (guide question 2). Without opting in, only the standard types of question 1 read as data:
+     exact `dict`, `list` and `tuple` through their data (`PyDict` / `PyList` access), so no
+     Python code runs (DATANODE07). Any other object is `Opaque`, a `dict` subclass included. A
+     class opts in through `__liquers_data__`, in one of two forms:
+     - `__liquers_data__ = True`: read through its protocols. It is a `Map` when it has `keys()`
+       and `__getitem__`, a `List` when it has `__len__` and `__getitem__` but no `keys()`, and an
+       `Integer` or `Float` through `__index__` or `__float__`.
+     - `def __liquers_data__(self)`: returns the data to read (a dataclass, say). It is called
+       when the node is built.
+     Either form runs Python code mid-render, possibly reentrantly. The guide allows that when it
+     is documented, and the docs say so. An exception in such a lookup makes that node `Opaque`.
+     Third-party types (pandas, numpy) are not patched by liquers-py; a user subclasses or wraps
+     them to opt in. Rejected: an opt-out, which would run code of every object with a
+     `__getitem__`.
   3. **Proposed resolution: live view** (guide question 3). Each lookup reads the structure as it is at
      that moment, so a mutation mid-render shows (DATANODE09). A caller who needs consistency
      passes a copy, and the docs say so.
@@ -65,10 +71,21 @@ plan, with [`liquers-py-pipelines`](../liquers-py-pipelines/DESIGN.md).
      `Value::data_node`, always synchronous). It holds the root `AnyNode` plus a path and
      re-resolves on each access. It offers `kind` (`lq.NodeKind`), `scalar`, `[key]` / `[i]`,
      `get`, `keys()`, `len`, iteration and `to_json()`. Async nodes (a store folder, a record
-     source) exist only through a command's context (`ContextHost::node_of`), so
-     `context.data_node(state)` inside a command returns them. They are read with
-     `await node.get_async(…)`, and a sync accessor on one raises `lq.NotSupportedError`
-     (DATANODE11). At the top level, a record source's node is `Opaque`, as in Rust.
+     source) need a context (`ContextHost::node_of`): `context.data_node(state)` inside a command,
+     and at the top level `env.data_node(state)`, which reads them inside an ad-hoc asset through
+     the core primitive of `liquers-py-templates` Decision 1 (`AD-HOC-ASSET-CANNOT-RUN-A-CLOSURE`).
+     They are read with `await node.get_async(…)`, and a sync accessor on one raises
+     `lq.NotSupportedError` (DATANODE11). `lq.data_node(state)`, with no environment, keeps
+     `Value::data_node`, where a record source is `Opaque`, as in Rust.
+
+## Decisions
+
+Orest, 2026-11-04, at the Phase 1 gate, on question 2, quoted: "data nodes should be supported for
+standard python types + for classes supporting suitable protocols (e.g. getitem, len...). I'd say
+classes should be able to opt out rather than opt in." After the trade-offs (an opt-out runs code of
+every object with a `__getitem__`): "ok, I agree with opt in - that is better". Taken as Decision 1
+(question 2): standard types, and classes that opt in to their protocols. Landing
+order data nodes, templates, pipelines: "ok".
 
 ## Problem Example
 
@@ -110,12 +127,15 @@ the render returns `"Ann"`: `PyObjectValue` answers through the adapter, `name` 
 - **AC-6** Cycles navigate and refuse JSON
   WHEN a `dict` containing itself is navigated three levels deep, then `to_json()` is called
   THEN navigation reads the name, and `to_json()` raises `ConversionError` (DATANODE06)
-- **AC-7** Lookups run no Python code
-  WHEN a `dict` subclass with a recording `__getitem__` is read
-  THEN nothing is recorded (DATANODE07)
+- **AC-7** Lookups run only opted-in code
+  WHEN a plain `dict`, a `dict` subclass and a class with recording `keys` / `__getitem__` are read, then the class with `__liquers_data__ = True`
+  THEN the first is a `Map`, the next two are `Opaque` and nothing is recorded, and the opted-in class is a `Map` read through its methods (DATANODE07, Decision 1)
 - **AC-8** A retained value reads in place
-  WHEN the problem example's query is evaluated, and the same with a class that defines `__liquers_data__`
-  THEN both renders give `"Ann"` (DATANODE08)
+  WHEN the problem example's query is evaluated, with an opted-in mapping class, and with a dataclass that defines `__liquers_data__()`
+  THEN all three renders give `"Ann"` (DATANODE08)
+- **AC-13** Opted-in protocols read as data
+  WHEN opted-in classes with sequence and number protocols are read, and an opted-in mapping whose `__getitem__` raises
+  THEN they are a `List`, an `Integer` and a `Float`, and the raising entry is `Opaque` (Decision 1)
 - **AC-9** The view is live
   WHEN a `dict` is changed between two lookups through one node
   THEN the second lookup shows the new value (DATANODE09)
@@ -125,53 +145,46 @@ the render returns `"Ann"`: `PyObjectValue` answers through the adapter, `name` 
 - **AC-11** The outbound view reads without converting
   WHEN `lq.data_node(state)` reads `[0]["amount"]` of a polars frame state, in a process where the `polars` Python package was never imported
   THEN the cell is returned and `polars` is still not in `sys.modules`, so the frame was not converted (DATANODE11)
-- **AC-12** Async nodes are awaited inside a command
-  WHEN a command calls `context.data_node(folder_state)`, uses a sync accessor on it, then awaits `get_async("table.csv")`
-  THEN the sync accessor raises `lq.NotSupportedError`, and the await returns that entry's node (DATANODE11)
+- **AC-12** Async nodes are awaited, in a command and at the top level
+  WHEN a command calls `context.data_node(folder_state)`, and a script calls `env.data_node(folder_state)`, each using a sync accessor, then awaiting `get_async("table.csv")`
+  THEN each sync accessor raises `lq.NotSupportedError`, and each await returns that entry's node (DATANODE11)
 
-Non-goals: Python-implemented `AsyncDataNode`; writing through a node; reading a pandas frame in
-place (it stays `py.Object`, opaque unless it opts in); changing structural conversion itself.
+Non-goals: Python-implemented `AsyncDataNode`; writing through a node; patching third-party types
+to opt in; changing structural conversion.
 
 ## Core Interactions
 
-Value types: `PyObjectValue` overrides the new `ForeignValue::data_node`. Consumers (templates,
-and store handlers later) read Python data through the adapter. Bindings: `lq.data_node`,
-`lq.DataNode`, `lq.NodeKind`, `State.data_node()`, `Context.data_node()`, and the
-`__liquers_data__` protocol.
+Value types: `PyObjectValue` overrides `ForeignValue::data_node`. Consumers (templates, later store
+handlers) read Python data through the adapter. Bindings: `lq.data_node`, `lq.DataNode`,
+`lq.NodeKind`, `data_node()` on `State`, `Context` and `Environment`, `__liquers_data__`.
 
 ## Crate Placement
 
-`liquers-py`: a new `src/data_node.rs` (the adapter and the view), plus `value.rs` (the hook) and
-`asset.rs` (`State.data_node`), `context.rs` (`Context.data_node`) and the stubs. In `liquers-lib`, `ForeignValue::data_node` comes from
-`foreign-value-data-node`, in its own PR first.
+`liquers-py`: `src/data_node.rs` new (adapter, view); `value.rs`, `asset.rs`, `context.rs`,
+`environment.rs`, the stubs. The core hook and primitive land first, in their own PRs.
 
 ## Documentation Intent
 
-- Reference: `PYTHON_INTEGRATION.md`, a new §Data nodes (the mapping table beside §5's
-  conversion table, the protocol, live view, cycles, the lock).
-- Guide: a "Data nodes" section in `PYTHON_GUIDE.md`, in the templates chapter: what a template
-  sees of your data.
-- Other documents: the `liquers-py/README.md` conformance row; `LANGUAGE-INTEGRATION_GUIDE.md`
-  §DATANODE and §6 Python; `specs/README.md`.
-- Documents to update: `PYTHON_INTEGRATION.md` §5 (opaque `py.Object`); the user guide chapters
-  that `docs_index.py chapters-for` lists.
-- API docs: the module doc of the new `liquers-py/src/data_node.rs`, and of `value.rs`, `asset.rs`
-  and `context.rs`;
-  docstrings on every new Python name.
+- Reference: `PYTHON_INTEGRATION.md`, a new §Data nodes (mapping table, opt-in, live view,
+  cycles, the lock).
+- Guide: a "Data nodes" section in `PYTHON_GUIDE.md` (what a template sees of your data), which
+  the templates chapter links to.
+- Other documents: the `liquers-py/README.md` row; `LANGUAGE-INTEGRATION_GUIDE.md` §DATANODE and
+  §6 Python; `specs/README.md`.
+- Documents to update: `PYTHON_INTEGRATION.md` §5; the chapters `docs_index.py chapters-for` lists.
+- API docs: module docs of `liquers-py/src/data_node.rs` (new), `value.rs`, `asset.rs`,
+  `context.rs`, `environment.rs`; docstrings on every new Python name.
 
 ## Design Dependencies
 
-- `foreign-value-data-node` / `FOREIGN-VALUE-HAS-NO-DATA-NODE`: **requires**, in its own PR
-  first. Without it, only `lq.data_node` reaches the adapter: neither a retained value inside a
-  query (AC-8) nor the data of a top-level render, which crosses as a retained `py.Object`
-  (`liquers-py-templates` question 1).
-- `liquers-py-templates`: **required-by**. It lands after this design and reads its `data` through
-  this adapter. This design's guide section goes in the templates chapter that design creates.
-- `template-non-scalar-text-form`: **overlaps**. A `Query` or `Key` value's node gains a text
-  form there, and this design inherits it.
+- `foreign-value-data-node` / `FOREIGN-VALUE-HAS-NO-DATA-NODE`: **requires** (own PR first), so a
+  retained value inside a query reads in place (AC-8).
+- `AD-HOC-ASSET-CANNOT-RUN-A-CLOSURE`: **requires** for `env.data_node` (AC-12); own PR first.
+- `liquers-py-templates`: **required-by**. It lands next and reads its `data` frames through this
+  adapter.
+- `template-non-scalar-text-form`: **overlaps** (text form of `Query` and `Key` nodes).
 
 ## References
 
-- `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §DATANODE and Appendix A DATANODE
-- `liquers-core/src/data_node.rs`; `liquers-lib/src/value/foreign.rs`, `value/mod.rs`
-  (`ExtValue::data_node`); `liquers-py/src/value.rs` (`py_to_simple`, `PyObjectValue`)
+- Guide §DATANODE and Appendix A; `liquers-core/src/data_node.rs`; `liquers-lib/src/value/foreign.rs`,
+  `value/mod.rs`; `liquers-py/src/value.rs`

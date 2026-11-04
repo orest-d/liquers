@@ -11,9 +11,9 @@ plan, with [`liquers-py-templates`](../liquers-py-templates/DESIGN.md) and
 
 ## Design Readiness
 
-- **Readiness:** `needs-decision` (questions 1, 2, 5 and 6 change the public API or another design)
+- **Readiness:** `ready` (Orest decided questions 1, 2, 5 and 6 at the gate)
 - **Automatic fixing:** `not-eligible`: an `L` feature with new public Python classes.
-- **Leading issue:** question 1, the dedicated class. Source issue
+- **Leading issue:** none open. Source issue
   `PIPELINES-NOT-IN-LANGUAGE-BINDINGS` (P2 L), narrowed to Python; its JavaScript half is
   `WEB-CANNOT-USE-PIPELINES`, filed with this design.
 - **Explanation:** the core API exists and is tested (`composite-command-definition`, complete):
@@ -21,7 +21,7 @@ plan, with [`liquers-py-templates`](../liquers-py-templates/DESIGN.md) and
   `CommandRegistry::register_pipeline`, and `PipelineEditor` / `QueryEditor`. This design adds the
   Python surface over that API. The JSON form is the bridge, so no rule is reimplemented in Python.
 - **Open questions:**
-  1. **Open design: a dedicated class.** Recommended: a frozen `lq.Pipeline` wrapping the core
+  1. **Decided (Decision 1): a dedicated class.** Taken as recommended: a frozen `lq.Pipeline` wrapping the core
      `Pipeline` (`from_json` / `to_json`, `to_list()` for the native structure, `==`, `repr`),
      *and* every entry point also accepts the native `list` / `dict` form. A `Value::Pipeline`
      reaches Python as `lq.Pipeline`, and an `lq.Pipeline` returned by a command crosses back as
@@ -31,7 +31,7 @@ plan, with [`liquers-py-templates`](../liquers-py-templates/DESIGN.md) and
      becomes `Value::Object`, so the type is lost on the way back. Changing both to `lq.Pipeline`
      breaks nothing that is published, because no release exists yet. Alternative: native
      structures only, with the type lost on return.
-  2. **Open design: the editors.** Recommended: wrap `QueryEditor` and `PipelineEditor` as
+  2. **Decided (Decision 1): the editors.** Taken as recommended: wrap `QueryEditor` and `PipelineEditor` as
      `lq.QueryEditor` / `lq.PipelineEditor`, built from an environment (`env.query_editor()`,
      `env.pipeline_editor()`). Each takes `command_metadata_snapshot` when it is created, so a
      command registered later is unknown to it, and the docs say so. They mutate like Rust's: each
@@ -53,7 +53,7 @@ plan, with [`liquers-py-templates`](../liquers-py-templates/DESIGN.md) and
      raises `ConversionError` when the pipeline is built, naming its path. That needs a walker of
      its own: `py_to_simple` returns `None` for an unconvertible object and tracks no path. A
      `py.Object` never reaches a JSON slot. To pass one, a link or a nested pipeline supplies it.
-  5. **Open design: entry points.** Recommended: `evaluate`, `evaluate_state` and their `_async`
+  5. **Decided (Decision 1): entry points.** Taken as recommended: `evaluate`, `evaluate_state` and their `_async`
      forms accept a pipeline as well as a query. A `str` stays a query. They run
      `interpreter::evaluate_pipeline` in a temporary asset, which is never cached, as the core
      does. `get_asset` stays query-only, because a pipeline has no asset key; the caller converts
@@ -61,9 +61,10 @@ plan, with [`liquers-py-templates`](../liquers-py-templates/DESIGN.md) and
      representable pipeline and evaluates its query, so the dependency is recorded. A
      non-representable one raises `NotSupported`, because `Context` has no `evaluate_pipeline`.
      That gap is filed as a core issue in Phase 2 unless Phase 2 adds the method.
-  6. **Open design: `query-builder-in-bindings`.** Two designs cannot own one issue (§5.1.1).
-     Recommended: split `QUERY-BUILDER-NOT-IN-BINDINGS` at this gate. A Python issue (the editors
-     of question 2) joins this design, recorded as `merged:`. `query-builder-in-bindings` takes a
+  6. **Decided (Decision 1): `query-builder-in-bindings`.** Two designs cannot own one issue
+     (§5.1.1). Done at the gate: split `QUERY-BUILDER-NOT-IN-BINDINGS` at this gate. Its Python half,
+     `PY-HAS-NO-VALIDATING-QUERY-EDITOR` (the editors of question 2), joins this design, recorded as
+     `merged:`. `query-builder-in-bindings` takes a
      Scope Change that narrows it to `liquers-web` and re-bases it on `QueryEditor`.
      Alternative: a maintainer merge of the whole design into this one, `superseded` as a whole,
      with its JavaScript half filed as a `WEB-…` issue.
@@ -76,6 +77,11 @@ plan, with [`liquers-py-templates`](../liquers-py-templates/DESIGN.md) and
      so a pipeline command is declared after the Python commands its body calls (documented).
      `lq.CommandDefinition` gains `kind`, `alias_of`, `head_parameters` and `pipeline`, specified
      once for both designs.
+
+## Decisions
+
+1. Orest, 2026-11-04, at the Phase 1 gate, on questions 1, 2, 5 and 6 as recommended: "agreed".
+   Landing order data nodes, templates, pipelines: "ok".
 
 ## Problem Example
 
