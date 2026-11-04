@@ -32,7 +32,7 @@ Exhaustive matches that new variants reach outside `liquers-core`:
 - [x] Step 9: `Native` mode and the dual-mode corpus test (33acfdc)
 - [x] Step 10: Recipe pipelines (399b6a5)
 - [x] Step 11: Pipeline commands (22b0382)
-- [ ] Step 12: `liquers-validate` pipeline support
+- [x] Step 12: `liquers-validate` pipeline support
 - [ ] Step 13: Cross-crate arms, registry export, polars integration test, build matrix
 
 ## Implementation Steps
@@ -342,3 +342,16 @@ Decisions made while implementing, none of which changes an approved contract:
   of AC-20 has a test.
 - `commands_doc` describes pipeline commands, so `specs/command_registry.yaml` was regenerated
   (an `impl_version` change only).
+
+### Step 12 notes
+- `liquers-validate --pipeline <file|->` reads a pipeline (JSON or YAML) and validates it with
+  `validate::validate_pipeline`: its query form, when it has one, is `encoded` and `query`, and it
+  is planned as `Pipeline::to_plan` plans it. A pipeline without a query form is a warning
+  (`WarningSource::NotRepresentable`, naming the rule), so it still exits 0; with `--emit query`
+  it is an error and exits 1. This reading of AC-35 keeps a valid non-representable pipeline from
+  failing validation unless its query form was asked for.
+- `--build R:<key> A:<name> P:<value> …` builds a pipeline (`validate::pipeline_from_build_args`),
+  writes it as query text without a registry, and validates that query.
+- `--emit pipeline` adds every result's pipeline form (`validate::with_pipeline_form`), and
+  `--emit plan` keeps the plan under `--detail summary`. A recipe with a `pipeline` always reports
+  its combined pipeline. `ValidationResult` gained `pipeline`.
