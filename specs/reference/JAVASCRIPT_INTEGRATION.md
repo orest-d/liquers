@@ -37,13 +37,18 @@ the workspace's `default-members` leave it out. `JsValue` is `!Send`, and on nat
 | `bridge.rs`, `default_value.rs`, `value.rs` | Value conversion, generic over the value type; the `ExtValue` hooks; `JsOpaque`. |
 | `error.rs` | `LiquersError`, error-type names, the validation report shape. |
 | `asset.rs`, `eval.rs`, `objects.rs` | `Asset`, `State`, the `Promise` bridge, `Query`, `Key`. |
+| `pipeline.rs`, `template.rs` | Pipelines and their editors (§4 "Pipelines"); `render`, `expand`, `validate` (§4 "Templates"). |
 | `store/` | The `localstorage`, `http` and `js` stores, the configuration builder, the `Store` wrapper. |
 | `records.rs` | `RecordBatch`, `RecordSource`, `RecordStream` (feature `records`). |
 | `typescript.rs` | The interfaces injected into the generated `.d.ts`. |
 
-**Cargo features.** `liquers-lib` is linked with `default-features = false, features = ["webui"]`:
-no polars, no egui, no images, no templates. `records` (off by default) adds the record handles and
-the `ns-rec` commands, taking a release build from 12.4 MB to 16.5 MB. `polars` and `egui` only forward to `liquers-lib`
+**Cargo features.** `liquers-lib` is linked with `default-features = false, features = ["webui",
+"templates"]`: no polars, no egui, no images. `templates` is not optional: it brings the
+`ns-template` commands and the renderer behind `render` / `expand` (§4 "Templates"), and a page
+that renders nothing pays for a parser it does not call rather than a second build to choose
+between. A default release build is 16.2 MB (2026-11-04, with templates).
+`records` (off by default) adds the record handles and the `ns-rec` commands; it added 4.1 MB when
+last measured, before templates (12.4 MB to 16.5 MB). `polars` and `egui` only forward to `liquers-lib`
 so that `#[cfg]`s agree with the linked `ExtValue`; neither is a supported browser build.
 `debug-handles` (test-only) adds a Rust-side count of retained JavaScript function handles for
 `RUNTIME05`, and
@@ -89,9 +94,10 @@ commands, and `liquers-lib`'s default recipe provider chain. There is no new `En
 implementation.
 
 **Built-in commands.** `register_builtin_commands` registers `liquers_lib::register_core_commands!` —
-`to_text`, `to_metadata`, `commands_doc`, the `ns-dep` introspection commands — and, with `records`,
-`register_records_commands!` (the `ns-rec` namespace). Nothing else: there are no polars, image or
-`ns-template` commands (`WEB-HAS-NO-TEMPLATE-COMMANDS`).
+`to_text`, `to_metadata`, `commands_doc`, the `ns-dep` introspection commands —,
+`register_template_commands!` (the `ns-template` namespace: `render`, `expand`, `validate`), the
+`lui` commands, and, with `records`, `register_records_commands!` (the `ns-rec` namespace). There
+are no polars or image commands.
 
 **The singleton.** One environment per module instance, held in `thread_local`s:
 
@@ -243,6 +249,7 @@ that index (counted after the state, when the command takes one). It is not a qu
 | `evaluate(query)` | `Promise` of the query's value, parsed with `parse_query`, evaluated as a dependency of this asset (`Context::evaluate` and `wait_for_dependency`), converted in this environment; a failure rejects with a `LiquersError` |
 | `isCancelled()` | core's cancellation flag; always `false` today (`WEB-CANCELLATION-INERT`) |
 | `element` | the handle of the UI element whose action ran the command, as a `number`, or `null` outside a UI |
+| `render(t, state?, data?, options?)`, `expand(t, data?, options?)`, `validate(t)` | render or check a template inside this command (§4 "Templates"); `Promise` of the text, or of the diagnostics |
 
 `element` comes from the environment's payload through the `JsPayload` trait: `()` answers `null`,
 and `liquers_lib::ui::SimpleUIPayload` answers its handle. `call_js_command` therefore requires
@@ -266,6 +273,21 @@ whole batch added: `complete_pipeline_command`, then `CommandMetadata::check` an
 sort), and `register_js_command` registers a pipeline command as metadata only: completed against
 the registry as it stands, any earlier executor under its key removed, no check repeated, so a
 rebuild's replay cannot fail where validation passed.
+
+**Template commands** (`TEMPLATE02`). A declaration with `template` in place of `run` is a template
+command: the alias of `template/render` of `guides/TEMPLATE_GUIDE.md` §3, with the template's link
+(a query string, or a `Query`) as its head parameter. Stage 1 refuses `run`, `state`, `async`,
+`pipeline` or `arguments` beside it, removes `template` from the document, and after `build` sets
+`definition` to `Alias { command: template/render, head_parameters: [Query(link)] }` and the
+arguments to `render`'s remaining ones: `data` (`any`, default `""`), `errors` (`string`, default
+`"strict"`), `cwd` (`any`, default link `-R-key/.`). A template command and a pipeline command are
+both *definition commands* (`JsCommandSpec::is_definition`: no `run`) and take the same path:
+checked against the singleton's registry plus the batch, registered after the batch's function
+commands, as metadata only. `adapter::complete_definition` gives an alias what
+`CommandRegistry::register_alias` copies from its target (state argument, volatility, payload,
+expiry, `is_async`), and the check adds `CommandMetadataRegistry::alias_target`. Imported metadata
+whose `definition` is an alias needs no implementation either. `describeCommand` shows the alias
+under `definition`. Because the head is a link, the template is a dependency of every result.
 
 ### Pipelines
 
@@ -296,6 +318,43 @@ the namespaces with the call, so it checks that the command resolves and removes
 element when it does not. Placeholders are not offered: core refuses them outside a command
 definition, and `PipelineEditor::for_definition` is not wrapped (`WEB-PIPELINE-EDITOR-HAS-NO-DEFINITION-MODE`).
 
+### Templates
+
+`src/template.rs`, `TEMPLATE01`–`11`. The query-aware Mustache templates of
+[`TEMPLATE_LANGUAGE.md`](TEMPLATE_LANGUAGE.md) on three receivers with one signature: the module
+(the singleton, shared on first use as `evaluate`), an `Environment`, and a command's `Context`.
+
+| Call | Returns |
+|---|---|
+| `render(template, state?, data?, options?)` | `Promise` of the text, or of `{ text, warnings }` with `full` |
+| `expand(template, data?, options?)` | the same |
+| `validate(template)` (module: `validateTemplate`) | `Promise` of `[{ severity, message, position }]`; runs nothing |
+
+- **Template.** A string is the template's text; a `Query` is a link, read as a dependency
+  (`Context::get_dependency_state`). A command declaration's `template` is the other way round
+  (always a link), because there a link is what keeps results fresh.
+- **Frames** are the commands' own: `render` puts the state at the bottom (`Data`, and `{{.}}`)
+  unless it is empty, and `data` above it (`Names`); `expand` has `data` as its only frame. `data`
+  is a plain object, `null` or omitted; anything else is `parameter_error`. Both are converted by
+  the value bridge (§5) and read through `ValueInterface::data_node`, not in place
+  (`DATANODE` is not implemented).
+- **Options** `{ errors, html, cwd, full }`, any other key `parameter_error`. `errors` is read by
+  `ErrorMode::parse` (`strict`, the default, throws; `expand`, `expand_html`, `expand_md`,
+  `silent` recover); `html` (default `false`) is `RenderOptions::html_escape`, never derived from
+  a filename; `cwd` is a key string or a `Key` and defaults to the root; `full` (top level only;
+  refused in a command) resolves to `{ text, warnings }`.
+- **Where it runs.** In a command, through that command's `Context`: `ContextHost` makes every
+  query tag and partial a dependency of the command's result, and a recovered error is a warning in
+  the command's log. At the top level, in a temporary asset (`AssetRef::new_temporary`): never
+  cached, never shared. Its log is not drained outside a run on `wasm32`, so `CollectingHost`
+  wraps `ContextHost` and keeps a copy of every recovered error for `full`.
+- **Errors.** A template error in `strict` mode rejects with a `LiquersError` whose `position` is
+  the tag's `line:column`; a syntax error rejects in every mode.
+- **Reentrancy.** Every call returns a `Promise`; a template that runs a JavaScript command which
+  itself renders is a nested evaluation like `context.evaluate` (`TEMPLATE10`).
+- **Validation** is `liquers_template::validate_template` with the environment's command metadata;
+  a link is read, but no query or command runs.
+
 ## 5. Values
 
 The value type is `liquers_lib::value::Value`. A JavaScript object retained by identity is a
@@ -314,6 +373,7 @@ All conversion is in `bridge.rs`, generic over `V: JsValueBridge`.
 | other `number`, NaN and ±Infinity included | `F64` |
 | `string` | `Text` |
 | `BigInt` | `I64`; outside the `i64` range `conversion_error` |
+| a `Query` or `Key` (marked `__liquersQuery` / `__liquersKey`) | `Query` / `Key` |
 | `Uint8Array`, `ArrayBuffer` | `Bytes` |
 | `Array`, plain object (prototype `Object` or `null`) | through JSON (`try_from_json_value`), with the nested rules below |
 | anything else — class instance, `Map`, `Set`, `Date`, function, DOM node | `conversion_error` naming the path and constructor, suggesting `liquers.opaque(...)` |
@@ -335,6 +395,7 @@ has no byte type and the degraded form would no longer be `Bytes` (`VALUE04`). D
 | record source (`records`) | a `RecordSource` |
 | `None` | `null` |
 | `Bytes` (by identifier) | `Uint8Array` |
+| `Key`, `Query` (by identifier) | a `Key` / `Query` (they have no JSON form), so a command's `cwd: -R-key/.` argument arrives as a `Key` |
 | anything else | its JSON form (`try_into_json_value`), objects as plain objects, never `Map` |
 
 An integer outside ±(2^53 − 1), at any depth, is `conversion_error` rather than a rounded `number`
@@ -603,9 +664,11 @@ Every retained page function (definitions, cleanups, renderers) is counted in
 
 ## 11. Limitations
 
-- Templates and data nodes: no `ns-template` commands, no template commands, no programmatic
-  `render`, no JavaScript `DataNode` adapter (`WEB-HAS-NO-TEMPLATE-COMMANDS`; `TEMPLATE`, `DATANODE`
-  not started).
+- No JavaScript `DataNode` adapter (`DATANODE` not started): template data is converted to a
+  `Value` first, so a `Map` or class instance in it is refused.
+- A page's `Store.set` writes the store directly, so a result already computed from that key stays
+  cached (`WEB-STORE-WRITE-DOES-NOT-INVALIDATE-RESULTS`); editing a template a template command
+  reads is the visible case.
 - A command bound to imported metadata receives no context
   (`WEB-IMPORTED-COMMAND-RECEIVES-NO-CONTEXT`).
 - A page cannot pass a pipeline *as a value*: an object becomes a map value, never a
@@ -641,6 +704,7 @@ Every retained page function (definitions, cleanups, renderers) is counted in
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | §1 features and modules, §3 built-ins, §4 template commands, context `render`/`expand`/`validate`, new "Templates" section; §5 `Key`/`Query` cross as wrappers; limitations. | design `web-templates` |
 | 2026-11-04 | `encodeParam` never throws (it returns `String` since the pipelines work). | phase-5, `design/composite-command-definition/` |
 | 2026-11-04 | §2, §4 pipeline commands; new "Pipelines" section (`evaluatePipeline`, conversions, editors); two limitations. | design `web-pipelines` |
 | 2026-11-02 | Known limitations: the generated API reference (TypeDoc) exists; the documentation-coverage check is still missing. | `WEB-API-REFERENCE-NOT-GENERATED` (partial) |

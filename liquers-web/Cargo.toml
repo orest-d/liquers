@@ -13,8 +13,9 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 liquers-core = { path = "../liquers-core" }
-# `webui` (not `egui`, not `polars`) — those are not wasm targets.
-liquers-lib = { path = "../liquers-lib", default-features = false, features = ["webui"] }
+# `webui` (not `egui`, not `polars`) — those are not wasm targets. `templates` gives the
+# `ns-template` commands and the renderer behind `expand` / `render` (`src/template.rs`).
+liquers-lib = { path = "../liquers-lib", default-features = false, features = ["webui", "templates"] }
 # Linked because `register_core_commands!` expands into this crate and names `liquers_macro`.
 liquers-macro = { path = "../liquers-macro" }
 # localStorage holds UTF-16 strings, so bytes that are not valid UTF-8 are base64-encoded.

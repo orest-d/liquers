@@ -1,7 +1,8 @@
 //! The built-in Rust command set, registered into every web environment.
 //!
 //! A page gets `to_text`, `to_metadata`, `commands_doc`, the `dep` introspection commands and,
-//! with the `records` feature, the `rec` namespace for free. They matter beyond convenience: they
+//! the `template` namespace (`ns-template/render`, `expand`, `validate`) and, with the `records`
+//! feature, the `rec` namespace for free. They matter beyond convenience: they
 //! are what makes structural conversion the right default for a JavaScript command's result.
 //! `myJsCommand/to_text` only works because the Rust command can read what JavaScript produced — an
 //! opaque value would stop at the boundary.
@@ -34,5 +35,9 @@ pub fn register_builtin_commands(env: &mut WebEnvironment) -> Result<(), Error> 
     liquers_lib::register_records_commands!(cr)?;
     // The `lui` namespace: the commands a mounted UI runs to place and change elements.
     liquers_lib::register_lui_commands!(cr)?;
+    // The `template` namespace (`TEMPLATE01`): `render`, `expand`, `validate`. Also the target of
+    // every template command a page declares (`crate::command::spec`, `template` in place of
+    // `run`).
+    liquers_lib::register_template_commands!(cr)?;
     Ok(())
 }
