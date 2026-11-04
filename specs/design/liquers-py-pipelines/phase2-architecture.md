@@ -155,7 +155,7 @@ accessors come from `liquers-py-templates`; this design adds the `Pipeline` arm 
 - `liquers-py/src/closure.rs`: `wait_for_asset` (beside `wait_for_run`).
 - `liquers-py/src/recipes.rs`, `command_metadata.rs`: `lq.Pipeline` getters.
 - `liquers-py/src/lib.rs`, `python/liquers/__init__.py`, `__init__.pyi`, `_native.pyi`.
-- `liquers-py/tests/test_pipelines.py` (new).
+- `liquers-py/tests/test_PIPELINE_*.py` (new).
 
 ## Error Handling
 

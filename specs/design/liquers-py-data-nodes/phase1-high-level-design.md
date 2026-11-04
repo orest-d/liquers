@@ -161,7 +161,7 @@ the render returns `"Ann"`: `PyObjectValue` answers through the adapter, `name` 
   WHEN `lq.data_node(state)` reads `[0]["amount"]` of a polars frame state, in a process where the `polars` Python package was never imported
   THEN the cell is returned and `polars` is still not in `sys.modules`, so the frame was not converted (DATANODE11)
 - **AC-12** Async nodes are awaited, in a command and at the top level
-  WHEN a command calls `context.data_node(folder_state)`, and a script calls `env.data_node(folder_state)`, each using a sync accessor, then awaiting `get_async("table.csv")`
+  WHEN a command calls `context.data_node(folder_state)`, and a script calls `env.data_node(folder_state)`, each calling the sync accessor `get("sales.csv")`, then awaiting `get_async("sales.csv")`
   THEN each sync accessor raises `lq.NotSupportedError`, and each await returns that entry's node (DATANODE11)
 
 - **AC-13** Opted-in protocols read as data

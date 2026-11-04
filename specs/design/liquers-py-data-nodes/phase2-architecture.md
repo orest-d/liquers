@@ -176,7 +176,7 @@ new methods.
 - `liquers-py/src/lib.rs`: register the classes and `data_node`.
 - `liquers-py/python/liquers/__init__.py`, `__init__.pyi`, `_native.pyi`: names and stubs.
 - `liquers-lib/src/template/host.rs`: `context_node_kind`.
-- `liquers-py/tests/test_data_nodes.py` (new).
+- `liquers-py/tests/test_DATANODE_*.py` (new).
 
 ## Error Handling
 

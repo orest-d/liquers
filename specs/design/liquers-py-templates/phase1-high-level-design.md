@@ -45,7 +45,7 @@ function: the `TEMPLATE` feature of `LANGUAGE-INTEGRATION_GUIDE.md` (`TEMPLATE_L
      table. `render(template, state=None, data=None)` puts the state at the bottom (`Data`) and `data`
      on top (`Names`). `expand(template, data=None)` uses `data` alone (`Data`). `data` is a
      mapping or `None`. `state` is any Python value, converted by the value bridge, or an `lq.State`.
-  4. **Proposed resolution: receivers** (guide question 1). The same `render` / `expand` / `validate`
+  4. **Proposed resolution: receivers** (guide question 1). The same `render` / `expand` / `validate_template`
      signatures on `Environment` and on `Context`, with `_async` forms (guide question 7). Sync forms
      wait like `evaluate`, with the GIL released. `async def` commands use the `_async` forms, and
      the sync forms raise there, as `context.evaluate` does.
@@ -135,7 +135,7 @@ source command returning its argument). The queries validate with those commands
   WHEN `{{v}}` is expanded with `v = "<b>"`, without and with `html=True`
   THEN the results are `<b>` and `&lt;b&gt;`; a template command evaluated as `…/page.html` escapes, as the command does (TEMPLATE08, question 6)
 - **AC-9** Validation runs nothing
-  WHEN `env.validate("{{$ tick}} {{$ no_such_command}}")` is called with a counting `tick` command
+  WHEN `env.validate_template("{{$ tick}} {{$ no_such_command}}")` is called with a counting `tick` command
   THEN `tick` never runs, and one `lq.Diagnostic` with severity, message and position is returned (TEMPLATE09)
 - **AC-10** Nested Python renders complete
   WHEN `outer` expands `[{{$ inner}}]` and `inner` expands `{{x}}` with `x = "in"`, both Python commands, under a 5 s timeout

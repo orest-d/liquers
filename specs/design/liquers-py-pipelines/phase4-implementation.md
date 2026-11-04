@@ -29,7 +29,7 @@ Every new Python name is exported with a docstring and declared in the stubs.
   `json_slot`, `JsonPath`; `lib.rs`.
 - Change: the class members of Phase 2; NaN and ±inf as the reference's strings; paths in errors.
 - Depends on: none.
-- Proof: `test_PIPELINE_convert.py` (all three tests).
+- Proof: `test_PIPELINE_convert.py` (all five tests).
 - Rollback: delete the module.
 
 ### Step 2: the value bridge
@@ -49,7 +49,8 @@ Every new Python name is exported with a docstring and declared in the stubs.
 - Depends on: Steps 1-2.
 - Proof: `test_PIPELINE_evaluate.py::test_pipeline_evaluates_as_its_query`,
   `test_failing_step_raises_like_its_query`, `test_structured_argument_arrives_whole`,
-  `test_get_asset_refuses_a_pipeline`, `test_relative_key_pipeline`.
+  `test_get_asset_refuses_a_pipeline`, `test_relative_key_pipeline`,
+  `test_interrupt_cancels_the_pipeline`.
 - Rollback: `to_evaluable` refuses pipelines again.
 
 ### Step 4: in-command evaluation
@@ -66,8 +67,8 @@ Every new Python name is exported with a docstring and declared in the stubs.
   `environment.rs` `pipeline_editor`, `query_editor`.
 - Change: convert arguments, then `lock_py_attached`, clone, edit, commit.
 - Depends on: Step 1 (parallel with Steps 2-4).
-- Proof: `test_PIPELINE_editors.py` (both tests), plus `test_editor_threads` (two threads editing
-  one editor while a third holds the GIL; no deadlock within 5 s).
+- Proof: `test_PIPELINE_editors.py` (all four tests, among them `test_stale_action_editor` and
+  `test_editor_threads`).
 - Rollback: remove the classes.
 
 ### Step 6: pipeline commands

@@ -27,7 +27,7 @@ Rejected:
 | `AD-HOC-ASSET-CANNOT-RUN-A-CLOSURE` (design `ad-hoc-closure-asset`) | draft, design approved | P2 | The top-level asset | Yes (lands first) | No: a prerequisite, ordered first | Its own PR |
 | `TEMPLATE-TOP-LEVEL-RENDER-HAS-NO-HOST` (design `template-render-in-env`) | draft, design approved | P3 | `RenderRequest`, `render_in_context`, `render_top_level` | Yes (lands first) | No: a prerequisite, ordered first | Its own PR |
 | `PY-STRUCTURES-ARE-OPAQUE-TO-DATA-NODE-READERS` (design `liquers-py-data-nodes`) | draft | P2 | `data` read in place; `closure.rs` | Yes (lands first) | No: a prerequisite, ordered first | Lands first (Phase 1 order) |
-| `TEMPLATE-DIAGNOSTICS-CHECK-COMMANDS-A-Q-QUOTES` | draft | P3 | `validate` may report a quoted command | No | No | Inherited; documented |
+| `TEMPLATE-DIAGNOSTICS-CHECK-COMMANDS-A-Q-QUOTES` | draft | P3 | `validate_template` may report a quoted command | No | No | Inherited; documented |
 | `TEMPLATE-NON-SCALAR-HAS-NO-TEXT-FORM` | draft | P3 | An `lq.Query` in `data` renders as JSON | No | No | Inherited |
 | `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA` | draft | P3 | Overlaps `lq.link` (both touch `_baseline`) | No | No | `lq.link` is a default value, not argument metadata; that design reuses it |
 | `PY-REPRS-SHOW-RUST-DEBUG-FORMAT` | draft | P3 | New classes need reprs | No | No | `RenderResult('…', 1 warning)` |
@@ -48,14 +48,15 @@ Keyword arguments common to the render calls: `errors="strict"` (`ErrorMode::par
 ```python
 Environment.render(template, state=None, data=None, *, errors, cwd, html, full) -> str | RenderResult
 Environment.expand(template, data=None, *, errors, cwd, html, full) -> str | RenderResult
-Environment.validate(template: str) -> list[Diagnostic]
+Environment.validate_template(template: str) -> list[Diagnostic]   # `validate()` stays the registry check
 Environment.render_async(...), Environment.expand_async(...)          # awaitables
-Context.render / expand / validate / render_async / expand_async      # same signatures
+Context.render / expand / validate_template / render_async / expand_async   # same signatures
 Environment.template_command(name, template, *, namespace="", label=None, doc=None,
                              filename=None) -> None
 lq.link(query) -> Link                         # a default link argument
 class RenderResult: text: str; warnings: list[LogEntry]
 class Diagnostic: severity: str; message: str; line: int; column: int
+CommandMetadata.definition -> CommandDefinition                        # new getter
 CommandDefinition.kind / alias_of / head_parameters / pipeline        # read-only
 ```
 
@@ -101,7 +102,8 @@ fn frames(py: Python<'_>, state: Option<&Bound<'_, PyAny>>, data: Option<&Bound<
   command's log by `ContextHost::warn` and also into the result. Async: `awaitable`.
 - `aio.rs`: `ToPy::Rendered(Result<(Option<Rendered>, bool /* full */), Error>)`, which builds `str`
   or `RenderResult`, and raises `lq.CancelledError` for `None`, as the sync form does.
-- `validate` (both receivers, sync, no wait): `validate_template(text, Mustache,
+- `validate_template` (both receivers, sync, no wait; named apart from the existing
+  `Environment.validate() -> list[Issue]`): `validate_template(text, Mustache,
   Some(envref.get_command_metadata_registry()))`, each into an `lq.Diagnostic`.
 
 **Declarations** (`liquers-py/src/environment.rs`). Shared with `liquers-py-pipelines`:
@@ -125,7 +127,9 @@ impl EnvCell { pub(crate) fn declare(&self, py: Python<'_>, command: DeclaredCom
   command with its key, so the last registration wins either way (tested). Then runs `configured_builder` on the new declarations plus
   `builder.validate()`. An error raises and leaves the declarations unchanged; otherwise the state
   becomes `Pending`, as for a new Python command. `unregister` removes a declared command too.
-- `template_command` builds `Alias { target: template/render, head_parameters: [the link],
+- `template_command`'s `template` is always a link: a `str` is parsed as a query, an `lq.Query`
+  taken as is, an `lq.Key` read as `-R/<key>` (never template text, unlike the render calls).
+  It builds `Alias { target: template/render, head_parameters: [the link],
   arguments: data (default ""), errors (default "strict"), cwd (default link "-R-key/.") }`, the
   same three arguments as the target after its `template` head.
 
@@ -145,7 +149,8 @@ of `Query` that `specs/command_registry.yaml` also holds) and returns it through
 interpreter resolves at execution (`liquers-py/src/command.rs` receives the resolved value). An
 `lq.Key` annotation keeps `argument_type: any`. Nothing else in the decorators changes.
 
-**`CommandDefinition`** (`liquers-py/src/command_metadata.rs`): getters over the core enum:
+**`CommandDefinition`** (`liquers-py/src/command_metadata.rs`): `CommandMetadata` gains a
+`definition` getter (none exists today); `CommandDefinition` gains getters over the core enum:
 `kind` (`"registered"`, `"alias"`, `"pipeline"`), `alias_of` (`CommandKey` or `None`),
 `head_parameters` (Python values; a link is an `lq.Query`), `pipeline` (`lq.Pipeline` or `None`,
 supplied by `liquers-py-pipelines`; `None` until it lands).
@@ -154,14 +159,14 @@ supplied by `liquers-py-pipelines`; `None` until it lands).
 
 - `liquers-py/src/template.rs` (new): API above, `RenderResult`, `Diagnostic`.
 - `liquers-py/src/closure.rs`: `wait_for_run`.
-- `liquers-py/src/environment.rs`: `render`, `expand`, `validate`, `_async`, `template_command`;
+- `liquers-py/src/environment.rs`: `render`, `expand`, `validate_template`, `_async`, `template_command`;
   `DeclaredCommand`, `declared`, `declare`, `configured_builder`, `unregister`.
 - `liquers-py/src/context.rs`: the same render methods.
 - `liquers-py/src/aio.rs`: `ToPy::Rendered`.
 - `liquers-py/src/query.rs`: `Link`, `link`.
 - `liquers-py/src/command_metadata.rs`: `CommandDefinition` getters.
 - `liquers-py/python/liquers/_commands.py` (`_baseline`), `__init__.py`, stubs.
-- `liquers-py/tests/test_templates.py` (new).
+- `liquers-py/tests/test_TEMPLATE_*.py` (new).
 
 ## Error Handling
 

@@ -52,13 +52,15 @@ with pytest.raises(lq.ParameterError):                                          
     a.set("colum", "x")
 assert e.query().encode() == "-R/data/sales.csv/-/ns-pl/from_csv/is_in-region-EU-US"
 
-env.pipeline_command("top_in", [
+body = [
     {"action": "from_csv", "ns": "pl"},
     {"action": "is_in", "ns": "pl", "arguments": {"column": "region", "values": {"multiple": [{"placeholder": "regions"}]}}},
     {"action": "head", "ns": "pl", "parameters": [{"placeholder": "n"}]},
-], arguments=["n", lq.ArgumentInfo.from_json('{"name": "regions", "multiple": true}')])
+]
+env.pipeline_command("top_in", body, arguments=["n", lq.ArgumentInfo.from_json('{"name": "regions", "multiple": true}')])
 assert env.evaluate("-R/data/sales.csv/-/top_in-5-EU-US").equals(env.evaluate(q))   # AC-5
-assert env.command_metadata("top_in").definition.kind == "pipeline"
+d = env.command_metadata("top_in").definition
+assert d.kind == "pipeline" and d.pipeline == lq.Pipeline(body)
 ```
 
 Placeholders are written `{"placeholder": name}` (`PIPELINES.md` §4). The variadic `regions`
@@ -75,8 +77,14 @@ binds the remaining parameters `EU`, `US`, spliced into `values` by `{"multiple"
 | A `datetime` literal; a `dict` containing itself; `2**64` | `lq.ConversionError` naming the path | `test_only_json_in_json_slots` |
 | A body with an undeclared placeholder; a step command that does not exist | the typed error; no `top_in` | `test_bad_pipeline_command_is_refused` |
 | A multi-step `action(…, ns=…)` whose second step fails | editor unchanged | `test_refused_edit_changes_nothing` |
-| `Value::Pipeline` result, `lq.Pipeline` returned by a command, `Recipe.pipeline`, a pipeline default | `lq.Pipeline` in, type `Pipeline` out | `test_pipeline_values_keep_their_type` |
-| A pipeline with a relative key | planned as its query is | `test_relative_key_pipeline` |
+| `make` returns `lq.Pipeline(top)`; `env.evaluate("make")`; `env.evaluate_state("make").metadata.type_identifier()`; `env.recipes` over a recipe with `pipeline:`; a default set with `env.import_metadata` (`default: {pipeline: …}`) | an equal `lq.Pipeline` back; `"Pipeline"`; `Recipe.pipeline` and `ArgumentInfo.default` are `lq.Pipeline` | `test_pipeline_values_keep_their_type` |
+| A top-level pipeline with a relative key (`[{"resource": "x.csv"}]` under `-R-cwd/data/`) | planned as its query is | `test_relative_key_pipeline` |
+| Inside a command, `context.evaluate([{"value": 1}, {"resource": "x.csv"}])` | `lq.NotSupportedError` naming the relative key (`CONTEXT-APPLY-AD-HOC-SKIPS-RELATIVE-PIPELINE-KEYS`) | `test_relative_key_in_a_command_is_refused` |
+| `KeyboardInterrupt` during `env.evaluate(top)` whose step runs the conftest `slow` | the asset ends `Cancelled`; `slow` saw `context.is_cancelled()` | `test_interrupt_cancels_the_pipeline` |
+| `lq.Pipeline("-R/x")`; `lq.Pipeline(42)` | `TypeError` (a query string is `Pipeline.from_query`) | `test_constructor_takes_a_list` |
+| `float("nan")`, `float("inf")`, `-inf` in a JSON slot | written `"NaN"`, `"inf"`, `"-inf"`, as the reference serializer does | `test_non_finite_floats` |
+| An `ActionEditor` kept after its owner's step was removed | `lq.ParameterError` naming the index; editor unchanged | `test_stale_action_editor` |
+| Two threads editing one editor while a third holds the GIL | no deadlock within 5 s; both edits applied | `test_editor_threads` |
 
 ## Test Plan
 
@@ -84,14 +92,18 @@ binds the remaining parameters `EU`, `US`, spliced into `values` by `{"multiple"
   `evaluate_state`, `evaluate_async`); `test_failing_step_raises_like_its_query` (AC-1);
   `test_structured_argument_arrives_whole` (AC-2); `test_pipeline_values_keep_their_type` (AC-9);
   `test_non_representable_in_a_command`, `test_get_asset_refuses_a_pipeline`,
-  `test_relative_key_pipeline` (AC-1).
+  `test_relative_key_pipeline` (AC-1); edge cases, no AC: `test_relative_key_in_a_command_is_refused`,
+  `test_interrupt_cancels_the_pipeline`.
 - `test_PIPELINE_convert.py`: `test_round_trip` (AC-3, the problem query and one with a link
   parameter); `test_not_representable_names_the_rule` (AC-4, rules P1 and S7);
-  `test_only_json_in_json_slots` (AC-10).
+  `test_only_json_in_json_slots` (AC-10); edge cases, no AC: `test_constructor_takes_a_list`,
+  `test_non_finite_floats`.
 - `test_PIPELINE_commands.py`: `test_pipeline_command_runs_as_the_long_query` (AC-5, also after a
-  rebuild); `test_bad_pipeline_command_is_refused` (AC-6).
+  rebuild; `definition.pipeline == lq.Pipeline(body)`; a second command whose `is_in` writes
+  `values: {"placeholder": "regions"}` gives the same result); `test_bad_pipeline_command_is_refused` (AC-6).
 - `test_PIPELINE_editors.py`: `test_refused_edit_changes_nothing` (AC-7);
-  `test_editor_exposes_the_registry` (AC-8).
+  `test_editor_exposes_the_registry` (AC-8); edge cases, no AC: `test_stale_action_editor`,
+  `test_editor_threads`.
 - Run: `bash scripts/test-liquers-py.sh`.
 
 ## Learning Log

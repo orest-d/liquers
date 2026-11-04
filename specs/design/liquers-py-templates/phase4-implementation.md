@@ -19,7 +19,7 @@ in the stubs, since `test_DOCS_docstrings.py` and stubtest check them.
 - [ ] Step 1: request building and frames (`template.rs`)
 - [ ] Step 2: `Context.render` / `expand` and `_async`
 - [ ] Step 3: `closure::wait_for_run`; `Environment.render` / `expand` and `_async`
-- [ ] Step 4: `validate` and `lq.Diagnostic`
+- [ ] Step 4: `validate_template` and `lq.Diagnostic`
 - [ ] Step 5: declared commands and `template_command`
 - [ ] Step 6: `lq.link` defaults
 - [ ] Step 7: `CommandDefinition` accessors
@@ -53,11 +53,12 @@ in the stubs, since `test_DOCS_docstrings.py` and stubtest check them.
   cancellation error raise `lq.CancelledError`; the settle after an interrupt defers signals,
   bounded by `STOP_GRACE`.
 - Depends on: Step 1.
-- Proof: `test_TEMPLATE_top_level.py` (all), `test_TEMPLATE_commands.py::test_builtin_commands`.
+- Proof: `test_TEMPLATE_top_level.py` (all, including the interrupt and `Ok(None)` cases),
+  `test_TEMPLATE_commands.py::test_builtin_commands`.
 - Rollback: remove the methods.
 
 ### Step 4: validation
-- Files / symbols: `template.rs` `Diagnostic`; `environment.rs` / `context.rs` `validate`.
+- Files / symbols: `template.rs` `Diagnostic`; `environment.rs` / `context.rs` `validate_template`.
 - Depends on: Step 1.
 - Proof: `test_TEMPLATE_validate.py::test_validation_runs_nothing`.
 - Rollback: remove.
@@ -70,7 +71,8 @@ in the stubs, since `test_DOCS_docstrings.py` and stubtest check them.
 - Depends on: none in this design (parallel with Steps 1-4).
 - Proof: `test_TEMPLATE_commands.py::test_template_command_needs_no_function`,
   `test_template_command_survives_rebuild`, `test_editing_the_template_invalidates`,
-  `test_declare_cost`, and a new `test_python_command_replaces_declared` (last registration wins).
+  `test_declare_cost`, `test_declared_and_python_commands_replace_each_other` (last registration
+  wins), `test_unregister_declared`, `test_failed_declare_changes_nothing`.
 - Rollback: remove the slot; nothing else reads it yet.
 
 ### Step 6: `lq.link`
