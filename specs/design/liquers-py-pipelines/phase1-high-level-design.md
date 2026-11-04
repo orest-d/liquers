@@ -60,7 +60,7 @@ plan, with [`liquers-py-templates`](../liquers-py-templates/DESIGN.md) and
      does. `get_asset` stays query-only, because a pipeline has no asset key; the caller converts
      to a query for a cached asset. Inside a command, `context.evaluate(pipeline)` accepts only a
      representable pipeline and evaluates its query, so the dependency is recorded. A
-     non-representable one raises `NotSupported`, because `Context` has no `evaluate_pipeline`.
+     non-representable one raises `NotSupported`, because `Context` has no `evaluate_pipeline` (refined in Phase 2: Decision 3).
      That gap is filed as a core issue in Phase 2 unless Phase 2 adds the method.
   6. **Decided (Decision 1): `query-builder-in-bindings`.** Two designs cannot own one issue
      (§5.1.1), so `QUERY-BUILDER-NOT-IN-BINDINGS` was split at the gate. Its Python half,
@@ -82,6 +82,12 @@ plan, with [`liquers-py-templates`](../liquers-py-templates/DESIGN.md) and
 1. Orest, 2026-11-04, at the Phase 1 gate, on questions 1, 2, 5 and 6 as recommended: "agreed".
    Landing order data nodes, templates, pipelines: "ok".
 2. Orest, 2026-11-04: "proceed all": Phases 2-5 pre-approved; no decision was open.
+3. Phase 2, 2026-11-04, under the pre-approval, an assumption Orest can reverse before
+   implementation: question 5 is refined. A pipeline is evaluated as an ad-hoc recipe holding only
+   that pipeline: `apply_queued` at the top level (the asset harness, cancellable on an interrupt)
+   and `Context::apply_ad_hoc` inside a command, so a non-representable pipeline evaluates there
+   too instead of raising `NotSupported`. A representable one in a command still evaluates as its
+   query. The answers to AC-1 are unchanged.
 
 ## Scope Changes
 
