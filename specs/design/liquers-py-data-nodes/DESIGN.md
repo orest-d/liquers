@@ -3,8 +3,7 @@ id: LIQUERS-PY-DATA-NODES
 kind: design
 title: "Data nodes in liquers-py: Python data read in place, and Liquers values read field by field"
 workflow: liquers-project
-status: approved
-phase: documentation
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [py, lib/value]

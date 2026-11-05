@@ -4,8 +4,7 @@ kind: design
 title: The asset manager runs a Rust closure as an ad-hoc asset
 form: compact
 workflow: liquers-project
-status: approved
-phase: documentation
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [core/assets, core/context]
