@@ -2,7 +2,7 @@
 id: PY-STRUCTURES-ARE-OPAQUE-TO-DATA-NODE-READERS
 kind: feature
 title: A Python dict that structural conversion refuses is opaque to templates and other data-node readers
-status: draft
+status: closed
 priority: P2
 complexity: L
 area: [py, lib/value]
@@ -38,3 +38,9 @@ The guide's §DATANODE, tests `DATANODE01`–`11`. Retained values need the core
 
 Plan update for milestone M6 of the liquers-py plan, 2026-11-04: the guide's feature table lists
 `DATANODE`, and no issue recorded that liquers-py does not implement it.
+
+## Resolution
+
+Closed 2026-11-05 by [`design/liquers-py-data-nodes/`](../design/liquers-py-data-nodes/DESIGN.md):
+`PyNode` behind `PyObjectValue`'s `ForeignValue::data_node`, `lq.data_node` and the
+`lq.DataNode` views (commits `071e970a`, `ab25ba92`); tests `liquers-py/tests/test_DATANODE_*.py`.
