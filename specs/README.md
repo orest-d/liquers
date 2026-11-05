@@ -631,7 +631,6 @@ deliberately folded behind a broader line.
 - design `web-records-single-cell-scalar`
 - design `web-value04-bytes-identifier`
 - design `workspace-rustfmt-check`
-- feature `AD-HOC-ASSET-CANNOT-RUN-A-CLOSURE`
 - feature `AGENT-CANNOT-PROPOSE-A-COMMAND`
 - feature `AGENT-MEMORY-HAS-NO-INDEXES-OR-CONTEXT-PACKS`
 - feature `AGENT-MEMORY-HAS-NO-MIGRATE-COMMAND`
