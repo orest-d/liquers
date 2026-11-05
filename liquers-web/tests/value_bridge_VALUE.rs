@@ -333,7 +333,7 @@ fn value08_representative_extvalue_roundtrip() {
     // Query and Key survive a round trip through the value type.
     let query = parse_query("hello/greet").expect("parse query");
     let as_value = Value::Base(liquers_lib::value::simple::SimpleValue::Query {
-        value: query.clone(),
+        value: std::sync::Arc::new(query.clone()),
     });
     assert_eq!(
         as_value.try_into_query().expect("back to query").encode(),
