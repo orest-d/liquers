@@ -8,14 +8,14 @@ status: complete
 readiness: ready
 autofix: not-eligible
 area: [web]
-issues: [PIPELINES-NOT-IN-LANGUAGE-BINDINGS]
+issues: [WEB-CANNOT-USE-PIPELINES]
 gh_pr: [256]
 affects_docs: [specs/reference/JAVASCRIPT_INTEGRATION.md, specs/guides/JAVASCRIPT_GUIDE.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md]
 created: 2026-11-04
 ---
 # Pipelines from JavaScript - evaluate, convert, edit and register
 
-The `liquers-web` half of `PIPELINES-NOT-IN-LANGUAGE-BINDINGS`; `liquers-py` stays with the issue.
+The `liquers-web` half of `PIPELINES-NOT-IN-LANGUAGE-BINDINGS`, since split off as `WEB-CANNOT-USE-PIPELINES`; `liquers-py` stays with the original issue.
 Written and implemented together on 2026-11-04 (accepted by the owner the same day) at the owner's request ("design and implement the
 pipeline support"), so Phases 1-4 record what was built and why, and Phase 5 what it changed.
 
