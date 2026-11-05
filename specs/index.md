@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 221
+Total rows: 220
 - P2: 64
-- P3: 157
+- P3: 156
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -135,7 +135,6 @@ Total rows: 221
 | [`COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY`](issues/COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY.md) | issue | ColumnMut always copies validity, and rebuilds the whole column to overwrite one Text/Binary cell | draft | ready | not-eligible | P3 | M | records | [design](design/column-mut-zero-copy-validity/DESIGN.md) | 2026-09-26 |
 | [`DEPENDENCY-ANALYSIS-REWALKS-UPSTREAM-PER-EVALUATION`](issues/DEPENDENCY-ANALYSIS-REWALKS-UPSTREAM-PER-EVALUATION.md) | feature | Each plan analysis re-walks the whole upstream recipe graph | draft | ready | not-eligible | P3 | M | core/plan;core/assets | [design](design/payload-requirement-skips-dependency-analysis/DESIGN.md) | 2026-10-08 |
 | [`PY-HAS-NO-VALIDATING-QUERY-EDITOR`](issues/PY-HAS-NO-VALIDATING-QUERY-EDITOR.md) | feature | Python has no validating query or pipeline editor | draft | ready | not-eligible | P3 | M | py | [phase1](design/liquers-py-pipelines/phase1-high-level-design.md)  [phase2](design/liquers-py-pipelines/phase2-architecture.md)  [phase3](design/liquers-py-pipelines/phase3-examples.md)  [phase4](design/liquers-py-pipelines/phase4-implementation.md)  [phase5](design/liquers-py-pipelines/phase5-documentation.md)  | 2026-11-04 |
-| [`TEMPLATE-TOP-LEVEL-RENDER-HAS-NO-HOST`](issues/TEMPLATE-TOP-LEVEL-RENDER-HAS-NO-HOST.md) | feature | A template cannot be rendered from outside a command without encoding it into a query | draft | ready | not-eligible | P3 | M | lib/commands | [design](design/template-render-in-env/DESIGN.md) | 2026-10-25 |
 | [`ASSET-EVENT-STREAM-CARRIES-ONLY-EXPIRATIONS`](issues/ASSET-EVENT-STREAM-CARRIES-ONLY-EXPIRATIONS.md) | feature | The manager event stream announces expirations only, not new versions, additions or removals | draft | needs-decision | not-eligible | P3 | M | core/assets | [design](design/asset-event-kinds/DESIGN.md) | 2026-10-21 |
 | [`ASSET-EVENTS-ARE-NOT-DELIVERED-OUT-OF-PROCESS`](issues/ASSET-EVENTS-ARE-NOT-DELIVERED-OUT-OF-PROCESS.md) | feature | Manager-level asset events cannot be followed from another process | draft | needs-decision | not-eligible | P3 | M | axum | [design](design/asset-events-over-websocket/DESIGN.md) | 2026-10-21 |
 | [`AXUM-WEBSOCKET-HARDENING`](issues/AXUM-WEBSOCKET-HARDENING.md) | issue | WebSocket endpoint is not hardened | accepted | needs-decision | not-eligible | P3 | M | axum | [design](design/axum-websocket-connection-limits/DESIGN.md) | 2026-08-08 |
