@@ -3,8 +3,7 @@ id: LIQUERS-PY-TEMPLATES
 kind: design
 title: "Templates in liquers-py: template commands and rendering from scripts and commands"
 workflow: liquers-project
-status: approved
-phase: documentation
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [py, lib/commands]
