@@ -631,7 +631,6 @@ deliberately folded behind a broader line.
 - design `web-records-single-cell-scalar`
 - design `web-value04-bytes-identifier`
 - design `workspace-rustfmt-check`
-- feature `AD-HOC-ASSET-CANNOT-RUN-A-CLOSURE`
 - feature `AGENT-CANNOT-PROPOSE-A-COMMAND`
 - feature `AGENT-MEMORY-HAS-NO-INDEXES-OR-CONTEXT-PACKS`
 - feature `AGENT-MEMORY-HAS-NO-MIGRATE-COMMAND`
@@ -695,7 +694,6 @@ deliberately folded behind a broader line.
 - feature `STORED-DERIVED-VALUES-ARE-NEVER-PRUNED`
 - feature `TEMPLATE-HAS-NO-HIGHLIGHTER`
 - feature `TEMPLATE-HAS-NO-MDBOOK-INCLUDE-SYNTAX`
-- feature `TEMPLATE-TOP-LEVEL-RENDER-HAS-NO-HOST`
 - feature `TEXT-EDITOR-EDITS-ARE-NEVER-SAVED`
 - feature `TYPE-REGISTRY-NOT-REALM-AWARE`
 - feature `UI-VARIADIC-ARGUMENT-LIST-EDITOR`
