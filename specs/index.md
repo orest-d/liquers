@@ -9,8 +9,8 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
 Total rows: 214
-- P2: 61
-- P3: 153
+- P2: 62
+- P3: 152
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -46,6 +46,7 @@ Total rows: 214
 | [`UI-INTERFACE-FSD-DESCRIBES-UNBUILT-API`](issues/UI-INTERFACE-FSD-DESCRIBES-UNBUILT-API.md) | issue | UI_INTERFACE_FSD describes a UI API that was never built | draft |  |  | P2 | M | docs;lib/ui |  | 2026-10-27 |
 | [`USER-GUIDE-EXAMPLES-ARE-NOT-EXECUTED`](issues/USER-GUIDE-EXAMPLES-ARE-NOT-EXECUTED.md) | issue | User guide chapter examples are not executed | draft |  |  | P2 | M | docs;build |  | 2026-11-01 |
 | [`WEB-EXPLICIT-ENVIRONMENT-CONFIGURES-THE-SINGLETON`](issues/WEB-EXPLICIT-ENVIRONMENT-CONFIGURES-THE-SINGLETON.md) | issue | configureStore and registerStoreObject on a new Environment() configure the singleton instead | draft |  |  | P2 | M | web |  | 2026-10-26 |
+| [`WEB-STORE-WRITE-DOES-NOT-INVALIDATE-RESULTS`](issues/WEB-STORE-WRITE-DOES-NOT-INVALIDATE-RESULTS.md) | issue | A page's store write leaves the results that read the key stale | draft |  |  | P2 | M | web |  | 2026-11-04 |
 | [`PIPELINES-NOT-IN-LANGUAGE-BINDINGS`](issues/PIPELINES-NOT-IN-LANGUAGE-BINDINGS.md) | feature | Python and JavaScript cannot pass, evaluate or register pipelines | in_progress | ready | not-eligible | P2 | L | py | [design](design/web-pipelines/DESIGN.md) | 2026-11-03 |
 | [`PY-NO-PUBLISHED-WHEELS`](issues/PY-NO-PUBLISHED-WHEELS.md) | feature | liquers-py has no published wheels, so installing it needs a Rust toolchain and a long build | in_progress | ready | not-eligible | P2 | L | py;build | [phase1](design/liquers-py-package/phase1-high-level-design.md)  [phase2](design/liquers-py-package/phase2-architecture.md)  [phase3](design/liquers-py-package/phase3-examples.md)  [phase4](design/liquers-py-package/phase4-implementation.md)  [phase5](design/liquers-py-package/phase5-documentation.md)  | 2026-11-01 |
 | [`ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET`](issues/ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET.md) | feature | Asset expiration events cannot be observed except per asset | draft | needs-decision | not-eligible | P2 | L | core/assets | [indexation](design/external-index-sync/indexation-policy.md)  [interoperability](design/external-index-sync/interoperability-layer.md)  [phase1](design/external-index-sync/phase1-high-level-design.md)  [phase2](design/external-index-sync/phase2-architecture.md)  [phase3](design/external-index-sync/phase3-examples.md)  [phase4](design/external-index-sync/phase4-implementation.md)  [phase5](design/external-index-sync/phase5-documentation.md)  | 2026-09-17 |
@@ -118,7 +119,6 @@ Total rows: 214
 | [`TEMPLATE-DIAGNOSTICS-CHECK-COMMANDS-A-Q-QUOTES`](issues/TEMPLATE-DIAGNOSTICS-CHECK-COMMANDS-A-Q-QUOTES.md) | issue | Template diagnostics report unknown commands in a query part that a later q quotes, which the planner never resolves | draft |  |  | P3 | S | core/query;lib/commands |  | 2026-10-26 |
 | [`VALIDATE-PHASE-COMPACT-SIZE-IGNORES-SOURCE-COMPLEXITY`](issues/VALIDATE-PHASE-COMPACT-SIZE-IGNORES-SOURCE-COMPLEXITY.md) | issue | validate_phase.py checks every compact design against the M size limit | draft |  |  | P3 | S | docs;build |  | 2026-10-27 |
 | [`VALIDATE-PHASE-PHASE1-SIZE-COUNTS-EXCLUDED-SECTIONS`](issues/VALIDATE-PHASE-PHASE1-SIZE-COUNTS-EXCLUDED-SECTIONS.md) | issue | validate_phase.py counts the problem example and readiness section against Phase 1's size limit | draft |  |  | P3 | S | docs |  | 2026-10-31 |
-| [`WEB-HAS-NO-TEMPLATE-COMMANDS`](issues/WEB-HAS-NO-TEMPLATE-COMMANDS.md) | feature | The browser environment has no template commands | draft |  |  | P3 | S | web |  | 2026-10-25 |
 | [`WEB-IMPORTED-COMMAND-RECEIVES-NO-CONTEXT`](issues/WEB-IMPORTED-COMMAND-RECEIVES-NO-CONTEXT.md) | issue | A JavaScript command bound to imported metadata cannot receive the context | draft |  |  | P3 | S | web |  | 2026-10-31 |
 | [`WEB-JS-STORE-BYTES-WITHOUT-METADATA-READ-AS-BINARY`](issues/WEB-JS-STORE-BYTES-WITHOUT-METADATA-READ-AS-BINARY.md) | issue | A page store returning data without metadata may read a .txt key as bytes, not text | draft |  |  | P3 | S | web;core/store |  | 2026-10-31 |
 | [`WEB-METADATA-STATUS-CASE-DIFFERS`](issues/WEB-METADATA-STATUS-CASE-DIFFERS.md) | issue | State.metadata().status is capitalized while Asset.status() and State.status are lowercase | draft |  |  | P3 | S | web |  | 2026-10-26 |

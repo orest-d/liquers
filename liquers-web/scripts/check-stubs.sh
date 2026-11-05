@@ -206,11 +206,12 @@ echo
 
 echo "PACKAGE05 — the default feature set produces the documented value type"
 # The documented value type is liquers_lib::value::Value = CombinedValue<SimpleValue, ExtValue>,
-# selected by `default-features = false, features = ["webui"]`. Asserted at the manifest, which is
-# what determines it; the type itself is checked by the compiler in default_value.rs.
-if grep -q 'liquers-lib = { path = "../liquers-lib", default-features = false, features = \["webui"\] }' \
+# selected by `default-features = false, features = ["webui", "templates"]` (`templates` adds
+# commands, not value variants). Asserted at the manifest, which is what determines it; the type
+# itself is checked by the compiler in default_value.rs.
+if grep -q 'liquers-lib = { path = "../liquers-lib", default-features = false, features = \["webui", "templates"\] }' \
         "$crate/Cargo.toml"; then
-    pass "liquers-lib is linked with only the webui feature"
+    pass "liquers-lib is linked with only the webui and templates features"
 else
     fail "the liquers-lib dependency no longer matches the documented feature set"
 fi

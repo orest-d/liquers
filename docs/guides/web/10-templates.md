@@ -10,4 +10,5 @@ PURPOSE: The reader can write a Mustache template with query tags and render it 
 
 {{> ../_shared/templates.md}}
 
-TBD: 10.1 Templates in the browser: not in the browser build: render on a server (chapter 12).
+TBD: 10.1 Templates in the browser: `liquers.expand` / `render` / `validateTemplate` from a page, `context.render` inside a command (its queries become dependencies), template commands (`template` in place of `run`).
+SOURCE: guides/JAVASCRIPT_GUIDE.md §6 Templates

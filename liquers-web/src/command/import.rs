@@ -34,8 +34,8 @@ impl Retained {
         match self {
             Retained::Declaration(spec) => JsCommandSpec::parse(spec),
             Retained::Metadata(metadata, implementation) => {
-                let spec = if is_pipeline_metadata(metadata) {
-                    JsCommandSpec::from_pipeline_metadata(metadata.clone())
+                let spec = if is_definition_metadata(metadata) {
+                    JsCommandSpec::from_definition_metadata(metadata.clone())
                 } else {
                     JsCommandSpec::from_metadata(metadata.clone(), implementation)
                 };
@@ -60,11 +60,12 @@ impl Retained {
     }
 }
 
-/// Whether imported metadata defines a pipeline command, which needs no implementation.
-fn is_pipeline_metadata(metadata: &CommandMetadata) -> bool {
+/// Whether imported metadata defines a pipeline command or an alias (a template command), which
+/// needs no implementation.
+fn is_definition_metadata(metadata: &CommandMetadata) -> bool {
     match metadata.definition {
-        CommandDefinition::Pipeline { .. } => true,
-        CommandDefinition::Registered | CommandDefinition::Alias { .. } => false,
+        CommandDefinition::Pipeline { .. } | CommandDefinition::Alias { .. } => true,
+        CommandDefinition::Registered => false,
     }
 }
 
@@ -145,8 +146,9 @@ fn read_registry(text: &str, impls: &JsValue, report: &mut IssueReport) -> Vec<A
     for metadata in registry.commands {
         named.insert(metadata.name.clone());
         let implementation = snapshot_implementation(&property(impls, &metadata.name));
-        if is_pipeline_metadata(&metadata) {
-            // A pipeline command is its definition; a function given for it would never run.
+        if is_definition_metadata(&metadata) {
+            // A pipeline command or an alias is its definition; a function given for it would
+            // never run.
             if !(implementation.is_undefined() || implementation.is_null()) {
                 report.extend([Issue::command_registry(
                     IssueSeverity::Error,
@@ -154,13 +156,13 @@ fn read_registry(text: &str, impls: &JsValue, report: &mut IssueReport) -> Vec<A
                     &metadata.namespace,
                     &metadata.name,
                     format!(
-                        "Command {:?} is a pipeline command and takes no implementation",
+                        "Command {:?} is defined by its metadata and takes no implementation",
                         metadata.name
                     ),
                 )]);
                 continue;
             }
-            match JsCommandSpec::from_pipeline_metadata(metadata.clone()) {
+            match JsCommandSpec::from_definition_metadata(metadata.clone()) {
                 Ok(spec) => accepted.push(Accepted {
                     spec,
                     retained: Retained::Metadata(metadata, JsValue::UNDEFINED),
