@@ -135,6 +135,6 @@ changes. Step 4 is independent and can be reverted alone.
 
 ## Phase 5 Entry Criteria
 
-- [ ] Implementation finished and validated
-- [ ] User and review comments answered
-- [ ] Documentation checkable against implemented and tested behaviour
+- [x] Implementation finished and validated (`bash scripts/test-liquers-py.sh`: 446 passed)
+- [x] User and review comments answered
+- [x] Documentation checkable against implemented and tested behaviour

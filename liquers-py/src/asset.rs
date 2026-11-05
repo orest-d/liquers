@@ -11,6 +11,35 @@
 //!
 //! `get_async`, `get_state_async` and `cancel_async` are the awaitable forms; awaiting them never
 //! blocks the caller's loop, and cancelling the awaitable ends only the wait (`aio.rs`).
+//!
+//! # Main components
+//!
+//! - [`State`] (`lq.State`): a value and a copy of its metadata; `value` converts lazily,
+//!   `record_view()` and `data_node()` read the Liquers value in place.
+//! - [`AssetRef`] (`lq.AssetRef`): a running or finished evaluation; `get`, `get_state`, `status`,
+//!   `metadata`, `cancel` and their `_async` forms.
+//!
+//! # Where it is used
+//!
+//! - `environment.rs`: `evaluate_state`, `get_asset` and their `_async` forms.
+//! - `command.rs`: a command whose first parameter is `state` receives a `State`.
+//! - `data_node.rs`: `lq.data_node(state)` reads a state's value without converting it.
+//!
+//! # Related concepts
+//!
+//! - `liquers_core::state::State`, `liquers_core::assets::AssetRef`; `specs/reference/ASSETS.md`.
+//! - `specs/reference/PYTHON_INTEGRATION.md` §5 (when a state converts) and §7 (waits).
+//!
+//! # Examples
+//!
+//! Executed in `liquers-py/tests/test_EVAL_*.py` (a Rust doctest cannot start the interpreter):
+//!
+//! ```python
+//! state = env.evaluate_state("hello")
+//! assert state.value == "hello" and state.metadata.status() == "Ready"
+//! asset = env.get_asset("hello")
+//! assert asset.get() == "hello"
+//! ```
 
 use std::sync::Arc;
 
