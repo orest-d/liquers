@@ -9,9 +9,9 @@
 //!
 //! - `environment`: `lq.Environment`, the handle on a built Liquers environment; `context`:
 //!   `lq.Context`, a command's view of its evaluation; `asset`: `lq.State`, `lq.AssetRef`.
-//! - `command`, `declared`: Python commands and commands made by declaration (template commands);
+//! - `command`, `declared`: Python commands and commands made by declaration (template and pipeline commands);
 //!   `value`: the value bridge; `error`: exceptions both ways.
-//! - `data_node`, `template`, `records`, `store`, `recipe_provider`: the optional
+//! - `data_node`, `template`, `pipeline`, `records`, `store`, `recipe_provider`: the optional
 //!   features (`liquers-py/README.md`).
 //! - `aio`, `closure`, `runtime`, `exit`: the async bridge, closure-asset waits, the Tokio runtime,
 //!   interpreter exit.

@@ -2,54 +2,95 @@
 
 ## Completion Preconditions
 
-- [ ] Implementation is finished and validated
-- [ ] All user comments are answered or incorporated
-- [ ] All review comments are answered or incorporated
-- [ ] Documentation is consistent with the implemented and tested behavior
-- [ ] Documentation is included in the implementation PR when practical
+- [x] Implementation is finished and validated (commit `44ce399d`; `bash scripts/test-liquers-py.sh`:
+  498 passed, 23 skipped, Rust unit tests pass)
+- [x] All user comments are answered or incorporated (Orest 2026-11-04: Q1, Q2, Q5, Q6 agreed;
+  `PY-HAS-NO-VALIDATING-QUERY-EDITOR` merged into this design)
+- [x] All review comments are answered or incorporated (two reviewers per phase, Phases 1-4)
+- [x] Documentation is consistent with the implemented and tested behavior (commit `572531f0`)
+- [x] Documentation is included in the implementation PR when practical
 
 ## Implementation Summary
 
-<About one page; never more than three pages for this whole document. State what was implemented
-and whether it conforms to the request and approved design. Identify anything omitted or added and
-explain why. Link to reference/guide documents for detail.>
+Python passes, evaluates, converts, edits and registers pipelines, as approved.
+
+- **`lq.Pipeline`** (`liquers-py/src/pipeline.rs`): frozen, compared by value; built from a list,
+  a dict in the JSON form, or `Pipeline.from_query` / `from_json`; `to_query(env)`, `to_json`,
+  `to_list`. Every Python value bound for a JSON slot goes through one walker (`json_slot`) that
+  refuses what JSON cannot hold and names the path.
+- **Evaluation.** `Environment.evaluate` / `evaluate_state` and their `_async` forms take a
+  pipeline and run it as a pipeline-only recipe through `apply_queued` (Decision 3): an asset of its
+  own, a job-queue slot, and on Ctrl-C the asset is cancelled (`closure.rs` `wait_for_asset`).
+  `Context.evaluate` evaluates a representable pipeline as its query and any other through
+  `apply_ad_hoc`, after liquers-py's relative-key check. `get_asset` refuses a pipeline.
+- **Editors.** `env.pipeline_editor()`, `env.query_editor()` and `lq.ActionEditor` wrap the core
+  editors; each call edits a clone and keeps it only on success.
+- **Pipeline commands.** `env.pipeline_command(name, body, arguments=[…])` is a
+  `DeclaredCommand::Pipeline`, kept across rebuilds like a template command.
+- **Value bridge.** A pipeline value, `Recipe.pipeline`, a pipeline `ArgumentInfo.default` and
+  `CommandDefinition.pipeline` are `lq.Pipeline` (they were `dict`s; no existing test read them).
+
+Nothing was omitted. Corrections against Phase 3 (recorded in its Learning Log): a relative key is
+`./x.csv`, not `x.csv`; the top-level relative case reads under a `cwd` element; `to_query` writes
+the canonical query, so the round trip checks that the canonical form is stable.
 
 ## Documentation Delivered
 
 ### New Reference Documents
-<Paths and purposes, or `None` with rationale>
+None: the contract is §16 of the existing Python reference.
 
 ### New Guide Documents
-<Paths and purposes, or `None` with rationale>
+None: the usage is a section of the existing Python guide, and `PIPELINE_GUIDE.md` §8.
 
 ### Existing Documents Reviewed or Updated
-<Authoritative `affects_docs` set, review result, and History/reviewed updates>
+`affects_docs`, each reviewed against the code and tests, with a History row and `reviewed:`
+2026-11-04:
+- `specs/reference/PYTHON_INTEGRATION.md` §16 Pipelines; §2, §3 and §5 (the `Pipeline` rows).
+- `specs/guides/PYTHON_GUIDE.md` §6 Pipelines (two examples, run by `test_GUIDE_examples.py`).
+- `specs/guides/PIPELINE_GUIDE.md` §8 From Python; `specs/reference/PIPELINES.md` §Related.
+- `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §PIPELINE (liquers-py implements it) and §6 Python
+  *Pipelines*.
+- `liquers-py/README.md`: `PIPELINE` row, `COMPLETE`, tests `PIPELINE01`-`05` mapped.
+- `specs/README.md`: see Links.
 
 ### Module Docs
-<Each module doc the design created or changed, reviewed against `API_DOCUMENTATION_GUIDE.md` §3,
-and the output of `scripts/check_api_docs.py` for those files; or `None`>
+New: `liquers-py/src/pipeline.rs`. Changed: `environment.rs`, `context.rs`, `closure.rs`,
+`declared.rs`, `command_metadata.rs`, `lib.rs`; `value.rs` and `recipes.rs` brought up to the
+guide. `check_api_docs.py` on each: 0 errors, 0 warnings.
 
 ### User-Guide Chapters
-<Output of `docs_index.py chapters-for`, and for each chapter: reviewed, fixed, or marked `CHECK:`
-with an issue; or `None`>
+`docs_index.py chapters-for` lists chapters of the three guides (among them `04-values.md`,
+`05-commands.md`, `a-query-syntax.md`); all are `status: outline`, so no chapter review was due.
 
 ### Links and Capability Map
-<Links added, updated, or replaced in `specs/README.md` and other documentation>
+`specs/README.md`: the M6 entry now reads *built* and links `PYTHON_INTEGRATION.md` §14-§16,
+`PYTHON_GUIDE.md`, `ASSETS.md` §Closure assets and `TEMPLATE_GUIDE.md`, with the designs in
+parentheses.
 
 ## Issues Filed
 
-<New issue IDs and one-line explanations, including intentionally omitted design scope; or `None`>
+- `TOP-LEVEL-RELATIVE-RESOURCE-QUERY-LOOKS-UP-A-RELATIVE-RECIPES-KEY`: with no working directory,
+  `-R/./x.txt` fails on `./recipes.yaml` while the same pipeline resolves against the root.
+- Filed in Phase 2 and linked: `CONTEXT-APPLY-AD-HOC-SKIPS-RELATIVE-PIPELINE-KEYS` (worked around
+  here), `PIPELINE-COMMAND-OPERAND-TYPES-UNCHECKED`.
 
 ## Important Learning
 
-<Meaning and importance of the work, connections to existing functionality, repeatable guidance,
-corrections, and unexpected learning. Keep details in reference/guide documents and link them here.>
+- A pipeline-only recipe is the existing way to run a pipeline through the asset harness, at the
+  top level (`apply_queued`) and in a command (`apply_ad_hoc`); `evaluate_pipeline` would have
+  bypassed status, cancellation and the job queue.
+- The core editors are `Clone`, so clone-edit-commit makes a multi-step Python call atomic.
+- Inherent methods win over trait methods on a concrete type: inside the generic editor helpers
+  the trait method must be called by path (`CoreEditor::push(e, …)`).
 
 ## Conformance and Remaining Work
 
-<Compare requested, approved, and implemented scope explicitly. State whether anything remains. Every
-deferred remainder must have an issue rather than a partial design status.>
+Requested: pipelines in liquers-py (`LANGUAGE-INTEGRATION_GUIDE.md` §PIPELINE) and a validating
+query editor. Approved: Phases 1-4 with Decision 3. Implemented: AC-1 to AC-10. Nothing remains
+outside the linked issues; `PIPELINES-NOT-IN-LANGUAGE-BINDINGS` and
+`PY-HAS-NO-VALIDATING-QUERY-EDITOR` are closed.
 
 ## Validation
 
-<Documentation checks run and outcomes.>
+`bash scripts/test-liquers-py.sh` (498 passed); `check_api_docs.py` on the touched modules;
+`python3 scripts/docs_index.py --check` (0 errors).

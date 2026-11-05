@@ -2,7 +2,7 @@
 id: PY-HAS-NO-VALIDATING-QUERY-EDITOR
 kind: feature
 title: Python has no validating query or pipeline editor
-status: draft
+status: closed
 priority: P3
 complexity: M
 area: [py]
@@ -36,3 +36,10 @@ Wrapper classes over the core editors, with no escaping or validation logic of t
 
 Split on 2026-11-04 from `QUERY-BUILDER-NOT-IN-BINDINGS`, whose core `QueryBuilder` no longer exists,
 when Orest approved `liquers-py-pipelines` question 6.
+
+## Resolution
+
+Closed 2026-11-05 by [`design/liquers-py-pipelines/`](../design/liquers-py-pipelines/DESIGN.md):
+`env.query_editor()`, `env.pipeline_editor()` and `lq.ActionEditor` over the core editors, each
+refused edit leaving the editor unchanged (commit `44ce399d`); tests
+`liquers-py/tests/test_PIPELINE_editors.py`.
