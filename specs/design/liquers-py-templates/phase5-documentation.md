@@ -31,7 +31,9 @@ commands, as approved.
   reads it back (`kind`, `alias_of`, `head_parameters`).
 - **Default links.** `lq.link(query)` as a parameter default declares a default link.
 
-Nothing was omitted or added.
+Nothing was omitted or added. One test moved: `test_unstarted_render_is_cancelled` (Phase 3) is
+the Rust unit test `unstarted_render_is_cancelled` in `liquers-py/src/template.rs`, since an
+unstarted run cannot be produced from Python (recorded in Phase 4).
 
 ## Documentation Delivered
 
