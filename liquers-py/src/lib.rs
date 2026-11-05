@@ -1,3 +1,39 @@
+//! The native extension of the `liquers` Python package (`liquers._native`): Python bindings of
+//! Liquers, built with PyO3.
+//!
+//! Every module registers its classes and functions into one extension module; the pure-Python
+//! package `liquers` (`liquers-py/python/liquers/`) re-exports them with the decorators and the
+//! exception classes.
+//!
+//! # Main components
+//!
+//! - `environment`: `lq.Environment`, the handle on a built Liquers environment; `context`:
+//!   `lq.Context`, a command's view of its evaluation; `asset`: `lq.State`, `lq.AssetRef`.
+//! - `command`, `declared`: Python commands and commands made by declaration (template commands);
+//!   `value`: the value bridge; `error`: exceptions both ways.
+//! - `data_node`, `template`, `records`, `store`, `recipe_provider`: the optional
+//!   features (`liquers-py/README.md`).
+//! - `aio`, `closure`, `runtime`, `exit`: the async bridge, closure-asset waits, the Tokio runtime,
+//!   interpreter exit.
+//!
+//! # Where it is used
+//!
+//! - `import liquers` loads it; `maturin` builds it (`liquers-py/pyproject.toml`).
+//!
+//! # Related concepts
+//!
+//! - `specs/reference/PYTHON_INTEGRATION.md`: the contract; `specs/guides/PYTHON_GUIDE.md`: usage.
+//!
+//! # Examples
+//!
+//! Executed in `liquers-py/tests/test_EVAL_*.py`:
+//!
+//! ```python
+//! import liquers as lq
+//! env = lq.Environment()
+//! assert env.evaluate("hello") == "hello"     # with `hello` registered by the test fixture
+//! ```
+
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;

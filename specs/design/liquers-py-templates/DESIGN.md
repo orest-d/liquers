@@ -4,7 +4,7 @@ kind: design
 title: "Templates in liquers-py: template commands and rendering from scripts and commands"
 workflow: liquers-project
 status: approved
-phase: implementation
+phase: documentation
 readiness: ready
 autofix: not-eligible
 area: [py, lib/commands]

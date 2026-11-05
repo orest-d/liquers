@@ -128,6 +128,6 @@ self-contained and Step 6 independent.
 
 ## Phase 5 Entry Criteria
 
-- [ ] Implementation finished and validated
-- [ ] User and review comments answered
-- [ ] Documentation checkable against implemented and tested behaviour
+- [x] Implementation finished and validated (`bash scripts/test-liquers-py.sh`: 476 passed)
+- [x] User and review comments answered
+- [x] Documentation checkable against implemented and tested behaviour
