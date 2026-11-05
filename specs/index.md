@@ -8,19 +8,17 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 217
-- P2: 64
-- P3: 153
+Total rows: 214
+- P2: 62
+- P3: 152
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
-| [`FOREIGN-VALUE-HAS-NO-DATA-NODE`](issues/FOREIGN-VALUE-HAS-NO-DATA-NODE.md) | issue | A retained foreign value is always opaque to data-node consumers | draft | ready | not-eligible | P2 | S | lib/value | [design](design/foreign-value-data-node/DESIGN.md) | 2026-10-25 |
 | [`YAML-SCHEMA-FILE-CANNOT-BE-LINKED-AS-SCHEMA-TEXT`](issues/YAML-SCHEMA-FILE-CANNOT-BE-LINKED-AS-SCHEMA-TEXT.md) | issue | A plain .yaml schema file cannot be linked into to_record's schema argument | draft | needs-decision | not-eligible | P2 | S | records;lib/value | [design](design/schema-argument-structured-link/DESIGN.md) | 2026-10-20 |
 | [`UPSTREAM-COMMAND-VOLATILITY-INVISIBLE-TO-DEPENDENCY-WALK`](issues/UPSTREAM-COMMAND-VOLATILITY-INVISIBLE-TO-DEPENDENCY-WALK.md) | issue | A recipe preview misses volatility its upstream inherits from a volatile command | draft |  |  | P2 | S | core/plan |  | 2026-11-03 |
 | [`WEB-COMMAND-LOOKUP-IGNORES-NAMESPACE`](issues/WEB-COMMAND-LOOKUP-IGNORES-NAMESPACE.md) | issue | describeCommand and unregisterCommand take a bare name, so namespaced commands cannot be addressed | draft |  |  | P2 | S | web |  | 2026-10-26 |
 | [`WEB-DESCRIBE-COMMAND-SHAPE-DIFFERS-FROM-DECLARATION`](issues/WEB-DESCRIBE-COMMAND-SHAPE-DIFFERS-FROM-DECLARATION.md) | issue | describeCommand returns raw CommandMetadata JSON, not the LiquersCommandInfo shape the .d.ts declares | draft |  |  | P2 | S | web |  | 2026-10-26 |
 | [`WEB-JS-STORE-WITH-ONLY-GET-CANNOT-BE-QUERIED`](issues/WEB-JS-STORE-WITH-ONLY-GET-CANNOT-BE-QUERIED.md) | issue | A page-implemented store with only get, documented as enough, fails every -R/ query | draft |  |  | P2 | S | web |  | 2026-10-26 |
-| [`CORE-VALUE-ENUM-OVERSIZED`](issues/CORE-VALUE-ENUM-OVERSIZED.md) | issue | Every Value occupies over 700 bytes because three variants are stored unboxed | draft | ready | not-eligible | P2 | M | core/value;lib/value | [design](design/core-value-enum-oversized/DESIGN.md) | 2026-08-18 |
 | [`ASSET-REGISTRATION-OWNERSHIP-CONTRACT`](issues/ASSET-REGISTRATION-OWNERSHIP-CONTRACT.md) | feature | Registration of a keyed asset is a manager convenience, not a contract anything can rely on | draft | needs-decision | not-eligible | P2 | M | core/assets | [design](design/asset-registration-contract/DESIGN.md) | 2026-09-03 |
 | [`ASSETS-IMPROVEMENTS`](issues/ASSETS-IMPROVEMENTS.md) | feature | The web API's request-body limit is axum's fixed 2 MiB default, not configurable or documented | accepted | needs-decision | not-eligible | P2 | M | axum;docs | [design](design/http-request-body-limit/DESIGN.md) | 2026-08-08 |
 | [`CASCADE-TO-AN-IN-FLIGHT-DEPENDENT-IS-DROPPED`](issues/CASCADE-TO-AN-IN-FLIGHT-DEPENDENT-IS-DROPPED.md) | issue | An expiry cascade that reaches a registered dependent still evaluating is dropped, so it finishes Ready on a superseded input | draft | needs-decision | not-eligible | P2 | M | core/assets | [design](design/cascade-marks-in-flight-dependent-stale/DESIGN.md) | 2026-10-21 |
@@ -129,7 +127,6 @@ Total rows: 217
 | [`WEB-PIPELINE-EDITOR-HAS-NO-DEFINITION-MODE`](issues/WEB-PIPELINE-EDITOR-HAS-NO-DEFINITION-MODE.md) | feature | The JavaScript pipeline editors have no command-definition mode, so they refuse placeholders | draft |  |  | P3 | S | web |  | 2026-11-04 |
 | [`WEB-UNREGISTER-DEPENDS-ON-FIRST-EVALUATION`](issues/WEB-UNREGISTER-DEPENDS-ON-FIRST-EVALUATION.md) | issue | unregisterCommand removes a built-in command before the first evaluation but not after it | draft |  |  | P3 | S | web |  | 2026-10-26 |
 | [`WEBUI-SHORTCUTS-RUN-IN-EVERY-MOUNT`](issues/WEBUI-SHORTCUTS-RUN-IN-EVERY-MOUNT.md) | issue | With two web UI mounts on one page, an unfocused menu shortcut runs in both | draft |  |  | P3 | S | lib/ui;web |  | 2026-10-31 |
-| [`COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY`](issues/COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY.md) | issue | ColumnMut always copies validity, and rebuilds the whole column to overwrite one Text/Binary cell | draft | ready | not-eligible | P3 | M | records | [design](design/column-mut-zero-copy-validity/DESIGN.md) | 2026-09-26 |
 | [`DEPENDENCY-ANALYSIS-REWALKS-UPSTREAM-PER-EVALUATION`](issues/DEPENDENCY-ANALYSIS-REWALKS-UPSTREAM-PER-EVALUATION.md) | feature | Each plan analysis re-walks the whole upstream recipe graph | draft | ready | not-eligible | P3 | M | core/plan;core/assets | [design](design/payload-requirement-skips-dependency-analysis/DESIGN.md) | 2026-10-08 |
 | [`ASSET-EVENT-STREAM-CARRIES-ONLY-EXPIRATIONS`](issues/ASSET-EVENT-STREAM-CARRIES-ONLY-EXPIRATIONS.md) | feature | The manager event stream announces expirations only, not new versions, additions or removals | draft | needs-decision | not-eligible | P3 | M | core/assets | [design](design/asset-event-kinds/DESIGN.md) | 2026-10-21 |
 | [`ASSET-EVENTS-ARE-NOT-DELIVERED-OUT-OF-PROCESS`](issues/ASSET-EVENTS-ARE-NOT-DELIVERED-OUT-OF-PROCESS.md) | feature | Manager-level asset events cannot be followed from another process | draft | needs-decision | not-eligible | P3 | M | axum | [design](design/asset-events-over-websocket/DESIGN.md) | 2026-10-21 |
