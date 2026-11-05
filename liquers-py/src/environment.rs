@@ -29,12 +29,17 @@
 //! A wait is cut into short slices. Between two, `block_on` runs the pending signal handlers, so
 //! Ctrl-C raises `KeyboardInterrupt` in a waiting `evaluate`, and it checks the handle's shut
 //! flag, so a wait outstanding when `shutdown()` is called raises `CancelledError` instead of
-//! hanging on an asset manager that no longer runs. Leaving a wait does not cancel the asset.
+//! hanging on an asset manager that no longer runs. Leaving the wait for a query does not cancel
+//! its asset, which others may share; a pipeline's or a render's asset is private to the call, so
+//! leaving that wait cancels it (`closure.rs`).
 //!
 //! # Main components
 //!
-//! - [`Environment`] (`lq.Environment`): evaluation, the store, command registration, renders
-//!   (`render`, `expand`, `validate_template`, `template_command`), data nodes, shutdown.
+//! - [`Environment`] (`lq.Environment`): evaluation of queries and pipelines, the store, command
+//!   registration, renders (`render`, `expand`, `validate_template`, `template_command`),
+//!   pipelines (`pipeline_command`, `pipeline_editor`, `query_editor`), data nodes, shutdown.
+//! - [`to_evaluable`], [`evaluate_evaluable`], [`pipeline_recipe`]: what `evaluate` takes, and how
+//!   a pipeline runs (a pipeline-only recipe through `apply_queued`).
 //! - [`EnvCell`]: the retained declarations, the lazy build and the rebuild.
 //! - [`block_on`]: the sliced, GIL-free wait every blocking call uses.
 //!
@@ -660,6 +665,7 @@ pub(crate) async fn evaluate_evaluable(
 fn refuse_pipeline(object: &Bound<'_, PyAny>) -> PyResult<()> {
     if object.cast::<crate::pipeline::Pipeline>().is_ok()
         || object.is_instance_of::<pyo3::types::PyList>()
+        || object.is_instance_of::<pyo3::types::PyTuple>()
         || object.is_instance_of::<PyDict>()
     {
         return Err(pyo3::exceptions::PyTypeError::new_err(
@@ -675,13 +681,14 @@ pub(crate) enum Evaluable {
     Pipeline(liquers_core::pipeline::Pipeline),
 }
 
-/// A `str` or an `lq.Query` is a query; an `lq.Pipeline`, a list or a dict is a pipeline.
+/// A `str` or an `lq.Query` is a query; an `lq.Pipeline`, a list, a tuple or a dict is a pipeline.
 pub(crate) fn to_evaluable(py: Python<'_>, object: &Bound<'_, PyAny>) -> Result<Evaluable, Error> {
     if object.is_instance_of::<PyString>() || object.cast::<crate::query::Query>().is_ok() {
         return to_query(object).map(Evaluable::Query);
     }
     if object.cast::<crate::pipeline::Pipeline>().is_ok()
         || object.is_instance_of::<pyo3::types::PyList>()
+        || object.is_instance_of::<pyo3::types::PyTuple>()
         || object.is_instance_of::<PyDict>()
     {
         return crate::pipeline::pipeline_from_py(object)

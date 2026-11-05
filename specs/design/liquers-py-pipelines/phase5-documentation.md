@@ -3,7 +3,7 @@
 ## Completion Preconditions
 
 - [x] Implementation is finished and validated (commit `44ce399d`; `bash scripts/test-liquers-py.sh`:
-  498 passed, 23 skipped, Rust unit tests pass)
+  500 passed, 23 skipped, Rust unit tests pass)
 - [x] All user comments are answered or incorporated (Orest 2026-11-04: Q1, Q2, Q5, Q6 agreed;
   `PY-HAS-NO-VALIDATING-QUERY-EDITOR` merged into this design)
 - [x] All review comments are answered or incorporated (two reviewers per phase, Phases 1-4)
@@ -30,7 +30,9 @@ Python passes, evaluates, converts, edits and registers pipelines, as approved.
 - **Value bridge.** A pipeline value, `Recipe.pipeline`, a pipeline `ArgumentInfo.default` and
   `CommandDefinition.pipeline` are `lq.Pipeline` (they were `dict`s; no existing test read them).
 
-Nothing was omitted. Corrections against Phase 3 (recorded in its Learning Log): a relative key is
+Nothing was omitted. Added after the Phase 5 review: `evaluate` takes a tuple, as `lq.Pipeline`
+does; the `environment.rs` and `context.rs` module docs now describe the pipeline entry points and
+which waits cancel. Corrections against Phase 3 (recorded in its Learning Log): a relative key is
 `./x.csv`, not `x.csv`; the top-level relative case reads under a `cwd` element; `to_query` writes
 the canonical query, so the round trip checks that the canonical form is stable.
 
@@ -92,5 +94,5 @@ outside the linked issues; `PIPELINES-NOT-IN-LANGUAGE-BINDINGS` and
 
 ## Validation
 
-`bash scripts/test-liquers-py.sh` (498 passed); `check_api_docs.py` on the touched modules;
+`bash scripts/test-liquers-py.sh` (500 passed); `check_api_docs.py` on the touched modules;
 `python3 scripts/docs_index.py --check` (0 errors).

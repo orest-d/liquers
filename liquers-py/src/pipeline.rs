@@ -300,7 +300,8 @@ impl Pipeline {
         self.0.to_json().to_string()
     }
 
-    /// The serialized form as Python data: a dict with `elements`.
+    /// The serialized form as Python data (the JSON form: a dict with `elements`, as `to_json`
+    /// writes it), which `Pipeline(...)` reads back.
     fn to_list(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         crate::store::json_to_py(py, &self.0.to_json())
     }

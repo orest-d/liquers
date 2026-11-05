@@ -8,6 +8,39 @@
 //! and it releases the GIL while it waits, so the nested command — Python or Rust — can run on
 //! another thread (AC-13). An `async def` command uses `evaluate_async` instead: the sync form
 //! raises there, since it would block the loop the command runs on.
+//!
+//! `evaluate` also takes a pipeline: one a query expresses is that query, any other runs through
+//! `Context::apply_ad_hoc`, and a relative key in it raises `NotSupportedError`, as a relative
+//! query does. `render` / `expand` render a template in this context, so its query tags are the
+//! command's dependencies; `data_node(x)` reads a value in place through this context.
+//!
+//! # Main components
+//!
+//! - [`Context`] (`lq.Context`): `evaluate` / `evaluate_async` (queries and pipelines), `render`,
+//!   `expand`, their `_async` forms, `validate_template`, `data_node`, logging (`info`,
+//!   `warning`, `error`) and `is_cancelled`.
+//!
+//! # Where it is used
+//!
+//! - `command.rs`: the command closure makes one per call and invalidates it on return.
+//! - `data_node.rs`: the `Command` root of `context.data_node(state)`.
+//!
+//! # Related concepts
+//!
+//! - `liquers_core::context::Context`; `template.rs` (the render arguments); `pipeline.rs`
+//!   (`pipeline_has_relative_key`); `specs/reference/PYTHON_INTEGRATION.md` §4, §14-§16.
+//!
+//! # Examples
+//!
+//! Executed in `liquers-py/tests/test_EVAL_*.py`, `test_TEMPLATE_commands.py` and
+//! `test_PIPELINE_evaluate.py` (a Rust doctest cannot start the interpreter):
+//!
+//! ```python
+//! @env.first_command
+//! def outer(context):
+//!     return "outer:" + context.evaluate("hello")
+//! assert env.evaluate("outer") == "outer:hello"
+//! ```
 
 use std::sync::{Arc, Mutex};
 

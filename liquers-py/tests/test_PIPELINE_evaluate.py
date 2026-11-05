@@ -30,6 +30,7 @@ def test_pipeline_evaluates_as_its_query(penv):
     assert penv.evaluate(TOP).equals(expected)
     assert penv.evaluate({"elements": TOP}).equals(expected)
     assert penv.evaluate(lq.Pipeline(TOP)).equals(expected)
+    assert penv.evaluate(tuple(TOP)).equals(expected)
     assert penv.evaluate_state(TOP).value.equals(expected)
 
     async def main():
@@ -104,6 +105,8 @@ def test_get_asset_refuses_a_pipeline(penv):
         penv.get_asset(TOP)
     with pytest.raises(TypeError):
         penv.get_asset(lq.Pipeline(TOP))
+    with pytest.raises(TypeError):
+        penv.get_asset(tuple(TOP))
 
 
 def test_relative_key_pipeline(penv):

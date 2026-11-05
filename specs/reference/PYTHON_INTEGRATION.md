@@ -895,7 +895,8 @@ command has no realm, as decorated ones have none (`PY-COMMAND-DECORATOR-CANNOT-
 **`lq.Pipeline`.** Frozen, compared by value. `Pipeline(data)` takes a `list` or `tuple` of
 elements, a `dict` with `elements` (the JSON form), or an `lq.Pipeline`; a `str` or anything else
 raises `TypeError` (a query is `Pipeline.from_query(q)`). An element is query text or a dict in the
-JSON form. `to_json()` / `from_json(text)`, `to_list()`, `elements_count`, and `to_query(env)`,
+JSON form. `to_json()` / `from_json(text)`, `to_list()` (the JSON form as Python data, which
+`Pipeline(...)` reads back), `elements_count`, and `to_query(env)`,
 which needs an environment's commands and raises `ParameterError` naming the rule
 (`PIPELINES.md` §Representability: `P1`, `S7`, …) for a pipeline no query expresses.
 `from_query(q)` then `to_query(env)` gives the canonical query: a namespace moves to the front
@@ -906,10 +907,10 @@ element) goes through `json_slot`: `None`, `bool`, `int` within `i64`, `float`, 
 tuples and `str`-keyed dicts; an `lq.Pipeline` inside is its JSON form. NaN, `inf` and `-inf` are
 written `"NaN"`, `"inf"`, `"-inf"`, as the core serializer writes them. Anything else, a container
 that contains itself, or an `int` beyond `i64` raises `ConversionError` naming the path
-(`elements[0].parameters[0]`).
+(`$[0].parameters[0]` for a list body, `$.elements[0]…` for a dict).
 
 **Evaluation.** `Environment.evaluate`, `evaluate_state` and their `_async` forms take a pipeline
-(an `lq.Pipeline`, a `list`, a `dict`) as well as a query (`to_evaluable`). A pipeline runs as a
+(an `lq.Pipeline`, a `list`, a `tuple`, a `dict`) as well as a query (`to_evaluable`). A pipeline runs as a
 pipeline-only recipe (`Recipe { pipeline: Some(p), .. }`) through `AssetManager::apply_queued`,
 taking a job-queue slot as `evaluate` does; its value and errors are those of its query. Its asset
 is private to the call, so the sync wait (`closure.rs` `wait_for_asset`) cancels it on Ctrl-C or
@@ -953,6 +954,7 @@ the body back as an `lq.Pipeline`; so do `Recipe.pipeline` and a pipeline `Argum
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-05 | §16: `evaluate` takes a tuple too; `to_list()` is the JSON form; a JSON-slot error path starts at `$`. | phase-5, `design/liquers-py-pipelines/` |
 <<<<<<< HEAD
 | 2026-11-04 | §16 Pipelines (`lq.Pipeline`, JSON slots, evaluation at the top level and in a command, the editors, pipeline commands); §2, §3 and §5 list the new names and the `Pipeline` conversion. | `design/liquers-py-pipelines/` |
 =======
