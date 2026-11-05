@@ -4,8 +4,7 @@ kind: design
 title: One Rust function renders a template with frames, inside a command or at the top level
 form: compact
 workflow: liquers-project
-status: approved
-phase: documentation
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [lib/commands]
