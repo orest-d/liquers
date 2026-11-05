@@ -273,4 +273,6 @@ cancels the asset (liquers-py `wait_for_run`).
 
 Validation: `cargo test -p liquers-core` (all suites pass, `closure01`–`closure06` in
 `liquers-core/tests/closure_asset.rs` among them), `cargo check -p liquers-core --target
-wasm32-unknown-unknown`, `check_api_docs.py`, `docs_index.py --check`.
+wasm32-unknown-unknown`, `cargo test -p liquers-lib --lib --tests` (on the stacked
+`template-render-in-env` branch), `check_api_docs.py`, `docs_index.py --check`. The full build
+matrix was not run (it does not fit the session); its two `#[cfg]`s are wasm32 gates.
