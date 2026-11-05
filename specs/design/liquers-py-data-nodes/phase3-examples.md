@@ -137,3 +137,6 @@ Inside a command, `folder_keys(state: lq.State, context)` does the same with
   follow from this.
 - A sync node never holds a context in the current core; only `FolderNode` and `RecordSourceNode`
   do. `context_node_kind` keeps that fact in one place.
+- `test_large_render_cost` measured about 0.19 s for a 10 000-entry `dict` rendered with
+  `{{#items}}` (debug build, CPython 3.13): one GIL acquisition per lookup is not a bottleneck at
+  that size.
