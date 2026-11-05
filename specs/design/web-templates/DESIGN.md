@@ -4,12 +4,12 @@ kind: design
 title: Templates from JavaScript - render, expand, validate and template commands
 form: compact
 workflow: liquers-project
-status: in_review
-phase: implementation
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [web]
 issues: [WEB-HAS-NO-TEMPLATE-COMMANDS]
+gh_pr: [258]
 affects_docs: [specs/reference/JAVASCRIPT_INTEGRATION.md, specs/guides/JAVASCRIPT_GUIDE.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md]
 created: 2026-11-04
 ---
@@ -18,7 +18,8 @@ created: 2026-11-04
 `TEMPLATE` of `LANGUAGE-INTEGRATION_GUIDE.md` for `liquers-web`, the next item of the web
 conformance plan after `PIPELINE` (design `web-pipelines`). Written and implemented together on
 2026-11-04 at the owner's request ("design and implement the next thing in the plan"), so Phases
-1-4 record what was built and why, and Phase 5 what it changed. Not yet accepted by the owner.
+1-4 record what was built and why, and Phase 5 what it changed. Accepted by the owner on
+2026-11-05.
 
 ## Phase 1: High-Level Design
 
