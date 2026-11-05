@@ -5,7 +5,7 @@ title: The asset manager runs a Rust closure as an ad-hoc asset
 form: compact
 workflow: liquers-project
 status: approved
-phase: implementation
+phase: documentation
 readiness: ready
 autofix: not-eligible
 area: [core/assets, core/context]
@@ -237,13 +237,13 @@ for the `InlineRunClaim` tests.
 
 ### Steps
 
-- [ ] 1. `liquers-core/src/assets.rs` `AssetData` — `runs_closure` field; `InlineRunClaim::drop`
+- [x] 1. `liquers-core/src/assets.rs` `AssetData` — `runs_closure` field; `InlineRunClaim::drop`
   and `try_claim_for_run_inline` branches — `cargo test -p liquers-core --lib`
-- [ ] 2. `assets.rs` — `ClosureAsset`, `AssetManager::closure_asset`, `AssetRef::compute_closure`
+- [x] 2. `assets.rs` — `ClosureAsset`, `AssetManager::closure_asset`, `AssetRef::compute_closure`
   — `cargo test -p liquers-core --test closure_asset`
-- [ ] 3. Module doc tables of `assets.rs`; `specs/reference/ASSETS.md` §AssetManager (History row,
+- [x] 3. Module doc tables of `assets.rs`; `specs/reference/ASSETS.md` §AssetManager (History row,
   `reviewed:`) — `python3 scripts/check_api_docs.py liquers-core/src/assets.rs`
-- [ ] 4. Wider checks — `cargo test -p liquers-core`, `cargo test -p liquers-lib --lib --tests`,
+- [x] 4. Wider checks — `cargo test -p liquers-core`, `cargo test -p liquers-lib --lib --tests`,
   `bash scripts/check-build-matrix.sh`
 
 Rollback: revert the PR's commits; nothing else depends on it until `template-render-in-env` lands.
@@ -253,3 +253,24 @@ Rollback: revert the PR's commits; nothing else depends on it until `template-re
 `cargo test -p liquers-core`; the build matrix (wasm32 rows); `check_api_docs.py` on `assets.rs`;
 `python3 scripts/docs_index.py --check`. The issue `AD-HOC-ASSET-CANNOT-RUN-A-CLOSURE` is closed
 in Phase 5.
+
+## Phase 5: Documentation
+
+Built as approved (commit `2b8348c4`): `AssetManager::closure_asset(title)`, `ClosureAsset::run` /
+`run_inline`, `AssetRef::compute_closure`. One addition: `AssetData.runs_closure`, so a closure run dropped before it ends is
+`Cancelled` instead of being repaired to the placeholder recipe (when `Drop` cannot take the lock,
+the next reader ends it). Nothing was omitted.
+
+Documents: [`reference/ASSETS.md`](../../reference/ASSETS.md) §Closure assets, with a History row
+and `reviewed:` 2026-11-04; the `assets.rs` module doc brought up to the API documentation guide,
+with an executed example (`check_api_docs.py`: 0 warnings). The chapters drawing on `ASSETS.md`
+(`docs/guides/*/07-assets.md`) are `outline`: no review due.
+
+Issues: closed `AD-HOC-ASSET-CANNOT-RUN-A-CLOSURE`; none filed.
+
+Learning: dropping a run is not cancelling it, so an interruptible caller spawns the run and
+cancels the asset (liquers-py `wait_for_run`).
+
+Validation: `cargo test -p liquers-core` (all suites pass, `closure01`–`closure06` in
+`liquers-core/tests/closure_asset.rs` among them), `cargo check -p liquers-core --target
+wasm32-unknown-unknown`, `check_api_docs.py`, `docs_index.py --check`.

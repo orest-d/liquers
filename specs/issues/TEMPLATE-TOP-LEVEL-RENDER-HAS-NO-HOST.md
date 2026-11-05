@@ -2,7 +2,7 @@
 id: TEMPLATE-TOP-LEVEL-RENDER-HAS-NO-HOST
 kind: feature
 title: A template cannot be rendered from outside a command without encoding it into a query
-status: draft
+status: closed
 priority: P3
 complexity: M
 area: [lib/commands]
@@ -50,3 +50,9 @@ tests and two documents in one crate.
 ## Discovery
 
 Writing the `TEMPLATE` section of the language integration guide (2026-10-25).
+
+## Resolution
+
+Closed 2026-11-05 by [`design/template-render-in-env/`](../design/template-render-in-env/DESIGN.md):
+`render_in_context` and `render_top_level` in `liquers-lib/src/template/top_level.rs` (commit
+`80ecd1dc`); tests in `liquers-lib/tests/template_top_level.rs`.
