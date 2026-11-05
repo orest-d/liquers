@@ -3,7 +3,7 @@ title: Python Integration
 kind: reference
 audience: both
 area: [py, core/value, core/error, lib/value, core/store, store/config, core/assets]
-reviewed: 2026-11-04
+reviewed: 2026-11-05
 ---
 # Python Integration
 
@@ -794,12 +794,12 @@ templates walk one, and Python reads one with `lq.DataNode`. liquers-py provides
 | exact `dict` | a map of its `str` keys (other keys are skipped) |
 | exact `list`, `tuple` | a list |
 | a class with `__liquers_data__ = True` | `keys` + `__getitem__` → map; `__len__` + `__getitem__` → list; `__index__` → integer; `__float__` → float; none → `Opaque` |
-| a class with a `__liquers_data__` method | the method's result, called once per node, classified as above (its own opt-in ignored) |
+| a class with a `__liquers_data__` method | the method's result, called once per node, classified as above (a further `__liquers_data__` method on the result is not called; a result whose class sets `__liquers_data__ = True` still reads through the protocols) |
 | anything else, container subclasses included (`OrderedDict`) | `Opaque` |
 
 The opt-in is read from the type, so an instance attribute or `__getattr__` never runs; only code
-a class opted in runs. A raise inside an opted-in protocol makes that node `Opaque`, since a lookup
-has no error channel; `KeyError` / `IndexError` mean missing. Every lookup takes the GIL again
+a class opted in runs. A raise inside an opted-in protocol makes that node `Opaque` (a raise in `keys()` gives no keys),
+since a lookup has no error channel; `KeyError` / `IndexError` mean missing. Every lookup takes the GIL again
 through `attach_off_worker`. `to_json` walks once with an identity set and raises
 `ConversionError` for a cycle, a non-`str` key (named), an out-of-range `int`, a non-finite
 `float` or an `Opaque` member.
@@ -888,7 +888,11 @@ command has no realm, as decorated ones have none (`PY-COMMAND-DECORATOR-CANNOT-
 
 | Date | Change | Source |
 |---|---|---|
+<<<<<<< HEAD
 | 2026-11-04 | §15 Templates (the calls on both receivers, the top-level closure asset and its waits, template commands as declarations, `lq.link`, `CommandDefinition` accessors); §2, §3 and §4 list the new names. | `design/liquers-py-templates/` |
+=======
+| 2026-11-05 | §14: a `__liquers_data__` method's result still reads through the protocols when its class opts in; a raise in `keys()` gives no keys. | phase-5, `design/liquers-py-data-nodes/` |
+>>>>>>> py-data-nodes-local
 | 2026-11-04 | §14 Data nodes (Python data read in place, `lq.DataNode` views and their roots, async reads); §5 `State.value` converts on first access; §2 and §3 list the new names. | `design/liquers-py-data-nodes/` |
 | 2026-11-02 | §8: the generated API reference exists (pdoc, published on the documentation site); the limitation is lifted. | design `py-api-reference` |
 | 2026-11-01 | §11 Records (classes, crossing, building with `fields=`, Arrow/pandas/polars routes, buffers, where a source reads, traversal and its blocking-call messages), §12 Packaging (version, wheels, extras and `require`'s import-first rule, native requirements, the release pipeline and its approval), §13 Type declarations; §1, §2, §5 and §8 updated: records cross to Python, type stubs exist and release wheels are built. | `design/liquers-py-records/`, `design/liquers-py-package/`, `design/liquers-py-stubs/` (phase-5) |
