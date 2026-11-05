@@ -41,7 +41,9 @@ None: the usage is a section of the existing Python guide.
 
 ### Existing Documents Reviewed or Updated
 `affects_docs`, each reviewed against the code and tests, with a History row and `reviewed:`
-2026-11-04:
+2026-11-04 (`PYTHON_INTEGRATION.md` and `PYTHON_GUIDE.md` 2026-11-05, after the Phase 5 review's
+corrections: what a `__liquers_data__` method's result reads as, a raise in `keys()`, and which
+async read a cancel stops):
 - `specs/reference/PYTHON_INTEGRATION.md`: new §14 Data nodes; §2, §3 names; §5 lazy `State.value`.
 - `specs/guides/PYTHON_GUIDE.md`: §7 "Reading data field by field" (examples run by
   `test_GUIDE_examples.py`).
