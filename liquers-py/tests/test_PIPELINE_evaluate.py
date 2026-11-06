@@ -26,6 +26,7 @@ def penv(env):
 
 def test_pipeline_evaluates_as_its_query(penv):
     """AC-1: a list, a dict and an `lq.Pipeline` evaluate to what their query gives."""
+    pytest.importorskip("polars")  # the values compared are polars frames
     expected = penv.evaluate(QUERY)
     assert penv.evaluate(TOP).equals(expected)
     assert penv.evaluate({"elements": TOP}).equals(expected)

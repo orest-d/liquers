@@ -22,6 +22,7 @@ def penv(env):
 
 def test_pipeline_command_runs_as_the_long_query(penv):
     """AC-5: a pipeline command gives what the long query gives, also after a rebuild."""
+    pytest.importorskip("polars")  # the values compared are polars frames
     expected = penv.evaluate(QUERY)
     penv.pipeline_command("top_in", BODY, arguments=["n", lq.ArgumentInfo.from_json(REGIONS)])
     assert penv.evaluate("-R/data/sales.csv/-/top_in-5-EU-US").equals(expected)
