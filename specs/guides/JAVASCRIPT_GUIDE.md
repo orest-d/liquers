@@ -57,6 +57,8 @@ Both return `Promise`s. Calling `liquers.init()` again is harmless: it keeps the
 | Writing commands | `registerCommand`, `registerCommands`, `validateCommands`, `unregisterCommand`, `describeCommand`, `opaque` |
 | Errors | `LiquersError` |
 | The query language | `Query`, `Key`, `encodeParam` |
+| Pipelines | `evaluatePipeline`, `pipelineToQuery`, `queryToPipeline`, `PipelineEditor`, `QueryEditor` |
+| Templates | `render`, `expand`, `validateTemplate` |
 | Stores | `Environment.configureStore`, `Environment.registerStoreObject`, `Store` |
 | Record streams (`records` builds) | `RecordBatch`, `RecordSource`, `RecordStream` |
 
@@ -573,6 +575,104 @@ The editors take an element's index rather than returning a sub-editor: `set`, `
 `link`, `unset` and `setNamespace` edit the action at that index. Placeholders are refused in an
 editor; write them in the object form of a pipeline command's body.
 
+### Templates
+
+Liquers templates are Mustache with query tags: `{{name}}` reads data, `{{$ query}}` runs a query,
+`{{> key}}` includes another template from the store
+([`reference/TEMPLATE_LANGUAGE.md`](../reference/TEMPLATE_LANGUAGE.md)). `expand(template, data)`
+fills a template from an object; `render(template, state, data)` applies one to a value, which is
+`{{.}}`, with `data` as extra names. Both resolve to the text, and both run their queries in the
+environment, so the commands you registered are available:
+
+```js
+import init, * as liquers from "./liquers_web.js";
+
+await init();
+await liquers.init();
+liquers.registerCommand({ name: "count", run: () => 3 });
+
+assert.strictEqual(await liquers.expand("{{name}} has {{$ count}} items", { name: "Ann" }), "Ann has 3 items");
+assert.strictEqual(await liquers.render("Hello, {{.}}!", "world"), "Hello, world!");
+assert.strictEqual(await liquers.expand("{{v}}", { v: "<b>" }), "<b>");
+assert.strictEqual(await liquers.expand("{{v}}", { v: "<b>" }, { html: true }), "&lt;b&gt;");
+
+await assert.rejects(liquers.expand("ok\n{{$ missing}}"), (e) => e.position.line === 2);
+const result = await liquers.expand("ok\n{{$ missing}}", null, { errors: "silent", full: true });
+assert.strictEqual(result.text, "ok\n");
+assert.strictEqual(result.warnings.length, 1);
+
+const problems = await liquers.validateTemplate("{{$ count}} {{$ missing}}");
+assert.strictEqual(problems.length, 1);
+assert.strictEqual(problems[0].position.column, 17);     // where `missing` starts
+```
+
+A string is the template itself; a `liquers.Query` (`liquers.Query.parse("-R/templates/x.md")`) is
+a link to it, read from the store. The options are `errors` (`"strict"`, the default, throws a
+`LiquersError` carrying the tag's `position`; `"expand"`, `"expand_html"`, `"expand_md"` and
+`"silent"` keep going), `html` (escape `{{name}}` output; off unless you ask), `cwd` (the folder a
+relative partial or key resolves against: a key string or a `Key`; the root otherwise) and `full`
+(resolve to `{ text, warnings }`, so a recovering mode's warnings are not lost).
+`validateTemplate(template)` lists every problem with its position and runs nothing. The same
+three calls are on an `Environment` (`env.render`, `env.expand`, `env.validate`).
+
+**Inside a command**, render through the context: `context.render`, `context.expand` and
+`context.validate` take the same arguments, and every query and partial the template reads becomes
+a dependency of the command's result, as with `context.evaluate`. A recovered error is a warning in
+the command's log (so `full` is refused there). A command cannot see its own working directory, so
+one that renders relative partials takes it as an argument whose default is the link `-R-key/.`
+and passes it on.
+
+**A template command** is a declaration with `template` in place of `run`: the link of the template
+it renders (a query string or a `Query`). A call renders that template with the input as `{{.}}`,
+and takes the arguments `data`, `errors` and `cwd`. Here both kinds read templates from a store the
+page implements (§9):
+
+```js
+import init, * as liquers from "./liquers_web.js";
+
+await init();
+await liquers.init();
+const text = (s) => new TextEncoder().encode(s);
+const files = new Map([
+  ["templates/greet.md", text("Hello, {{.}}!")],
+  ["templates/page.md", text("{{> ./header.md}}body")],
+  ["templates/header.md", text("Header ")],
+]);
+const env = liquers.Environment.global();
+env.registerStoreObject("files", {
+  get: (key) => (files.has(key) ? { data: files.get(key) } : null),
+  contains: (key) => files.has(key),
+  isDir: (key) => [...files.keys()].some((k) => k.startsWith(key + "/")),
+  getMetadata: (key) => (files.has(key) ? {} : null),
+});
+await env.configureStore({ stores: [{ type: "js", prefix: "templates", config: { object: "files" } }] });
+
+liquers.registerCommands([
+  { name: "hello", run: () => "hello" },
+  { name: "greeting", template: "-R/templates/greet.md" },
+  {
+    name: "page",
+    async: true,
+    arguments: [{ name: "cwd", default: { pipeline: ["-R-key/."] } }, { name: "context" }],
+    run: (cwd, context) => context.render(liquers.Query.parse("-R/templates/page.md"), null, null, { cwd }),
+  },
+]);
+
+assert.strictEqual(await liquers.evaluate("hello/greeting"), "Hello, hello!");
+assert.strictEqual(liquers.describeCommand("greeting").definition.Alias.command.name, "render");
+assert.strictEqual(await liquers.evaluate("-R-cwd/templates/-/page"), "Header body");
+```
+
+A template command has no function, so `run`, `state`, `async`, `pipeline` and `arguments` are
+refused beside `template`; `describeCommand` shows it as an alias of `template/render`. The
+template is a dependency of every result, but a result already computed does not notice a later
+`env.store().set` of it yet (§13). The `ns-template` commands themselves are built in, so a query
+can render too: `hello/ns-template/render-~X~-R/templates/greet.md~E`.
+
+A key or a query passed to your command (such as `cwd` here) arrives as a `Key` or `Query`, not as
+text. Writing the default link as `{ pipeline: ["-R-key/."] }` is a workaround: a declaration
+cannot yet spell it as query text (`REGISTRY-QUERY-DEFAULT-NOT-WRITABLE-AS-TEXT`).
+
 ## 7. Values
 
 Values cross between JavaScript and Liquers by kind:
@@ -960,9 +1060,11 @@ Node as well as in a browser, as these examples do, except for `localStorage`.
 What you will notice; the complete list, with the tracking issues, is
 [`reference/JAVASCRIPT_INTEGRATION.md`](../reference/JAVASCRIPT_INTEGRATION.md) §11.
 
-- **No templates.** The `ns-template` commands, template commands and programmatic rendering are
-  not in the browser build (`WEB-HAS-NO-TEMPLATE-COMMANDS`).
-- **No Polars or image commands**; the browser build has the core and record commands only.
+- **Template data is copied**: an object you pass to `render` or `expand` is converted first, so
+  it must be plain data (no `Map` or class instance).
+- **A store write does not refresh computed results**: after `env.store().set(key, …)`, a result
+  already computed from `key` (a template command's, say) is returned unchanged.
+- **No Polars or image commands**; the browser build has the core, template and record commands only.
 - **Cancellation does nothing yet.**
 - **A slow query freezes a mounted UI** until it finishes, and with two UIs on one page an
   unfocused menu shortcut runs in both.
@@ -986,4 +1088,5 @@ What you will notice; the complete list, with the tracking issues, is
 | 2026-10-31 | §11 "Showing a Liquers UI" (`mountUI`, `UIElement`); §11–12 renumbered to §12–13. | design `web-ui-use` |
 | 2026-10-31 | §11 "Define an element" and "Render the tree yourself" (`defineElement`, `element`, `mountRenderer`). | design `web-ui-define` |
 | 2026-11-04 | `encodeParam` never throws. | phase-5, `design/composite-command-definition/` |
+| 2026-11-04 | §2 pipelines and templates rows; §6 "Templates": `render`, `expand`, `validateTemplate`, context rendering, template commands; §13 limitations. | design `web-templates` |
 | 2026-11-04 | §6 "Pipelines": `evaluatePipeline`, `pipelineToQuery`, `queryToPipeline`, pipeline commands, `PipelineEditor` / `QueryEditor`. | design `web-pipelines` |
