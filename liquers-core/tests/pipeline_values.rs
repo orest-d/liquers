@@ -28,7 +28,7 @@ fn as_pipeline(state: &State<Value>) -> Result<Value, Error> {
 #[tokio::test]
 async fn pipeline_value_stored_and_read_back() -> TestResult {
     let pipeline = Pipeline::try_from(&parse_query("-R/data/x.csv/-/ns-pl/head-5")?)?;
-    let value = Value::Pipeline(pipeline.clone());
+    let value = Value::Pipeline(std::sync::Arc::new(pipeline.clone()));
     let store = AsyncMemoryStore::new(&Key::new());
     for (name, format) in [("p.json", "json"), ("p.yaml", "yaml"), ("p.txt", "txt")] {
         let mut record = MetadataRecord::new();
@@ -56,6 +56,6 @@ async fn pipeline_value_stored_and_read_back() -> TestResult {
     }
     // A command produces a pipeline from the quoted query before it.
     let state = evaluate(envref.clone(), "-R/data/x.csv/-/ns-pl/head-5/q/as_pipeline", None).await?;
-    assert_eq!(*state.value()?, Value::Pipeline(pipeline));
+    assert_eq!(*state.value()?, Value::Pipeline(std::sync::Arc::new(pipeline)));
     Ok(())
 }

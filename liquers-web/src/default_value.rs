@@ -3,6 +3,34 @@
 //! This is the **only** module that names a concrete value type. Everything in
 //! [`crate::bridge`] stays generic so a downstream crate can substitute its own; this module is
 //! what makes `liquers-web`'s own exported surface concrete.
+//!
+//! # Main components
+//!
+//! - [`WebValue`] — the value type, `liquers_lib::value::Value`.
+//! - The `JsExtensionBridge` implementation for `ExtValue`: record views and sources (`records`),
+//!   opaque JavaScript values, and the refusals for the variants a page cannot hold.
+//! - [`is_serialization_refusal`] — whether an error is a value's refusal to serialize.
+//!
+//! # Where it is used
+//!
+//! By every export that converts a value (`crate::lib`, `crate::environment`, `crate::asset`,
+//! `crate::command::adapter`), through the generic functions of `crate::bridge`.
+//!
+//! # Related concepts
+//!
+//! `specs/reference/JAVASCRIPT_INTEGRATION.md` §5 (the conversion tables); `PACKAGE05`, which
+//! checks the linked features; `tests/second_value_type.rs`, the worked example of another value
+//! type.
+//!
+//! # Examples
+//!
+//! What `VALUE04` in `tests/value_bridge_VALUE.rs` checks, as a page sees it:
+//!
+//! ```javascript
+//! liquers.registerCommand({ name: "bytes", run: () => new Uint8Array([0, 1, 255]) });
+//! const bytes = await liquers.evaluate("bytes");
+//! bytes instanceof Uint8Array;         // true: Bytes cross by identifier, not as JSON
+//! ```
 
 use liquers_core::error::{Error, ErrorType};
 use liquers_lib::value::ExtValue;
@@ -15,8 +43,8 @@ use crate::value::JsOpaque;
 /// The value type this crate's exported surface is built on.
 ///
 /// `liquers_lib::value::Value` is `CombinedValue<SimpleValue, ExtValue>`, selected by linking
-/// `liquers-lib` with `default-features = false, features = ["webui"]` — `polars` and `egui` are
-/// not wasm targets. Named here so the choice has one place to be stated, asserted and changed
+/// `liquers-lib` with `default-features = false, features = ["webui", "templates"]` — `polars` and
+/// `egui` are not wasm targets. Named here so the choice has one place to be stated, asserted and changed
 /// (`PACKAGE05`).
 pub type WebValue = liquers_lib::value::Value;
 

@@ -218,6 +218,16 @@ fn js_to_value_at<V: JsValueBridge>(
     if js.is_null() || js.is_undefined() {
         return Ok(V::none());
     }
+    // A `Query` or `Key` wrapper is the value it names: a page passes a key to a command as it
+    // receives one (below).
+    if crate::objects::is_query_wrapper(js) {
+        let encoded = crate::objects::encode_query_wrapper(js)?;
+        return Ok(V::from_query(&liquers_core::parse::parse_query(&encoded)?));
+    }
+    if crate::objects::is_key_wrapper(js) {
+        let encoded = crate::objects::encode_key_wrapper(js)?;
+        return Ok(V::from_key(&liquers_core::parse::parse_key(&encoded)?));
+    }
     if let Some(b) = js.as_bool() {
         return Ok(V::from_bool(b));
     }
@@ -464,6 +474,15 @@ pub fn value_to_js<V: JsValueBridge>(value: &V) -> Result<JsValue, Error> {
     if value.identifier() == "Bytes" {
         let bytes = value.try_into_bytes()?;
         return Ok(js_sys::Uint8Array::from(bytes.as_slice()).into());
+    }
+    // A key or a query has no JSON form; it crosses as the wrapper a page parses one into. A
+    // command's `cwd` argument (default link `-R-key/.`) arrives this way.
+    match value.identifier().as_ref() {
+        "Key" => return Ok(crate::objects::LiquersKey::from_key(value.try_into_key()?).into()),
+        "Query" => {
+            return Ok(crate::objects::LiquersQuery::from_query(value.try_into_query()?).into())
+        }
+        _ => {}
     }
     let json = value.try_into_json_value()?;
     json_to_js(&json)

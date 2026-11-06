@@ -1121,8 +1121,7 @@ rendered by `MapHost`, which refuses queries; that is a test convenience, not th
 **Objects/API to map or implement:**
 
 - The `ns-template` commands in the built-in set: `liquers_lib::register_template_commands!`, which
-  needs `liquers-lib`'s `templates` feature (`liquers-py` registers them; `liquers-web` does not
-  yet — `WEB-HAS-NO-TEMPLATE-COMMANDS`)
+  needs `liquers-lib`'s `templates` feature (`liquers-py` and `liquers-web` register them)
 - Template-command declaration over the shared declaration format: a declaration with
   `definition: Alias` of `template/render` and the template link as head parameter
   ([`COMMAND_ALIASES.md`](../reference/COMMAND_ALIASES.md)), registered all or nothing like any
@@ -2050,13 +2049,20 @@ until the kind is defined again. Events reach it as `ui-events`' `UpdateMessage:
 lock released. A *language* that renders the tree itself uses `run_headless`, the browser driver
 loop without the DOM, which hands it each tick's `Invalidation`.
 
-**Templates and data nodes in the browser.** Neither `DATANODE` nor `TEMPLATE` is implemented in
-`liquers-web`. It depends on `liquers-lib` without the `templates` feature, so the `ns-template`
-commands are not in its built-in set (`WEB-HAS-NO-TEMPLATE-COMMANDS`). A JavaScript command
-receives a JavaScript-visible `Context` (`COMMAND07`, `liquers-web/src/command/context.rs`), so the
-in-command half of `TEMPLATE` waits only on the template commands. A JavaScript object adapter reads own enumerable data properties
-(`Object.getOwnPropertyDescriptor`, skipping accessors and symbols), maps `Array` to a list and a
-`Map` with string keys to a map, and runs on the one wasm thread inside the render's poll.
+**Templates in the browser** (`TEMPLATE`, `specs/design/web-templates/`). `liquers-web` links
+`liquers-lib` with `templates` and registers the `ns-template` commands. `render`, `expand` and
+`validate` are on the module, on `Environment` and on the command `Context`, every one a
+`Promise`; a string is template text and a `Query` a link. At the top level a render runs in a
+temporary asset, and since `wasm32` drains an asset's log only inside a run, the integration wraps
+`ContextHost` in a host that keeps each recovered error for the result (`full: true`). A template
+command is a declaration with `template` (a link) in place of `run`, registered like a pipeline
+command, as metadata only. Template data is structurally converted, since `DATANODE` is not
+implemented.
+
+**Data nodes in the browser.** `DATANODE` is not implemented in `liquers-web`. A JavaScript object
+adapter would read own enumerable data properties
+(`Object.getOwnPropertyDescriptor`, skipping accessors and symbols), map `Array` to a list and a
+`Map` with string keys to a map, and run on the one wasm thread inside the render's poll.
 
 ### Starlark
 
@@ -4007,6 +4013,7 @@ def test_DOCS04_every_public_name_is_documented():
 | 2026-11-04 | §6 Python: *Data nodes* (the inbound adapter and opt-in, the lock per lookup, the outbound view and its roots, lazy `State.value`); `DATANODE` is implemented by `liquers-py`. | `design/liquers-py-data-nodes/` |
 | 2026-11-04 | New feature `PIPELINE` (overview row, soft dependency, §5 section with tests `PIPELINE01`–`05`); no binding implements it yet. | phase-5, `design/composite-command-definition/` |
 | 2026-11-04 | §PIPELINE: `liquers-web` implements the feature. | design `web-pipelines` |
+| 2026-11-04 | §TEMPLATE and §6 Browser JavaScript: `liquers-web` implements `TEMPLATE`. | design `web-templates` |
 | 2026-11-03 | §DATANODE, inbound: the hook an integration overrides for a retained value, `ForeignValue::data_node`, and its default. | `design/foreign-value-data-node/` |
 | 2026-11-03 | §DOCS: the package's module doc follows `API_DOCUMENTATION_GUIDE.md` §3; `DOCS04` checks it. | `design/api-documentation-rules/` |
 | 2026-11-01 | §DOCS: an integration's users get a guide in `docs/guides/<language>/`, parallel to the others and written from the contract reference and topic guide, which stay in `specs/`; the design question asks which chapters a milestone drafts. | `design/user-documentation-guides/` (phase-5) |

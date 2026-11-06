@@ -3,8 +3,8 @@ id: COLUMN-MUT-ZERO-COPY-VALIDITY
 kind: design
 title: ColumnMut moves validity, Bool values and offsets, and edits a Text/Binary cell in place
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [251]
 readiness: ready
 autofix: not-eligible
 area: [records]
@@ -13,8 +13,10 @@ created: 2026-10-21
 ---
 # ColumnMut moves validity, Bool values and offsets, and edits a Text/Binary cell in place
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`): Phases 1-4 written, not approved, nothing
-implemented. Origin: `record-streams` (complete), Step 2.5.
+> **Complete on 2026-11-03**: implemented in #251.
+
+Bulk design (`specs/guides/autonomous_bulk_design.md`): Phases 1-4 written; implemented on
+2026-11-03. Origin: `record-streams` (complete), Step 2.5.
 
 ## Phase 1: High-Level Design
 
@@ -174,13 +176,23 @@ Run: `cargo test -p liquers-records --lib -- mutable buffer`.
 
 ### Steps
 
-- [ ] 1. `buffer.rs` — `BitmapMut`, `Bitmap::into_mut`, `AlignedBytesMut::splice`, test helper `storage_ptr` — buffer tests — `cargo test -p liquers-records --lib buffer`. Rollback: revert (crate-private).
-- [ ] 2. `mutable.rs` — validity and `Bool` values as `BitmapMut`; `mark` / `restore` — AC-1-3, AC-7 tests and existing tests — `cargo test -p liquers-records --lib mutable`. Depends on 1.
-- [ ] 3. `mutable.rs` — offsets as `AlignedBytesMut`, `set_bytes_cell` in place / splice — AC-4-6 tests — same command. Depends on 2.
-- [ ] 4. `cargo test -p liquers-records --all-features --lib --tests`; `cargo test -p liquers-lib --lib --tests` (record editing through the glue).
-- [ ] 5. `RECORD_STREAMS.md` batch ↔ mutable row and `ColumnMut` paragraph, History, `reviewed:`; close `COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY` — `python3 scripts/docs_index.py --check`.
+- [x] 1. `buffer.rs` — `BitmapMut`, `Bitmap::into_mut`, `AlignedBytesMut::splice`, test helper `storage_ptr` — buffer tests — `cargo test -p liquers-records --lib buffer`. Rollback: revert (crate-private).
+- [x] 2. `mutable.rs` — validity and `Bool` values as `BitmapMut`; `mark` / `restore` — AC-1-3, AC-7 tests and existing tests — `cargo test -p liquers-records --lib mutable`. Depends on 1.
+- [x] 3. `mutable.rs` — offsets as `AlignedBytesMut`, `set_bytes_cell` in place / splice — AC-4-6 tests — same command. Depends on 2.
+- [x] 4. `cargo test -p liquers-records --all-features --lib --tests`; `cargo test -p liquers-lib --lib --tests` (record editing through the glue).
+- [x] 5. `RECORD_STREAMS.md` batch ↔ mutable row and `ColumnMut` paragraph, History, `reviewed:`; close `COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY` — `python3 scripts/docs_index.py --check`.
 
 ### Validation
 
 `cargo test -p liquers-records --lib --tests`; `bash scripts/check-build-matrix.sh` (records rows);
 diff review limited to `buffer.rs`, `mutable.rs` and the reference.
+
+### Implementation notes (2026-11-03)
+
+- Validity is a crate-private `ValidityMut` (row count plus an optional `BitmapMut`), because a
+  `Vector` column of width 0 counts its rows by validity even when no bitmap is allocated.
+- Deviation from Consolidated Findings: `freeze` still drops an all-valid bitmap (one popcount
+  over `len / 8` bytes) rather than keeping one that came in through `into_mut`. No frozen column
+  changes shape, and a column whose nulls were all overwritten also freezes with `None`. A bitmap
+  with a null still moves (AC-1).
+- `column-slice-shared-buffers` had not landed; `AlignedBuffer::into_mut` is unchanged.
