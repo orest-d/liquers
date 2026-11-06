@@ -2,7 +2,7 @@
 id: PIPELINES-NOT-IN-LANGUAGE-BINDINGS
 kind: feature
 title: Python cannot pass, evaluate or register pipelines
-status: in_progress
+status: closed
 priority: P2
 complexity: L
 area: [py]
@@ -55,3 +55,10 @@ reasonable default for it.
 
 **Scope split, 2026-11-04.** Narrowed to Python by `liquers-py-pipelines` (Phase 1). The
 JavaScript half is `WEB-CANNOT-USE-PIPELINES`.
+
+## Resolution
+
+Closed 2026-11-05 by [`design/liquers-py-pipelines/`](../design/liquers-py-pipelines/DESIGN.md):
+`lq.Pipeline`, `evaluate` of a pipeline on `Environment` and `Context`, `pipeline_command`, and
+`Recipe.pipeline` / `ArgumentInfo.default` / `CommandDefinition.pipeline` as `lq.Pipeline`
+(commit `44ce399d`); tests `liquers-py/tests/test_PIPELINE_*.py` (`PIPELINE01`-`05`).

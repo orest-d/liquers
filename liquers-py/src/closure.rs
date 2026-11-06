@@ -13,11 +13,14 @@
 //!   environment's view; the async template renders).
 //! - [`wait_for_run`]: the blocking wait for a run, with the GIL released (`Environment.render`
 //!   and `expand`). An interrupt or a shutdown cancels the asset, then waits for the run to settle.
+//! - [`wait_for_asset`]: the same wait for an asset already running, a pipeline's private asset
+//!   (`Environment.evaluate` of a pipeline).
 //!
 //! # Where it is used
 //!
 //! - `data_node.rs`: each async read of an `env.data_node(state)` view is one run.
-//! - `environment.rs`: `Environment.render` / `expand` and their `_async` forms.
+//! - `environment.rs`: `Environment.render` / `expand` and their `_async` forms; `evaluate` and
+//!   `evaluate_state` of a pipeline.
 //!
 //! # Related concepts
 //!
@@ -104,6 +107,20 @@ pub(crate) fn wait_for_run<T: Send + 'static>(
             });
             Err(failure)
         }
+    }
+}
+
+/// Waits for `wait`, a wait on `asset` (a pipeline's private asset), as [`wait_for_run`] waits for
+/// a run: an interrupt or a shutdown cancels `asset` before raising.
+pub(crate) fn wait_for_asset<T: Send + 'static>(
+    py: Python<'_>,
+    shut: &Arc<Shut>,
+    asset: CoreAssetRef<PyEnvironment>,
+    wait: impl Future<Output = Result<T, Error>> + Send + 'static,
+) -> Result<T, PyFailure> {
+    match wait_for_run(py, shut, asset, async move { wait.await.map(Some) })? {
+        Some(value) => Ok(value),
+        None => Err(Error::unexpected_error("a pipeline wait ended with no value".to_string()).into()),
     }
 }
 

@@ -79,6 +79,7 @@ The public names, by purpose:
 | The package | `require`, `__version__` |
 | Writing commands | `command`, `first_command`, `Context`, `link` |
 | Templates | `Environment.render` / `expand` / `template_command`, `RenderResult`, `Diagnostic` |
+| Pipelines | `Pipeline`, `Environment.pipeline_editor` / `query_editor` / `pipeline_command`, `PipelineEditor`, `QueryEditor`, `ActionEditor` |
 | Reading data in place | `data_node`, `DataNode`, `NodeKind` |
 | Errors | `LiquersError`, `KeyNotFoundError`, `ExecutionError`, … (one per `ErrorType`), `ErrorType` |
 | Results' metadata | `Metadata`, `MetadataRecord`, `AssetInfo`, `Status`, `LogEntry`, `LogEntryKind`, `Version` |
@@ -797,6 +798,87 @@ assert env.render(lq.parse("-R/templates/page.md"), cwd=lq.parse_key("templates"
 env.shutdown()
 ```
 
+### Pipelines
+
+A pipeline is a query written as data: a list of steps, each query text or a dict
+(`PIPELINE_GUIDE.md`). Build one when the arguments come from your program, so nothing has to be
+escaped into query text. `evaluate` takes a pipeline wherever it takes a query.
+
+```python
+import liquers as lq
+
+env = lq.Environment()
+
+@env.first_command
+def numbers() -> list:
+    return [3, 1, 2]
+
+@env.command
+def pick(value, options=None, n: int = 1) -> list:
+    return sorted(value, reverse=options["descending"])[:n]
+
+@env.command
+def top(value, n: int = 1) -> list:
+    return sorted(value, reverse=True)[:n]
+
+steps = ["numbers", {"action": "pick", "arguments": {"options": {"descending": True}, "n": 2}}]
+assert env.evaluate(steps) == [3, 2]                        # the dict arrives whole
+
+p = lq.Pipeline(["numbers", {"action": "top", "arguments": {"n": 2}}])
+assert p.to_query(env).encode() == "numbers/top-2"          # a query, when one can express it
+assert lq.Pipeline.from_query("numbers/top-2").to_query(env).encode() == "numbers/top-2"
+try:
+    lq.Pipeline(steps).to_query(env)                        # an object argument has no query text
+except lq.ParameterError as error:
+    assert "S4" in str(error)
+else:
+    raise AssertionError("expected ParameterError")
+env.shutdown()
+```
+
+An editor builds a pipeline step by step and checks each step against the environment's
+commands: a wrong argument name raises at once, and leaves the editor as it was.
+
+```python
+import liquers as lq
+
+env = lq.Environment()
+
+@env.first_command
+def numbers() -> list:
+    return [3, 1, 2]
+
+@env.command
+def top(value, n: int = 1) -> list:
+    return sorted(value, reverse=True)[:n]
+
+editor = env.query_editor()
+editor.action("numbers")
+step = editor.action("top")
+assert [a.name for a in editor.unset_arguments(step.index)] == ["n"]
+step.set("n", 2)
+try:
+    step.set("count", 2)                                    # no such argument
+except lq.ParameterError:
+    pass
+else:
+    raise AssertionError("expected ParameterError")
+assert editor.query().encode() == "numbers/top-2"
+assert env.evaluate(editor.pipeline) == [3, 2]
+
+env.pipeline_command("best", [{"action": "top", "parameters": [{"placeholder": "n"}]}],
+                     arguments=["n"])                       # a command with no function
+assert env.evaluate("numbers/best-1") == [3]
+assert env.command_metadata("best").definition.kind == "pipeline"
+env.shutdown()
+```
+
+A pipeline evaluated at the top level runs as an asset of its own, so Ctrl-C cancels it. Inside a
+command, `context.evaluate(pipeline)` makes it a dependency of the command; a pipeline that names a
+relative key (`./x.csv`) is refused there, as a relative query is: take the folder as a default
+link argument. `get_asset` takes queries only. An editor knows the commands registered when it was
+made; make a new one after registering more.
+
 ## 7. Values
 
 Values cross between Python and Liquers by kind:
@@ -1143,6 +1225,10 @@ What you will notice; the complete list, with the tracking issues, is
 | Date | Change | Source |
 |---|---|---|
 <<<<<<< HEAD
+| 2026-11-04 | §6 Pipelines: `evaluate` of a pipeline, `lq.Pipeline` and `to_query`, the editors, `pipeline_command`; §2 the new names. | `design/liquers-py-pipelines/` |
+=======
+<<<<<<< HEAD
+>>>>>>> py-templates-local
 | 2026-11-04 | §6 Templates: `render`, `expand`, `validate_template`, `template_command`, `lq.link`; §2 the new names. | `design/liquers-py-templates/` |
 =======
 | 2026-11-05 | §7: cancelling an awaited read cancels it only for `env.data_node`. | phase-5, `design/liquers-py-data-nodes/` |

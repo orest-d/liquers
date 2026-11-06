@@ -8,6 +8,39 @@
 //! and it releases the GIL while it waits, so the nested command — Python or Rust — can run on
 //! another thread (AC-13). An `async def` command uses `evaluate_async` instead: the sync form
 //! raises there, since it would block the loop the command runs on.
+//!
+//! `evaluate` also takes a pipeline: one a query expresses is that query, any other runs through
+//! `Context::apply_ad_hoc`, and a relative key in it raises `NotSupportedError`, as a relative
+//! query does. `render` / `expand` render a template in this context, so its query tags are the
+//! command's dependencies; `data_node(x)` reads a value in place through this context.
+//!
+//! # Main components
+//!
+//! - [`Context`] (`lq.Context`): `evaluate` / `evaluate_async` (queries and pipelines), `render`,
+//!   `expand`, their `_async` forms, `validate_template`, `data_node`, logging (`info`,
+//!   `warning`, `error`) and `is_cancelled`.
+//!
+//! # Where it is used
+//!
+//! - `command.rs`: the command closure makes one per call and invalidates it on return.
+//! - `data_node.rs`: the `Command` root of `context.data_node(state)`.
+//!
+//! # Related concepts
+//!
+//! - `liquers_core::context::Context`; `template.rs` (the render arguments); `pipeline.rs`
+//!   (`pipeline_has_relative_key`); `specs/reference/PYTHON_INTEGRATION.md` §4, §14-§16.
+//!
+//! # Examples
+//!
+//! Executed in `liquers-py/tests/test_EVAL_*.py`, `test_TEMPLATE_commands.py` and
+//! `test_PIPELINE_evaluate.py` (a Rust doctest cannot start the interpreter):
+//!
+//! ```python
+//! @env.first_command
+//! def outer(context):
+//!     return "outer:" + context.evaluate("hello")
+//! assert env.evaluate("outer") == "outer:hello"
+//! ```
 
 use std::sync::{Arc, Mutex};
 
@@ -16,7 +49,7 @@ use liquers_core::error::Error;
 use pyo3::prelude::*;
 
 use crate::aio::{awaitable, check_blocking_call, Shut, ToPy};
-use crate::environment::{block_on, PyEnvironment};
+use crate::environment::{block_on, Evaluable, PyEnvironment};
 use crate::error::{error_to_pyerr, PyFailure};
 use crate::records::Scope;
 use crate::template::{build_request, rendered_to_py, Arguments, Call};
@@ -139,6 +172,56 @@ impl Context {
     }
 }
 
+/// What `Context.evaluate` evaluates: a query, or a pipeline no query can express. A pipeline a
+/// query expresses is that query, so its dependency and its cache are the query's.
+fn in_command_evaluable(
+    py: Python<'_>,
+    context: &CoreContext<PyEnvironment>,
+    object: &Bound<'_, PyAny>,
+) -> Result<Evaluable, Error> {
+    match crate::environment::to_evaluable(py, object)? {
+        Evaluable::Query(query) => Ok(Evaluable::Query(query)),
+        Evaluable::Pipeline(pipeline) => {
+            let envref = context.get_envref();
+            if let Ok(query) = pipeline.to_query_with(envref.get_command_metadata_registry()) {
+                return Ok(Evaluable::Query(query));
+            }
+            // `apply_ad_hoc` checks only a recipe's query for relative keys
+            // (CONTEXT-APPLY-AD-HOC-SKIPS-RELATIVE-PIPELINE-KEYS), so the check is made here.
+            if let Some(key) = crate::pipeline::pipeline_has_relative_key(&pipeline) {
+                return Err(Error::not_supported(format!(
+                    "Pipeline key '{key}' is relative and cannot be evaluated from a command. Take \
+                     the current directory as a link argument (`-R-key/.`) and build an absolute \
+                     key from it."
+                )));
+            }
+            Ok(Evaluable::Pipeline(pipeline))
+        }
+    }
+}
+
+/// Evaluates `evaluable` as a dependency of the command's asset and waits for its state.
+async fn evaluate_in_command(
+    context: &CoreContext<PyEnvironment>,
+    evaluable: Evaluable,
+) -> Result<liquers_core::state::State<liquers_lib::value::Value>, Error> {
+    match evaluable {
+        Evaluable::Query(query) => {
+            let asset = context.evaluate(&query).await?;
+            context.wait_for_dependency(&asset).await
+        }
+        Evaluable::Pipeline(pipeline) => {
+            let asset = context
+                .apply_ad_hoc(
+                    crate::environment::pipeline_recipe(pipeline),
+                    liquers_core::state::State::new(),
+                )
+                .await?;
+            asset.get().await
+        }
+    }
+}
+
 #[pymethods]
 impl Context {
     /// `x` as a data node read in this command's context: an `lq.State` whose value needs the
@@ -155,16 +238,18 @@ impl Context {
     }
 
     /// Evaluates a query as a dependency of the current asset and returns its value.
+    ///
+    /// A pipeline is accepted too. One a query expresses is that query; any other runs in an
+    /// ad-hoc asset whose dependencies become the command's. A relative key raises
+    /// `NotSupportedError`, as a relative query does.
     fn evaluate(&self, py: Python<'_>, query: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
         check_blocking_call(py, "evaluate")?;
         let result = (|| -> Result<_, PyFailure> {
-            let query = crate::environment::to_query(query)?;
             let context = self.get()?;
+            let evaluable = in_command_evaluable(py, &context, query)?;
             let scope = self.scope(&context.get_envref());
             let value = block_on(py, &self.shut, async move {
-                let asset = context.evaluate(&query).await?;
-                let state = context.wait_for_dependency(&asset).await?;
-                state.value()
+                evaluate_in_command(&context, evaluable).await?.value()
             })?;
             Ok(value_to_py(py, &value, &scope)?)
         })();
@@ -175,18 +260,15 @@ impl Context {
     fn evaluate_async<'py>(&self, py: Python<'py>, query: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
         let prepared = (|| -> Result<_, Error> {
             crate::runtime::runtime()?;
-            Ok((crate::environment::to_query(query)?, self.get()?))
+            let context = self.get()?;
+            Ok((in_command_evaluable(py, &context, query)?, context))
         })();
-        let (query, context) = prepared.map_err(|e| error_to_pyerr(py, &e))?;
+        let (evaluable, context) = prepared.map_err(|e| error_to_pyerr(py, &e))?;
         let scope = self.scope(&context.get_envref());
         awaitable(
             py,
             &self.shut,
-            async move {
-                let asset = context.evaluate(&query).await?;
-                let state = context.wait_for_dependency(&asset).await?;
-                Ok((state.value()?, scope))
-            },
+            async move { Ok((evaluate_in_command(&context, evaluable).await?.value()?, scope)) },
             ToPy::Value,
         )
     }

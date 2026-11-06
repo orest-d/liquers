@@ -4,6 +4,38 @@
 //! variants, DataFrames and images onto their `ExtValue` variants, and anything else is retained
 //! as an opaque [`PyObjectValue`] inside `ExtValue::Foreign` (`py.Object`), or refused in strict
 //! mode. See `specs/design/liquers-py/phase2-architecture.md` §Interfaces.
+//!
+//! # Main components
+//!
+//! - [`value_to_py`] / [`py_to_value`]: the two directions of the bridge.
+//! - [`ConversionMode`]: whether an object with no structural mapping is retained or refused.
+//! - [`PyObjectValue`]: a retained Python object (`py.Object`); [`py_type_info`] and
+//!   [`decode_pickle`]: its type entry and its optional pickle codec.
+//! - The wrapper classes cross as themselves: `lq.Query`, `lq.Key`, `lq.Recipe`, `lq.Pipeline`,
+//!   metadata and command metadata.
+//!
+//! # Where it is used
+//!
+//! - `command.rs`: a Python command's arguments and result.
+//! - `environment.rs`, `context.rs`, `asset.rs`: every value `evaluate` and its forms return,
+//!   and every value `store_set` writes.
+//!
+//! # Related concepts
+//!
+//! - `specs/reference/PYTHON_INTEGRATION.md` §5: the conversion table.
+//! - `records/convert.rs`: record views and sources, which have bridges of their own.
+//!
+//! # Examples
+//!
+//! Executed in `liquers-py/tests/test_PIPELINE_evaluate.py` and `test_VALUE_value_bridge.py`
+//! (a Rust doctest cannot start the interpreter):
+//!
+//! ```python
+//! @env.first_command
+//! def make():
+//!     return lq.Pipeline(top)
+//! assert env.evaluate("make") == lq.Pipeline(top)   # a pipeline value crosses as lq.Pipeline
+//! ```
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashSet};
@@ -327,12 +359,8 @@ fn simple_to_py(py: Python<'_>, value: &SimpleValue) -> Result<Py<PyAny>, Error>
         ),
         SimpleValue::Query { value } => into_py(py, crate::query::Query(value.as_ref().clone()), "query"),
         SimpleValue::Key { value } => into_py(py, crate::query::Key(value.clone()), "key"),
-        // No Python class yet: a pipeline crosses as its serialized form, a dict.
         SimpleValue::Pipeline { value } => {
-            simple_to_py(
-                py,
-                &<SimpleValue as liquers_core::value::ValueInterface>::try_from_json_value(&value.to_json())?,
-            )
+            into_py(py, crate::pipeline::Pipeline(value.as_ref().clone()), "pipeline")
         }
     }
 }
@@ -567,6 +595,9 @@ fn wrapper_to_simple(object: &Bound<'_, PyAny>) -> Option<SimpleValue> {
     }
     if let Ok(c) = object.extract::<crate::command_metadata::CommandMetadata>() {
         return Some(SimpleValue::CommandMetadata { value: std::sync::Arc::new(c.0) });
+    }
+    if let Ok(p) = object.cast::<crate::pipeline::Pipeline>() {
+        return Some(SimpleValue::Pipeline { value: std::sync::Arc::new(p.get().0.clone()) });
     }
     None
 }

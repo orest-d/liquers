@@ -29,12 +29,17 @@
 //! A wait is cut into short slices. Between two, `block_on` runs the pending signal handlers, so
 //! Ctrl-C raises `KeyboardInterrupt` in a waiting `evaluate`, and it checks the handle's shut
 //! flag, so a wait outstanding when `shutdown()` is called raises `CancelledError` instead of
-//! hanging on an asset manager that no longer runs. Leaving a wait does not cancel the asset.
+//! hanging on an asset manager that no longer runs. Leaving the wait for a query does not cancel
+//! its asset, which others may share; a pipeline's or a render's asset is private to the call, so
+//! leaving that wait cancels it (`closure.rs`).
 //!
 //! # Main components
 //!
-//! - [`Environment`] (`lq.Environment`): evaluation, the store, command registration, renders
-//!   (`render`, `expand`, `validate_template`, `template_command`), data nodes, shutdown.
+//! - [`Environment`] (`lq.Environment`): evaluation of queries and pipelines, the store, command
+//!   registration, renders (`render`, `expand`, `validate_template`, `template_command`),
+//!   pipelines (`pipeline_command`, `pipeline_editor`, `query_editor`), data nodes, shutdown.
+//! - [`to_evaluable`], [`evaluate_evaluable`], [`pipeline_recipe`]: what `evaluate` takes, and how
+//!   a pipeline runs (a pipeline-only recipe through `apply_queued`).
 //! - [`EnvCell`]: the retained declarations, the lazy build and the rebuild.
 //! - [`block_on`]: the sliced, GIL-free wait every blocking call uses.
 //!
@@ -639,6 +644,68 @@ pub fn to_query(query: &Bound<'_, PyAny>) -> Result<liquers_core::query::Query, 
     }
 }
 
+/// Starts evaluating `evaluable`: a query as `EnvRef::evaluate`, a pipeline as a pipeline-only
+/// recipe through the job queue.
+pub(crate) async fn evaluate_evaluable(
+    envref: &EnvRef<PyEnvironment>,
+    evaluable: Evaluable,
+) -> Result<liquers_core::assets::AssetRef<PyEnvironment>, Error> {
+    match evaluable {
+        Evaluable::Query(query) => envref.evaluate(query).await,
+        Evaluable::Pipeline(pipeline) => {
+            envref
+                .get_asset_manager()
+                .apply_queued(pipeline_recipe(pipeline), liquers_core::state::State::new())
+                .await
+        }
+    }
+}
+
+/// `get_asset` takes queries only.
+fn refuse_pipeline(object: &Bound<'_, PyAny>) -> PyResult<()> {
+    if object.cast::<crate::pipeline::Pipeline>().is_ok()
+        || object.is_instance_of::<pyo3::types::PyList>()
+        || object.is_instance_of::<pyo3::types::PyTuple>()
+        || object.is_instance_of::<PyDict>()
+    {
+        return Err(pyo3::exceptions::PyTypeError::new_err(
+            "get_asset takes a query; a pipeline's asset is private to one evaluation (use evaluate)",
+        ));
+    }
+    Ok(())
+}
+
+/// What `evaluate` takes: a query, or a pipeline.
+pub(crate) enum Evaluable {
+    Query(liquers_core::query::Query),
+    Pipeline(liquers_core::pipeline::Pipeline),
+}
+
+/// A `str` or an `lq.Query` is a query; an `lq.Pipeline`, a list, a tuple or a dict is a pipeline.
+pub(crate) fn to_evaluable(py: Python<'_>, object: &Bound<'_, PyAny>) -> Result<Evaluable, Error> {
+    if object.is_instance_of::<PyString>() || object.cast::<crate::query::Query>().is_ok() {
+        return to_query(object).map(Evaluable::Query);
+    }
+    if object.cast::<crate::pipeline::Pipeline>().is_ok()
+        || object.is_instance_of::<pyo3::types::PyList>()
+        || object.is_instance_of::<pyo3::types::PyTuple>()
+        || object.is_instance_of::<PyDict>()
+    {
+        return crate::pipeline::pipeline_from_py(object)
+            .map(Evaluable::Pipeline)
+            .map_err(|e| pyerr_to_error(py, &e));
+    }
+    to_query(object).map(Evaluable::Query)
+}
+
+/// The recipe a pipeline evaluates as: the pipeline alone, with no query.
+pub(crate) fn pipeline_recipe(pipeline: liquers_core::pipeline::Pipeline) -> liquers_core::recipes::Recipe {
+    liquers_core::recipes::Recipe {
+        pipeline: Some(pipeline),
+        ..Default::default()
+    }
+}
+
 /// A JSON-compatible Python object (the decorator's documents) as JSON.
 pub(crate) fn py_to_json(py: Python<'_>, object: &Bound<'_, PyAny>) -> Result<serde_json::Value, Error> {
     let text = py
@@ -801,6 +868,34 @@ impl Environment {
 
     /// The parsed query and the built environment an `_async` method needs, so that a bad query
     /// or a shut environment raises at call time.
+    fn evaluable_and_envref(
+        &self,
+        py: Python<'_>,
+        query: &Bound<'_, PyAny>,
+    ) -> PyResult<(Evaluable, EnvRef<PyEnvironment>)> {
+        let prepared = (|| -> Result<_, Error> {
+            crate::runtime::runtime()?;
+            Ok((to_evaluable(py, query)?, self.cell.envref(py)?))
+        })();
+        prepared.map_err(|e| error_to_pyerr(py, &e))
+    }
+
+    /// Submits `pipeline` as a pipeline-only recipe, taking a job-queue slot as `evaluate` does.
+    fn start_pipeline(
+        &self,
+        py: Python<'_>,
+        envref: &EnvRef<PyEnvironment>,
+        pipeline: liquers_core::pipeline::Pipeline,
+    ) -> Result<liquers_core::assets::AssetRef<PyEnvironment>, PyFailure> {
+        let envref = envref.clone();
+        Ok(block_on(py, &self.cell.shut, async move {
+            envref
+                .get_asset_manager()
+                .apply_queued(pipeline_recipe(pipeline), liquers_core::state::State::new())
+                .await
+        })?)
+    }
+
     fn query_and_envref(
         &self,
         py: Python<'_>,
@@ -944,6 +1039,81 @@ impl Environment {
             .map_err(|e| error_to_pyerr(py, &e))
     }
 
+    /// Declares a pipeline command `name` that runs `body` (an `lq.Pipeline`, a list of elements
+    /// or a dict in the pipeline's JSON form). `arguments` name its placeholders, in order: a `str`
+    /// is an argument of any type with no default, an `lq.ArgumentInfo` is taken as is. Like
+    /// `template_command`, it needs no function, survives every rebuild, the last registration
+    /// under a name wins, and a body that does not plan raises and changes nothing.
+    #[pyo3(signature = (name, body, *, arguments=Vec::new(), namespace="", label=None, doc=None, filename=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn pipeline_command(
+        &self,
+        py: Python<'_>,
+        name: &str,
+        body: &Bound<'_, PyAny>,
+        arguments: Vec<Bound<'_, PyAny>>,
+        namespace: &str,
+        label: Option<String>,
+        doc: Option<String>,
+        filename: Option<String>,
+    ) -> PyResult<()> {
+        let pipeline = crate::pipeline::pipeline_from_py(body)?;
+        let arguments = arguments
+            .iter()
+            .map(|argument| {
+                if let Ok(name) = argument.extract::<String>() {
+                    return Ok(liquers_core::command_metadata::ArgumentInfo::any_argument(&name));
+                }
+                match argument.cast::<crate::command_metadata::ArgumentInfo>() {
+                    Ok(info) => Ok(info.borrow().0.clone()),
+                    Err(_) => Err(pyo3::exceptions::PyTypeError::new_err(
+                        "a pipeline command argument is a str (its name) or an lq.ArgumentInfo",
+                    )),
+                }
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        let command = crate::declared::DeclaredCommand::Pipeline {
+            key: CommandKey::new("", namespace, name),
+            pipeline,
+            arguments,
+            overrides: crate::declared::Overrides { label, doc, filename },
+        };
+        self.cell
+            .declare(py, command)
+            .map(|_replaced| ())
+            .map_err(|e| error_to_pyerr(py, &e))
+    }
+
+    /// A `PipelineEditor` on `pipeline` (default: an empty one), checking each edit against this
+    /// environment's commands as they are now; a command registered later is unknown to it.
+    #[pyo3(signature = (pipeline=None))]
+    fn pipeline_editor(&self, py: Python<'_>, pipeline: Option<&Bound<'_, PyAny>>) -> PyResult<crate::pipeline::PipelineEditor> {
+        let pipeline = pipeline.map(crate::pipeline::pipeline_from_py).transpose()?;
+        let cmr = crate::pipeline::editor_registry(self, py).map_err(|e| error_to_pyerr(py, &e))?;
+        let editor = match pipeline {
+            Some(pipeline) => liquers_core::pipeline::PipelineEditor::from_pipeline(pipeline, cmr),
+            None => Ok(liquers_core::pipeline::PipelineEditor::new(cmr)),
+        };
+        editor
+            .map(crate::pipeline::PipelineEditor::new)
+            .map_err(|e| error_to_pyerr(py, &e))
+    }
+
+    /// A `QueryEditor` on `query` (a `str` or an `lq.Query`; default: an empty one), checking each
+    /// edit against this environment's commands as they are now.
+    #[pyo3(signature = (query=None))]
+    fn query_editor(&self, py: Python<'_>, query: Option<&Bound<'_, PyAny>>) -> PyResult<crate::pipeline::QueryEditor> {
+        let query = query.map(to_query).transpose().map_err(|e| error_to_pyerr(py, &e))?;
+        let cmr = crate::pipeline::editor_registry(self, py).map_err(|e| error_to_pyerr(py, &e))?;
+        let editor = match query {
+            Some(query) => liquers_core::pipeline::QueryEditor::from_query(&query, cmr),
+            None => Ok(liquers_core::pipeline::QueryEditor::new(cmr)),
+        };
+        editor
+            .map(crate::pipeline::QueryEditor::new)
+            .map_err(|e| error_to_pyerr(py, &e))
+    }
+
     /// Every problem in template `text`, as `lq.Diagnostic`s, checked against this environment's
     /// commands; nothing is evaluated. (`validate()` checks the command registry itself.)
     fn validate_template(&self, py: Python<'_>, text: &str) -> PyResult<Vec<crate::template::Diagnostic>> {
@@ -1018,40 +1188,65 @@ impl Environment {
     }
 
     /// Evaluates a query and returns its value as a Python object.
+    ///
+    /// `query` is a `str` or an `lq.Query`, or a pipeline: an `lq.Pipeline`, a list of elements or
+    /// a dict in the pipeline's JSON form. A pipeline runs as a recipe of its own, in a private
+    /// asset that an interrupt cancels.
     fn evaluate(&self, py: Python<'_>, query: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
         check_blocking_call(py, "evaluate")?;
         let result = (|| -> Result<_, PyFailure> {
-            let query = to_query(query)?;
+            let evaluable = to_evaluable(py, query)?;
             let envref = self.cell.envref(py)?;
             let scope = Scope::from_envref(&envref, self.cell.shut.clone());
-            let value = block_on(py, &self.cell.shut, async move {
-                let asset = envref.evaluate(query).await?;
-                let state = asset.get().await?;
-                state.value()
-            })?;
+            let value = match evaluable {
+                Evaluable::Query(query) => block_on(py, &self.cell.shut, async move {
+                    let asset = envref.evaluate(query).await?;
+                    let state = asset.get().await?;
+                    state.value()
+                })?,
+                Evaluable::Pipeline(pipeline) => {
+                    let asset = self.start_pipeline(py, &envref, pipeline)?;
+                    let waited = asset.clone();
+                    crate::closure::wait_for_asset(py, &self.cell.shut, asset, async move {
+                        waited.get().await?.value()
+                    })?
+                }
+            };
             Ok(value_to_py(py, &value, &scope)?)
         })();
         result.map_err(|e| e.into_pyerr(py))
     }
 
-    /// Evaluates a query and returns the result as a `State`, metadata included.
+    /// Evaluates a query or a pipeline and returns the result as a `State`, metadata included.
     fn evaluate_state(&self, py: Python<'_>, query: &Bound<'_, PyAny>) -> PyResult<Py<crate::asset::State>> {
         check_blocking_call(py, "evaluate_state")?;
         let result = (|| -> Result<_, PyFailure> {
-            let query = to_query(query)?;
+            let evaluable = to_evaluable(py, query)?;
             let envref = self.cell.envref(py)?;
             let scope = Scope::from_envref(&envref, self.cell.shut.clone());
-            let state = block_on(py, &self.cell.shut, async move {
-                let asset = envref.evaluate(query).await?;
-                asset.get().await?.value_state()
-            })?;
+            let state = match evaluable {
+                Evaluable::Query(query) => block_on(py, &self.cell.shut, async move {
+                    let asset = envref.evaluate(query).await?;
+                    asset.get().await?.value_state()
+                })?,
+                Evaluable::Pipeline(pipeline) => {
+                    let asset = self.start_pipeline(py, &envref, pipeline)?;
+                    let waited = asset.clone();
+                    crate::closure::wait_for_asset(py, &self.cell.shut, asset, async move {
+                        waited.get().await?.value_state()
+                    })?
+                }
+            };
             Ok(crate::asset::State::from_core(py, &state, &scope)?)
         })();
         result.map_err(|e| e.into_pyerr(py))
     }
 
     /// Starts evaluating a query and returns its `AssetRef` without waiting for the value.
+    ///
+    /// A pipeline raises `TypeError`: its asset is private to one evaluation (use `evaluate`).
     fn get_asset(&self, py: Python<'_>, query: &Bound<'_, PyAny>) -> PyResult<crate::asset::AssetRef> {
+        refuse_pipeline(query)?;
         check_blocking_call(py, "get_asset")?;
         let result = (|| -> Result<_, PyFailure> {
             let query = to_query(query)?;
@@ -1084,13 +1279,13 @@ impl Environment {
     /// A malformed query raises at call time. Cancelling the future ends only the wait; the
     /// evaluation goes on.
     fn evaluate_async<'py>(&self, py: Python<'py>, query: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        let (query, envref) = self.query_and_envref(py, query)?;
+        let (evaluable, envref) = self.evaluable_and_envref(py, query)?;
         let scope = Scope::from_envref(&envref, self.cell.shut.clone());
         awaitable(
             py,
             &self.cell.shut,
             async move {
-                let asset = envref.evaluate(query).await?;
+                let asset = evaluate_evaluable(&envref, evaluable).await?;
                 Ok((asset.get().await?.value()?, scope))
             },
             ToPy::Value,
@@ -1099,13 +1294,13 @@ impl Environment {
 
     /// Awaitable `evaluate_state`.
     fn evaluate_state_async<'py>(&self, py: Python<'py>, query: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        let (query, envref) = self.query_and_envref(py, query)?;
+        let (evaluable, envref) = self.evaluable_and_envref(py, query)?;
         let scope = Scope::from_envref(&envref, self.cell.shut.clone());
         awaitable(
             py,
             &self.cell.shut,
             async move {
-                let asset = envref.evaluate(query).await?;
+                let asset = evaluate_evaluable(&envref, evaluable).await?;
                 Ok((asset.get().await?.value_state()?, scope))
             },
             ToPy::State,
@@ -1114,6 +1309,7 @@ impl Environment {
 
     /// Awaitable `get_asset`: resolves to the `AssetRef` once the evaluation has started.
     fn get_asset_async<'py>(&self, py: Python<'py>, query: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+        refuse_pipeline(query)?;
         let (query, envref) = self.query_and_envref(py, query)?;
         let shut = self.cell.shut.clone();
         let scope = Scope::from_envref(&envref, shut.clone());

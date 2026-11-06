@@ -14,13 +14,13 @@ Every new Python name is exported with a docstring and declared in the stubs.
 
 ## Progress
 
-- [ ] Step 1: `lq.Pipeline`, `pipeline_from_py`, `json_slot`
-- [ ] Step 2: `Pipeline` across the value bridge, `Recipe.pipeline`, `ArgumentInfo.default`
-- [ ] Step 3: `evaluate*` accept pipelines (`apply_queued`, `wait_for_asset`)
-- [ ] Step 4: `Context.evaluate` accepts pipelines (query or `apply_ad_hoc`, relative-key check)
-- [ ] Step 5: `PipelineEditor`, `QueryEditor`, `ActionEditor`
-- [ ] Step 6: `pipeline_command` and `CommandDefinition.pipeline`
-- [ ] Step 7: conformance row, docs, module docs
+- [x] Step 1: `lq.Pipeline`, `pipeline_from_py`, `json_slot`
+- [x] Step 2: `Pipeline` across the value bridge, `Recipe.pipeline`, `ArgumentInfo.default`
+- [x] Step 3: `evaluate*` accept pipelines (`apply_queued`, `wait_for_asset`)
+- [x] Step 4: `Context.evaluate` accepts pipelines (query or `apply_ad_hoc`, relative-key check)
+- [x] Step 5: `PipelineEditor`, `QueryEditor`, `ActionEditor`
+- [x] Step 6: `pipeline_command` and `CommandDefinition.pipeline`
+- [x] Step 7: conformance row, docs, module docs
 
 ## Implementation Steps
 
@@ -109,6 +109,7 @@ Step 5 (editors) and Step 6 (commands) are independent of each other.
 
 ## Phase 5 Entry Criteria
 
-- [ ] Implementation finished and validated
-- [ ] User and review comments answered
-- [ ] Documentation checkable against implemented and tested behaviour
+- [x] Implementation finished and validated (`bash scripts/test-liquers-py.sh`: 498 passed, 23
+  skipped; the 20 `test_PIPELINE_*` tests among them)
+- [x] User and review comments answered
+- [x] Documentation checkable against implemented and tested behaviour

@@ -259,10 +259,12 @@ so `query()` always succeeds.
 - [`COMMAND_ALIASES.md`](COMMAND_ALIASES.md) — the other command with no implementation.
 - [`RECIPES_AND_PLANS.md`](RECIPES_AND_PLANS.md) — plans, steps and recipes.
 - [`api/DOC_02_QUERY_LANGUAGE_REFERENCE.md`](api/DOC_02_QUERY_LANGUAGE_REFERENCE.md) — the query text.
+- [`PYTHON_INTEGRATION.md`](PYTHON_INTEGRATION.md) §16 — pipelines from Python (`lq.Pipeline`, the editors, `pipeline_command`).
 - Design: [`design/composite-command-definition/`](../design/composite-command-definition/).
 
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | Related: the Python integration's pipelines section. | `design/liquers-py-pipelines/` |
 | 2026-11-04 | Created: the model and serialized form, conversions and representability rules, planning, pipeline commands, recipe pipelines, validation and editors, as implemented and tested. | phase-5, `design/composite-command-definition/` |

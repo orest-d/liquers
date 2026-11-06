@@ -3,7 +3,7 @@ title: Python Integration
 kind: reference
 audience: both
 area: [py, core/value, core/error, lib/value, core/store, store/config, core/assets]
-reviewed: 2026-11-05
+reviewed: 2026-11-06
 ---
 # Python Integration
 
@@ -21,7 +21,8 @@ and type declarations, [`design/liquers-py-records/`](../design/liquers-py-recor
 [`design/liquers-py-package/`](../design/liquers-py-package/DESIGN.md) and
 [`design/liquers-py-stubs/`](../design/liquers-py-stubs/DESIGN.md); for data nodes,
 [`design/liquers-py-data-nodes/`](../design/liquers-py-data-nodes/DESIGN.md); for templates,
-[`design/liquers-py-templates/`](../design/liquers-py-templates/DESIGN.md).
+[`design/liquers-py-templates/`](../design/liquers-py-templates/DESIGN.md); for pipelines,
+[`design/liquers-py-pipelines/`](../design/liquers-py-pipelines/DESIGN.md).
 
 ## 1. Layout
 
@@ -76,6 +77,7 @@ frozen; the others hold their own copy of the value.
 | `State` | a snapshot of a value and a copy of its metadata; `value` converts to Python on first access (§5), `record_view()` gives the record view behind it, or `None`, and `data_node()` reads it in place (§14) |
 | `NodeKind`, `DataNode`, `data_node` | a data node's kind, a view of one, and the function making a view (§14) |
 | `RenderResult`, `Diagnostic`, `Link`, `link` | a render's text with its warnings, a template problem, and a default link argument (§15) |
+| `Pipeline`, `PipelineEditor`, `QueryEditor`, `ActionEditor` | `liquers_core::pipeline`: a pipeline and the editors (§16) |
 | `RecordView`, `RecordColumn`, `RecordBuffer`, `RecordSchema`, `FieldSchema`, `FieldType`, `KeyRole`, `ChunkOrigin`, `RecordSource`, `RecordStream`, `RecordChunk` | `liquers_records` views, sources and schema types (§11) |
 
 `Plan.to_json` / `to_yaml` and `Plan.from_json` / `from_yaml` round-trip within one version
@@ -167,10 +169,12 @@ under a lock.
 | `data_node(x)` | `x` as an `lq.DataNode` read at the top level; a folder or record source state reads with `_async` (§14) |
 | `render(template, state=None, data=None, …)`, `expand(template, data=None, …)`, their `_async` forms, `validate_template(text)` | templates at the top level (§15) |
 | `template_command(name, template, …)` | declares a template command (§15) |
+| `pipeline_command(name, body, …)`, `pipeline_editor(pipeline=None)`, `query_editor(query=None)` | declares a pipeline command; the editors (§16) |
 | `shutdown()` | stops the environment |
 | `live_handle_count()` | static, `debug-handles` only: Python callables held by every environment's registrations |
 
-`query` is a `str` or an `lq.Query` everywhere.
+`query` is a `str` or an `lq.Query` everywhere; `evaluate`, `evaluate_state` and their `_async`
+forms also take a pipeline (§16), `get_asset` does not.
 
 **Writing to the store.** `store_set(key, data)` converts `data` (§5), serializes it in its
 default data format — raising `SerializationError` when it has no byte form — and sets it through
@@ -277,7 +281,7 @@ with no Liquers equivalent is a `PyObjectValue` inside `ExtValue::Foreign`.
 | `float` | `F64`, non-finite values included |
 | `str` | `Text` |
 | `bytes`, `bytearray` | `Bytes` |
-| `lq.Query`, `lq.Key`, `lq.Recipe`, `lq.MetadataRecord`, `lq.CommandMetadata` | `Query`, `Key`, `Recipe`, `Metadata`, `CommandMetadata` |
+| `lq.Query`, `lq.Key`, `lq.Recipe`, `lq.MetadataRecord`, `lq.CommandMetadata`, `lq.Pipeline` | `Query`, `Key`, `Recipe`, `Metadata`, `CommandMetadata`, `Pipeline` |
 | `list`, `tuple` | `Array`, if every item converts structurally |
 | `dict` | `Object`, if every key is a `str` and every value converts structurally |
 | `polars.DataFrame` (recognised by type name) | `ExtValue::PolarsDataFrame`, copied through Parquet |
@@ -292,7 +296,7 @@ through to the last row and is kept whole.
 
 **Liquers to Python** (`value_to_py`): the simple variants map back as above (`I32` and `I64` to
 `int`, `Array` to `list`, `Object` to `dict`, `Metadata` to `lq.MetadataRecord`, `AssetInfo` to a
-`list` of `lq.AssetInfo`). A `PyObjectValue` returns the retained object itself, so identity is
+`list` of `lq.AssetInfo`, `Pipeline` to `lq.Pipeline`). A `PyObjectValue` returns the retained object itself, so identity is
 kept; a foreign value of another runtime raises `ConversionError` naming that runtime. A DataFrame
 is rebuilt with `polars.read_parquet` and an image with `PIL.Image.open`, raising
 `ConversionError` when the library is missing. A record view becomes `lq.RecordView` (or, with
@@ -884,11 +888,79 @@ command has no realm, as decorated ones have none (`PY-COMMAND-DECORATOR-CANNOT-
 `validate_template` may report a command quoted inside a `q` instruction
 (`TEMPLATE-DIAGNOSTICS-CHECK-COMMANDS-A-Q-QUOTES`).
 
+## 16. Pipelines
+
+`pipeline.rs` exposes `liquers_core::pipeline` (`PIPELINES.md`): the structured form of a query.
+
+**`lq.Pipeline`.** Frozen, compared by value. `Pipeline(data)` takes a `list` or `tuple` of
+elements, a `dict` with `elements` (the JSON form), or an `lq.Pipeline`; a `str` or anything else
+raises `TypeError` (a query is `Pipeline.from_query(q)`). An element is query text or a dict in the
+JSON form. `to_json()` / `from_json(text)`, `to_list()` (the JSON form as Python data, which
+`Pipeline(...)` reads back), `elements_count`, and `to_query(env)`,
+which needs an environment's commands and raises `ParameterError` naming the rule
+(`PIPELINES.md` §Representability: `P1`, `S7`, …) for a pipeline no query expresses.
+`from_query(q)` then `to_query(env)` gives the canonical query: a namespace moves to the front
+(`hello/ns-template/render` becomes `ns-template/hello/render`), and the canonical form is stable.
+
+**JSON slots.** Every Python value written into a pipeline (an argument, a parameter, a `value`
+element) goes through `json_slot`: `None`, `bool`, `int` within `i64`, `float`, `str`, lists,
+tuples and `str`-keyed dicts; an `lq.Pipeline` inside is its JSON form. NaN, `inf` and `-inf` are
+written `"NaN"`, `"inf"`, `"-inf"`, as the core serializer writes them. Anything else, a container
+that contains itself, or an `int` beyond `i64` raises `ConversionError` naming the path
+(`$[0].parameters[0]` for a list body, `$.elements[0]…` for a dict).
+
+**Evaluation.** `Environment.evaluate`, `evaluate_state` and their `_async` forms take a pipeline
+(an `lq.Pipeline`, a `list`, a `tuple`, a `dict`) as well as a query (`to_evaluable`). A pipeline runs as a
+pipeline-only recipe (`Recipe { pipeline: Some(p), .. }`) through `AssetManager::apply_queued`,
+taking a job-queue slot as `evaluate` does; its value and errors are those of its query. Its asset
+is private to the call, so the sync wait (`closure.rs` `wait_for_asset`) cancels it on Ctrl-C or
+`shutdown()` before raising; cancelling an awaiting task ends only the wait, as for a query.
+`get_asset` and `get_asset_async` raise `TypeError` for a pipeline. `Context.evaluate` and
+`evaluate_async` take one too: a pipeline a query expresses (`to_query_with` the environment's
+commands) evaluates as that query, so the dependency and the cache are the query's; any other runs
+through `Context::apply_ad_hoc`, whose dependencies become the command's. Because `apply_ad_hoc`
+checks only a recipe's query (`CONTEXT-APPLY-AD-HOC-SKIPS-RELATIVE-PIPELINE-KEYS`), liquers-py first
+refuses a relative resource or key (`./`, `../`) with `NotSupportedError`, as a relative query is
+refused. At the top level a relative key resolves against the working directory set by a `cwd`
+element, as in the query.
+
+**Editors.** `env.pipeline_editor(pipeline=None)` and `env.query_editor(query=None)` wrap the core
+`PipelineEditor` and `QueryEditor`, checked against a snapshot of the environment's commands taken
+when the editor is made (a command registered later is unknown to it). Every edit returns the
+editor: `push`, `insert`, `replace`, `remove`, `move_to`, `set_realm`, `set_filename`,
+`resource(key, read="asset")`, `default_ns`; `action(name, ns=None)` and `edit_action(at)` return
+an `lq.ActionEditor` (`ns`, `set`, `placeholder`, `link`, `pipeline`, `state`, `push`, `unset`,
+`rename`; `metadata`, `argument_info`, `index`). The inspectors are `command_metadata(at)`,
+`argument_info(at, arg)`, `unset_arguments(at)`, `validate()` and the `pipeline` property;
+`QueryEditor.query()` gives the query. The classes are frozen with an interior mutex: each call
+converts its arguments first, then locks (`lock_py_attached`), edits a clone and keeps it only if
+every step succeeded, so a refused edit, including the second step of `action(name, ns=…)`, leaves
+the editor as it was. An `ActionEditor` raises `ParameterError` once its step may have moved: after an `insert`, `replace`, `remove` or `move_to` on its editor (appending keeps it valid).
+
+**Pipeline commands.** `env.pipeline_command(name, body, *, arguments=(), namespace="",
+label=None, doc=None, filename=None)` declares `DeclaredCommand::Pipeline` (`declared.rs`), applied
+at every build through `CommandRegistry::register_pipeline`, like a template command (§15): it
+survives rebuilds, the last registration under a key wins, and a body that does not plan raises and
+changes nothing. `arguments` name the placeholders in order: a `str` is an argument of any type with
+no default, an `lq.ArgumentInfo` is taken as it is (its types are not checked against the
+placeholders' uses: `PIPELINE-COMMAND-OPERAND-TYPES-UNCHECKED`). `CommandDefinition.pipeline` reads
+the body back as an `lq.Pipeline`; so do `Recipe.pipeline` and a pipeline `ArgumentInfo.default`.
+
+**Open problems.** A query reading a relative key with no working directory fails on
+`./recipes.yaml`, while the same pipeline resolves the key against the root
+(`TOP-LEVEL-RELATIVE-RESOURCE-QUERY-LOOKS-UP-A-RELATIVE-RECIPES-KEY`).
+
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-06 | §16: an `ActionEditor` is stale after any edit that can move its step, not only its removal. | PR #263 review |
+| 2026-11-05 | §16: `evaluate` takes a tuple too; `to_list()` is the JSON form; a JSON-slot error path starts at `$`. | phase-5, `design/liquers-py-pipelines/` |
 <<<<<<< HEAD
+| 2026-11-04 | §16 Pipelines (`lq.Pipeline`, JSON slots, evaluation at the top level and in a command, the editors, pipeline commands); §2, §3 and §5 list the new names and the `Pipeline` conversion. | `design/liquers-py-pipelines/` |
+=======
+<<<<<<< HEAD
+>>>>>>> py-templates-local
 | 2026-11-04 | §15 Templates (the calls on both receivers, the top-level closure asset and its waits, template commands as declarations, `lq.link`, `CommandDefinition` accessors); §2, §3 and §4 list the new names. | `design/liquers-py-templates/` |
 =======
 | 2026-11-05 | §14: a `__liquers_data__` method's result still reads through the protocols when its class opts in; a raise in `keys()` gives no keys. | phase-5, `design/liquers-py-data-nodes/` |

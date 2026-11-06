@@ -9,9 +9,9 @@
 //!
 //! - `environment`: `lq.Environment`, the handle on a built Liquers environment; `context`:
 //!   `lq.Context`, a command's view of its evaluation; `asset`: `lq.State`, `lq.AssetRef`.
-//! - `command`, `declared`: Python commands and commands made by declaration (template commands);
+//! - `command`, `declared`: Python commands and commands made by declaration (template and pipeline commands);
 //!   `value`: the value bridge; `error`: exceptions both ways.
-//! - `data_node`, `template`, `records`, `store`, `recipe_provider`: the optional
+//! - `data_node`, `template`, `pipeline`, `records`, `store`, `recipe_provider`: the optional
 //!   features (`liquers-py/README.md`).
 //! - `aio`, `closure`, `runtime`, `exit`: the async bridge, closure-asset waits, the Tokio runtime,
 //!   interpreter exit.
@@ -62,6 +62,7 @@ pub mod closure;
 pub mod data_node;
 pub mod declared;
 pub mod template;
+pub mod pipeline;
 pub mod records;
 pub mod runtime;
 pub mod store;
@@ -147,6 +148,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     crate::records::register(m)?;
     crate::data_node::register(m)?;
     crate::template::register(m)?;
+    crate::pipeline::register(m)?;
 
     // The Liquers version, in the form Python packaging uses (PEP 440); `liquers.__version__`.
     m.add("__version__", pep440(liquers_core::VERSION))?;

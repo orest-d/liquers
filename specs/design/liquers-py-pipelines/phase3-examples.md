@@ -84,7 +84,7 @@ binds the remaining parameters `EU`, `US`, spliced into `values` by `{"multiple"
 | `KeyboardInterrupt` during `env.evaluate(top)` whose step runs the conftest `slow` | the asset ends `Cancelled`; `slow` saw `context.is_cancelled()` | `test_interrupt_cancels_the_pipeline` |
 | `lq.Pipeline("-R/x")`; `lq.Pipeline(42)` | `TypeError` (a query string is `Pipeline.from_query`) | `test_constructor_takes_a_list` |
 | `float("nan")`, `float("inf")`, `-inf` in a JSON slot | written `"NaN"`, `"inf"`, `"-inf"`, as the reference serializer does | `test_non_finite_floats` |
-| An `ActionEditor` kept after its owner's step was removed | `lq.ParameterError` naming the index; editor unchanged | `test_stale_action_editor` |
+| An `ActionEditor` kept after an `insert`, `replace`, `remove` or `move_to` on its owner | `lq.ParameterError` naming the index; editor unchanged | `test_stale_action_editor`, `test_action_editor_is_stale_after_its_step_moves` |
 | Two threads editing one editor while a third holds the GIL | no deadlock within 5 s; both edits applied | `test_editor_threads` |
 
 ## Test Plan
@@ -113,3 +113,13 @@ binds the remaining parameters `EU`, `US`, spliced into `values` by `{"multiple"
   harness, at the top level (`apply_queued`) and in a command (`Context::apply_ad_hoc`).
 - The editors' clone-then-commit gives Python atomic multi-step calls for free, because the core
   editors are `Clone`.
+- Implementation corrections. A relative key starts with `./` or `../` (`ResourceName::is_cwd` /
+  `is_parent`), so the relative-key cases use `./x.csv`, not `x.csv`; and the top-level case reads
+  under a `cwd` element (`[{"cwd": "data"}, {"resource": "./x.txt"}]` against
+  `-R-cwd/data/-R/./x.txt`). With no working directory the query form fails on `./recipes.yaml`
+  while the pipeline resolves against the root: filed as
+  `TOP-LEVEL-RELATIVE-RESOURCE-QUERY-LOOKS-UP-A-RELATIVE-RECIPES-KEY`.
+- `to_query` writes the canonical query: a namespace moves to the front
+  (`hello/ns-template/render-…` becomes `ns-template/hello/render-…`), so `test_round_trip` checks
+  that the canonical form is stable rather than equal to every source. The S7 case is a
+  placeholder argument (`{"placeholder": "n"}`).
