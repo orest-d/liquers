@@ -8,8 +8,8 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 221
-- P2: 66
+Total rows: 222
+- P2: 67
 - P3: 155
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
@@ -71,6 +71,7 @@ Total rows: 221
 | [`VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`](issues/VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE.md) | feature | Serialization is synchronous and whole-value, so a large or lazy value cannot be served or stored as it is produced | draft | needs-decision | not-eligible | P2 | L | core/value;core/store;core/assets;axum | [phase1](design/value-serialization-streaming/phase1-high-level-design.md)  [phase2](design/value-serialization-streaming/phase2-architecture.md)  [phase3](design/value-serialization-streaming/phase3-examples.md)  [phase4](design/value-serialization-streaming/phase4-implementation.md)  | 2026-09-24 |
 | [`EXTENDED-FAST-TRACK`](issues/EXTENDED-FAST-TRACK.md) | feature | A cheap query waits behind long-running jobs, because commands cannot be classified for scheduling | accepted | phase2-blocked | not-eligible | P2 | L | core/assets | [phase1](design/command-execution-class/phase1-high-level-design.md)  [phase2](design/command-execution-class/phase2-architecture.md)  | 2026-08-08 |
 | [`CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS`](issues/CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS.md) | issue | Every queued command shares one job queue, so commands cannot be placed by their cost | draft |  |  | P2 | L | core/assets |  | 2026-10-26 |
+| [`SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED`](issues/SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED.md) | issue | No guideline or user documentation says which Liquers settings are security-sensitive | draft |  |  | P2 | L | docs;axum;py;web |  | 2026-11-06 |
 | [`WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS`](issues/WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS.md) | feature | The web API cannot run a pipeline or recipe document, nor serve recipes as typed endpoints | draft |  |  | P2 | L | axum;core/assets;core/context;mcp |  | 2026-11-01 |
 | [`WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS`](issues/WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS.md) | issue | The browser UI stops updating while any of its queries awaits a Promise | draft |  |  | P2 | L | lib/ui;core/assets;web |  | 2026-10-30 |
 | [`EXTERNAL-INDEX-HAS-NO-RECONCILIATION-CONTRACT`](issues/EXTERNAL-INDEX-HAS-NO-RECONCILIATION-CONTRACT.md) | feature | An external index, vector store or SQL mirror cannot be kept in sync with a record source | draft | needs-decision | not-eligible | P2 | XL | records;core/assets;lib/commands | [phase1](design/external-index-reconciliation/phase1-high-level-design.md)  [phase2](design/external-index-reconciliation/phase2-architecture.md)  [phase3](design/external-index-reconciliation/phase3-examples.md)  [phase4](design/external-index-reconciliation/phase4-implementation.md)  | 2026-10-21 |

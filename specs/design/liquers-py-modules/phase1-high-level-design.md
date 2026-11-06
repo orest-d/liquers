@@ -33,9 +33,10 @@ the results it computed: the `MODULE` feature of `LANGUAGE-INTEGRATION_GUIDE.md`
      lq.link("-R-key/.")`), only when that `cwd` lies under a trusted prefix, and never upward out
      of it (`from .. import` stops at the `cwd`). A refusal raises `lq.LiquersError` with
      `NotSupported` (MODULE09), so it is never mistaken for absence. The path is set per
-     environment only, not per query. Because a server started with writes enabled could plant
-     code under a trusted prefix, the docs recommend a read-only mount for code prefixes
-     (`liquers-py-web-server` question 5). Alternative: a recipe folder's `cwd` is trusted implicitly.
+     environment only, not per query. A server starts with writes enabled by default
+     (`liquers-py-web-server` Decision 1), so an HTTP client can plant code under a trusted prefix;
+     the security documentation (`SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED`) says so and
+     recommends a read-only mount for code prefixes. Under discussion with Orest (2026-11-06). Alternative: a recipe folder's `cwd` is trusted implicitly.
   3. **Proposed resolution: `cwd` at the root** (MODULE04). An ad-hoc query has no recipe folder,
      so `-R-key/.` gives the root key. The root is under no trusted prefix unless the root itself
      is on the path, so a relative import is refused; absolute imports over `module_path` work.

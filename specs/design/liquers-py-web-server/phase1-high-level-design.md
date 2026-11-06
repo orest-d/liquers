@@ -10,11 +10,11 @@ HTTP API (`liquers-axum`), in the foreground or the background: the `WEBSERV` fe
 
 ## Design Readiness
 
-- **Readiness:** `needs-decision`: Phase 1 written and reviewed twice; questions 3 and 5 wait for the
-  Phase 1 gate.
+- **Readiness:** `needs-decision`: Phase 1 written and reviewed twice; Orest decided questions 3
+  and 5 on 2026-11-06 (Decisions 1 and 2); `proceed` outstanding.
 - **Automatic fixing:** `not-eligible`: an `L` feature with new public Python API and a new
   dependency of `liquers-py`.
-- **Leading issue:** question 5, what a server started from Python lets a client write. Source
+- **Leading issue:** the security documentation that Decision 1 requires. Source
   issue `PY-CANNOT-START-A-WEB-SERVER` (P2 L, filed with this design).
 - **Explanation:** the route builders exist and are generic over the environment; liquers-py has
   a process-wide Tokio runtime (`liquers-py/src/runtime.rs`). Missing are a server assembly that
@@ -23,36 +23,40 @@ HTTP API (`liquers-axum`), in the foreground or the background: the `WEBSERV` fe
   lifetime, and a way to follow liquers-py's environment rebuilds: the builders return
   `Router<EnvRef<E>>`, and `with_state` fixes one `EnvRef`.
 - **Open questions:**
-  1. **Proposed resolution: the call.** `env.serve(host="127.0.0.1", port=8080, background=False,
-     prefix="/liquer", query=True, store=True, assets=True, recipes=True, read_only=…)` and
-     `lq.serve(…)` on the default environment, as `lq.evaluate` is. It returns an `lq.Server`
-     (`address`, `port`, `url`, `running`, `shutdown(timeout=5.0)`, context manager). The
-     foreground form returns after the server stops. The plan's `lq.serve(env, …)` becomes a method
-     plus a default-environment function, the liquers-py pattern.
+  1. **Proposed resolution: the call and its configuration.** The server's settings are part of the
+     environment's configuration document (a `server:` section of `lq.Environment(config=…)`:
+     host, port, prefix, which APIs, read-only), and `env.serve(**overrides)` starts it with
+     keyword arguments overriding the section (Decision 1). Defaults: `127.0.0.1:8080`, prefix
+     `/liquer`, all four APIs, writes enabled, `background=True` (Decision 2). `lq.serve(…)` serves
+     the default environment, as `lq.evaluate` does. It returns an `lq.Server` (`address`, `port`,
+     `url`, `running`, `shutdown(timeout=5.0)`, context manager); `background=False` blocks until
+     the server stops. The plan's `lq.serve(env, …)` becomes a method plus a default-environment
+     function, the liquers-py pattern.
   2. **Proposed resolution: startup errors raise at the call.** `serve` binds the socket before it
      returns, so a port in use or a bad host raises `lq.LiquersError` from `serve`, and readiness
      is "`serve` returned" (the plan's and the guide's `ready()` become the `running` property).
-  3. **Open design: a background server whose handle is dropped.** Recommended: it keeps running
-     until `shutdown()`, the end of a `with` block, `env.shutdown()` or interpreter exit, and is
-     listed in `env.servers`, as `threading.Thread` and `subprocess.Popen` behave; a notebook cell
-     `env.serve(background=True)` then keeps serving. Alternative (the guide's first option): a
-     collected handle stops the server, with a `ResourceWarning`.
+  3. **Decided (Decision 2): a server runs in the background.** `serve` starts it in the
+     background by default, and a server whose handle is dropped keeps running until `shutdown()`,
+     the end of a `with` block, `env.shutdown()` or interpreter exit; `env.servers` lists the
+     running ones. A notebook cell `env.serve()` therefore keeps serving.
   4. **Proposed resolution: late registrations reach the server.** Each request is answered by the
      environment the handle has at that moment, so a command registered after `serve` is
      callable over HTTP (AC-7). Phase 2 chooses the mechanism: a service that takes the current
      `EnvRef` per request (as `mount_web`'s `current_env` does per tick), or landing
      `language-late-registration-without-rebuild` first. A rebuild starts a new asset manager, so
      WebSocket subscribers of the retired one see no further events; Phase 2 states the outcome.
-  5. **Open design (blocking): writes from HTTP clients.** liquers-axum has no authentication and
-     no Host or Origin check, and the store API always offers `PUT` and `DELETE`. With
-     `liquers-py-modules`, a write under a trusted module prefix is code the next import runs, so a
-     local client, or a web page through DNS rebinding, could execute code in the process.
-     Recommended: `read_only=True` by default: the assets API read-only
-     (`AssetsApiBuilder::read_only`), no store API, recipes as they are (read-only); `read_only=False`
-     opts into writes, and the docs point to a read-only store mount
-     (`specs/design/web-api-spec-read-only-mount/`) for code prefixes. Bound to `127.0.0.1` by
-     default; authentication waits for `access-policy-at-entry-points`. Alternative: everything
-     writable by default, as `basic_server.rs`.
+  5. **Decided (Decision 1): writes enabled by default, a setting of the configuration, and
+     documented as security-sensitive.** Python is "batteries included", so the store and assets
+     APIs accept writes unless `read_only: true` (assets read-only through
+     `AssetsApiBuilder::read_only`, the store API left out until a read-only store API exists; a
+     read-only store mount, `specs/design/web-api-spec-read-only-mount/`, protects part of a store).
+     The risk stays real and is documented, not defaulted away: liquers-axum has no authentication
+     and no Host or Origin check, so any local client, or a web page through DNS rebinding, can
+     write, and a write under a `liquers-py-modules` prefix is code the next import runs. The
+     default host is `127.0.0.1`; authentication waits for `access-policy-at-entry-points`. The
+     sensitive settings are listed in a new security guideline and in a security chapter of the
+     user guides (`SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED`, filed with this decision, its
+     own documentation design); this design adds its settings there.
   6. **Proposed resolution: a shared server assembly in `liquers-axum`, first.** One public builder
      composes the routers and owns the accept loop, so it can stop accepting, let in-flight
      requests finish, end WebSocket tasks and abort what is left at a deadline; `axum::serve`
@@ -68,6 +72,13 @@ HTTP API (`liquers-axum`), in the foreground or the background: the `WEBSERV` fe
      environment; a blocking call on the main thread ends on Ctrl-C after a graceful stop and raises
      `KeyboardInterrupt`; `env.shutdown()` and interpreter exit stop what the environment started,
      servers before commands are cancelled (`liquers-py/src/exit.rs`).
+- **Decisions:**
+  1. Orest, 2026-11-06, on question 5: "it should be part of the configuration. The philosophy for
+     python is 'batteries included by default' so store writes should be enabled. There should be a
+     chapter in the user guides about the security discussing what settings are sensitive. There
+     should be a security guideline and the user documentation should have a section(s) dealing
+     with security implications and security sensitive settings."
+  2. Orest, 2026-11-06, on question 3: "ok, server should be running in background".
 - **Deviations from Appendix A** (copied to the conformance matrix): `WEBSERV01`'s `ready()` and
   `WEBSERV04`'s `is_running()` are the `running` property; `shutdown(graceful=True)` is
   `shutdown(timeout=…)`, always graceful until the timeout; `inflight_requests()` is not offered
@@ -83,7 +94,7 @@ env = lq.Environment()
 def greet(name: str = "world") -> str:
     return f"Hello, {name}!"
 
-with env.serve(port=0, background=True) as server:
+with env.serve(port=0) as server:
     print(urllib.request.urlopen(f"{server.url}/liquer/q/greet-Ann").read())
 ```
 
@@ -94,7 +105,7 @@ the block ends. `greet-Ann` validates with `greet` declared (`liquers-validate -
 ## Scope and Acceptance Criteria
 
 - **AC-1** Background start on an ephemeral port
-  WHEN `env.serve(port=0, background=True)` is called
+  WHEN `env.serve(port=0)` is called
   THEN it returns an `lq.Server` with the bound non-zero `port` and `running` true, and `server.url`
   answers (WEBSERV01, problem example)
 - **AC-2** The query route uses the script's environment
@@ -111,17 +122,18 @@ the block ends. `greet-Ann` validates with `greet` declared (`liquers-validate -
 - **AC-5** The server's lifetime follows its owner
   WHEN a `with` block ends, `env.shutdown()` runs or the interpreter exits
   THEN the server stops, the port is released and `running` is false; WHEN the handle is only
-  collected THEN the policy of question 3 holds (WEBSERV05)
+  collected THEN the server keeps running and is listed in `env.servers` (WEBSERV05, Decision 2)
 - **AC-6** Foreground serving (addition)
-  WHEN `env.serve(port=…)` blocks the main thread and the user presses Ctrl-C
+  WHEN `env.serve(port=…, background=False)` blocks the main thread and the user presses Ctrl-C
   THEN the server stops gracefully and `serve` raises `KeyboardInterrupt`
 - **AC-7** Late registrations are served (addition)
   WHEN a command is registered after `serve`
   THEN a request naming it is answered by it
-- **AC-8** Routes and writes are configurable (addition)
-  WHEN `serve` gets `prefix="/api"`, and separately the defaults of question 5
-  THEN the query route answers under `/api/q/…`, and with the defaults a store write or an assets
-  mutation is refused
+- **AC-8** Settings come from the configuration (addition, Decision 1)
+  WHEN the configuration's `server:` section sets `prefix: /api` and `read_only: true`, and
+  `serve(prefix="/v1")` is called
+  THEN the query route answers under `/v1/q/…`, and a store write or an assets mutation is refused;
+  with no settings, a store write succeeds
 - **AC-9** Async forms (addition)
   WHEN `await env.serve_async(port=0)` runs in a task that is then cancelled, and
   `await server.shutdown_async()` stops a background server
@@ -148,13 +160,17 @@ dependency (it depends on core and store only, so the flow holds; liquers-py's o
   the shared assembly.
 - Other documents: the `WEBSERV` row and deviations in `liquers-py/README.md`;
   `LANGUAGE-INTEGRATION_GUIDE.md` §6 Python; `liquers-axum/README.md`; `specs/README.md`.
-- Documents to update: the user guide chapters `docs_index.py chapters-for` lists.
+- Documents to update: user guide chapter `docs/guides/python/12-serving.md`, and the chapters
+  `docs_index.py chapters-for` lists; the server settings join the security guideline and the
+  guides' security chapter (Decision 1).
 - API docs: the module docs of the new `liquers-py/src/server.rs` and of the `liquers-axum` module
   that gains the assembly; docstrings on every new Python name.
 
 ## Design Dependencies
 
 - `AXUM-HAS-NO-SERVER-WITH-GRACEFUL-SHUTDOWN`: **requires** (question 6).
+- `SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED`: **requires** (Decision 1); its documentation
+  design lands before or with this design's Phase 5.
 - `language-late-registration-without-rebuild`, `post-init-command-registration` (in review):
   **overlap** question 4; either landing first removes the rebuild to follow.
 - `liquers-py-modules`: **overlaps** question 5 (code planted over HTTP).

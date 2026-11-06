@@ -1,0 +1,48 @@
+---
+id: SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED
+kind: issue
+title: No guideline or user documentation says which Liquers settings are security-sensitive
+status: draft
+priority: P2
+complexity: L
+area: [docs, axum, py, web]
+design:
+created: 2026-11-06
+github:
+---
+
+## Problem
+
+Several Liquers settings decide what an untrusted party can do, and none is documented as such:
+
+- the HTTP API (`liquers-axum`) has no authentication and no Host or Origin check, and its store
+  and assets APIs accept writes (`StoreApiBuilder` has no read-only mode);
+- the MCP server limits its query tool by a command allow-list
+  (`MCP-SERVER-APPLIES-NO-ACCESS-POLICY`);
+- the pickle codec of liquers-py (`Environment(pickle=True)`) decodes stored bytes into Python
+  objects, which runs code;
+- a store mount is writable unless `read_only`;
+- the planned `liquers-py-modules` search path executes code read from the store, and the planned
+  `liquers-py-web-server` starts a server with writes enabled by default.
+
+There is no `specs/` guideline that lists them, and none of the user guides
+(`docs/guides/{rust,python,web}/`) has a section on security.
+
+## Impact
+
+A user can expose a store, or code execution, to any local process or, through DNS rebinding, to a
+web page, without being told. Combining two features (a writable server and a module path over the
+same store) is code execution, and nothing says so.
+
+## Expected behaviour
+
+A security guideline in `specs/guides/` naming every security-sensitive setting, its default, the
+risk and the safe configuration, kept current by every design that adds one; and a "Security"
+chapter (or sections) in each user guide, written from it. Owner's decision of 2026-11-06 (thread
+"Design M7 web server, modules and UI"): defaults stay "batteries included", and the risks are
+documented rather than defaulted away.
+
+## Discovery
+
+`liquers-py-web-server` Phase 1 gate, 2026-11-06: Orest chose writes enabled by default and asked
+for a security guideline and user documentation of security-sensitive settings.
