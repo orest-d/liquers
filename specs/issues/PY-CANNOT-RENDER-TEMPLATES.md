@@ -2,7 +2,7 @@
 id: PY-CANNOT-RENDER-TEMPLATES
 kind: feature
 title: Python cannot declare template commands or render a template from a script or a command
-status: draft
+status: closed
 priority: P2
 complexity: L
 area: [py, lib/commands]
@@ -47,3 +47,9 @@ render runs as a command's render does, inside an ad-hoc asset that runs a closu
 
 Plan update for milestone M6 of the liquers-py plan, 2026-11-04: the guide's feature table lists
 `TEMPLATE`, and no issue recorded that liquers-py does not implement it.
+
+## Resolution
+
+Closed 2026-11-05 by [`design/liquers-py-templates/`](../design/liquers-py-templates/DESIGN.md):
+`render` / `expand` / `validate_template` on `Environment` and `Context`, `template_command`,
+`lq.link` (commit `781667a7`); tests `liquers-py/tests/test_TEMPLATE_*.py`.

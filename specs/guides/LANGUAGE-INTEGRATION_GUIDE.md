@@ -2137,9 +2137,17 @@ settled on, and the list after them is what cost time. Its contract is
   whose venv needs its own tag (`sys.abiflags`) and whose Rust tests need `LIBDIR` on
   `LD_LIBRARY_PATH`.
 
-- **Templates and data nodes.** The `ns-template` commands are in the built-in set
-  (`liquers-py/src/builtins.rs`); a template command and `render` / `expand` on the environment and
-  on `Context` are not implemented yet (`TEMPLATE` is `NS`).
+- **Templates** (`specs/design/liquers-py-templates/`). The `ns-template` commands are in the
+  built-in set (`liquers-py/src/builtins.rs`). `render` / `expand` / `validate_template` sit on the
+  environment and on `Context` with one signature. A top-level render needs an asset to run in, so
+  it is a closure asset (`ASSETS.md` §Closure assets): its sync wait must not drop the run, so on
+  Ctrl-C it cancels the asset and lets the run settle (`closure.rs` `wait_for_run`). Template
+  commands are *declarations*, kept beside the Python commands and re-applied at every rebuild;
+  an alias kept only in the built registry would vanish at the next late registration. `declare`
+  builds a trial registry first, so a bad one changes nothing. A default link is `lq.link(query)`,
+  serialized into the declaration document as `{"Query": …}`, which the shared pipeline already
+  reads: no new pipeline stage. The validation method is `validate_template`, because
+  `Environment.validate()` already means the registry check.
 - **Data nodes** (`specs/design/liquers-py-data-nodes/`). Inbound, `PyObjectValue` overrides
   `ForeignValue::data_node` with a `PyNode` over the live object, so a `dict` that conversion
   keeps as `py.Object` (one `datetime`, one `int` key) renders in place. Exact `dict`, `list` and
@@ -4010,6 +4018,7 @@ def test_DOCS04_every_public_name_is_documented():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | §6 Python: *Templates* (two receivers, the top-level closure asset and its wait, template commands as declarations, `lq.link`); `TEMPLATE` is implemented by `liquers-py`. | `design/liquers-py-templates/` |
 | 2026-11-04 | §6 Python: *Data nodes* (the inbound adapter and opt-in, the lock per lookup, the outbound view and its roots, lazy `State.value`); `DATANODE` is implemented by `liquers-py`. | `design/liquers-py-data-nodes/` |
 | 2026-11-04 | New feature `PIPELINE` (overview row, soft dependency, §5 section with tests `PIPELINE01`–`05`); no binding implements it yet. | phase-5, `design/composite-command-definition/` |
 | 2026-11-04 | §PIPELINE: `liquers-web` implements the feature. | design `web-pipelines` |

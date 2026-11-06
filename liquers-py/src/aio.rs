@@ -21,6 +21,34 @@
 //! which detaches the evaluation rather than cancelling it; `AssetRef.cancel_async` is the explicit
 //! cancel. The result is converted to Python by [`ToPy`] on a blocking thread, so no runtime worker
 //! takes the GIL.
+//!
+//! # Main components
+//!
+//! - [`LazyLoopPool`]: the event loops `async def` commands run on.
+//! - [`awaitable`]: a core future as an `asyncio` awaitable; [`ToPy`] converts what it resolves
+//!   to, one variant per result kind (a value, a state, an awaited `DataNode` read, a render).
+//! - [`Shut`]: an environment's shut signal; [`check_blocking_call`]: the blocking-call rule.
+//!
+//! # Where it is used
+//!
+//! - Every `_async` method (`environment.rs`, `context.rs`, `asset.rs`, `store.rs`,
+//!   `data_node.rs`), and `command.rs` for `async def` commands.
+//!
+//! # Related concepts
+//!
+//! - `closure.rs`: the awaitable of a closure asset's run, which must not be dropped as a plain
+//!   future is.
+//! - `specs/reference/PYTHON_INTEGRATION.md` §7.
+//!
+//! # Examples
+//!
+//! ```python
+//! async def main():
+//!     return await env.evaluate_async("hello")   # an `awaitable`, resolved by `ToPy::Value`
+//! assert asyncio.run(main()) == "hello"
+//! ```
+//!
+//! Executed in `liquers-py/tests/test_ASYNCQ_*.py`.
 
 use std::cell::Cell;
 use std::future::Future;
@@ -157,6 +185,9 @@ pub(crate) enum ToPy {
     View(Result<Arc<dyn liquers_records::RecordView>, Error>),
     /// An awaited read of an `lq.DataNode`.
     Node(Result<crate::data_node::NodeAnswer, Error>),
+    /// An awaited render, and whether to return the full `lq.RenderResult`; `None` when the render
+    /// was cancelled before it started (`CancelledError`).
+    Rendered(Result<(Option<liquers_lib::template::Rendered>, bool), Error>),
 }
 
 impl<'py> IntoPyObject<'py> for ToPy {
@@ -212,6 +243,10 @@ impl<'py> IntoPyObject<'py> for ToPy {
                     .map_err(|e| pyerr_to_error(py, &e))
             }),
             ToPy::Node(result) => result.and_then(|answer| answer.into_py(py)),
+            ToPy::Rendered(result) => result.and_then(|(rendered, full)| {
+                let rendered = rendered.ok_or_else(crate::template::not_started)?;
+                crate::template::rendered_to_py(py, rendered, full).map_err(|e| pyerr_to_error(py, &e))
+            }),
             ToPy::ResourceNames(result) => result.and_then(|names| {
                 let names: PyResult<Vec<Py<crate::query::ResourceName>>> =
                     names.into_iter().map(|n| Py::new(py, crate::query::ResourceName(n))).collect();

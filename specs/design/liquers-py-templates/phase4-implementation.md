@@ -19,14 +19,14 @@ in the stubs, since `test_DOCS_docstrings.py` and stubtest check them.
 
 ## Progress
 
-- [ ] Step 1: request building and frames (`template.rs`)
-- [ ] Step 2: `Context.render` / `expand` and `_async`
-- [ ] Step 3: `closure::wait_for_run`; `Environment.render` / `expand` and `_async`
-- [ ] Step 4: `validate_template` and `lq.Diagnostic`
-- [ ] Step 5: declared commands and `template_command`
-- [ ] Step 6: `lq.link` defaults
-- [ ] Step 7: `CommandDefinition` accessors
-- [ ] Step 8: conformance row, docs, module docs
+- [x] Step 1: request building and frames (`template.rs`)
+- [x] Step 2: `Context.render` / `expand` and `_async`
+- [x] Step 3: `closure::wait_for_run`; `Environment.render` / `expand` and `_async` (`test_unstarted_render_is_cancelled` is a Rust unit test, `template.rs` `unstarted_render_is_cancelled`: Python cannot make a run whose asset is cancelled before its claim)
+- [x] Step 4: `validate_template` and `lq.Diagnostic`
+- [x] Step 5: declared commands and `template_command` (the slot lives in a new `declared.rs`; an alias with no explicit arguments takes the target's remaining ones; `Replaced::Declared` lets the decorator warn `replaces a declared command`)
+- [x] Step 6: `lq.link` defaults
+- [x] Step 7: `CommandDefinition` accessors
+- [x] Step 8: conformance row, docs, module docs
 
 ## Implementation Steps
 
@@ -128,6 +128,6 @@ self-contained and Step 6 independent.
 
 ## Phase 5 Entry Criteria
 
-- [ ] Implementation finished and validated
-- [ ] User and review comments answered
-- [ ] Documentation checkable against implemented and tested behaviour
+- [x] Implementation finished and validated (`bash scripts/test-liquers-py.sh`: 476 passed)
+- [x] User and review comments answered
+- [x] Documentation checkable against implemented and tested behaviour

@@ -115,3 +115,7 @@ assert env.render(lq.parse("-R/templates/page.md"),
   argument mapping, not two renderers.
 - A link default is just a `{"Query": …}` default in the declaration document; the interpreter
   already resolves it, so `lq.link` needs no change in the call path.
+- `test_declare_cost` measured about 19 ms per `template_command` in a debug build: `declare`
+  builds and validates a trial registry each time. Acceptable for a call made at setup.
+- The validation diagnostic of `{{$ missing_command}}` on line 2 points at the action (column 5),
+  not at the tag's opening braces; `test_validation_runs_nothing` checks that.

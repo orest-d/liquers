@@ -1,3 +1,39 @@
+//! The native extension of the `liquers` Python package (`liquers._native`): Python bindings of
+//! Liquers, built with PyO3.
+//!
+//! Every module registers its classes and functions into one extension module; the pure-Python
+//! package `liquers` (`liquers-py/python/liquers/`) re-exports them with the decorators and the
+//! exception classes.
+//!
+//! # Main components
+//!
+//! - `environment`: `lq.Environment`, the handle on a built Liquers environment; `context`:
+//!   `lq.Context`, a command's view of its evaluation; `asset`: `lq.State`, `lq.AssetRef`.
+//! - `command`, `declared`: Python commands and commands made by declaration (template commands);
+//!   `value`: the value bridge; `error`: exceptions both ways.
+//! - `data_node`, `template`, `records`, `store`, `recipe_provider`: the optional
+//!   features (`liquers-py/README.md`).
+//! - `aio`, `closure`, `runtime`, `exit`: the async bridge, closure-asset waits, the Tokio runtime,
+//!   interpreter exit.
+//!
+//! # Where it is used
+//!
+//! - `import liquers` loads it; `maturin` builds it (`liquers-py/pyproject.toml`).
+//!
+//! # Related concepts
+//!
+//! - `specs/reference/PYTHON_INTEGRATION.md`: the contract; `specs/guides/PYTHON_GUIDE.md`: usage.
+//!
+//! # Examples
+//!
+//! Executed in `liquers-py/tests/test_EVAL_*.py`:
+//!
+//! ```python
+//! import liquers as lq
+//! env = lq.Environment()
+//! assert env.evaluate("hello") == "hello"     # with `hello` registered by the test fixture
+//! ```
+
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
@@ -24,6 +60,8 @@ pub mod recipe_provider;
 pub mod recipes;
 pub mod closure;
 pub mod data_node;
+pub mod declared;
+pub mod template;
 pub mod records;
 pub mod runtime;
 pub mod store;
@@ -59,6 +97,8 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<QuerySource>()?;
     m.add_function(wrap_pyfunction!(crate::parse::parse, m)?)?;
     m.add_function(wrap_pyfunction!(crate::parse::parse_key, m)?)?;
+    m.add_class::<crate::query::Link>()?;
+    m.add_function(wrap_pyfunction!(crate::query::link, m)?)?;
 
     m.add_class::<crate::command_metadata::EnumArgumentType>()?;
     m.add_class::<crate::command_metadata::EnumArgument>()?;
@@ -106,6 +146,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<crate::asset::AssetRef>()?;
     crate::records::register(m)?;
     crate::data_node::register(m)?;
+    crate::template::register(m)?;
 
     // The Liquers version, in the form Python packaging uses (PEP 440); `liquers.__version__`.
     m.add("__version__", pep440(liquers_core::VERSION))?;

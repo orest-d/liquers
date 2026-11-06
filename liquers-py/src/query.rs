@@ -1,3 +1,35 @@
+//! The query language from Python: `lq.Query`, `lq.Key` and the parts they are made of, and
+//! `lq.Link`, a default link argument.
+//!
+//! Each class wraps the `liquers_core::query` type it is named after; parsing is the core parser,
+//! so Python and Rust agree on every query.
+//!
+//! # Main components
+//!
+//! - [`Query`], [`Key`], [`ResourceName`], [`ActionRequest`] and the segment classes.
+//! - [`Position`]: where a parsed element or an error sits in its text.
+//! - [`Link`] and [`link`]: `lq.link(query)`, a command parameter's default that is the value of
+//!   `query` (`cwd: lq.Key = lq.link("-R-key/.")`).
+//!
+//! # Where it is used
+//!
+//! - Everywhere a query or key crosses the boundary: `environment.rs`, `context.rs`, `recipes.rs`,
+//!   `template.rs`; `lq.Link` in the decorators of `python/liquers/_commands.py`.
+//!
+//! # Related concepts
+//!
+//! - `specs/reference/PROJECT_OVERVIEW.md` (the query language), `specs/reference/PYTHON_INTEGRATION.md` §2.
+//!
+//! # Examples
+//!
+//! ```python
+//! query = lq.parse("-R/data/sales.csv/-/ns-pl/from_csv")
+//! assert query.encode() == "-R/data/sales.csv/-/ns-pl/from_csv"
+//! assert lq.link("-R-key/.").query == lq.parse("-R-key/.")
+//! ```
+//!
+//! Executed in `liquers-py/tests/test_OBJECT_*.py` and `test_TEMPLATE_commands.py`.
+
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
@@ -837,6 +869,54 @@ impl QuerySource {
         self.0.hash(&mut hasher);
         hasher.finish()
     }
+}
+
+/// A default link argument for a Python command: `cwd: lq.Key = lq.link("-R-key/.")` makes the
+/// default the value of that query, evaluated when the argument is not written. Made by
+/// `lq.link(query)`.
+#[pyclass(frozen, name = "Link", module = "liquers")]
+#[derive(Clone)]
+pub struct Link(pub liquers_core::query::Query);
+
+#[pymethods]
+impl Link {
+    /// The linked query.
+    #[getter]
+    fn query(&self) -> Query {
+        Query(self.0.clone())
+    }
+
+    /// The default as the declaration document holds it: `{"Query": …}`.
+    fn _declaration(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let json = serde_json::json!({ "Query": serde_json::to_value(&self.0).map_err(crate::error::serialization_pyerr)? });
+        crate::store::json_to_py(py, &json)
+    }
+
+    fn __repr__(&self) -> String {
+        format!("link({:?})", self.0.encode())
+    }
+
+    fn __eq__(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+/// A default link: `query` (a `str`, an `lq.Query`, or an `lq.Key` read as `-R/<key>`) as an
+/// `lq.Link`, for a command parameter's default.
+#[pyfunction]
+pub fn link(query: &Bound<'_, PyAny>) -> PyResult<Link> {
+    if let Ok(key) = query.cast::<Key>() {
+        return Ok(Link(liquers_core::query::Query::from(&key.borrow().0)));
+    }
+    if let Ok(wrapped) = query.cast::<Query>() {
+        return Ok(Link(wrapped.borrow().0.clone()));
+    }
+    let text: String = query.extract().map_err(|_| {
+        pyo3::exceptions::PyTypeError::new_err("lq.link takes a str, an lq.Query or an lq.Key")
+    })?;
+    liquers_core::parse::parse_query(&text)
+        .map(Link)
+        .map_err(|e| crate::error::error_to_pyerr(query.py(), &e))
 }
 
 /// Parses query text into a `Query`.
