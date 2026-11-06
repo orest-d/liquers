@@ -452,6 +452,10 @@ deliberately folded behind a broader line.
 - design `lib-integration-test-feature-gates`
 - design `lib-polars-ethnum-rust-1-98`
 - design `library-no-panic-lint`
+- design `liquers-py-modules`
+- design `liquers-py-ui-window`
+- design `liquers-py-ui`
+- design `liquers-py-web-server`
 - design `liquers-web-records-bridge`
 - design `listdir-keys-deep-child-check`
 - design `macro-argument-hints-and-query-literals`
@@ -641,6 +645,7 @@ deliberately folded behind a broader line.
 - feature `ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE`
 - feature `ASSET-REGISTRATION-OWNERSHIP-CONTRACT`
 - feature `ASSETS-API-ADMIN-OPERATIONS`
+- feature `AXUM-HAS-NO-SERVER-WITH-GRACEFUL-SHUTDOWN`
 - feature `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS`
 - feature `COMMAND-ENUM-ALTERNATIVES-CANNOT-BE-COMPUTED`
 - feature `COMMAND-INPUT-OUTPUT-TYPES-ARE-UNDECLARED`
@@ -649,6 +654,7 @@ deliberately folded behind a broader line.
 - feature `DATA-FORMAT-CONSTANTS-AND-TOOLING`
 - feature `DEPENDENCY-ANALYSIS-REWALKS-UPSTREAM-PER-EVALUATION`
 - feature `DEPENDENCY-ANALYSIS-SUMMARIES-NOT-REUSED-ACROSS-EVALUATIONS`
+- feature `EGUI-HAS-NO-REUSABLE-NATIVE-APP`
 - feature `ENVIRONMENT-ORDERLY-SHUTDOWN`
 - feature `EXTENDED-SCALARS-NOT-MAPPED-BY-LANGUAGE-BRIDGES`
 - feature `EXTERNAL-INDEX-HAS-NO-RECONCILIATION-CONTRACT`
@@ -670,8 +676,13 @@ deliberately folded behind a broader line.
 - feature `NO-TEMPLATE-EDITOR-UI`
 - feature `NO-WRITE-PATH-FROM-RECORDS-INTO-A-RELATIONAL-DATABASE`
 - feature `PIPELINES-NOT-IN-LANGUAGE-BINDINGS`
+- feature `PY-CANNOT-IMPORT-MODULES-FROM-THE-STORE`
+- feature `PY-CANNOT-OPEN-A-LIQUERS-UI-WINDOW`
+- feature `PY-CANNOT-START-A-WEB-SERVER`
+- feature `PY-CANNOT-USE-A-LIQUERS-UI`
 - feature `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`
 - feature `PY-COMMAND-DECORATOR-CANNOT-SET-REALM`
+- feature `PY-WEB-SERVER-CANNOT-TAKE-PYTHON-HANDLERS`
 - feature `QUERY-BUILDER-NOT-IN-BINDINGS`
 - feature `QUERY-CANNOT-CHOOSE-A-DATA-FORMAT`
 - feature `QUERY-CANNOT-MARK-CACHED-INTERMEDIATES`
