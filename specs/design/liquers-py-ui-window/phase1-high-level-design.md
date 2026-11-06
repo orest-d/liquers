@@ -19,10 +19,15 @@ modes, for `VISION.md`'s UI roadmap item 1, the desktop egui application. Milest
   rule, the GIL and Ctrl-C.
 - **Open questions:**
   1. **Open design (blocking): egui in the wheels.** Recommended: every published wheel includes the
-     egui backend, so `pip install liquers-py` can open a window. Phase 2 measures the size added
-     to the 30.9 MB abi3 wheel, checks with `auditwheel show` and `ldd` that winit's X11 and Wayland
-     and glow's GL are loaded only when a window opens (so the wheel imports on a server with no
-     display libraries), and measures the build's disk use. Alternative: wheels without egui, a
+     egui backend, so `pip install liquers-py` can open a window. **Measured 2026-11-06** (Linux
+     x86_64, `--profile wheel --features abi3`, with a probe that links `eframe::run_native`,
+     `render_element` and the egui commands): the library grows from 85.3 MB to 104.4 MB
+     (+19.2 MB, +22%), and its deflate-compressed size, which approximates the wheel, from 29.6 MB
+     to 37.7 MB (+8.0 MB, +27%); the build takes 13m40s instead of 12m41s on four cores. `ldd`
+     lists no new library (only libc, libm, libgcc_s in both), so X11, Wayland and GL are loaded
+     at run time. Phase 2 still imports the egui wheel on a machine without display libraries and
+     runs `auditwheel show`, on the other platforms too. Owner's wish (2026-11-06): web UI, egui
+     and ratatui in the standard wheels unless that costs too much space. Alternative: wheels without egui, a
      source build with a `gui` feature, and `ui.run()` raising a typed error otherwise (AC-6). A
      separate `liquers-py-gui` package is not possible: a second native module links its own copy
      of `liquers-lib`, and an environment cannot cross between the two.
