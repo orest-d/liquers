@@ -167,3 +167,16 @@ def test_cancelled_await_cancels_the_read(env):
         assert run_async(main) == "slow"
     finally:
         release.set()
+
+
+def test_async_child_of_a_live_container_stays_live():
+    """A child from `get_async` on a Python container reads its kind again, as a `[]` child does."""
+    d = {"x": 1}
+
+    async def main():
+        return await lq.data_node(d).get_async("x")
+
+    child = run_async(main)
+    assert child.kind == lq.NodeKind.Integer
+    d["x"] = []
+    assert child.kind == lq.NodeKind.List and child.to_json() == []

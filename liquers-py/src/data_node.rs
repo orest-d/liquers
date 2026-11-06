@@ -380,10 +380,22 @@ impl PyNode {
                 Ok(serde_json::Value::Object(map))
             }
             Shape::ProtocolMap => {
+                // The keys as the object gives them, not `key_list`'s str-only filter: a key JSON
+                // cannot hold is an error, as for a dict, never a silently dropped entry.
+                let pyerr = |e: PyErr| crate::error::pyerr_to_error(py, &e);
+                let keys = object.call_method0("keys").map_err(pyerr)?;
                 let mut map = serde_json::Map::new();
-                for key in self.key_list(py) {
-                    if let Some(child) = self.child(py, &key) {
-                        map.insert(key, child.json(py, path)?);
+                for key in keys.try_iter().map_err(pyerr)? {
+                    let key = key.map_err(pyerr)?;
+                    let name = key.cast::<PyString>().map(|s| s.to_string()).map_err(|_| {
+                        Error::conversion_error_with_message(
+                            &type_name(object),
+                            "JSON",
+                            &format!("key {} is not a str", repr(&key)),
+                        )
+                    })?;
+                    if let Some(child) = self.child(py, &name) {
+                        map.insert(name, child.json(py, path)?);
                     }
                 }
                 Ok(serde_json::Value::Object(map))
@@ -827,7 +839,12 @@ impl DataNodeView {
         };
         match outcome {
             Outcome::Child(None) | Outcome::SameRoot(false, _) => None,
-            Outcome::SameRoot(true, kind) => Some(extend(kind)),
+            // A node root is live (a Python container can change), so its kind is read again
+            // each time, as the sync `get` does; a command's or environment's state is fixed.
+            Outcome::SameRoot(true, kind) => Some(extend(match root.as_ref() {
+                Root::Node(_) => None,
+                Root::Command { .. } | Root::Env { .. } => kind,
+            })),
             // A sync node holds no context, so it reads on its own from now on.
             Outcome::Child(Some(node @ AnyNode::Sync(_))) => Some(Self::of_node(node)),
             Outcome::Child(Some(AnyNode::Async(a))) => match root.as_ref() {
