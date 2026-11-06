@@ -29,7 +29,8 @@ the store's `web` folder and an index page, as LiQuer's server had. Milestone M7
   1. **Proposed resolution: the call and its configuration.** The server's settings are part of the
      environment's configuration document (a `server:` section of `lq.Environment(config=…)`:
      host, port, prefix, which APIs, read-only, `web` and `index`, the `ServerConfig` of
-     `axum-server-assembly`), and `env.serve(**overrides)` starts it with
+     `axum-server-assembly`, read from the document by `ServerConfig::from_document`, so
+     liquers-py keeps the configuration text it was given), and `env.serve(**overrides)` starts it with
      keyword arguments overriding the section (Decision 1). Defaults: `127.0.0.1:8080`, prefix
      `/liquer`, all four APIs, writes enabled, `background=True` (Decision 2). `lq.serve(…)` serves
      the default environment, as `lq.evaluate` does. It returns an `lq.Server` (`address`, `port`,
@@ -45,7 +46,7 @@ the store's `web` folder and an index page, as LiQuer's server had. Milestone M7
      running ones. A notebook cell `env.serve()` therefore keeps serving.
   4. **Proposed resolution: late registrations reach the server.** Each request is answered by the
      environment the handle has at that moment, so a command registered after `serve` is
-     callable over HTTP (AC-7). Phase 2 chooses the mechanism: a service that takes the current
+     callable over HTTP (AC-7). The web and index routes follow it like the others. Phase 2 chooses the mechanism: a service that takes the current
      `EnvRef` per request (as `mount_web`'s `current_env` does per tick), or landing
      `language-late-registration-without-rebuild` first. A rebuild starts a new asset manager, so
      WebSocket subscribers of the retired one see no further events; Phase 2 states the outcome.
@@ -66,10 +67,6 @@ the store's `web` folder and an index page, as LiQuer's server had. Milestone M7
      one builder for the standard APIs, the `web` route over the store's `web/` folder, the index
      page at `/` and `/index.html`, and a shutdown within a deadline. This design exposes it to
      Python; its open questions (computed web content, the index target) are decided there.
-  9. **Proposed resolution: putting content in the web folder from Python.** A configuration mount
-     at `web` (a folder of the host), or `env.store_set("web/index.html", …)` for generated pages;
-     no separate Python API. Shipping a built-in Liquers web UI under `web/` in the wheel belongs
-     with the UI designs and the wheel-contents decision.
   7. **Proposed resolution: Python handlers.** `WEBSERV06`–`08` stay `NS` in the conformance matrix,
      recorded in `PY-WEB-SERVER-CANNOT-TAKE-PYTHON-HANDLERS`. A custom endpoint is a command under
      `/liquer/q`.
@@ -79,6 +76,11 @@ the store's `web` folder and an index page, as LiQuer's server had. Milestone M7
      environment; a blocking call on the main thread ends on Ctrl-C after a graceful stop and raises
      `KeyboardInterrupt`; `env.shutdown()` and interpreter exit stop what the environment started,
      servers before commands are cancelled (`liquers-py/src/exit.rs`).
+  9. **Proposed resolution: putting content in the web folder from Python.** A configuration mount
+     at `web` (a folder of the host), or `env.store_set("web/index.html", …)` for generated pages;
+     no separate Python API. A page stored from Python is text with no media type, so the web route
+     takes the type from the key's extension (`axum-server-assembly` question 5). Shipping a built-in Liquers web UI under `web/` in the wheel belongs
+     with the UI designs and the wheel-contents decision.
 - **Decisions:**
   1. Orest, 2026-11-06, on question 5: "it should be part of the configuration. The philosophy for
      python is 'batteries included by default' so store writes should be enabled. There should be a
@@ -90,6 +92,8 @@ the store's `web` folder and an index page, as LiQuer's server had. Milestone M7
      "There are (at least) two needs: serving static content (similarly as the web folder in
      https://github.com/orest-d/liquer which exposes a predefined store) and serving /index.html."
      Added as AC-10 and AC-11 and question 9.
+     The web route's risks (pages stored over HTTP run on the API's origin) are named in
+     `axum-server-assembly` question 6.
 - **Deviations from Appendix A** (copied to the conformance matrix): `WEBSERV01`'s `ready()` and
   `WEBSERV04`'s `is_running()` are the `running` property; `shutdown(graceful=True)` is
   `shutdown(timeout=…)`, always graceful until the timeout; `inflight_requests()` is not offered
@@ -155,7 +159,7 @@ the block ends. `greet-Ann` validates with `greet` declared (`liquers-validate -
   THEN `GET {url}/liquer/web/` returns `index.html` as `text/html` and `…/web/app.js` the script
 - **AC-11** The index page (addition, Decision 3)
   WHEN a browser opens `{url}/` or `{url}/index.html`
-  THEN it reaches the web folder's `index.html`, or the configured `index` target
+  THEN it reaches the web folder's `index.html`, the configured `index` target, or the built-in page
 
 Non-goals: Python handlers and middleware (question 7); TLS; authentication; a Python web framework
 (`WEBAPI`, milestone M8); one server over several environments.

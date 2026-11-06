@@ -4,7 +4,7 @@ kind: feature
 title: The Liquers HTTP server cannot serve a web application from the store or answer at /index.html
 status: draft
 priority: P2
-complexity: M
+complexity: L
 area: [axum]
 design: axum-server-assembly
 created: 2026-11-06

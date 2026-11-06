@@ -13,44 +13,71 @@ links") and is the prerequisite of [`liquers-py-web-server`](../liquers-py-web-s
 
 ## Design Readiness
 
-- **Readiness:** `needs-decision`: Phase 1 written; questions 2 and 3 wait for the Phase 1 gate.
+- **Readiness:** `needs-decision`: Phase 1 written and reviewed twice; questions 2 and 3 wait for
+  the Phase 1 gate.
 - **Automatic fixing:** `not-eligible`: new public API of `liquers-axum`, complexity `L`.
-- **Leading issue:** question 2, whether web content may be computed. Source issues
-  `AXUM-CANNOT-SERVE-STATIC-WEB-CONTENT` (P2 M, filed with this design) and
-  `AXUM-HAS-NO-SERVER-WITH-GRACEFUL-SHUTDOWN` (P2 M).
+- **Leading issue:** question 2, how web content is read. Source issues
+  `AXUM-CANNOT-SERVE-STATIC-WEB-CONTENT` (P2 L, leading) and
+  `AXUM-HAS-NO-SERVER-WITH-GRACEFUL-SHUTDOWN` (P2 M), merged into this design on 2026-11-06 because
+  both change the same site (overlap test T3): the builder and its `ServerConfig`, and
+  `examples/basic_server.rs`. If question 2 or 3 holds up M7, the shutdown half can be split off.
 - **Explanation:** the four route builders exist (`liquers-axum/src/*/builder.rs`), each a
-  `Router<EnvRef<E>>`; `examples/basic_server.rs` merges them and calls a bare `axum::serve`, which
-  cannot stop on request, and the assets WebSocket tasks are spawned apart from it
-  (`assets/websocket.rs`). Nothing serves a store folder as a website or answers `/`.
+  `Router<EnvRef<E>>`; `examples/basic_server.rs` merges them and calls a bare `axum::serve`. axum
+  0.8's graceful shutdown has no deadline, its connection tasks are detached, and the assets
+  WebSocket tasks are spawned at upgrade (`assets/websocket.rs`), outside it. `MetadataRecord` has
+  no ETag or modification time: those exist only in a store's `DataFacts`, and only where the
+  backend reports them. Nothing serves a store folder as a website or answers `/`.
 - **Open questions:**
   1. **Proposed resolution: one builder and its settings.** `LiquersServerBuilder::new(prefix)` with
-     switches for each API (as the builders have them: `read_only`, `without_websocket`, timeouts),
-     `web(root_key)` and `index(target)`, built from a serde `ServerConfig` (host, port, prefix,
-     apis, read_only, web, index) that any host can read from its configuration document. `bind`
-     returns a running `LiquersServer` with its bound address and `shutdown(deadline)`.
-  2. **Open design: web content as stored files or as assets.** `GET {prefix}/web/{path}` answers
-     with store key `web/{path}`: a path ending in `/`, or naming a folder, gets its `index.html`
-     (LiQuer's rule); `Content-Type` comes from the metadata's media type; `GET` and `HEAD` only.
-     Recommended: read it through the asset manager, as `GET …/api/assets/key/data/…` does, so a
-     stored file is returned as is and a recipe in `web/` (a page rendered from a template, a chart)
-     is computed once and cached: "everything is an asset". Alternative: stored bytes only, as LiQuer
-     did, which never computes and is simpler to cache.
+     the builders' switches (`read_only`, `without_websocket`, timeouts), an extensible set of APIs
+     (later ones such as registry publication plug in), `web` and `index`. `ServerConfig` (serde,
+     in `liquers-axum`, `deny_unknown_fields`) reads the `server` section of a configuration
+     document (`ServerConfig::from_document`); core's `EnvironmentConfig` is not changed. Keys:
+     `host`, `port`, `prefix`, `apis`, `read_only`, `web` (the root key, default `web`; `false`
+     turns the route off), `index`. `bind` returns a running `LiquersServer` with its bound address
+     and `shutdown(deadline)`. No CORS layer, deliberately, as today.
+  2. **Open design: how web content is read.** `GET {prefix}/web/{path}` answers with key
+     `<root>/{path}`. Recommended, a hybrid: a **stored** file is read from the store each time
+     (`get_data` with its metadata), so an edited file is served at once and nothing stays in
+     memory; a key that is **not stored** but has a recipe (`can_make`) is computed through the
+     asset manager and cached ("everything is an asset", a page rendered from a template); any
+     other key is 404 without touching the asset manager. Alternatives: everything through the
+     asset manager, which serves an edited file stale until the asset expires and keeps every file
+     in memory; or stored files only, as LiQuer did, with no computed pages.
   3. **Open design: the index page.** Recommended: `GET /` and `GET /index.html` redirect to
-     `{prefix}/web/` (so a web app's relative links resolve under `web/`), and `index` may name another
-     path or a query (`{prefix}/q/…`) to redirect to. When the target does not exist, a small built-in
-     page names the server version and links the API roots instead of a bare 404. Alternative: serve
-     the index content at `/` itself, without a redirect.
-  4. **Proposed resolution: the web folder is part of the store.** `web` is a key prefix of the
-     environment's store, not a second store: a configuration mount puts a filesystem folder there
-     (`prefix: web`, `type: filesystem`), several mounts can share it (`web/app1`, `web/app2`), and its
-     content is also reachable through the store and assets APIs. Whether it is writable is the
-     mount's `read_only`. No mount at `web` means the route answers 404.
-  5. **Proposed resolution: shutdown in two stages.** The server owns its accept loop: on
-     `shutdown(deadline)` it stops accepting, lets in-flight requests and WebSocket tasks finish
-     (they receive a cancellation signal and close their sockets), and aborts what is left at the
-     deadline; the port is free when `shutdown` returns.
-  6. **Proposed resolution: caching headers.** Web responses carry `ETag` and `Last-Modified` from
-     the metadata, and a conditional `GET` answers 304, so a browser does not re-download an app.
+     `{prefix}/web/` (so a web app's relative links resolve under `web/`); `index` may name another
+     path or a query (`{prefix}/q/…`). When the target does not exist at request time, a small
+     built-in page links the API roots instead of a bare 404; it names no version. Alternative:
+     serve the index content at `/` itself.
+  4. **Proposed resolution: the web folder is part of the store.** A configuration mount puts a
+     filesystem folder at `web` (`prefix: web`, `type: filesystem`), several mounts can share it
+     (`web/app1`, `web/app2`), and the store and assets APIs reach it too. Whether it is writable is
+     the mount's `read_only`; the docs recommend a read-only mount (question 6).
+  5. **Proposed resolution: HTTP details of the web route.** `Content-Type` from the metadata's
+     media type, else from the key's extension (`liquers-core/src/media_type.rs`: `.html`, `.js`,
+     `.css`, `.wasm`, `.svg`, …), else `application/octet-stream`, with
+     `X-Content-Type-Options: nosniff`. A folder addressed with a trailing slash gives its
+     `index.html`; without one it is redirected (308) to the slash form, so relative links work.
+     `{prefix}/web` and `{prefix}/web/` have their own routes. `ETag` is the content hash
+     (`Version::from_content`), so it exists for stored and computed content alike; `Last-Modified`
+     only when the store's `data_facts` reports one; a matching `If-None-Match` answers 304. `HEAD`
+     is answered like `GET` without the body. A path that is not a valid absolute key is 404. Key
+     names allow letters, digits, `_`, `.` and `-`, so some bundler filenames (`chunk~x.js`,
+     `[slug]`, `@scope`) cannot be served (`KEY-NAMES-CANNOT-HOLD-COMMON-WEB-FILENAMES`, filed with
+     this design).
+  6. **Proposed resolution: name the risks, for the security guideline.** With writes enabled, any
+     client that reaches the server can store `web/x.html`, and the page then runs on the same
+     origin as the write APIs (stored cross-site scripting); a query `GET` can run a command that
+     writes, whatever `read_only` says; under question 2 an anonymous `GET` can start a
+     computation. Each goes into `SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED`, with the remedy
+     (a read-only `web` mount, `127.0.0.1`, a proxy).
+  7. **Proposed resolution: shutdown in two stages.** The server owns its accept loop
+     (`hyper-util`'s connection builder and graceful watcher, connections in a `JoinSet`): on
+     `shutdown(deadline)` it stops accepting, lets in-flight requests finish, signals WebSocket
+     tasks through a cancellation token so they send a Close frame, and aborts what is left at the
+     deadline; the port is free when `shutdown` returns. Aborting a request does not cancel an
+     evaluation it started: draining or cancelling the environment is the host's choice
+     (`environment-orderly-shutdown`).
 
 ## Problem Example
 
@@ -59,6 +86,7 @@ store:
   stores:
     - type: filesystem
       prefix: web
+      read_only: true
       config: { path: ./site }          # ./site/index.html, ./site/app.js
 server:
   port: 8080
@@ -73,65 +101,79 @@ which returns `./site/index.html` as `text/html`; `GET /liquer/web/app.js` retur
 ## Scope and Acceptance Criteria
 
 - **AC-1** Static content from the web folder
-  WHEN `web/app.js` is stored with media type `text/javascript` and `GET {prefix}/web/app.js` arrives
-  THEN the response is its bytes with that `Content-Type`, and a missing key answers 404
-- **AC-2** A folder serves its index.html
-  WHEN `GET {prefix}/web/` or `GET {prefix}/web/docs` names a folder holding `index.html`
-  THEN that file is returned
+  WHEN `GET {prefix}/web/app.js` names a stored file
+  THEN the response is its current bytes with the metadata's media type, and a missing key is 404
+- **AC-2** Folders
+  WHEN `GET {prefix}/web/` or `GET {prefix}/web/docs/` names a folder holding `index.html`, and
+  `GET {prefix}/web/docs` omits the slash
+  THEN the first two return that `index.html`, and the third redirects (308) to `…/docs/`
 - **AC-3** The index page
   WHEN `GET /` or `GET /index.html` arrives
-  THEN the response redirects to `{prefix}/web/`, or to the configured `index` target; with no
-  target present, the built-in page is returned (question 3)
+  THEN it redirects to `{prefix}/web/` or the configured `index`; with no target present, the
+  built-in page is returned
 - **AC-4** Computed web content (question 2)
-  WHEN `web/report.html` is a recipe and is requested twice
+  WHEN `web/report.html` is not stored but has a recipe, and is requested twice
   THEN it is computed once and both responses return the same page
-- **AC-5** Conditional requests
-  WHEN a request repeats with the `ETag` it received
-  THEN the response is 304 with no body
-- **AC-6** One builder for the standard APIs
+- **AC-5** Content types without metadata
+  WHEN a file with no media type in its metadata (a plain filesystem mount, or text stored from a
+  binding) is requested as `index.html`, `app.js` or `app.wasm`
+  THEN it is served as `text/html`, `text/javascript` or `application/wasm`, with `nosniff`
+- **AC-6** Conditional requests
+  WHEN a request for a stored or a computed page repeats with the `ETag` it received
+  THEN the response is 304 with no body, and after the file changes it is 200 with the new bytes
+- **AC-7** One builder for the standard APIs
   WHEN a host builds the server from a `ServerConfig` that disables the store API and sets
   `read_only`
   THEN no store route exists and every assets mutation is refused, the others answering as today
-- **AC-7** Bound address and startup errors
-  WHEN the server binds port 0, or a port already in use
+- **AC-8** Bound address and startup errors
+  WHEN the server binds port 0, or a port already in use, or a `server` section has an unknown key
   THEN it reports the bound port, or returns a typed `Error` with nothing left listening
-- **AC-8** Graceful shutdown within a deadline
+- **AC-9** Graceful shutdown within a deadline
   WHEN `shutdown(d)` is called with a slow request and an open WebSocket in flight
-  THEN new connections are refused, the request completes if it ends within `d`, the WebSocket is
-  closed, everything is gone after `d`, and the port is free
+  THEN new connections are refused, the request completes if it ends within `d`, the WebSocket gets
+  a Close frame, everything is gone after `d`, and the port is free
 
-Non-goals: authentication and TLS; directory listings over `web/`; Python handlers; following an
-environment rebuild (the host gives the server its environment; `liquers-py-web-server` question 4).
+Non-goals: authentication, TLS and CORS; directory listings over `web/`; range requests and
+streaming (`store-streaming-read-write`); Python handlers; following an environment rebuild (the host
+gives the server its environment; `liquers-py-web-server` question 4).
 
 ## Core Interactions
 
-Web/API: a new server builder and the `web` and index routes. Store and assets: `web/` keys read
-through the asset manager. Configuration: a `server` section.
+Web/API: a server builder, the `web` and index routes, the accept loop. Store and assets: `web/`
+keys read from the store, recipes through the asset manager. Configuration: a `server` section.
 
 ## Crate Placement
 
-`liquers-axum` only (core and store dependencies, unchanged): a new `server` module and a `web`
-module; `examples/basic_server.rs` moves onto it.
+`liquers-axum` only (core and store dependencies, plus `hyper-util` and `tokio-util`, already in the
+lock file): new `server` and `web` modules; `assets/websocket.rs` takes the cancellation token;
+`examples/basic_server.rs` moves onto the builder.
 
 ## Documentation Intent
 
 - Reference: `WEB_API_SPECIFICATION.md` gains the web and index routes and the server builder.
 - Guide: `WEB_API_GUIDE.md`, "Start a server" and "Serve a web application from the store".
 - Other documents: `liquers-axum/README.md`; `specs/README.md`.
-- Documents to update: the serving chapters `docs_index.py chapters-for` lists; the server settings
-  join the security guideline (`SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED`).
+- Documents to update: user guide chapters `docs/guides/{rust,python,web}/12-serving.md`; the
+  risks of question 6 go to the security guideline and the guides' security chapter
+  (`SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED`).
 - API docs: the module docs of the new `liquers-axum/src/server` and `web` modules and of
   `liquers-axum/src/lib.rs`.
 
 ## Design Dependencies
 
 - `liquers-py-web-server`: **required-by**.
-- `http-accept-negotiation`, `http-request-body-limit`, `axum-websocket-connection-limits`,
-  `access-policy-at-entry-points` (in review): **overlap**; their settings become builder settings.
+- `environment-orderly-shutdown` (in review): **overlaps** question 7, the server stop it names.
+- `http-request-body-limit` (in review): **overlaps**; it also edits `examples/basic_server.rs`,
+  so whichever lands second rebases. `http-accept-negotiation`, `axum-websocket-connection-limits`,
+  `asset-events-over-websocket` (a second WebSocket shutdown must close), `unmanaged-asset-registry`,
+  `registry-publication` (a fifth API), `access-policy-at-entry-points` (in review): **overlap**;
+  their settings and routes become builder settings.
+- `store-streaming-read-write`, `value-serialization-streaming` (in review): **overlap**; web
+  responses are buffered whole until they land.
 - `web-api-spec-read-only-mount` (complete): the way to make `web/` read-only.
 
 ## References
 
-`liquers-axum/src/*/builder.rs`, `examples/basic_server.rs`, `assets/websocket.rs`;
-`reference/WEB_API_SPECIFICATION.md`; LiQuer `liquer/server/blueprint.py` (`/`, `/index.html`,
-`/web/<path>`).
+`liquers-axum/src/*/builder.rs`, `assets/common.rs`, `assets/websocket.rs`, `axum_integration.rs`;
+`liquers-core/src/media_type.rs`, `metadata.rs` `Version::from_content`, `store.rs` `DataFacts`,
+`environment_config.rs`; `reference/STORE_SEMANTICS.md`; LiQuer `liquer/server/blueprint.py`.

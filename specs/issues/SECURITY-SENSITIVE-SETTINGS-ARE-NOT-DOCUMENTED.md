@@ -22,8 +22,12 @@ Several Liquers settings decide what an untrusted party can do, and none is docu
 - the pickle codec of liquers-py (`Environment(pickle=True)`) decodes stored bytes into Python
   objects, which runs code;
 - a store mount is writable unless `read_only`;
-- the planned `liquers-py-modules` search path executes code read from the store, and the planned
-  `liquers-py-web-server` starts a server with writes enabled by default.
+- the planned `liquers-py-modules` search path (deferred, PR #265) executes code read from the
+  store, and the planned `liquers-py-web-server` starts a server with writes enabled by default;
+- the planned web route of `axum-server-assembly` serves `web/` pages on the same origin as the
+  write APIs, so a page stored by any client that can write runs with access to them (stored
+  cross-site scripting), and an anonymous `GET` of a recipe-backed page starts a computation;
+- a query `GET` can run a command that writes, whatever the server's `read_only` says.
 
 There is no `specs/` guideline that lists them, and none of the user guides
 (`docs/guides/{rust,python,web}/`) has a section on security.

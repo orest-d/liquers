@@ -20,7 +20,7 @@ other host can start: the standard APIs, static content from the store's `web` f
 and a graceful shutdown. Full form (`L`). Lands first, in its own PR.
 
 Phase 1 written on 2026-11-06, after Orest named static content and `/index.html` as the server's
-two needs.
+two needs, and reviewed twice (conformity and records; codebase and soundness); findings applied.
 
 ## Phases
 
