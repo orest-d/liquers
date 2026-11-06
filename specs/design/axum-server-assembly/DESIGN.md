@@ -11,6 +11,7 @@ area: [axum]
 issues: [AXUM-CANNOT-SERVE-STATIC-WEB-CONTENT, AXUM-HAS-NO-SERVER-WITH-GRACEFUL-SHUTDOWN]
 affects_docs: [specs/reference/WEB_API_SPECIFICATION.md, specs/guides/WEB_API_GUIDE.md, liquers-axum/README.md, specs/README.md]
 created: 2026-11-06
+merged: 2026-11-06
 ---
 # axum-server-assembly — one server for every host
 
