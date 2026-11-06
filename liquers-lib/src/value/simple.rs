@@ -44,27 +44,29 @@ pub enum SimpleValue {
     Bytes {
         value: Vec<u8>,
     },
+    // The four large payloads are behind `Arc`, as in core's `Value`
+    // (`specs/design/core-value-enum-oversized/`).
     Metadata {
-        value: MetadataRecord,
+        value: Arc<MetadataRecord>,
     },
     AssetInfo {
         value: Vec<AssetInfo>,
     },
     Recipe {
-        value: Recipe,
+        value: Arc<Recipe>,
     },
     CommandMetadata {
-        value: CommandMetadata,
+        value: Arc<CommandMetadata>,
     },
     Query {
-        value: Query,
+        value: Arc<Query>,
     },
     Key {
         value: Key,
     },
     /// A pipeline: the structured form of a query (`liquers_core::pipeline`).
     Pipeline {
-        value: liquers_core::pipeline::Pipeline,
+        value: Arc<liquers_core::pipeline::Pipeline>,
     },
 }
 impl Default for SimpleValue {
@@ -80,7 +82,7 @@ impl ValueInterface for SimpleValue {
 
     fn try_into_query(&self) -> Result<Query, Error> {
         match self {
-            SimpleValue::Query { value } => Ok(value.clone()),
+            SimpleValue::Query { value } => Ok(value.as_ref().clone()),
             SimpleValue::Text { value: s } => liquers_core::parse::parse_query(s)
                 .map_err(|e| Error::from_error(ErrorType::ParseError, e)),
             _ => Err(Error::conversion_error(self.identifier(), "Query")),
@@ -373,7 +375,7 @@ impl ValueInterface for SimpleValue {
 
     fn try_into_command_metadata(&self) -> Result<CommandMetadata, Error> {
         match self {
-            SimpleValue::CommandMetadata { value } => Ok(value.clone()),
+            SimpleValue::CommandMetadata { value } => Ok(value.as_ref().clone()),
             _ => Err(Error::conversion_error(
                 self.identifier(),
                 "command metadata",
@@ -390,7 +392,7 @@ impl ValueInterface for SimpleValue {
     }
 
     fn from_metadata(metadata: liquers_core::metadata::MetadataRecord) -> Self {
-        SimpleValue::Metadata { value: metadata }
+        SimpleValue::Metadata { value: Arc::new(metadata) }
     }
 
     fn from_asset_info(asset_info: Vec<AssetInfo>) -> Self {
@@ -398,13 +400,13 @@ impl ValueInterface for SimpleValue {
     }
 
     fn from_recipe(recipe: liquers_core::recipes::Recipe) -> Self {
-        SimpleValue::Recipe { value: recipe }
+        SimpleValue::Recipe { value: Arc::new(recipe) }
     }
 
     fn try_into_pipeline(&self) -> Result<liquers_core::pipeline::Pipeline, Error> {
         match self {
-            SimpleValue::Pipeline { value } => Ok(value.clone()),
-            SimpleValue::Query { value } => liquers_core::pipeline::Pipeline::try_from(value),
+            SimpleValue::Pipeline { value } => Ok(value.as_ref().clone()),
+            SimpleValue::Query { value } => liquers_core::pipeline::Pipeline::try_from(value.as_ref()),
             SimpleValue::Array { .. } | SimpleValue::Object { .. } => {
                 liquers_core::pipeline::Pipeline::from_json(&self.try_into_json_value()?)
             }
@@ -433,18 +435,18 @@ impl ValueInterface for SimpleValue {
     }
 
     fn from_pipeline(pipeline: liquers_core::pipeline::Pipeline) -> Self {
-        SimpleValue::Pipeline { value: pipeline }
+        SimpleValue::Pipeline { value: Arc::new(pipeline) }
     }
 
     fn from_command_metadata(command_metadata: CommandMetadata) -> Self {
         SimpleValue::CommandMetadata {
-            value: command_metadata,
+            value: Arc::new(command_metadata),
         }
     }
 
     fn from_query(query: &liquers_core::query::Query) -> Self {
         SimpleValue::Query {
-            value: query.clone(),
+            value: Arc::new(query.clone()),
         }
     }
 
@@ -746,10 +748,10 @@ impl DefaultValueSerializer for SimpleValue {
                 match type_identifier {
                     // Written as their encoded form, read back as themselves, as core does.
                     "Query" => liquers_core::parse::parse_query(&s)
-                        .map(|value| SimpleValue::Query { value }),
+                        .map(|value| SimpleValue::Query { value: Arc::new(value) }),
                     "Key" => liquers_core::parse::parse_key(&s).map(|value| SimpleValue::Key { value }),
                     "Pipeline" => liquers_core::pipeline::Pipeline::from_query_text(&s)
-                        .map(|value| SimpleValue::Pipeline { value }),
+                        .map(|value| SimpleValue::Pipeline { value: Arc::new(value) }),
                     // Written raw; reading it as text would lose every byte that is not UTF-8.
                     "Bytes" => Ok(SimpleValue::Bytes { value: b.to_vec() }),
                     // Scalars are parsed as core `Value` parses them; text that does not parse
@@ -822,19 +824,19 @@ impl DefaultValueSerializer for SimpleValue {
                     .and_then(|v| liquers_core::value::json_f64::from_json(&v))
                     .map(|value| SimpleValue::F64 { value }),
                 "Metadata" => serde_json::from_slice::<MetadataRecord>(b)
-                    .map(|value| SimpleValue::Metadata { value })
+                    .map(|value| SimpleValue::Metadata { value: Arc::new(value) })
                     .map_err(|e| Error::from_error(ErrorType::ParseError, e)),
                 "AssetInfo" => serde_json::from_slice::<Vec<AssetInfo>>(b)
                     .map(|value| SimpleValue::AssetInfo { value })
                     .map_err(|e| Error::from_error(ErrorType::ParseError, e)),
                 "Recipe" => serde_json::from_slice::<Recipe>(b)
-                    .map(|value| SimpleValue::Recipe { value })
+                    .map(|value| SimpleValue::Recipe { value: Arc::new(value) })
                     .map_err(|e| Error::from_error(ErrorType::ParseError, e)),
                 "Pipeline" => serde_json::from_slice::<liquers_core::pipeline::Pipeline>(b)
-                    .map(|value| SimpleValue::Pipeline { value })
+                    .map(|value| SimpleValue::Pipeline { value: Arc::new(value) })
                     .map_err(|e| Error::from_error(ErrorType::ParseError, e)),
                 "CommandMetadata" => serde_json::from_slice::<CommandMetadata>(b)
-                    .map(|value| SimpleValue::CommandMetadata { value })
+                    .map(|value| SimpleValue::CommandMetadata { value: Arc::new(value) })
                     .map_err(|e| Error::from_error(ErrorType::ParseError, e)),
                 "Array" | "Object" | "Bytes" | "Query" | "Key" => {
                     match serde_json::from_slice::<SimpleValue>(b) {
@@ -845,7 +847,7 @@ impl DefaultValueSerializer for SimpleValue {
                 _ => Self::from_plain_json(b),
             },
             "yaml" | "yml" if type_identifier == "Pipeline" => serde_yaml::from_slice(b)
-                .map(|value| SimpleValue::Pipeline { value })
+                .map(|value| SimpleValue::Pipeline { value: Arc::new(value) })
                 .map_err(|e| Error::from_error(ErrorType::SerializationError, e)),
             "yaml" | "yml" => {
                 let json_value: serde_json::Value = serde_yaml::from_slice(b)
@@ -1248,14 +1250,14 @@ mod tests {
                 SimpleValue::Object { value: map }
             }
             "Bytes" => SimpleValue::Bytes { value: vec![0, 1, 254] },
-            "Metadata" => SimpleValue::Metadata { value: MetadataRecord::new() },
+            "Metadata" => SimpleValue::Metadata { value: Arc::new(MetadataRecord::new()) },
             "AssetInfo" => SimpleValue::AssetInfo { value: vec![AssetInfo::new()] },
-            "Recipe" => SimpleValue::Recipe { value: Recipe::default() },
+            "Recipe" => SimpleValue::Recipe { value: Arc::new(Recipe::default()) },
             "Pipeline" => SimpleValue::Pipeline {
-                value: liquers_core::pipeline::Pipeline::from_query_text("-R/a/b.csv/-/x-1/y").ok()?,
+                value: Arc::new(liquers_core::pipeline::Pipeline::from_query_text("-R/a/b.csv/-/x-1/y").ok()?),
             },
-            "CommandMetadata" => SimpleValue::CommandMetadata { value: CommandMetadata::default() },
-            "Query" => SimpleValue::Query { value: liquers_core::parse::parse_query("a/b").ok()? },
+            "CommandMetadata" => SimpleValue::CommandMetadata { value: Arc::new(CommandMetadata::default()) },
+            "Query" => SimpleValue::Query { value: Arc::new(liquers_core::parse::parse_query("a/b").ok()?) },
             "Key" => SimpleValue::Key { value: liquers_core::parse::parse_key("a/b").ok()? },
             _ => return None,
         };
@@ -1367,7 +1369,7 @@ mod tests {
             "F64" => CoreValue::F64(1.5),
             "Text" => CoreValue::Text("hello".to_string()),
             "Bytes" => CoreValue::Bytes(vec![0, 1, 254]),
-            "Query" => CoreValue::Query(liquers_core::parse::parse_query("a/b").ok()?),
+            "Query" => CoreValue::Query(Arc::new(liquers_core::parse::parse_query("a/b").ok()?)),
             "Key" => CoreValue::Key(liquers_core::parse::parse_key("a/b").ok()?),
             _ => return None,
         };
@@ -1405,11 +1407,66 @@ mod tests {
         Ok(())
     }
 
+    /// `core-value-enum-oversized` AC-2: the library enums are at most 32 bytes too.
+    #[test]
+    fn simple_and_lib_values_are_at_most_32_bytes() {
+        let simple = std::mem::size_of::<SimpleValue>();
+        let lib = std::mem::size_of::<crate::value::Value>();
+        assert!(simple <= 32, "SimpleValue is {simple} bytes");
+        assert!(lib <= 32, "liquers_lib::value::Value is {lib} bytes");
+    }
+
+    /// AC-3, AC-4: the large variants are written as their bare payload, read back equal, and a
+    /// clone shares the payload.
+    #[test]
+    fn simple_large_variants_round_trip_through_json() -> Result<(), Box<dyn std::error::Error>> {
+        let query = liquers_core::parse::parse_query("-R/data/x.csv/-/ns-pl/head-5")?;
+        let mut metadata = MetadataRecord::new();
+        metadata.with_title("Title".to_string());
+        let values = vec![
+            SimpleValue::from_metadata(metadata),
+            SimpleValue::from_recipe(Recipe::new(query.encode(), "R".to_string(), String::new())?),
+            SimpleValue::from_command_metadata(CommandMetadata::new("test")),
+            SimpleValue::from_query(&query),
+        ];
+        for value in values {
+            let identifier = value.identifier();
+            let (payload, shared) = match (&value, &value.clone()) {
+                (SimpleValue::Metadata { value: a }, SimpleValue::Metadata { value: b }) => {
+                    (serde_json::to_value(a.as_ref())?, Arc::ptr_eq(a, b))
+                }
+                (SimpleValue::Recipe { value: a }, SimpleValue::Recipe { value: b }) => {
+                    (serde_json::to_value(a.as_ref())?, Arc::ptr_eq(a, b))
+                }
+                (SimpleValue::CommandMetadata { value: a }, SimpleValue::CommandMetadata { value: b }) => {
+                    (serde_json::to_value(a.as_ref())?, Arc::ptr_eq(a, b))
+                }
+                (SimpleValue::Query { value: a }, SimpleValue::Query { value: b }) => {
+                    (serde_json::to_value(a.as_ref())?, Arc::ptr_eq(a, b))
+                }
+                other => panic!("unexpected pair {other:?}"),
+            };
+            assert!(shared, "{identifier}: a clone shares the payload");
+            if identifier != "Query" {
+                let bytes = value.as_bytes("json")?;
+                let written: serde_json::Value = serde_json::from_slice(&bytes)?;
+                assert_eq!(written, payload, "{identifier}: bytes are the bare payload");
+                let back = SimpleValue::deserialize_from_bytes(&bytes, &identifier, "json")?;
+                assert_eq!(back, value, "{identifier}: round trip");
+            } else {
+                let bytes = value.as_bytes("txt")?;
+                let back = SimpleValue::deserialize_from_bytes(&bytes, &identifier, "txt")?;
+                assert_eq!(back, value, "{identifier}: round trip");
+            }
+        }
+        Ok(())
+    }
+
     #[test]
     fn query_as_txt_matches_core() -> Result<(), Box<dyn std::error::Error>> {
         let query = liquers_core::parse::parse_query("-R/a/b.txt")?;
-        let simple = SimpleValue::Query { value: query.clone() };
-        let core = liquers_core::value::Value::Query(query);
+        let simple = SimpleValue::Query { value: Arc::new(query.clone()) };
+        let core = liquers_core::value::Value::Query(Arc::new(query));
         assert_eq!(simple.as_bytes("txt")?, core.as_bytes("txt")?);
         assert_eq!(
             SimpleValue::deserialize_from_bytes(&simple.as_bytes("txt")?, "Query", "txt")?,

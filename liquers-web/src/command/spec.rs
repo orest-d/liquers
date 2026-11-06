@@ -58,6 +58,16 @@
 //!   arguments: [{ name: "who", default: "world" }],
 //! });
 //! ```
+//!
+//! A **template command** (`TEMPLATE02`) has a `template` instead: the link (a query string or a
+//! `liquers.Query`) of the template it renders. It is the alias of `template/render` of
+//! `specs/guides/TEMPLATE_GUIDE.md` §3 with the link as head parameter, so it has no function and
+//! its arguments are `render`'s (`data`, `errors`, `cwd`); `run`, `state`, `async`, `pipeline` and
+//! `arguments` are refused beside it:
+//!
+//! ```javascript
+//! liquers.registerCommand({ name: "greeting", template: "-R/templates/greet.md" });
+//! ```
 
 use liquers_core::command_declaration::CommandDeclaration;
 use liquers_core::command_metadata::{ArgumentInfo, CommandKey, CommandMetadata};
@@ -126,7 +136,8 @@ pub struct JsCommandSpec {
     pub metadata: CommandMetadata,
     pub state_mode: StateMode,
     pub is_async: IsAsync,
-    /// The implementation; `None` for a pipeline command, whose body is `metadata.definition`.
+    /// The implementation; `None` for a pipeline or template command, whose behaviour is
+    /// `metadata.definition`.
     pub run: Option<js_sys::Function>,
     /// Whether the argument list was inferred rather than declared. Reported by
     /// `describeCommand` so inference is never invisible (`COMMAND05`).
@@ -154,9 +165,12 @@ fn without_run(spec: &JsValue) -> Result<js_sys::Object, Error> {
     let source = js_sys::Object::from(spec.clone());
     let copy = js_sys::Object::new();
     for key in js_sys::Object::keys(&source).iter() {
-        // `pipeline` is read by `check_inner` itself; the shared declaration format has no field
-        // for it.
-        if matches!(key.as_string().as_deref(), Some("run") | Some("pipeline")) {
+        // `pipeline` and `template` are read by `check_inner` itself; the shared declaration
+        // format has no field for either.
+        if matches!(
+            key.as_string().as_deref(),
+            Some("run") | Some("pipeline") | Some("template")
+        ) {
             continue;
         }
         let value = js_sys::Reflect::get(&source, &key).map_err(|_| {
@@ -191,8 +205,9 @@ fn one_issue(issue: Issue) -> IssueReport {
 }
 
 impl JsCommandSpec {
-    /// Whether this is a pipeline command: registered as metadata only, with no function.
-    pub fn is_pipeline(&self) -> bool {
+    /// Whether this is a definition command (a pipeline or template command): registered as
+    /// metadata only, with no function.
+    pub fn is_definition(&self) -> bool {
         self.run.is_none()
     }
 
@@ -264,6 +279,23 @@ impl JsCommandSpec {
         let (realm, namespace) = (text_field("realm"), text_field("namespace"));
         let refuse = |message: String| one_issue(command_issue(&realm, &namespace, &name, message));
 
+        let template = match reflect_get(spec, "template") {
+            Some(link) => {
+                for field in ["run", "state", "async", "pipeline", "arguments"] {
+                    if reflect_get(spec, field).is_some() {
+                        return Err(refuse(format!(
+                            "Command {name:?} has a `template`, so it takes no `{field}`: a \
+                             template command renders its template, with `render`'s arguments"
+                        )));
+                    }
+                }
+                Some(
+                    template_link(&link)
+                        .map_err(|e| refuse(format!("Command {name:?}: {}", e.message)))?,
+                )
+            }
+            None => None,
+        };
         let pipeline = match reflect_get(spec, "pipeline") {
             Some(body) => {
                 for field in ["run", "state", "async"] {
@@ -281,14 +313,15 @@ impl JsCommandSpec {
             }
             None => None,
         };
-        let run: Option<js_sys::Function> = match &pipeline {
-            Some(_) => None,
-            None => Some(
+        let run: Option<js_sys::Function> = match (&pipeline, &template) {
+            (Some(_), _) | (_, Some(_)) => None,
+            (None, None) => Some(
                 reflect_get(spec, "run")
                     .filter(|v| v.is_function())
                     .ok_or_else(|| {
                         refuse(format!(
-                            "Command {name:?} must have a `run` function or a `pipeline`"
+                            "Command {name:?} must have a `run` function, a `pipeline` or a \
+                             `template`"
                         ))
                     })?
                     .unchecked_into(),
@@ -364,6 +397,19 @@ impl JsCommandSpec {
                 liquers_core::command_metadata::CommandDefinition::Pipeline { pipeline };
             context_position = None;
         }
+        if let Some(link) = template {
+            // The fields `CommandRegistry::register_alias` copies from the target are completed
+            // against the registry when the batch is checked and registered
+            // (`adapter::complete_definition`).
+            metadata.arguments = template_command_arguments();
+            metadata.definition = liquers_core::command_metadata::CommandDefinition::Alias {
+                command: template_render_key(),
+                head_parameters: vec![
+                    liquers_core::command_metadata::CommandParameterValue::Query(link),
+                ],
+            };
+            context_position = None;
+        }
 
         if let (true, Some(run)) = (arguments_inferred, run.as_ref()) {
             let inferred =
@@ -390,8 +436,9 @@ impl JsCommandSpec {
         })
     }
 
-    /// Accepts imported metadata whose definition is a pipeline: it needs no implementation.
-    pub fn from_pipeline_metadata(mut metadata: CommandMetadata) -> Result<JsCommandSpec, Issue> {
+    /// Accepts imported metadata whose definition is a pipeline or an alias: it needs no
+    /// implementation.
+    pub fn from_definition_metadata(mut metadata: CommandMetadata) -> Result<JsCommandSpec, Issue> {
         if metadata.namespace == RESERVED_NAMESPACE {
             return Err(command_issue(
                 &metadata.realm,
@@ -472,6 +519,42 @@ impl JsCommandSpec {
             context_position: None,
         })
     }
+}
+
+/// The command every template command is an alias of.
+pub fn template_render_key() -> CommandKey {
+    CommandKey::new("", "template", "render")
+}
+
+/// `template/render`'s arguments after its head (`template`), as `TEMPLATE_GUIDE.md` §3 lists
+/// them. `cwd` is `any`, because a `Key` argument is; `render` converts it.
+fn template_command_arguments() -> Vec<ArgumentInfo> {
+    let cwd = ArgumentInfo::any_argument("cwd");
+    let cwd = match liquers_core::parse::parse_query("-R-key/.") {
+        Ok(query) => cwd.with_default_link(query),
+        // The literal parses; were it ever not to, `cwd` would default to the root.
+        Err(_) => cwd,
+    };
+    vec![
+        ArgumentInfo::any_argument("data").with_default(""),
+        ArgumentInfo::string_argument("errors").with_default("strict"),
+        cwd,
+    ]
+}
+
+/// A template command's `template`: a query string, or a `liquers.Query`.
+fn template_link(link: &JsValue) -> Result<liquers_core::query::Query, Error> {
+    let text = if let Some(text) = link.as_string() {
+        text
+    } else if crate::objects::is_query_wrapper(link) {
+        crate::objects::encode_query_wrapper(link)?
+    } else {
+        return Err(Error::from_error(
+            ErrorType::ParameterError,
+            "`template` must be the template's link: a query string or a liquers.Query".to_string(),
+        ));
+    };
+    liquers_core::parse::parse_query(&text)
 }
 
 fn reserved_namespace_message() -> String {

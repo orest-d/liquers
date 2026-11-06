@@ -322,10 +322,13 @@ never the identity.
 ## What a value variant may hold
 
 A `Value` is `Clone` by contract and is cloned freely, so a variant's payload must be **O(1) to
-clone**: a small inline type, or `Arc<T>`. `ExtValue` follows this; `Value` does not yet, and the
-cost is measured — `size_of::<Value>()` is 704 bytes, set entirely by `Value::Metadata`, so every
-`Value::None` costs 704 bytes where `Arc<MetadataRecord>` would cost 8
-(`specs/issues/CORE-VALUE-ENUM-OVERSIZED.md`).
+clone**: a small inline type, or `Arc<T>`. `ExtValue` follows this, and so do core's `Value` and
+`SimpleValue`: `Metadata`, `Recipe`, `CommandMetadata`, `Query` and `Pipeline` hold `Arc<T>`, so each enum
+(and the lib `Value`) is at most 32 bytes, guarded by `value_is_at_most_32_bytes`
+(`liquers-core/src/value.rs`) and `simple_and_lib_values_are_at_most_32_bytes`
+(`liquers-lib/src/value/simple.rs`). The `ValueInterface` constructors and accessors still take and
+return owned payloads. serde's `rc` feature makes an `Arc<T>` serialize exactly as `T`, so the
+wire format did not change.
 
 `Arc<Mutex<T>>` is an **exception requiring justification**, not an available pattern. It makes a
 value a *handle*: two clones observe each other's mutations, and since the asset layer versions
@@ -441,7 +444,9 @@ degrades on read.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | §What a value variant may hold: `Pipeline` joins the payloads behind `Arc`, keeping `Value` and `SimpleValue` at 32 bytes. | `design/core-value-enum-oversized/` |
 | 2026-11-04 | `Pipeline` identifier (`Value::Pipeline`), its formats and `try_into_pipeline`. | phase-5, `design/composite-command-definition/` |
+| 2026-11-03 | §What a value variant may hold: core `Value` and `SimpleValue` keep their four large payloads behind `Arc` and are at most 32 bytes (was 752). | `design/core-value-enum-oversized/` |
 | 2026-10-27 | §Reading: core `Value` reads every core identifier in `json` as its own variant; only an empty or foreign identifier is read by shape. | `design/core-value-json-identifier-dispatch/` (`CORE-VALUE-JSON-READ-IGNORES-STRUCTURED-IDENTIFIERS`) |
 | 2026-10-27 | §Rust types and identifiers: no value type implements `TypeIdentifiedIn` yet; only the blanket impls exist. | `design/type-identified-in-docs/` |
 | 2026-10-25 | §Reading: a degraded value is `AssetNotSupported`, and the `-R/` path with no recipe reports it. | `design/key-without-recipe-answer/` |
