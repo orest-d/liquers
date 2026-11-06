@@ -207,3 +207,29 @@ async fn closure06_dropped_inline_run_is_cancelled() -> TestResult {
     assert!(state.is_error().unwrap_or(true) || state.metadata.status() == Status::Cancelled);
     Ok(())
 }
+
+/// A caller that drops its last `EnvRef` while the closure runs still gets the closure's result:
+/// the run keeps the environment alive until it has completed.
+#[tokio::test]
+async fn closure07_environment_dropped_mid_run() -> TestResult {
+    let envref = environment().await?;
+    let closure = envref.get_asset_manager().closure_asset("pinned")?;
+    let asset = closure.asset().clone();
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel::<()>();
+    let (release_tx, release_rx) = tokio::sync::oneshot::channel::<()>();
+    let run = tokio::spawn(closure.run(
+        move |_context| async move {
+            let _ = started_tx.send(());
+            let _ = release_rx.await;
+            Ok((Value::from("x"), 7))
+        },
+        None,
+    ));
+    started_rx.await?;
+    drop(envref);
+    let _ = release_tx.send(());
+    let result = tokio::time::timeout(Duration::from_secs(5), run).await???;
+    assert_eq!(result, Some(7));
+    assert_eq!(asset.status().await, Status::Ready);
+    Ok(())
+}
