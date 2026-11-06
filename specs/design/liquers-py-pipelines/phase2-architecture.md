@@ -109,13 +109,19 @@ unchanged (AC-7).
 
 ```rust
 #[pyclass(frozen, name = "PipelineEditor", module = "liquers")]
-pub struct PipelineEditor { inner: Mutex<core::PipelineEditor> }
+pub struct PipelineEditor { inner: Mutex<core::PipelineEditor>, layout: AtomicU64 }
 #[pyclass(frozen, name = "QueryEditor", module = "liquers")]
-pub struct QueryEditor { inner: Mutex<core::QueryEditor> }
+pub struct QueryEditor { inner: Mutex<core::QueryEditor>, layout: AtomicU64 }
 #[pyclass(frozen, name = "ActionEditor", module = "liquers")]
-pub struct ActionEditor { owner: Owner, index: usize }
+pub struct ActionEditor { owner: Owner, index: usize, layout: u64 }
 enum Owner { Pipeline(Py<PipelineEditor>), Query(Py<QueryEditor>) }
 ```
+
+- Stale handles: `layout` counts the owner's edits that can move an element to another index
+  (`insert`, `replace`, `remove`, `move_to`). An `ActionEditor` records the count when it is made
+  and raises `ParameterError` once it differs, so a kept handle never edits another action;
+  appends (`push`, `action`, `resource`) keep it valid. (Added during implementation, PR #263
+  review.)
 
 - Construction: `env.pipeline_editor(pipeline=None)` and `env.query_editor(query=None)` take
   `Context::command_metadata_snapshot`'s equivalent on the built environment
