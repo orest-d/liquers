@@ -29,14 +29,17 @@ pub enum Value {
     Array(Vec<Value>),
     Object(BTreeMap<String, Value>),
     Bytes(Vec<u8>),
-    Metadata(MetadataRecord),
+    // The four large payloads are behind `Arc`, so a `Value` is 32 bytes and cloning one of these
+    // is a reference-count bump. With serde's `rc` feature an `Arc<T>` serializes exactly as `T`.
+    // See `specs/design/core-value-enum-oversized/`.
+    Metadata(std::sync::Arc<MetadataRecord>),
     AssetInfo(Vec<AssetInfo>),
-    Recipe(Recipe),
-    CommandMetadata(CommandMetadata),
-    Query(crate::query::Query),
+    Recipe(std::sync::Arc<Recipe>),
+    CommandMetadata(std::sync::Arc<CommandMetadata>),
+    Query(std::sync::Arc<crate::query::Query>),
     Key(crate::query::Key),
     /// A pipeline: the structured form of a query (`crate::pipeline`).
-    Pipeline(crate::pipeline::Pipeline),
+    Pipeline(std::sync::Arc<crate::pipeline::Pipeline>),
 }
 
 pub mod json_f64 {
@@ -488,7 +491,7 @@ impl ValueInterface for Value {
 
     fn try_into_query(&self) -> Result<crate::query::Query, Error> {
         match self {
-            Value::Query(q) => Ok(q.clone()),
+            Value::Query(q) => Ok(q.as_ref().clone()),
             Value::Text(s) => crate::parse::parse_query(s)
                 .map_err(|e| Error::from_error(ErrorType::ParseError, e)),
             _ => Err(Error::conversion_error(self.identifier(), "Query")),
@@ -866,7 +869,7 @@ impl ValueInterface for Value {
 
     fn try_into_command_metadata(&self) -> Result<CommandMetadata, Error> {
         match self {
-            Value::CommandMetadata(command_metadata) => Ok(command_metadata.clone()),
+            Value::CommandMetadata(command_metadata) => Ok(command_metadata.as_ref().clone()),
             _ => Err(Error::conversion_error(
                 self.identifier(),
                 "command metadata",
@@ -883,7 +886,7 @@ impl ValueInterface for Value {
     }
 
     fn from_metadata(metadata: MetadataRecord) -> Self {
-        Value::Metadata(metadata)
+        Value::Metadata(std::sync::Arc::new(metadata))
     }
 
     fn from_asset_info(asset_info: Vec<AssetInfo>) -> Self {
@@ -891,15 +894,15 @@ impl ValueInterface for Value {
     }
 
     fn from_recipe(recipe: Recipe) -> Self {
-        Value::Recipe(recipe)
+        Value::Recipe(std::sync::Arc::new(recipe))
     }
 
     fn from_command_metadata(command_metadata: CommandMetadata) -> Self {
-        Value::CommandMetadata(command_metadata)
+        Value::CommandMetadata(std::sync::Arc::new(command_metadata))
     }
 
     fn from_query(query: &crate::query::Query) -> Self {
-        Value::Query(query.clone())
+        Value::Query(std::sync::Arc::new(query.clone()))
     }
 
     fn from_key(key: &crate::query::Key) -> Self {
@@ -908,8 +911,8 @@ impl ValueInterface for Value {
 
     fn try_into_pipeline(&self) -> Result<crate::pipeline::Pipeline, Error> {
         match self {
-            Value::Pipeline(p) => Ok(p.clone()),
-            Value::Query(q) => crate::pipeline::Pipeline::try_from(q),
+            Value::Pipeline(p) => Ok(p.as_ref().clone()),
+            Value::Query(q) => crate::pipeline::Pipeline::try_from(q.as_ref()),
             Value::Array(_) | Value::Object(_) => {
                 crate::pipeline::Pipeline::from_json(&self.try_into_json_value()?)
             }
@@ -938,7 +941,7 @@ impl ValueInterface for Value {
     }
 
     fn from_pipeline(pipeline: crate::pipeline::Pipeline) -> Self {
-        Value::Pipeline(pipeline)
+        Value::Pipeline(std::sync::Arc::new(pipeline))
     }
 }
 
@@ -1333,7 +1336,7 @@ impl DefaultValueSerializer for Value {
                 "CommandMetadata" => json_payload(b, type_identifier).map(Value::CommandMetadata),
                 "Query" => json_payload(b, type_identifier).map(Value::Query),
                 "Key" => json_payload(b, type_identifier).map(Value::Key),
-                "Pipeline" => json_payload(b, type_identifier).map(Value::Pipeline),
+                "Pipeline" => json_payload(b, type_identifier).map(|p| Value::Pipeline(std::sync::Arc::new(p))),
                 _ => serde_json::from_slice(b).map_err(|e| {
                     Error::from_error(
                         ErrorType::SerializationError,
@@ -1357,9 +1360,10 @@ impl DefaultValueSerializer for Value {
                         Error::conversion_error_with_message(&s, "f64", &e.to_string())
                     }),
                     "Bool" => Value::from_bool_str(&s),
-                    "Query" => crate::parse::parse_query(&s).map(Value::Query),
+                    "Query" => crate::parse::parse_query(&s)
+                        .map(|query| Value::Query(std::sync::Arc::new(query))),
                     "Key" => crate::parse::parse_key(&s).map(Value::Key),
-                    "Pipeline" => crate::pipeline::Pipeline::from_query_text(&s).map(Value::Pipeline),
+                    "Pipeline" => crate::pipeline::Pipeline::from_query_text(&s).map(|p| Value::Pipeline(std::sync::Arc::new(p))),
                     _ => Err(Error::new(
                         ErrorType::SerializationError,
                         format!(
@@ -1371,7 +1375,7 @@ impl DefaultValueSerializer for Value {
             }
             "yaml" | "yml" => match type_identifier {
                 "Pipeline" => serde_yaml::from_slice(b)
-                    .map(Value::Pipeline)
+                    .map(|p| Value::Pipeline(std::sync::Arc::new(p)))
                     .map_err(|e| Error::from_error(ErrorType::SerializationError, e)),
                 _ => Err(Error::from_error(
                     ErrorType::SerializationError,
@@ -1612,6 +1616,83 @@ mod tests {
         Ok(())
     }
 
+    // ---- `core-value-enum-oversized` -------------------------------------------------------
+
+    fn large_payload_values() -> Result<Vec<Value>, Box<dyn std::error::Error>> {
+        let query = crate::parse::parse_query("-R/data/x.csv/-/ns-pl/head-5")?;
+        let mut metadata = MetadataRecord::new();
+        metadata.with_title("Title".to_string());
+        Ok(vec![
+            Value::from_metadata(metadata),
+            Value::from_recipe(Recipe::new(query.encode(), "Recipe".to_string(), String::new())?),
+            Value::from_command_metadata(CommandMetadata::new("test")),
+            Value::from_query(&query),
+        ])
+    }
+
+    /// AC-1: the four large payloads are behind `Arc`, so the enum is at most 32 bytes.
+    #[test]
+    fn value_is_at_most_32_bytes() {
+        let size = std::mem::size_of::<Value>();
+        assert!(size <= 32, "liquers_core::value::Value is {size} bytes");
+    }
+
+    /// AC-3: each large variant is written as its bare payload and reads back equal.
+    #[test]
+    fn large_variants_serialize_as_their_payload() -> Result<(), Box<dyn std::error::Error>> {
+        for value in large_payload_values()? {
+            let identifier = value.identifier();
+            let payload = match &value {
+                Value::Metadata(v) => serde_json::to_value(v.as_ref())?,
+                Value::Recipe(v) => serde_json::to_value(v.as_ref())?,
+                Value::CommandMetadata(v) => serde_json::to_value(v.as_ref())?,
+                Value::Query(v) => serde_json::to_value(v.as_ref())?,
+                other => panic!("unexpected value {other:?}"),
+            };
+            let bytes = value.as_bytes("json")?;
+            let written: serde_json::Value = serde_json::from_slice(&bytes)?;
+            assert_eq!(written, payload, "{identifier}: bytes are the bare payload");
+            if matches!(value, Value::Metadata(_) | Value::Recipe(_)) {
+                assert_eq!(value.try_into_json_value()?, payload, "{identifier}: JSON value");
+            }
+            let back: Value =
+                DefaultValueSerializer::deserialize_from_bytes(&bytes, &identifier, "json")?;
+            assert_eq!(back, value, "{identifier}: round trip");
+        }
+        Ok(())
+    }
+
+    /// AC-4: a clone shares the payload's allocation.
+    #[test]
+    fn cloning_a_large_variant_shares_the_payload() -> Result<(), Box<dyn std::error::Error>> {
+        for value in large_payload_values()? {
+            let copy = value.clone();
+            let shared = match (&value, &copy) {
+                (Value::Metadata(a), Value::Metadata(b)) => std::sync::Arc::ptr_eq(a, b),
+                (Value::Recipe(a), Value::Recipe(b)) => std::sync::Arc::ptr_eq(a, b),
+                (Value::CommandMetadata(a), Value::CommandMetadata(b)) => std::sync::Arc::ptr_eq(a, b),
+                (Value::Query(a), Value::Query(b)) => std::sync::Arc::ptr_eq(a, b),
+                other => panic!("unexpected pair {other:?}"),
+            };
+            assert!(shared, "{} clone shares its payload", value.identifier());
+        }
+        Ok(())
+    }
+
+    /// AC-5: the trait still takes and returns owned payloads.
+    #[test]
+    fn value_interface_takes_and_returns_owned_payloads() -> Result<(), Box<dyn std::error::Error>> {
+        let cm = CommandMetadata::new("test");
+        let back: CommandMetadata = Value::from_command_metadata(cm.clone()).try_into_command_metadata()?;
+        assert_eq!(back, cm);
+        let query = crate::parse::parse_query("-R/a/b.txt")?;
+        let back: crate::query::Query = Value::from_query(&query).try_into_query()?;
+        assert_eq!(back, query);
+        assert_eq!(Value::from_metadata(MetadataRecord::new()).identifier(), "Metadata");
+        assert_eq!(Value::from_recipe(Recipe::default()).identifier(), "Recipe");
+        Ok(())
+    }
+
     /// Structured core values read back as their own variant from JSON, not by shape
     /// (`specs/design/core-value-json-identifier-dispatch/`, AC-1).
     #[test]
@@ -1623,17 +1704,17 @@ mod tests {
         let mut info = AssetInfo::new();
         info.filename = Some("x.csv".to_string());
         let values = vec![
-            Value::Metadata(metadata),
+            Value::Metadata(std::sync::Arc::new(metadata)),
             Value::AssetInfo(vec![info]),
-            Value::Recipe(Recipe::new(
+            Value::Recipe(std::sync::Arc::new(Recipe::new(
                 query.encode(),
                 "Recipe".to_string(),
                 String::new(),
-            )?),
-            Value::CommandMetadata(CommandMetadata::new("test")),
-            Value::Query(query.clone()),
+            )?)),
+            Value::CommandMetadata(std::sync::Arc::new(CommandMetadata::new("test"))),
+            Value::Query(std::sync::Arc::new(query.clone())),
             Value::Key(crate::parse::parse_key("data/x.csv")?),
-            Value::Pipeline(crate::pipeline::Pipeline::try_from(&query)?),
+            Value::Pipeline(std::sync::Arc::new(crate::pipeline::Pipeline::try_from(&query)?)),
         ];
         for value in values {
             let identifier = value.identifier();
@@ -1744,7 +1825,7 @@ mod tests {
         }
         assert_eq!(value.as_bytes("txt")?, b"-R/data/x.csv/-/ns-pl/head-5/out.csv".to_vec());
         // Conversions in: a query value, query text, JSON text, YAML text.
-        assert_eq!(Value::Query(query.clone()).try_into_pipeline()?, pipeline);
+        assert_eq!(Value::Query(std::sync::Arc::new(query.clone())).try_into_pipeline()?, pipeline);
         assert_eq!(Value::Text(query.encode()).try_into_pipeline()?, pipeline);
         let json_text = serde_json::to_string(&pipeline)?;
         assert_eq!(Value::Text(json_text).try_into_pipeline()?, pipeline);
@@ -1753,7 +1834,7 @@ mod tests {
         assert!(Value::I32(1).try_into_pipeline().is_err());
         // A pipeline with a value as state has no query text.
         let not_text: Pipeline = serde_json::from_str(r#"[{"value": 1}]"#)?;
-        assert!(Value::Pipeline(not_text).as_bytes("txt").is_err());
+        assert!(Value::Pipeline(std::sync::Arc::new(not_text)).as_bytes("txt").is_err());
         Ok(())
     }
 
@@ -1770,13 +1851,13 @@ mod tests {
             Value::Array(Vec::new()),
             Value::Object(BTreeMap::new()),
             Value::Bytes(Vec::new()),
-            Value::Metadata(MetadataRecord::new()),
+            Value::Metadata(std::sync::Arc::new(MetadataRecord::new())),
             Value::AssetInfo(Vec::new()),
-            Value::Recipe(Recipe::default()),
-            Value::CommandMetadata(CommandMetadata::new("test")),
-            Value::Query(crate::query::Query::new()),
+            Value::Recipe(std::sync::Arc::new(Recipe::default())),
+            Value::CommandMetadata(std::sync::Arc::new(CommandMetadata::new("test"))),
+            Value::Query(std::sync::Arc::new(crate::query::Query::new())),
             Value::Key(crate::query::Key::new()),
-            Value::Pipeline(crate::pipeline::Pipeline::default()),
+            Value::Pipeline(std::sync::Arc::new(crate::pipeline::Pipeline::default())),
         ]
     }
 

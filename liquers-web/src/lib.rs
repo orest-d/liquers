@@ -14,6 +14,8 @@
 //! - [`pipeline`] — pipelines as plain objects: [`evaluate_pipeline`], the conversions
 //!   [`pipeline_to_query`] / [`query_to_pipeline`], and the `PipelineEditor` / `QueryEditor`
 //!   classes. A pipeline *command* is a declaration with `pipeline` in place of `run`.
+//! - [`template`] — templates: [`render`], [`expand`], [`validate_template`], the same on a
+//!   command's `Context`, and template commands (a declaration with `template` in place of `run`).
 //!
 //! # Where it is used
 //! - The examples of `specs/guides/JAVASCRIPT_GUIDE.md`, run under Node by
@@ -98,6 +100,7 @@ pub mod pipeline;
 #[cfg(feature = "records")]
 pub mod records;
 pub mod store;
+pub mod template;
 pub mod typescript;
 pub mod ui;
 pub mod ui_define;
@@ -368,6 +371,103 @@ pub fn pipeline_to_query(
 #[wasm_bindgen(js_name = queryToPipeline, unchecked_return_type = "LiquersPipeline")]
 pub fn query_to_pipeline(query: &str) -> Result<JsValue, JsValue> {
     pipeline::query_to_pipeline(query).map_err(error::liquers_error_to_js)
+}
+
+/// Renders a template on the global environment: `state` is the bottom frame and `.`, `data`
+/// (an object) names above it, as `ns-template/render` lays them out. A string is template text, a
+/// `Query` a link to it. Resolves with the text, or `{ text, warnings }` with `full: true`.
+#[wasm_bindgen(unchecked_return_type = "Promise<string | LiquersRendered>")]
+pub fn render(
+    #[wasm_bindgen(unchecked_param_type = "string | Query")] template: JsValue,
+    state: Option<JsValue>,
+    #[wasm_bindgen(unchecked_optional_param_type = "Record<string, unknown> | null")] data: Option<
+        JsValue,
+    >,
+    #[wasm_bindgen(unchecked_optional_param_type = "LiquersTemplateOptions")] options: Option<
+        JsValue,
+    >,
+) -> js_sys::Promise {
+    match environment::shared_env() {
+        Ok(envref) => template_promise(envref, template, Some(state), data, options),
+        Err(e) => js_sys::Promise::reject(&error::liquers_error_to_js(e)),
+    }
+}
+
+/// Renders a template whose only frame (and `.`) is `data`, on the global environment; see
+/// [`render`].
+#[wasm_bindgen(unchecked_return_type = "Promise<string | LiquersRendered>")]
+pub fn expand(
+    #[wasm_bindgen(unchecked_param_type = "string | Query")] template: JsValue,
+    #[wasm_bindgen(unchecked_optional_param_type = "Record<string, unknown> | null")] data: Option<
+        JsValue,
+    >,
+    #[wasm_bindgen(unchecked_optional_param_type = "LiquersTemplateOptions")] options: Option<
+        JsValue,
+    >,
+) -> js_sys::Promise {
+    match environment::shared_env() {
+        Ok(envref) => template_promise(envref, template, None, data, options),
+        Err(e) => js_sys::Promise::reject(&error::liquers_error_to_js(e)),
+    }
+}
+
+/// A template's positioned diagnostics, checked against the global environment's commands; runs
+/// nothing. `validateTemplate` rather than `validate`, beside `validateCommands`.
+#[wasm_bindgen(
+    js_name = validateTemplate,
+    unchecked_return_type = "Promise<LiquersTemplateDiagnostic[]>"
+)]
+pub fn validate_template(
+    #[wasm_bindgen(unchecked_param_type = "string | Query")] template: JsValue,
+) -> js_sys::Promise {
+    match environment::shared_env() {
+        Ok(envref) => validate_promise(envref, template),
+        Err(e) => js_sys::Promise::reject(&error::liquers_error_to_js(e)),
+    }
+}
+
+/// The top-level `render` (`state` is `Some`) or `expand` on `envref`, as a `Promise`.
+pub(crate) fn template_promise(
+    envref: liquers_core::context::EnvRef<environment::WebEnvironment>,
+    template: JsValue,
+    state: Option<Option<JsValue>>,
+    data: Option<JsValue>,
+    options: Option<JsValue>,
+) -> js_sys::Promise {
+    let parsed = (|| {
+        let source = template::source_from_js(&template)?;
+        let data = template::value_from_js(&data.unwrap_or(JsValue::UNDEFINED))?;
+        let frames = match state {
+            Some(state) => template::Frames::Render {
+                state: template::value_from_js(&state.unwrap_or(JsValue::UNDEFINED))?,
+                data,
+            },
+            None => template::Frames::Expand { data },
+        };
+        let options = template::options_from_js(&options.unwrap_or(JsValue::UNDEFINED))?;
+        Ok::<_, liquers_core::error::Error>((source, frames, options))
+    })();
+    wasm_bindgen_futures::future_to_promise(async move {
+        let run = async move {
+            let (source, frames, options) = parsed?;
+            let full = options.full;
+            let rendered = template::render_top_level(envref, source, frames, options).await?;
+            template::rendered_to_js(rendered, full)
+        };
+        run.await.map_err(error::liquers_error_to_js)
+    })
+}
+
+/// The top-level `validate` on `envref`, as a `Promise`.
+pub(crate) fn validate_promise(
+    envref: liquers_core::context::EnvRef<environment::WebEnvironment>,
+    template: JsValue,
+) -> js_sys::Promise {
+    let source = template::source_from_js(&template);
+    wasm_bindgen_futures::future_to_promise(async move {
+        let run = async move { template::validate_top_level(envref, source?).await };
+        run.await.map_err(error::liquers_error_to_js)
+    })
 }
 
 #[wasm_bindgen(js_name = unregisterCommand)]

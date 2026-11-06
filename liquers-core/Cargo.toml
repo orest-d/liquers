@@ -66,7 +66,7 @@ clap = { version = "4", features = ["derive"], optional = true }
 nom = "8.0.0"
 nom_locate = "5.0.0"
 regex = "1.13.1"
-serde = "1.0.229"
+serde = { version = "1.0.229", features = ["rc"] }
 # The derive macros come from `#[macro_use] extern crate serde_derive;` in src/lib.rs, so
 # this crate does not depend on any package turning on `serde/derive`.
 serde_derive = "1.0.229"

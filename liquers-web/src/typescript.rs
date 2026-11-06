@@ -174,10 +174,12 @@ export type LiquersCommandImplementations = Record<string, LiquersCommandImpleme
 export type LiquersCommandBatch =
   | LiquersCommandSpec
   | LiquersPipelineCommandSpec
+  | LiquersTemplateCommandSpec
   | Omit<LiquersCommandSpec, "run"> & { run?: LiquersCommandSpec["run"] }
   | Array<
       | LiquersCommandSpec
       | LiquersPipelineCommandSpec
+      | LiquersTemplateCommandSpec
       | (Omit<LiquersCommandSpec, "run"> & { run?: LiquersCommandSpec["run"] })
     >
   | string;
@@ -246,6 +248,51 @@ export interface LiquersPipelineCommandSpec {
   label?: string;
   doc?: string;
   volatile?: boolean;
+}
+
+/**
+ * A template command's declaration: `template` in place of `run`, the link of the template it
+ * renders (a query string, such as `"-R/templates/greet.md"`, or a `Query`). It is an alias of
+ * `template/render` with the link as its head parameter, so it takes `render`'s arguments
+ * (`data`, `errors`, `cwd`) and declares none of its own.
+ */
+export interface LiquersTemplateCommandSpec {
+  name: string;
+  template: string | Query;
+  namespace?: string;
+  realm?: string;
+  label?: string;
+  doc?: string;
+}
+
+/** Options of `render` and `expand`, on the module, an `Environment` and a command's context. */
+export interface LiquersTemplateOptions {
+  /** How template errors are handled: `"strict"` (the default) throws; `"expand"`,
+   * `"expand_html"`, `"expand_md"` and `"silent"` recover and record a warning. */
+  errors?: "strict" | "expand" | "expand_html" | "expand_md" | "silent";
+  /** HTML-escape `{{name}}` output (default `false`); `{{{name}}}` is never escaped. */
+  html?: boolean;
+  /** The folder relative partials and keys resolve against: a key string or a `Key`. Default:
+   * the root. */
+  cwd?: string | Key;
+  /** Top level only: resolve to `{ text, warnings }` instead of the text. Refused in a command,
+   * whose warnings go to the command's log. */
+  full?: boolean;
+}
+
+/** A top-level render with `full: true`. */
+export interface LiquersRendered {
+  text: string;
+  /** The recovered errors and other warnings of the render, in order. */
+  warnings: string[];
+}
+
+/** One finding of `validate`: positioned in the template. Nothing is evaluated. */
+export interface LiquersTemplateDiagnostic {
+  severity: "Error" | "Warning";
+  message: string;
+  /** `offset` is a zero-based byte offset; `line` and `column` are one-based. */
+  position: { offset: number; line: number; column: number };
 }
 
 /** One finding of a command validation report. */
@@ -597,9 +644,12 @@ export interface LiquersRecordChunk {
 
 #[wasm_bindgen]
 extern "C" {
-    /// A command declaration object. Typed as `LiquersCommandSpec` (or, for a pipeline command,
-    /// `LiquersPipelineCommandSpec`) in the generated `.d.ts`.
-    #[wasm_bindgen(typescript_type = "LiquersCommandSpec | LiquersPipelineCommandSpec")]
+    /// A command declaration object. Typed as `LiquersCommandSpec` (or, for a pipeline or
+    /// template command, `LiquersPipelineCommandSpec` or `LiquersTemplateCommandSpec`) in the
+    /// generated `.d.ts`.
+    #[wasm_bindgen(
+        typescript_type = "LiquersCommandSpec | LiquersPipelineCommandSpec | LiquersTemplateCommandSpec"
+    )]
     pub type JsCommandSpecObject;
 
     /// A batch of commands: declarations or a serialized registry.
