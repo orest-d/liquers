@@ -2,7 +2,7 @@
 id: AD-HOC-ASSET-CANNOT-RUN-A-CLOSURE
 kind: feature
 title: The asset manager cannot run Rust code as an ad-hoc asset, only a recipe
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [core/assets, core/context]
@@ -60,3 +60,9 @@ A design is needed (`L`).
 
 Orest's review of `liquers-py-templates` Phase 1 on 2026-11-04: templates must work outside
 commands whenever an environment is available.
+
+## Resolution
+
+Closed 2026-11-05 by [`design/ad-hoc-closure-asset/`](../design/ad-hoc-closure-asset/DESIGN.md):
+`AssetManager::closure_asset` and `ClosureAsset::run` / `run_inline` (commit `2b8348c4`); tests
+`closure01`–`closure06` in `liquers-core/tests/closure_asset.rs`.
