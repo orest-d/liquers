@@ -360,7 +360,7 @@ fn simple_to_py(py: Python<'_>, value: &SimpleValue) -> Result<Py<PyAny>, Error>
         SimpleValue::Query { value } => into_py(py, crate::query::Query(value.as_ref().clone()), "query"),
         SimpleValue::Key { value } => into_py(py, crate::query::Key(value.clone()), "key"),
         SimpleValue::Pipeline { value } => {
-            into_py(py, crate::pipeline::Pipeline(value.clone()), "pipeline")
+            into_py(py, crate::pipeline::Pipeline(value.as_ref().clone()), "pipeline")
         }
     }
 }
@@ -597,7 +597,7 @@ fn wrapper_to_simple(object: &Bound<'_, PyAny>) -> Option<SimpleValue> {
         return Some(SimpleValue::CommandMetadata { value: std::sync::Arc::new(c.0) });
     }
     if let Ok(p) = object.cast::<crate::pipeline::Pipeline>() {
-        return Some(SimpleValue::Pipeline { value: p.get().0.clone() });
+        return Some(SimpleValue::Pipeline { value: std::sync::Arc::new(p.get().0.clone()) });
     }
     None
 }
