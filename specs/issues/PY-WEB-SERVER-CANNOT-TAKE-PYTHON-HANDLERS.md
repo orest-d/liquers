@@ -35,3 +35,5 @@ plain callables with request and response wrappers, or are left to `WEBAPI`. It 
 
 `liquers-py-web-server` Phase 1, 2026-11-06: the plan scopes M7's `WEBSERV` to `01`–`05`, so the
 rest needs its own record.
+Filed without a design on purpose: the plan defers it until command-based handlers are designed,
+and the handler question is shared with `WEBAPI` (milestone M8), where it is decided.

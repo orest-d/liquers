@@ -35,4 +35,6 @@ and an environment replacement (`AppRunner::replace_envref`). The examples then 
 
 ## Discovery
 
-`liquers-py-ui` Phase 1, 2026-11-06: Python's `UIUSE` needs a runner it can call, and there is none.
+`liquers-py-ui-window` Phase 1, 2026-11-06: Python's `UIUSE` needs a window it can call, and there is
+none. Moving the examples onto it touches `ui_query_console_app.rs`, which `command-parameter-editor`
+and `query-editor-live-validation` (in review) also edit.

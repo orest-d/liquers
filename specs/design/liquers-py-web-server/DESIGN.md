@@ -3,22 +3,23 @@ id: LIQUERS-PY-WEB-SERVER
 kind: design
 title: "Web server in liquers-py: serve an environment over the Liquers HTTP API"
 workflow: liquers-project
-status: draft
+status: in_review
 phase: high-level
 readiness: needs-decision
 autofix: not-eligible
 area: [py, axum]
 issues: [PY-CANNOT-START-A-WEB-SERVER]
-affects_docs: [specs/reference/PYTHON_INTEGRATION.md, specs/guides/PYTHON_GUIDE.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, liquers-py/README.md, liquers-axum/README.md, specs/README.md]
+affects_docs: [specs/reference/PYTHON_INTEGRATION.md, specs/guides/PYTHON_GUIDE.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, liquers-py/README.md, liquers-axum/README.md, specs/guides/WEB_API_GUIDE.md, specs/README.md]
 created: 2026-11-06
 ---
 # liquers-py-web-server — serve an environment over the Liquers HTTP API
 
 The `WEBSERV` feature for liquers-py: milestone M7 of the liquers-py plan, together with
-[`liquers-py-modules`](../liquers-py-modules/DESIGN.md) and [`liquers-py-ui`](../liquers-py-ui/DESIGN.md). Full form (`L`). Requires a small shared server assembly in `liquers-axum` (Phase 1 question 8), its own PR first.
+[`liquers-py-modules`](../liquers-py-modules/DESIGN.md), [`liquers-py-ui`](../liquers-py-ui/DESIGN.md) and [`liquers-py-ui-window`](../liquers-py-ui-window/DESIGN.md). Full form (`L`). Requires a shared server assembly with graceful shutdown in `liquers-axum`
+(`AXUM-HAS-NO-SERVER-WITH-GRACEFUL-SHUTDOWN`, Phase 1 question 6), its own PR first.
 Based on `main` at `bd36cf1`; M6 (PRs #257, #259–#263) is still open and lands first.
 
-Phase 1 written on 2026-11-06.
+Phase 1 written and reviewed twice on 2026-11-06 (conformity and records; codebase and soundness); findings applied.
 
 ## Phases
 

@@ -2,60 +2,56 @@
 
 ## Purpose
 
-Let a Python script open the Liquers desktop UI (the egui backend) on its own environment, show the
-query console, a `ui_spec` dashboard or any element a query produces, and drive and observe it from
-Python: the `UIUSE` feature of `LANGUAGE-INTEGRATION_GUIDE.md` and the owner's "GUI" usage mode. It
-serves `VISION.md`'s "the same queries drive the egui desktop UI" (UI roadmap item 1) for Python
-users. Milestone M7, with [`liquers-py-web-server`](../liquers-py-web-server/DESIGN.md) and
-[`liquers-py-modules`](../liquers-py-modules/DESIGN.md). The browser counterpart is
-[`web-ui-use`](../web-ui-use/DESIGN.md) (complete), whose API this design mirrors.
+Let Python hold a Liquers UI model on its environment: show the query console, a `ui_spec`
+dashboard or any element a query produces, submit queries to elements, follow their status and
+dispose of them, with or without a window. This is the model half of the `UIUSE` feature of
+`LANGUAGE-INTEGRATION_GUIDE.md` and of the owner's "GUI" usage mode (`VISION.md`: "the same queries
+drive the egui desktop UI"). The window is [`liquers-py-ui-window`](../liquers-py-ui-window/DESIGN.md),
+which builds on this; the browser counterpart is [`web-ui-use`](../web-ui-use/DESIGN.md), whose API
+this mirrors. Milestone M7.
 
 ## Design Readiness
 
-- **Readiness:** `needs-decision`: Phase 1 written; question 1 is the owner's to decide.
-- **Automatic fixing:** `not-eligible`: `XL`, it changes `PyEnvironment`'s type and what every
-  wheel contains.
-- **Leading issue:** question 1, whether the published wheels carry egui. Source issue
-  `PY-CANNOT-USE-A-LIQUERS-UI` (P3 XL, filed with this design).
-- **Explanation:** the backend exists (`AppState`, `AppRunner` with status events and the
-  stale-result rule, the `lui` commands), but there is no reusable native window: every egui
-  example writes its own `eframe::App` (`EGUI-HAS-NO-REUSABLE-NATIVE-APP`, filed with this design).
-  liquers-py links `liquers-lib` without `egui` and its environment has no UI payload.
+- **Readiness:** `needs-decision`: Phase 1 written and reviewed twice; the questions below wait for
+  the Phase 1 gate, none blocking.
+- **Automatic fixing:** `not-eligible`: an `L` feature that changes `PyEnvironment`'s type.
+- **Leading issue:** question 1, the payload change. Source issue `PY-CANNOT-USE-A-LIQUERS-UI`
+  (P3 L, filed with this design).
+- **Explanation:** the model needs no egui. `AppState`, `AppRunner` (status events, the stale-source
+  rule, `replace_envref`), `SimpleUIPayload`, `UIElement` and the `lui` commands are not gated on
+  the `egui` feature, and native windowless environments already use a UI payload
+  (`liquers-agent/src/lib.rs`, `liquers-docs/src/env.rs`). liquers-py lacks the payload, the `lui`
+  built-ins, a Python form of a UI element and something that drives the runner without a window.
+  Split from the window on 2026-11-06 (review), so the wheel question does not hold this up.
 - **Open questions:**
-  1. **Open design (blocking): egui in the wheels.** Recommended: every published wheel includes
-     the egui backend, so `pip install liquers-py` can open a window. Phase 2 measures the size
-     added to the 30.9 MB abi3 wheel and checks that the wheel still imports on a Linux machine
-     with no display libraries (they are loaded only when a window opens). Alternative: wheels
-     without egui, a source build with a `gui` feature for those who want it, and `ui.run()`
-     raising a typed error otherwise. A separate `liquers-py-gui` package is not possible: a
-     second native module would link its own copy of `liquers-lib`, and an environment cannot
-     cross between the two.
-  2. **Proposed resolution: a reusable native app first.** `liquers-lib` gains the egui
-     counterpart of `mount_web`: run a window over an `EnvRef` and an `AppState`, with a close
-     request usable from another thread, status events and environment replacement. It has its
-     own compact design and PR, and the examples move onto it (`EGUI-HAS-NO-REUSABLE-NATIVE-APP`).
-  3. **Proposed resolution: the UI payload.** `PyEnvironment` becomes
-     `DefaultEnvironment<Value, SimpleUIPayload>`, as `WebEnvironment` did (`web-ui-use`
-     Decision 1), and the `lui` and egui commands join the built-ins. Evaluations outside a UI
-     pass no payload, so nothing else changes. Inside a command, `context.element` gives the
-     handle of the element whose action ran it (UIUSE03).
-  4. **Proposed resolution: a model separate from the window.** `env.ui()` returns an `lq.UI`
-     that holds the elements and runs queries without any window: `show(query, handle=None)`,
-     `submit(query, handle=None)`, `elements()`, `on("status", callback)`, `wait_idle(timeout)`,
-     `dispose()`. `ui.run(title=…, size=…)` then opens a window on the same model and returns when
-     it is closed. Scripts, notebooks and the tests use the model alone; only `run` needs a display.
-  5. **Proposed resolution: threads.** `run` must be called on the main thread (winit requires it
-     on macOS, and the rule is the same everywhere) and blocks it with the GIL released, so Python
-     commands keep running on their worker threads. There is no background window; a background
-     server (`liquers-py-web-server`) is the background part of the GUI-plus-server usage mode.
-     `ui.close()` may be called from any thread and only requests the close.
-  6. **Proposed resolution: callbacks.** Status callbacks run on the thread that drives the model
-     (`run`'s main thread between frames, or the caller of `wait_idle`), batched once per tick and
-     after the `AppState` lock is released, so a callback may call back into the UI (`web-ui-use`
-     Decision 3). `on` returns an `lq.UISubscription` with `dispose()`, usable as a context manager.
-  7. **Proposed resolution: tests.** The model tests (UIUSE02–07) run in the normal suite. The
-     window tests (UIUSE01, UIUSE08) are marked `gui` and deselected by default; CI runs them on
-     Linux under a virtual display, if Phase 2 shows that is reliable.
+  1. **Proposed resolution: the UI payload.** `PyEnvironment` becomes
+     `DefaultEnvironment<Value, SimpleUIPayload>`, as `WebEnvironment` did (`web-ui-use` Decision 1),
+     and the `lui` commands join the built-ins. Evaluations outside a UI pass no payload. Inside a
+     command, `context.element` is the handle of the element whose action ran it (UIUSE03).
+  2. **Proposed resolution: the API.** `env.ui()` (and `lq.ui()`) returns an `lq.UI`:
+     `show(query, handle=None)` makes the query's value an element and returns its handle;
+     `submit(query, handle=None)` runs it as a control's action does; `elements()`;
+     `on("status", callback)` returns an `lq.UISubscription` (`dispose()`, context manager);
+     `wait_idle(timeout)` and `wait_idle_async`; `dispose()`. A UI element result reaches Python as
+     an `lq.UIElement` (`type_name`, `title`), a live handle that cannot be stored: `store_set` of
+     one raises.
+  3. **Proposed resolution: who drives the model.** A task on liquers-py's runtime runs
+     `AppRunner` while the model lives, so elements progress between Python calls. Status events
+     are queued and delivered to callbacks on a Python thread, batched per tick and never under the
+     `AppState` lock, so a callback may call back into the UI (`web-ui-use` Decision 3): during
+     `wait_idle`, or by the window between frames (`liquers-py-ui-window`). Phase 2 decides whether
+     a background script with neither gets a delivery thread.
+  4. **Proposed resolution: lifetime.** The model ends at `dispose()`, `env.shutdown()` or
+     interpreter exit; a collected `lq.UI` is disposed, since nothing else can reach it. A rebuild
+     replaces the runner's environment for later queries (AC-9).
+  5. **Proposed resolution: logs and cancellation.** An element's log and progress are read
+     through its asset (`ui.asset(handle)`, an `lq.AssetRef`), and `asset.cancel()` cancels it;
+     no new UI-level API. The legacy `UiCommand` and `Widget` values, egui-only, raise `ConversionError`
+     when they reach Python.
+- **Deviations from Appendix A** (copied to the conformance matrix): UIUSE03 reads
+  `context.element`, not `context.query`; UIUSE04 observes statuses (`processing` … `ready`), not
+  progress fractions; UIUSE06 gives an element query B while A runs, as `web-ui-use` does, instead of
+  generations; UIUSE01 and UIUSE08 are in `liquers-py-ui-window`.
 
 ## Problem Example
 
@@ -68,30 +64,27 @@ def report(context) -> str:
     return "rows: 3"
 
 ui = env.ui()
-ui.show("hello/q/ns-lui/query_console")
 with ui.on("status", lambda e: print(e.handle, e.status)):
-    ui.run(title="Reports")        # a window; type `report` into the console
+    h = ui.show("report")
+    ui.wait_idle(timeout=5)
+print(ui.elements())    # [UIElementInfo(handle=1, type_name="AssetViewElement", status="ready", …)]
 ```
 
-**Today** `env.ui` does not exist, `ns-lui/query_console` is an unknown command, and a UI element
-result has no Python form. A desktop UI needs a Rust `eframe` program
-(`liquers-lib/examples/ui_query_console_app.rs`) that cannot call `report`. **After** the window
-shows the console, running `report` in it shows `rows: 3`, and the script prints `processing`, then
-`ready`. The query validates against the registry (`liquers-validate`, `lui` commands present).
+**Today** `env.ui` does not exist, the `lui` commands are unknown, and a UI element result has no
+Python form. **After** the script prints `1 processing` and `1 ready`, then the element. `report`
+validates with `report` declared; `hello/q/ns-lui/query_console` validates against the registry.
 
 ## Scope and Acceptance Criteria
 
-- **AC-1** Open a window
-  WHEN `ui.run()` is called on the main thread with a display
-  THEN a window shows the model's root elements and `run` returns after it is closed (UIUSE01,
-  problem example)
+- **AC-1** Show a query
+  WHEN `ui.show("report")` and `ui.wait_idle()` run, with no window and no display
+  THEN `ui.elements()` lists one element holding `rows: 3` with status `ready` (problem example)
 - **AC-2** A UI value reaches Python
   WHEN `env.evaluate("hello/q/ns-lui/query_console")` produces a UI element
   THEN Python receives an `lq.UIElement` with `type_name` and `title`, not a conversion error (UIUSE02)
 - **AC-3** An action reaches the right Python command
-  WHEN a control's action is a query ending in a Python command, triggered once
-  THEN the command runs once, and its `context.element` is the handle of the element that owns the
-  control (UIUSE03)
+  WHEN a control's action is a query ending in a Python command, and `ui.submit` triggers it once
+  THEN the command runs once, and its `context.element` is the owning element's handle (UIUSE03)
 - **AC-4** Status arrives in order
   WHEN `ui.on("status", cb)` is subscribed and an element evaluates a query
   THEN `cb` receives that element's statuses in order, ending in `ready` or `error` (UIUSE04)
@@ -103,65 +96,51 @@ shows the console, running `report` in it shows `rows: 3`, and the script prints
   THEN A's late result never replaces B's (UIUSE06)
 - **AC-7** Errors are typed
   WHEN `ui.show` gets an unparsable query, or an element's query fails
-  THEN the first raises `lq.LiquersError`, and the second shows the error in the element and
+  THEN the first raises `lq.LiquersError`, and the second leaves the error in the element and
   delivers an `error` status event carrying it (UIUSE07)
-- **AC-8** Thread affinity
-  WHEN `ui.run()` is called from a thread other than the main one, or `ui.close()` from any thread
-  THEN the first raises `lq.LiquersError`, and the second closes the window, after which `run`
-  returns (UIUSE08)
-- **AC-9** The model works without a window
-  WHEN `ui.show(query)` and `ui.wait_idle()` are called with no window and no display
-  THEN the element is created and `ui.elements()` lists it with its status
-- **AC-10** The UI follows late registrations
-  WHEN a command is registered after `env.ui()` was created
-  THEN a later query in the UI can use it
-- **AC-11** GUI with a background server
-  WHEN `env.serve(background=True)` runs while `ui.run()` shows a query
-  THEN both answer from the same environment, and a result computed by one is reused by the other
-- **AC-12** A build without egui says so (only if question 1 chooses that build)
-  WHEN `ui.run()` is called in a build without the egui backend
-  THEN it raises `lq.LiquersError` naming the missing feature
+- **AC-8** Callbacks may re-enter
+  WHEN a status callback calls `ui.show`
+  THEN the call succeeds and no deadlock occurs (addition)
+- **AC-9** The UI follows late registrations
+  WHEN a command is registered after `env.ui()`
+  THEN a later query in the UI can use it (addition)
 
-Non-goals: elements or renderers written in Python (`UIDEF`); the HTML backend or a Jupyter widget;
-a window on a background thread; saving and loading the element tree; egui in the browser.
+Non-goals: the window (`liquers-py-ui-window`); elements written in Python (`UIDEF`); the HTML backend
+or a Jupyter widget; saving and loading the element tree.
 
 ## Core Interactions
 
-UI: the new native app, `AppState`, `AppRunner` events. Commands: `lui` and egui commands in the
-built-ins. Environment: the UI payload; a rebuild replaces the runner's `EnvRef`. Value types: an
-outbound `lq.UIElement` wrapper. Bindings: `Environment.ui`, `lq.UI`, `lq.UIElement`,
-`lq.UISubscription`, `Context.element`.
+UI: `AppState` and `AppRunner`. Commands: `lui` in the built-ins. Environment: the UI payload.
+Value types: `lq.UIElement`. Bindings: `Environment.ui`, `lq.UI`, `lq.UISubscription`, `Context.element`.
 
 ## Crate Placement
 
-`liquers-lib/src/egui/` (feature `egui`) for the native app, its own PR first (question 2).
-`liquers-py`: `Cargo.toml` enables `egui`; `environment.rs` (payload), `builtins.rs`, `value.rs`
-(`UIElement`), `context.rs` (`element`), a new `src/ui.rs`; stubs and `__init__.py`.
+`liquers-py` only: `environment.rs` (payload), `builtins.rs` (`lui`), `value.rs` (`UIElement`),
+`context.rs` (`element`), a new `src/ui.rs`; the stubs and `__init__.py`. No `liquers-lib` change.
 
 ## Documentation Intent
 
-- Reference: `PYTHON_INTEGRATION.md`, a new §User interface.
+- Reference: `PYTHON_INTEGRATION.md`, a new §User interface; `UI_INTERFACE_FSD.md` and
+  `PAYLOAD_GUIDE.md` gain the Python host.
 - Guide: a "Show a Liquers UI" chapter in `PYTHON_GUIDE.md`, as the JavaScript guide has.
-- Other documents: the `UIUSE` row of `liquers-py/README.md`; `LANGUAGE-INTEGRATION_GUIDE.md`
-  §6 Python; `liquers-py/README.md` wheel contents, if question 1 adds egui; `specs/README.md`.
-- Documents to update: the user guide chapters `docs_index.py chapters-for` lists.
-- API docs: the module docs of the new `liquers-py/src/ui.rs` and the new `liquers-lib` native
-  app module, and of `environment.rs`, `builtins.rs` and `context.rs`; docstrings on every new
-  Python name.
+- Other documents: the `UIUSE` row and deviations in `liquers-py/README.md`;
+  `LANGUAGE-INTEGRATION_GUIDE.md` §6 Python; `specs/README.md`.
+- Documents to update: user guide chapter `docs/guides/python/11-ui.md` ("Not available from
+  Python"), which `chapters-for` does not list; the others it lists.
+- API docs: the module docs of the new `liquers-py/src/ui.rs`, and of `liquers-py/src/environment.rs`,
+  `builtins.rs`, `value.rs` and `context.rs`; docstrings on every new Python name.
 
 ## Design Dependencies
 
-- `EGUI-HAS-NO-REUSABLE-NATIVE-APP`: **requires** (question 2), its own design and PR, first.
-- `liquers-py-web-server`: **requires** for AC-11 only.
-- `ui-asset-snapshot-boundary` (in review): **overlaps**; widgets that fetch assets themselves
-  are its subject, and this design uses whatever the widgets do.
-- `ad-hoc-closure-asset` (M6, PR #259, open): **overlaps**; the payload change (question 3)
-  touches the code it adds, so this design is built after M6 merges.
-- `package` (`liquers-py-package`, complete): **changes** the wheel contents if question 1
-  includes egui.
+- `liquers-py-ui-window`: **required-by**.
+- `language-late-registration-without-rebuild`, `post-init-command-registration` (in review):
+  **overlap** AC-9.
+- `language-store-config-function`, `records-arrow-c-data-export`, `language-bridge-extended-scalars`
+  (in review): **overlap**; they change `PyEnvironment` or `liquers-py/src/value.rs` too.
+- `ui-asset-snapshot-boundary` (in review): **overlaps** the widgets' own asset fetching.
+- M6 (PRs #257, #259–#263): built after it merges; the closure asset is generic over the payload.
 
 ## References
 
-- Guide §UIUSE and Appendix A `UIUSE`; `specs/design/web-ui-use/` (Decisions 1 and 3)
-- `liquers-lib/src/ui/runner.rs` `AppRunner`, `take_events`, `replace_envref`;
-  `liquers-lib/src/ui/web/app.rs` `mount_web`; `liquers-lib/examples/ui_query_console_app.rs`
+Guide §UIUSE and Appendix A; `specs/design/web-ui-use/`; `liquers-lib/src/ui/runner.rs` `AppRunner`;
+`liquers-lib/src/ui/commands.rs`; `liquers-agent/src/lib.rs` (a windowless UI payload).

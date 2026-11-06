@@ -31,8 +31,8 @@ The owner's "server" usage mode of liquers-py (plan §1, decisions of 2026-10-17
 ## Expected behaviour
 
 `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §WEBSERV, tests `WEBSERV01`–`05`: foreground and
-background start, readiness, typed startup errors, graceful shutdown, a handle that owns the
-server's lifetime, bound to the same environment as the script.
+background start, readiness, typed startup errors, graceful shutdown, a stated lifetime policy
+for the server, bound to the same environment as the script.
 
 ## Discovery
 
