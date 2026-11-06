@@ -195,33 +195,43 @@ pub fn validate_commands_on(input: &JsValue, impls: &JsValue) -> IssueReport {
 /// adding the commands already registered would change nothing but repeat their own findings in
 /// every report.
 ///
-/// A pipeline command is the exception: its steps name commands outside the batch, so it is
-/// checked against the environment's registry with the whole batch added
-/// ([`checking_registry`]), after its argument types are completed from the slots they fill.
+/// A definition command is the exception: a pipeline command's steps, and a template command's
+/// target (`template/render`), name commands outside the batch, so it is checked against the
+/// environment's registry with the whole batch added ([`checking_registry`]), after its metadata
+/// is completed from that registry (`adapter::complete_definition`).
 fn validate_batch(input: &JsValue, impls: &JsValue) -> (Vec<Accepted>, IssueReport) {
     let (accepted, mut report) = read_batch(input, impls);
     let mut batch = CommandMetadataRegistry::new();
-    for command in accepted.iter().filter(|c| !c.spec.is_pipeline()) {
+    for command in accepted.iter().filter(|c| !c.spec.is_definition()) {
         batch.add_command(&command.spec.metadata);
     }
     report.append(batch.check());
 
-    if accepted.iter().any(|c| c.spec.is_pipeline()) {
+    if accepted.iter().any(|c| c.spec.is_definition()) {
         match checking_registry() {
             Ok(mut context) => {
                 for command in &accepted {
                     context.add_command(&command.spec.metadata);
                 }
-                for command in accepted.iter().filter(|c| c.spec.is_pipeline()) {
+                for command in accepted.iter().filter(|c| c.spec.is_definition()) {
                     let mut metadata = command.spec.metadata.clone();
-                    context.complete_pipeline_command(&mut metadata);
+                    crate::command::adapter::complete_definition(&context, &mut metadata);
                     report.append(metadata.check());
                     report.append(context.check_pipeline_command(&metadata));
+                    if let Err(e) = context.alias_target(&metadata) {
+                        report.extend([liquers_core::issue_report::Issue::command_registry(
+                            liquers_core::issue_report::IssueSeverity::Error,
+                            &metadata.realm,
+                            &metadata.namespace,
+                            &metadata.name,
+                            e.message.clone(),
+                        )]);
+                    }
                 }
             }
             Err(e) => report.extend([liquers_core::issue_report::Issue::generic(
                 liquers_core::issue_report::IssueSeverity::Error,
-                format!("Pipeline commands could not be checked: {}", e.message),
+                format!("Definition commands could not be checked: {}", e.message),
             )]),
         }
     }
@@ -265,10 +275,10 @@ pub fn register_commands_on(input: &JsValue, impls: &JsValue) -> Result<IssueRep
         return Ok(report);
     }
     // Function commands first: a pipeline command's steps may name a function command of the same
-    // batch, and registration completes its argument types from the registry as it then stands.
-    // Stable, so pipeline commands keep their order among themselves.
+    // batch, and registration completes its metadata from the registry as it then stands.
+    // Stable, so definition commands keep their order among themselves.
     let mut accepted = accepted;
-    accepted.sort_by_key(|command| command.spec.is_pipeline());
+    accepted.sort_by_key(|command| command.spec.is_definition());
 
     let replaced: Vec<(String, Replaced)> = accepted
         .iter()
@@ -960,6 +970,54 @@ impl LiquersEnvironment {
         self.metadata_snapshot()
             .and_then(|cmr| crate::pipeline::LiquersQueryEditor::open(query.as_deref(), cmr))
             .map_err(liquers_error_to_js)
+    }
+
+    /// Renders a template on **this** environment; see the module-level `render`.
+    #[wasm_bindgen(unchecked_return_type = "Promise<string | LiquersRendered>")]
+    pub fn render(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "string | Query")] template: JsValue,
+        state: Option<JsValue>,
+        #[wasm_bindgen(unchecked_optional_param_type = "Record<string, unknown> | null")]
+        data: Option<JsValue>,
+        #[wasm_bindgen(unchecked_optional_param_type = "LiquersTemplateOptions")] options: Option<
+            JsValue,
+        >,
+    ) -> js_sys::Promise {
+        match self.resolve() {
+            Ok(envref) => crate::template_promise(envref, template, Some(state), data, options),
+            Err(e) => js_sys::Promise::reject(&liquers_error_to_js(e)),
+        }
+    }
+
+    /// Renders a template whose only frame is `data` on **this** environment; see the
+    /// module-level `expand`.
+    #[wasm_bindgen(unchecked_return_type = "Promise<string | LiquersRendered>")]
+    pub fn expand(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "string | Query")] template: JsValue,
+        #[wasm_bindgen(unchecked_optional_param_type = "Record<string, unknown> | null")]
+        data: Option<JsValue>,
+        #[wasm_bindgen(unchecked_optional_param_type = "LiquersTemplateOptions")] options: Option<
+            JsValue,
+        >,
+    ) -> js_sys::Promise {
+        match self.resolve() {
+            Ok(envref) => crate::template_promise(envref, template, None, data, options),
+            Err(e) => js_sys::Promise::reject(&liquers_error_to_js(e)),
+        }
+    }
+
+    /// A template's positioned diagnostics against **this** environment's commands.
+    #[wasm_bindgen(unchecked_return_type = "Promise<LiquersTemplateDiagnostic[]>")]
+    pub fn validate(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "string | Query")] template: JsValue,
+    ) -> js_sys::Promise {
+        match self.resolve() {
+            Ok(envref) => crate::validate_promise(envref, template),
+            Err(e) => js_sys::Promise::reject(&liquers_error_to_js(e)),
+        }
     }
 
     /// Mounts a Liquers UI into a DOM element on **this** environment; see the module-level

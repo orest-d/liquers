@@ -629,6 +629,7 @@ deliberately folded behind a broader line.
 - design `web-pipelines`
 - design `web-query-editor-live-preview`
 - design `web-records-single-cell-scalar`
+- design `web-templates`
 - design `web-value04-bytes-identifier`
 - design `workspace-rustfmt-check`
 - feature `AGENT-CANNOT-PROPOSE-A-COMMAND`
@@ -709,7 +710,6 @@ deliberately folded behind a broader line.
 - feature `WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS`
 - feature `WEB-API-REFERENCE-NOT-GENERATED`
 - feature `WEB-HAS-NO-READ-WRITE-REMOTE-STORE`
-- feature `WEB-HAS-NO-TEMPLATE-COMMANDS`
 - feature `WEB-PAGE-CANNOT-PASS-A-PIPELINE-VALUE`
 - feature `WEB-PIPELINE-EDITOR-HAS-NO-DEFINITION-MODE`
 - feature `WEB-QUERY-EDITOR-NOT-LIVE`

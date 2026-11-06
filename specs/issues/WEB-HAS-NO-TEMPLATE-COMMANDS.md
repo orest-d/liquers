@@ -2,11 +2,11 @@
 id: WEB-HAS-NO-TEMPLATE-COMMANDS
 kind: feature
 title: The browser environment has no template commands
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [web]
-design: 
+design: web-templates
 created: 2026-10-25
 github:
 ---
@@ -52,3 +52,11 @@ as `TEMPLATE` and `DATANODE` work.
 ## Discovery
 
 Writing the `TEMPLATE` section of the language integration guide (2026-10-25).
+
+## Resolution
+
+Implemented on 2026-11-04 by design `web-templates`: `liquers-web` links `liquers-lib` with
+`templates` (not optional; a default release build is 16.2 MB), registers the `ns-template`
+commands, and implements `TEMPLATE` (`render`, `expand`, `validate` on the module, `Environment`
+and `Context`; template commands as a declaration with `template` in place of `run`). Tests:
+`liquers-web/tests/template_TEMPLATE.rs`. Data is converted, not adapted (`DATANODE`).

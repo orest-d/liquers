@@ -232,6 +232,27 @@ async function main(): Promise<void> {
   void edited_query;
   editor.free();
 
+  // Templates: rendered from a page, from a command's context, and declared as a command.
+  const greeting: string | liquers.LiquersRendered = await liquers.expand('{{name}}', { name: 'Ann' });
+  void greeting;
+  const page: string | liquers.LiquersRendered = await liquers.render(
+    liquers.Query.parse('-R/templates/page.md'), 'state', null, { cwd: 'templates', html: true },
+  );
+  void page;
+  const full = await liquers.expand('{{$ missing}}', null, { errors: 'silent', full: true });
+  void full;
+  const diagnostics: liquers.LiquersTemplateDiagnostic[] = await liquers.validateTemplate('{{$ x}}');
+  const line: number = diagnostics.length > 0 ? diagnostics[0].position.line : 0;
+  void line;
+  const options: liquers.LiquersTemplateOptions = { errors: 'expand', cwd: liquers.Key.parse('templates') };
+  void options;
+  liquers.registerCommand({ name: 'greeting', template: '-R/templates/greet.md' });
+  liquers.registerCommand({
+    name: 'renders',
+    async: true,
+    run: async (context: liquers.Context) => context.expand('{{x}}', { x: 1 }),
+  });
+
   // Parameter encoding, and the module-level odds and ends.
   const param: string = liquers.encodeParam('two words');
   const ready: boolean = liquers.isInitialized();
