@@ -4,8 +4,7 @@ kind: design
 title: One Rust function renders a template with frames, inside a command or at the top level
 form: compact
 workflow: liquers-project
-status: approved
-phase: implementation
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [lib/commands]
@@ -244,17 +243,17 @@ Run: `cargo test -p liquers-lib --test template_top_level`, then
 
 ### Steps
 
-- [ ] 1. `template/host.rs` `ContextHost` — `warnings`, `warn`, `take_warnings` —
+- [x] 1. `template/host.rs` `ContextHost` — `warnings`, `warn`, `take_warnings` —
   `cargo test -p liquers-lib --lib template`
-- [ ] 2. `template/top_level.rs` — the types, `render_in_context` (moved from `render_with`) —
+- [x] 2. `template/top_level.rs` — the types, `render_in_context` (moved from `render_with`) —
   `cargo test -p liquers-lib --lib template`
-- [ ] 3. `template/commands.rs` — `render` and `expand` on `render_in_context` —
+- [x] 3. `template/commands.rs` — `render` and `expand` on `render_in_context` —
   `cargo test -p liquers-lib --lib --tests` (AC-12), `cargo test -p liquers-lib --test registry_export`
-- [ ] 4. `render_top_level`, `TopLevelRender`; `tests/template_top_level.rs` —
+- [x] 4. `render_top_level`, `TopLevelRender`; `tests/template_top_level.rs` —
   `cargo test -p liquers-lib --test template_top_level`
-- [ ] 5. Module docs; `TEMPLATE_LANGUAGE.md`, `TEMPLATE_GUIDE.md` (History rows, `reviewed:`) —
+- [x] 5. Module docs; `TEMPLATE_LANGUAGE.md`, `TEMPLATE_GUIDE.md` (History rows, `reviewed:`) —
   `python3 scripts/check_api_docs.py liquers-lib/src/template/top_level.rs`
-- [ ] 6. Feature matrix — `bash scripts/check-build-matrix.sh` (`templates` rows, wasm32)
+- [x] 6. Feature matrix — `bash scripts/check-build-matrix.sh` (`templates` rows, wasm32)
 
 Rollback: revert the PR; `liquers-py-templates` has not landed yet.
 
@@ -263,3 +262,24 @@ Rollback: revert the PR; `liquers-py-templates` has not landed yet.
 The build matrix; `cargo test -p liquers-lib --no-default-features --features templates --lib
 --tests`; `check_api_docs.py` on the three touched modules; `python3 scripts/docs_index.py
 --check`. The issue `TEMPLATE-TOP-LEVEL-RENDER-HAS-NO-HOST` is closed in Phase 5.
+
+## Phase 5: Documentation
+
+Built as approved (commit `80ecd1dc`): `liquers-lib/src/template/top_level.rs` with
+`RenderRequest`, `TemplateSource`, `FrameData` / `FrameKind`, `render_in_context` (the body the
+`ns-template` `render` and `expand` commands now share) and `render_top_level`, which runs the
+render in a closure asset (`ad-hoc-closure-asset`) and returns `TopLevelRender`; `ContextHost`
+collects the recovered errors as warnings (`take_warnings`). Nothing omitted or added.
+
+Documents: [`reference/TEMPLATE_LANGUAGE.md`](../../reference/TEMPLATE_LANGUAGE.md) and
+[`guides/TEMPLATE_GUIDE.md`](../../guides/TEMPLATE_GUIDE.md), each with a History row and
+`reviewed:` 2026-11-04; module docs of `top_level.rs`, `host.rs` and `commands.rs`
+(`check_api_docs.py`: 0 warnings). The chapters drawing on them (`docs/guides/*/10-templates.md`)
+are `outline`: no review due.
+
+Issues: closed `TEMPLATE-TOP-LEVEL-RENDER-HAS-NO-HOST`; none filed.
+
+Validation: `cargo test -p liquers-lib --lib --tests` (`tests/template_top_level.rs` among them),
+the same with `--no-default-features --features templates`, the matrix's wasm32 row
+`--features webui,templates`, `check_api_docs.py`, `docs_index.py --check`. The full build matrix was not run (it
+does not fit the session); the one new `#[cfg]` is a wasm32 gate, covered by the wasm32 check.
