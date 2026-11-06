@@ -42,6 +42,7 @@
 //! ```
 
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use liquers_core::command_metadata::CommandMetadataRegistry;
@@ -471,22 +472,26 @@ macro_rules! editor_methods {
             fn insert<'py>(slf: Bound<'py, Self>, at: usize, element: &Bound<'py, PyAny>) -> PyResult<Bound<'py, Self>> {
                 let element = element_from_py(element)?;
                 edit(slf.py(), &slf.get().inner, |e| CoreEditor::insert(e, at, element))?;
+                slf.get().layout.fetch_add(1, Ordering::SeqCst);
                 Ok(slf)
             }
             /// Replaces the element at `at`.
             fn replace<'py>(slf: Bound<'py, Self>, at: usize, element: &Bound<'py, PyAny>) -> PyResult<Bound<'py, Self>> {
                 let element = element_from_py(element)?;
                 edit(slf.py(), &slf.get().inner, |e| CoreEditor::replace(e, at, element))?;
+                slf.get().layout.fetch_add(1, Ordering::SeqCst);
                 Ok(slf)
             }
             /// Removes the element at `at`.
             fn remove(slf: Bound<'_, Self>, at: usize) -> PyResult<Bound<'_, Self>> {
                 edit(slf.py(), &slf.get().inner, |e| CoreEditor::remove(e, at))?;
+                slf.get().layout.fetch_add(1, Ordering::SeqCst);
                 Ok(slf)
             }
             /// Moves the element at `from_` to `to`.
             fn move_to(slf: Bound<'_, Self>, from_: usize, to: usize) -> PyResult<Bound<'_, Self>> {
                 edit(slf.py(), &slf.get().inner, |e| CoreEditor::move_to(e, from_, to))?;
+                slf.get().layout.fetch_add(1, Ordering::SeqCst);
                 Ok(slf)
             }
             /// Sets the realm.
@@ -524,12 +529,14 @@ macro_rules! editor_methods {
             fn action(slf: Bound<'_, Self>, name: &str, ns: Option<&Bound<'_, PyAny>>) -> PyResult<ActionEditor> {
                 let ns = ns.map(namespaces).transpose()?;
                 let index = edit(slf.py(), &slf.get().inner, |e| CoreEditor::action(e, name, ns))?;
-                Ok(ActionEditor { owner: Owner::$owner(slf.unbind()), index })
+                let layout = slf.get().layout.load(Ordering::SeqCst);
+                Ok(ActionEditor { owner: Owner::$owner(slf.unbind()), index, layout })
             }
             /// An `lq.ActionEditor` on the action at `at`.
             fn edit_action(slf: Bound<'_, Self>, at: usize) -> PyResult<ActionEditor> {
                 read_editor(slf.py(), &slf.get().inner, |e| e.base().command_metadata(at).map(|_| ()))?;
-                Ok(ActionEditor { owner: Owner::$owner(slf.unbind()), index: at })
+                let layout = slf.get().layout.load(Ordering::SeqCst);
+                Ok(ActionEditor { owner: Owner::$owner(slf.unbind()), index: at, layout })
             }
             /// The metadata of the command the action at `at` calls.
             fn command_metadata(&self, py: Python<'_>, at: usize) -> PyResult<crate::command_metadata::CommandMetadata> {
@@ -572,11 +579,14 @@ macro_rules! editor_methods {
 #[pyclass(frozen, name = "PipelineEditor", module = "liquers")]
 pub struct PipelineEditor {
     inner: Mutex<CorePipelineEditor>,
+    /// Counts the edits that can move an element to another index (`insert`, `replace`,
+    /// `remove`, `move_to`); an `ActionEditor` made before one of them is stale.
+    layout: AtomicU64,
 }
 
 impl PipelineEditor {
     pub(crate) fn new(editor: CorePipelineEditor) -> Self {
-        PipelineEditor { inner: Mutex::new(editor) }
+        PipelineEditor { inner: Mutex::new(editor), layout: AtomicU64::new(0) }
     }
 }
 
@@ -585,11 +595,13 @@ impl PipelineEditor {
 #[pyclass(frozen, name = "QueryEditor", module = "liquers")]
 pub struct QueryEditor {
     inner: Mutex<CoreQueryEditor>,
+    /// As [`PipelineEditor`]'s.
+    layout: AtomicU64,
 }
 
 impl QueryEditor {
     pub(crate) fn new(editor: CoreQueryEditor) -> Self {
-        QueryEditor { inner: Mutex::new(editor) }
+        QueryEditor { inner: Mutex::new(editor), layout: AtomicU64::new(0) }
     }
 }
 
@@ -603,16 +615,38 @@ editor_methods!(QueryEditor, Query {
 
 /// Edits one action of a `PipelineEditor` or `QueryEditor`. Every method is one edit of the owner,
 /// checked against the action's command, and returns this editor; a refused edit raises and leaves
-/// the owner as it was. An action editor whose step was removed raises `ParameterError`.
+/// the owner as it was. An action editor raises `ParameterError` once its step may have moved:
+/// after an `insert`, `replace`, `remove` or `move_to` on the owner (appending keeps it valid).
 #[pyclass(frozen, name = "ActionEditor", module = "liquers")]
 pub struct ActionEditor {
     owner: Owner,
     index: usize,
+    /// The owner's `layout` count when this editor was made.
+    layout: u64,
 }
 
 impl ActionEditor {
+    /// Refuses a stale editor: its index may now name another element.
+    fn check_layout(&self, py: Python<'_>) -> PyResult<usize> {
+        let layout = match &self.owner {
+            Owner::Pipeline(owner) => owner.get().layout.load(Ordering::SeqCst),
+            Owner::Query(owner) => owner.get().layout.load(Ordering::SeqCst),
+        };
+        if layout == self.layout {
+            return Ok(self.index);
+        }
+        Err(error_to_pyerr(
+            py,
+            &Error::invalid_pipeline(format!(
+                "the editor of the action at {} is stale: elements were inserted, replaced, \
+                 removed or moved since it was made; take a new one with edit_action",
+                self.index
+            )),
+        ))
+    }
+
     fn apply(&self, py: Python<'_>, mut f: impl FnMut(&mut liquers_core::pipeline::ActionEditor<'_>) -> Result<(), Error>) -> PyResult<()> {
-        let index = self.index;
+        let index = self.check_layout(py)?;
         match &self.owner {
             Owner::Pipeline(owner) => edit(py, &owner.get().inner, |e| e.with_action(index, &mut f)),
             Owner::Query(owner) => edit(py, &owner.get().inner, |e| e.with_action(index, &mut f)),
@@ -620,7 +654,7 @@ impl ActionEditor {
     }
 
     fn inspect<R>(&self, py: Python<'_>, f: impl FnOnce(&CorePipelineEditor, usize) -> Result<R, Error>) -> PyResult<R> {
-        let index = self.index;
+        let index = self.check_layout(py)?;
         match &self.owner {
             Owner::Pipeline(owner) => read_editor(py, &owner.get().inner, |e| f(e.base(), index)),
             Owner::Query(owner) => read_editor(py, &owner.get().inner, |e| f(e.base(), index)),

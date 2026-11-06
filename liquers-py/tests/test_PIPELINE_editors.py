@@ -48,6 +48,26 @@ def test_stale_action_editor(env):
     assert editor.pipeline == before
 
 
+def test_action_editor_is_stale_after_its_step_moves(env):
+    """Removing an earlier step, inserting or moving one makes an action editor stale instead of
+    retargeting it; appending does not."""
+    editor = env.pipeline_editor()
+    a = editor.action("hello")
+    b = editor.action("same_obj")
+    editor.push("same_obj")  # an append keeps both editors valid
+    assert b.metadata.name == "same_obj"
+    editor.remove(a.index)
+    before = editor.pipeline
+    with pytest.raises(lq.ParameterError, match="stale"):
+        b.metadata
+    assert editor.pipeline == before
+    fresh = editor.edit_action(0)
+    assert fresh.metadata.name == "same_obj"
+    editor.insert(0, "hello")
+    with pytest.raises(lq.ParameterError, match="stale"):
+        fresh.metadata
+
+
 def test_editor_threads(env):
     """Two threads editing one editor while a third holds the GIL: no deadlock, both applied."""
     editor = env.pipeline_editor()

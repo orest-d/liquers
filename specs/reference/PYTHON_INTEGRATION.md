@@ -3,7 +3,7 @@ title: Python Integration
 kind: reference
 audience: both
 area: [py, core/value, core/error, lib/value, core/store, store/config, core/assets]
-reviewed: 2026-11-05
+reviewed: 2026-11-06
 ---
 # Python Integration
 
@@ -935,7 +935,7 @@ an `lq.ActionEditor` (`ns`, `set`, `placeholder`, `link`, `pipeline`, `state`, `
 `QueryEditor.query()` gives the query. The classes are frozen with an interior mutex: each call
 converts its arguments first, then locks (`lock_py_attached`), edits a clone and keeps it only if
 every step succeeded, so a refused edit, including the second step of `action(name, ns=…)`, leaves
-the editor as it was. An `ActionEditor` whose step was removed raises `ParameterError`.
+the editor as it was. An `ActionEditor` raises `ParameterError` once its step may have moved: after an `insert`, `replace`, `remove` or `move_to` on its editor (appending keeps it valid).
 
 **Pipeline commands.** `env.pipeline_command(name, body, *, arguments=(), namespace="",
 label=None, doc=None, filename=None)` declares `DeclaredCommand::Pipeline` (`declared.rs`), applied
@@ -954,6 +954,7 @@ the body back as an `lq.Pipeline`; so do `Recipe.pipeline` and a pipeline `Argum
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-06 | §16: an `ActionEditor` is stale after any edit that can move its step, not only its removal. | PR #263 review |
 | 2026-11-05 | §16: `evaluate` takes a tuple too; `to_list()` is the JSON form; a JSON-slot error path starts at `$`. | phase-5, `design/liquers-py-pipelines/` |
 <<<<<<< HEAD
 | 2026-11-04 | §16 Pipelines (`lq.Pipeline`, JSON slots, evaluation at the top level and in a command, the editors, pipeline commands); §2, §3 and §5 list the new names and the `Pipeline` conversion. | `design/liquers-py-pipelines/` |
