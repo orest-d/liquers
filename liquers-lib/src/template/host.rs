@@ -1,5 +1,42 @@
 //! [`ContextHost`]: rendering a template inside a command, with its queries evaluated through the
 //! command's [`Context`].
+//!
+//! A template's data and its embedded queries both need a context: a store folder is read child by
+//! child, a record source chunk by chunk, each read a dependency of the render. This module is
+//! where a command's [`Context`] becomes a [`TemplateHost`] and a [`State`] becomes the data node
+//! the renderer walks.
+//!
+//! # Main components
+//!
+//! - [`ContextHost`]: the host. Evaluates the template's queries through the context, resolves
+//!   relative keys against a cwd, logs recovered errors as command warnings.
+//! - [`ContextHost::node_of`]: a state as a node; a directory listing becomes a `FolderNode`, a
+//!   record source a `RecordSourceNode`, anything else the value's own node.
+//! - [`context_node_kind`]: the kind `node_of` would build for a value that needs a context, or
+//!   `None` when the value's own node will do. Lets a caller holding no context (a Python view)
+//!   know a node's kind before it reads it.
+//!
+//! # Where it is used
+//!
+//! - The `ns-template` commands (`commands.rs`) and the top-level render (`top_level.rs`).
+//! - `liquers-py`'s `DataNode` views: `context.data_node(state)` and `env.data_node(state)` read
+//!   through a `ContextHost`, and ask `context_node_kind` up front.
+//!
+//! # Related concepts
+//!
+//! - `liquers_template::TemplateHost`: the trait implemented here.
+//! - `liquers_core::data_node`: the sync and async node traits.
+//! - `specs/reference/TEMPLATE_LANGUAGE.md`: what a template can read.
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_lib::template::host::context_node_kind;
+//! use liquers_lib::value::Value;
+//!
+//! // Text reads as its own node; only folders and record sources need a context.
+//! assert_eq!(context_node_kind(&Value::from("text")), None);
+//! ```
 
 use std::any::Any;
 use std::pin::Pin;
@@ -70,6 +107,18 @@ impl<E: Environment<Value = Value>> ContextHost<E> {
     }
 
     fn inner_node_of(&self, value: &Arc<Value>) -> AnyNode {
+        match context_node_kind(value) {
+            None => return Value::data_node(value.clone()),
+            Some(NodeKind::List | NodeKind::Map) => {}
+            Some(
+                NodeKind::Null
+                | NodeKind::Bool
+                | NodeKind::Integer
+                | NodeKind::Float
+                | NodeKind::Text
+                | NodeKind::Opaque,
+            ) => return Value::data_node(value.clone()),
+        }
         #[cfg(feature = "records")]
         {
             use crate::value::ExtValueInterface;
@@ -115,6 +164,26 @@ impl<E: Environment<Value = Value>> ContextHost<E> {
     fn absolute(&self, query: &Query) -> Query {
         query.to_absolute(&self.cwd)
     }
+}
+
+/// The kind of node [`ContextHost::node_of`] gives a value that needs a context to be read: `Map`
+/// for a directory listing (a folder of its children), `List` for a record source (its records,
+/// streamed); `None` for every other value, whose node is its own `data_node` and holds no context.
+///
+/// A binding that reads values outside a command uses it to decide whether a read needs a context
+/// (and so an asset) at all; `node_of` uses it too, so the two cannot disagree.
+pub fn context_node_kind(value: &Value) -> Option<NodeKind> {
+    #[cfg(feature = "records")]
+    {
+        use crate::value::ExtValueInterface;
+        if value.as_record_source().is_ok() {
+            return Some(NodeKind::List);
+        }
+    }
+    if directory_listing(value).is_some() {
+        return Some(NodeKind::Map);
+    }
+    None
 }
 
 /// The reserved name under which a state's metadata record is read.

@@ -155,6 +155,8 @@ pub(crate) enum ToPy {
     Next(Result<Option<Arc<dyn liquers_records::RecordView>>, Error>),
     /// A record view, as `lq.RecordView` whatever its shape (no single-cell rule).
     View(Result<Arc<dyn liquers_records::RecordView>, Error>),
+    /// An awaited read of an `lq.DataNode`.
+    Node(Result<crate::data_node::NodeAnswer, Error>),
 }
 
 impl<'py> IntoPyObject<'py> for ToPy {
@@ -209,6 +211,7 @@ impl<'py> IntoPyObject<'py> for ToPy {
                     .map(Py::into_any)
                     .map_err(|e| pyerr_to_error(py, &e))
             }),
+            ToPy::Node(result) => result.and_then(|answer| answer.into_py(py)),
             ToPy::ResourceNames(result) => result.and_then(|names| {
                 let names: PyResult<Vec<Py<crate::query::ResourceName>>> =
                     names.into_iter().map(|n| Py::new(py, crate::query::ResourceName(n))).collect();

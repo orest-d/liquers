@@ -18,14 +18,14 @@ and stubtest check every exported name.
 
 ## Progress
 
-- [ ] Step 1: `PyNode` and `node_of` (classification, lookups, `to_json`)
-- [ ] Step 2: the `ForeignValue::data_node` hook on `PyObjectValue`
-- [ ] Step 3: opt-in protocols (`__liquers_data__`)
-- [ ] Step 4: lazy `lq.State`
-- [ ] Step 5: `context_node_kind` in liquers-lib
-- [ ] Step 6: `lq.NodeKind`, `lq.DataNode`, `lq.data_node`, sync roots (`Node`, `Command`)
-- [ ] Step 7: `closure::awaitable_run` and the `Env` root
-- [ ] Step 8: conformance row, docs, module docs
+- [x] Step 1: `PyNode` and `node_of` (classification, lookups, `to_json`)
+- [x] Step 2: the `ForeignValue::data_node` hook on `PyObjectValue`
+- [x] Step 3: opt-in protocols (`__liquers_data__`)
+- [x] Step 4: lazy `lq.State`
+- [x] Step 5: `context_node_kind` in liquers-lib (its test, `context_node_kind_agrees_with_node_of`, sits in `liquers-lib/tests/template_top_level.rs` beside the other host tests rather than in `host.rs`)
+- [x] Step 6: `lq.NodeKind`, `lq.DataNode`, `lq.data_node`, sync roots (`Node`, `Command`)
+- [x] Step 7: `closure::awaitable_run` and the `Env` root (cancelling the awaitable also cancels the private asset; Phase 2 updated)
+- [x] Step 8: conformance row, docs, module docs
 
 ## Implementation Steps
 
@@ -135,6 +135,6 @@ changes. Step 4 is independent and can be reverted alone.
 
 ## Phase 5 Entry Criteria
 
-- [ ] Implementation finished and validated
-- [ ] User and review comments answered
-- [ ] Documentation checkable against implemented and tested behaviour
+- [x] Implementation finished and validated (`bash scripts/test-liquers-py.sh`: 446 passed)
+- [x] User and review comments answered
+- [x] Documentation checkable against implemented and tested behaviour

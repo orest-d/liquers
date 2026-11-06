@@ -2138,12 +2138,20 @@ settled on, and the list after them is what cost time. Its contract is
   `LD_LIBRARY_PATH`.
 
 - **Templates and data nodes.** The `ns-template` commands are in the built-in set
-  (`liquers-py/src/builtins.rs`); a template command, `render` / `expand` on the environment and
-  on `Context`, and a `dict` adapter are not implemented yet (`TEMPLATE` and `DATANODE` are `NS`).
-  This matters more than it looks: a `dict` with one non-`str` key or one unconvertible member
-  becomes `py.Object`, which a template renders as nothing. A `context.render` would wait like
-  `context.evaluate` (`block_on`, interpreter lock released), which is what lets a `dict` adapter
-  take the lock per lookup from a worker.
+  (`liquers-py/src/builtins.rs`); a template command and `render` / `expand` on the environment and
+  on `Context` are not implemented yet (`TEMPLATE` is `NS`).
+- **Data nodes** (`specs/design/liquers-py-data-nodes/`). Inbound, `PyObjectValue` overrides
+  `ForeignValue::data_node` with a `PyNode` over the live object, so a `dict` that conversion
+  keeps as `py.Object` (one `datetime`, one `int` key) renders in place. Exact `dict`, `list` and
+  `tuple` and the scalars read with no Python code run; other classes opt in on the *type*
+  (`__liquers_data__ = True` for the protocols, or a method returning the data), which keeps
+  `DATANODE07` honest: an instance `__getattr__` never runs. Each lookup takes the interpreter lock
+  through `attach_off_worker` (`block_in_place` on a runtime worker), which is what makes
+  `DATANODE10` pass. Outbound, `lq.DataNode` is a root plus a path; a folder or record source
+  needs a context, so `context.data_node(state)` reads through the command's context and
+  `env.data_node(state)` runs each async read as a closure asset (`ASSETS.md` §Closure assets),
+  cancelled at shutdown or when the awaiting task is cancelled. `State.value` became lazy, so
+  `DATANODE11` reads a polars cell without importing polars.
 
 What cost time:
 
@@ -4002,6 +4010,7 @@ def test_DOCS04_every_public_name_is_documented():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | §6 Python: *Data nodes* (the inbound adapter and opt-in, the lock per lookup, the outbound view and its roots, lazy `State.value`); `DATANODE` is implemented by `liquers-py`. | `design/liquers-py-data-nodes/` |
 | 2026-11-04 | New feature `PIPELINE` (overview row, soft dependency, §5 section with tests `PIPELINE01`–`05`); no binding implements it yet. | phase-5, `design/composite-command-definition/` |
 | 2026-11-04 | §PIPELINE: `liquers-web` implements the feature. | design `web-pipelines` |
 | 2026-11-04 | §TEMPLATE and §6 Browser JavaScript: `liquers-web` implements `TEMPLATE`. | design `web-templates` |

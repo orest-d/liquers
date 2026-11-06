@@ -143,6 +143,8 @@ to return a node that reads in place: `AnyNode::Sync` with a `DataNode` when the
 the value from `as_any` when a host should pass it on as itself. The default is a JSON snapshot,
 or opaque. Examples: `liquers-records/src/data_node.rs`, `liquers-lib/src/polars/data_node.rs`,
 `liquers-lib/src/template/folder.rs`.
+A language integration does the same for its retained objects through `ForeignValue::data_node`:
+`liquers-py` reads a Python `dict` in place (`liquers-py/src/data_node.rs`).
 
 ## 6. Adding a syntax
 
@@ -154,6 +156,7 @@ stack, query templates, hosts and error modes are shared.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | §5: a retained language object reads in place through `ForeignValue::data_node` (liquers-py). | `design/liquers-py-data-nodes/` |
 | 2026-11-04 | §4: `render_in_context` and `render_top_level` with frames given directly. | `design/template-render-in-env/` |
 | 2026-10-17 | Volatility advice relaxed: a volatile query in a template makes the render volatile by itself. | `design/runtime-volatility` |
 | 2026-10-17 | Corrected the volatility advice: `v` goes before the render action; a trailing `/v` serves the cached render. | `RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE` |

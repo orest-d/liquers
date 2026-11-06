@@ -3,7 +3,7 @@ title: Using Liquers from Python
 kind: guide
 audience: user
 area: [py]
-reviewed: 2026-11-02
+reviewed: 2026-11-05
 ---
 # Using Liquers from Python
 
@@ -778,6 +778,82 @@ receives the same object. Liquers cannot look inside it: a Rust command given on
 never unpickled. With `conversion="strict"`, such an object is refused with `ConversionError` as
 soon as a command returns it.
 
+### Reading data field by field
+
+A data node is a read-only view of a value, one field at a time, without converting the whole
+value. Templates read data this way, and so can you:
+
+```python
+import datetime
+import liquers as lq
+
+node = lq.data_node({"name": "Ann", "when": datetime.datetime.now(), "tags": ["a", "b"]})
+assert node["name"].scalar == "Ann"
+assert node["tags"].kind == lq.NodeKind.List and len(node["tags"]) == 2
+assert node["when"].kind == lq.NodeKind.Opaque          # no Liquers equivalent
+assert node.get("missing") is None
+```
+
+This is how a template renders a dict that conversion keeps opaque (a `datetime` inside, an `int`
+key): the dict is read in place, and only the parts with no Liquers equivalent are opaque.
+`dict`, `list`, `tuple` and plain scalars read automatically; for your own class, opt in on the
+class:
+
+```python
+import liquers as lq
+
+class Person:
+    __liquers_data__ = True                 # read through keys() and __getitem__
+    def keys(self):
+        return ["name"]
+    def __getitem__(self, key):
+        if key == "name":
+            return "Ann"
+        raise KeyError(key)
+
+class Wrapper:
+    def __init__(self, data):
+        self.data = data
+    def __liquers_data__(self):             # or: the data to read instead of the object
+        return self.data
+
+assert lq.data_node(Person())["name"].scalar == "Ann"
+assert lq.data_node(Wrapper({"a": 1}))["a"].scalar == 1
+```
+
+`__liquers_data__ = True` reads `keys` and `__getitem__` as a map, `__len__` and `__getitem__` as a
+list, or `__index__` / `__float__` as a number. A class that does not opt in, a `dict` subclass
+included, is opaque: Liquers never runs its code.
+
+A state reads the same way, without converting its value, so a DataFrame can be read one cell at a
+time without importing polars: `lq.data_node(env.evaluate_state("-R/data/sales.csv/-/ns-pl/from_csv"))[0]["amount"].scalar`.
+`state.value` converts only when you first read it.
+
+A folder (`-R-dir/…`) or a record source is read on demand, through the environment, so it needs
+`await`: `env.data_node(state)` at the top level, `context.data_node(state)` inside a command.
+
+```python
+import asyncio
+import liquers as lq
+
+env = lq.Environment()
+env.store_set("data/sales.csv", b"region,amount\nEU,10\n")
+folder = env.data_node(env.evaluate_state("-R-dir/data"))
+assert folder.kind == lq.NodeKind.Map
+
+async def main():
+    entry = await folder.get_async("sales.csv")
+    return await folder.to_json_async(), entry.kind
+
+print(asyncio.run(main()))                 # (['sales.csv'], NodeKind.Opaque): stored bytes
+env.shutdown()
+```
+
+The sync members (`folder["x"]`, `len(folder)`) raise `NotSupportedError` on such a node. For
+`env.data_node`, cancelling the awaiting task cancels the read and `shutdown()` ends it with
+`CancelledError`; for `context.data_node`, as for `context.evaluate_async`, cancelling ends only the
+wait.
+
 ### Records
 
 A table in Liquers is a *record view* (`specs/reference/RECORD_STREAMS.md`): typed columns with a
@@ -998,6 +1074,8 @@ What you will notice; the complete list, with the tracking issues, is
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-05 | §7: cancelling an awaited read cancels it only for `env.data_node`. | phase-5, `design/liquers-py-data-nodes/` |
+| 2026-11-04 | §7 Reading data field by field: `lq.data_node`, the `__liquers_data__` opt-in, states read in place, async folder reads. | `design/liquers-py-data-nodes/` |
 | 2026-11-02 | The generated API reference: where it is published and how to build it. | design `py-api-reference` |
 | 2026-11-01 | §1 Installing: from source until the first release, then pip; the extras and where they install nothing; §7 Records (views, `fields=`, buffers, pyarrow/pandas/polars, sources); §9 Type checking; §10 updated. | `design/liquers-py-records/`, `design/liquers-py-package/`, `design/liquers-py-stubs/` (phase-5) |
 | 2026-11-01 | §4 A store written in Python; §6 Recipe providers written in Python; §2 the store and recipe classes; §10 the recipe-provider limitation is lifted. | `design/liquers-py-store/`, `design/liquers-py-recipes/` (phase-5) |

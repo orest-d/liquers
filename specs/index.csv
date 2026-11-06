@@ -329,7 +329,7 @@ PY-RECIPE-PROVIDER-NOT-CONFIGURABLE,feature,A Python environment cannot configur
 PY-RECORD-SOURCES-CANNOT-BE-TRAVERSED-FROM-PYTHON,feature,"A record source cannot be walked chunk by chunk from Python, and record columns cannot be read in place",closed,local,,ready,not-eligible,P2,L,py;records,,,,liquers-py-records,,2026-11-01,specs/issues/PY-RECORD-SOURCES-CANNOT-BE-TRAVERSED-FROM-PYTHON.md
 PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON,feature,A record view or source evaluated from Python raises ConversionError instead of reaching Python as a table,closed,local,,ready,not-eligible,P3,M,py;records,,,,liquers-py-records,,2026-10-20,specs/issues/PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON.md
 PY-REPRS-SHOW-RUST-DEBUG-FORMAT,issue,"Most Python classes' repr is Rust debug output, and no repr convention exists",draft,local,,needs-decision,not-eligible,P3,M,py,,,,py-python-style-reprs,,2026-10-19,specs/issues/PY-REPRS-SHOW-RUST-DEBUG-FORMAT.md
-PY-STRUCTURES-ARE-OPAQUE-TO-DATA-NODE-READERS,feature,A Python dict that structural conversion refuses is opaque to templates and other data-node readers,draft,local,,ready,not-eligible,P2,L,py;lib/value,,,,liquers-py-data-nodes,,2026-11-04,specs/issues/PY-STRUCTURES-ARE-OPAQUE-TO-DATA-NODE-READERS.md
+PY-STRUCTURES-ARE-OPAQUE-TO-DATA-NODE-READERS,feature,A Python dict that structural conversion refuses is opaque to templates and other data-node readers,closed,local,,ready,not-eligible,P2,L,py;lib/value,,,,liquers-py-data-nodes,,2026-11-04,specs/issues/PY-STRUCTURES-ARE-OPAQUE-TO-DATA-NODE-READERS.md
 PY-TESTS-NOT-RUN-IN-CI,issue,"No CI workflow runs the liquers-py test suite, on any Python interpreter",closed,local,,ready,not-eligible,P2,M,py;build,,,,language-binding-tests-in-ci,,2026-10-26,specs/issues/PY-TESTS-NOT-RUN-IN-CI.md
 PY-VALUE-ENUM-OVERSIZED,issue,liquers-py's own Value enum is over 700 bytes because large variants are stored inline,closed,local,,ready,not-eligible,P3,M,py,,,,liquers-py,,2026-10-12,specs/issues/PY-VALUE-ENUM-OVERSIZED.md
 PY-VALUE-SERIALIZER-IS-A-STUB,issue,liquers-py's value serializer writes almost nothing and reads nothing back,closed,local,,ready,not-eligible,P2,M,py;core/value,,,,liquers-py,,2026-08-26,specs/issues/PY-VALUE-SERIALIZER-IS-A-STUB.md
@@ -741,7 +741,7 @@ LIB-POLARS-ETHNUM-RUST-1-98,design,Polars dependency compatibility with Rust 1.9
 LIBRARY-NO-PANIC-LINT,design,"No unwrap or expect in library code, enforced by a clippy lint per crate",in_review,local,implementation,needs-decision,not-eligible,P2,L,build;core/query;core/value;lib/egui;macro,,,,library-no-panic-lint,,2026-10-20,specs/design/library-no-panic-lint/DESIGN.md
 LIQUERS-MUSTACHE,design,liquers-template — a query-aware template language (Mustache syntax),complete,local,,,,,,core/query;core/value;lib/commands;lib/ui;docs,,,,liquers-mustache,,2026-10-13,specs/design/liquers-mustache/DESIGN.md
 LIQUERS-PY-ASYNC,design,Async evaluation and async commands in liquers-py,complete,local,,ready,not-eligible,P3,L,py,,181,,liquers-py-async,,2026-10-18,specs/design/liquers-py-async/DESIGN.md
-LIQUERS-PY-DATA-NODES,design,"Data nodes in liquers-py: Python data read in place, and Liquers values read field by field",approved,local,implementation,ready,not-eligible,P2,L,py;lib/value,,,,liquers-py-data-nodes,,2026-11-04,specs/design/liquers-py-data-nodes/DESIGN.md
+LIQUERS-PY-DATA-NODES,design,"Data nodes in liquers-py: Python data read in place, and Liquers values read field by field",complete,local,,ready,not-eligible,P2,L,py;lib/value,,,,liquers-py-data-nodes,,2026-11-04,specs/design/liquers-py-data-nodes/DESIGN.md
 LIQUERS-PY-PACKAGE,design,"Release wheels for liquers-py, built and tested in GitHub Actions",complete,local,,ready,not-eligible,P2,L,py;build,,,,liquers-py-package,,2026-11-01,specs/design/liquers-py-package/DESIGN.md
 LIQUERS-PY-PIPELINES,design,"Pipelines in liquers-py: evaluate, convert, edit and register pipelines from Python",approved,local,implementation,ready,not-eligible,P2,L,py,,,,liquers-py-pipelines,,2026-11-04,specs/design/liquers-py-pipelines/DESIGN.md
 LIQUERS-PY-RECIPES,design,Recipe providers written in Python,complete,local,,ready,not-eligible,P3,L,py;core/assets;core/context,,,,liquers-py-recipes,,2026-10-31,specs/design/liquers-py-recipes/DESIGN.md
@@ -1016,7 +1016,7 @@ PIPELINES,reference,Pipelines,current,local,,,,,,core/commands;core/plan;core/qu
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,,lib/polars,,,,,2026-11-03,,specs/reference/POLARS_COMMAND_LIBRARY.md
 POSITIONING,reference,Positioning and Marketing Plan (draft),current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/POSITIONING.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-11-04,,specs/reference/PROJECT_OVERVIEW.md
-PYTHON_INTEGRATION,reference,Python Integration,current,local,,,,,,py;core/value;core/error;lib/value;core/store;store/config;core/assets,,,,,2026-11-02,,specs/reference/PYTHON_INTEGRATION.md
+PYTHON_INTEGRATION,reference,Python Integration,current,local,,,,,,py;core/value;core/error;lib/value;core/store;store/config;core/assets,,,,,2026-11-05,,specs/reference/PYTHON_INTEGRATION.md
 REALMS,reference,Realms,current,local,,,,,,core/plan;core/commands;store/config,,,,,2026-11-04,,specs/reference/REALMS.md
 RECIPES_AND_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/query;core/assets;core/context,,,,,2026-11-04,,specs/reference/RECIPES_AND_PLANS.md
 RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-11-03,,specs/reference/RECORD_STREAMS.md
@@ -1042,7 +1042,7 @@ GITHUB_ACTIONS_GUIDE,guide,GitHub Actions Guide,current,local,,,,,,build;docs,,,
 JAVASCRIPT_GUIDE,guide,Using Liquers from JavaScript in the browser,current,local,,,,,,web,,,,,2026-11-04,,specs/guides/JAVASCRIPT_GUIDE.md
 LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store;core/value;lib/commands,,,,,2026-11-04,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 PIPELINE_GUIDE,guide,Pipeline Guide,current,local,,,,,,core/commands;core/plan;core/query;core/validate,,,,,2026-11-04,,specs/guides/PIPELINE_GUIDE.md
-PYTHON_GUIDE,guide,Using Liquers from Python,current,local,,,,,,py,,,,,2026-11-02,,specs/guides/PYTHON_GUIDE.md
+PYTHON_GUIDE,guide,Using Liquers from Python,current,local,,,,,,py,,,,,2026-11-05,,specs/guides/PYTHON_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,,core/query,,,,,2026-11-04,,specs/guides/QUERY_ESCAPING_GUIDE.md
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,,records;lib/value,,,,,2026-10-30,,specs/guides/RECORD_STREAM_GUIDE.md
 SEARCH_GUIDE,guide,Search Guide,current,local,,,,,,lib/commands;records,,,,,2026-10-17,,specs/guides/SEARCH_GUIDE.md
