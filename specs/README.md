@@ -452,6 +452,7 @@ deliberately folded behind a broader line.
 - design `lib-integration-test-feature-gates`
 - design `lib-polars-ethnum-rust-1-98`
 - design `library-no-panic-lint`
+- design `liquers-py-modules`
 - design `liquers-web-records-bridge`
 - design `listdir-keys-deep-child-check`
 - design `macro-argument-hints-and-query-literals`
@@ -670,6 +671,7 @@ deliberately folded behind a broader line.
 - feature `NO-TEMPLATE-EDITOR-UI`
 - feature `NO-WRITE-PATH-FROM-RECORDS-INTO-A-RELATIONAL-DATABASE`
 - feature `PIPELINES-NOT-IN-LANGUAGE-BINDINGS`
+- feature `PY-CANNOT-IMPORT-MODULES-FROM-THE-STORE`
 - feature `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`
 - feature `PY-COMMAND-DECORATOR-CANNOT-SET-REALM`
 - feature `QUERY-BUILDER-NOT-IN-BINDINGS`
