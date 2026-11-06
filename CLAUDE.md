@@ -350,6 +350,35 @@ Deletes still succeed while writes fail, so recovery is local: `cargo clean` (or
 `df -h /` — "Avail" near zero with a low "Used" means the allowance is spent, not that the machine
 is broken.
 
+### Building on Windows (ring needs clang on ARM64)
+
+The default builds of `liquers-lib` (feature `polars`, via Parquet → `object_store` → `ring`) and
+`liquers-store` (its OpenDAL cloud services, via `reqsign` → `ring` and `rustls` → `aws-lc-sys`),
+and everything built on them, compile the `ring` C/assembly code. `cargo doc` does too: rustdoc
+runs every dependency's build script. On **x86_64 Windows** the Visual Studio Build Tools
+("Desktop development with C++") are enough. On **ARM64 Windows** (`aarch64-pc-windows-msvc`)
+ring insists on `clang`, and without it the build stops with
+`failed to find tool "clang": program not found`. Install LLVM once:
+
+```powershell
+winget install --id LLVM.LLVM     # native ARM64 build; adds C:\Program Files\LLVM\bin to PATH
+winget install --id Kitware.CMake # aws-lc-sys uses it on some targets
+```
+
+Open a new shell and check `clang --version`. (Alternatively, add the *C++ Clang Compiler for
+Windows* component to the Build Tools in the Visual Studio Installer and put
+`VC\Tools\Llvm\ARM64\bin` on `PATH`.) `cargo clean -p ring` afterwards if a failed build is cached.
+
+Without clang, these configurations are ring-free and document fine:
+
+```bash
+cargo doc --no-deps -p liquers-core -p liquers-records -p liquers-template -p liquers-markdown -p liquers-mcp
+cargo doc --no-deps -p liquers-store --no-default-features --features async_store
+cargo doc --no-deps -p liquers-lib --no-default-features --features egui,image-support,records,records-ipc,records-parquet,templates,mem,markdown
+```
+
+Fencing the native requirement behind features is `RING-NEEDS-CLANG-ON-WINDOWS-ARM64`.
+
 ## Constraints
 
 ### Do NOT
