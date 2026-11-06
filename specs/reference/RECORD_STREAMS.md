@@ -3,7 +3,7 @@ title: Record Streams
 kind: reference
 audience: internal
 area: [records, lib/value, lib/commands, web]
-reviewed: 2026-11-01
+reviewed: 2026-11-03
 ---
 
 # Record Streams
@@ -59,7 +59,7 @@ explicit await (`materialize`).
 | source → batch | `RecordSource::materialize(self, resolver, max_rows)` | as above; `InMemorySource` holding one view overrides it (no stream) |
 | view → batch | `RecordView::materialize()` | a shallow clone for a `RecordBatch`; reads every column for any other view |
 | batch → view | `Arc<RecordBatch>` as `Arc<dyn RecordView>` | free |
-| batch ↔ mutable | `RecordBatch::into_mut()` / `RecordBatchMut::freeze()` | a move of every value buffer the batch holds alone; a copy of shared ones and of validity |
+| batch ↔ mutable | `RecordBatch::into_mut()` / `RecordBatchMut::freeze()` | a move of every buffer the batch holds alone — values, validity, `Bool` values, offsets; a copy of shared ones |
 
 ### Scales
 
@@ -466,16 +466,18 @@ rebuild alignment on the way back. This serde form is not one of the table forma
 |---|---|
 | `RecordBatch::new(schema, columns, chunk_id, rows: Option<_>, sources)` | refuses a column count ≠ field count, a column failing `validate`, unequal lengths, a column type ≠ its field's, runs not summing to `len` |
 | `RecordBatch::concat(&[RecordBatch])` | refuses no input, a differing field count, or a differing name, type or key role at some position (named); **widens** a field to nullable when any input is; rebases the `Source` column; joins runs and origins; keeps `chunk_id` only for a single input |
-| `RecordBatch::into_mut()` | a `RecordBatchMut`: value buffers held alone are moved (`Arc::try_unwrap`), shared ones copied; validity always copied |
+| `RecordBatch::into_mut()` | a `RecordBatchMut`: buffers held alone (values, validity, `Bool` values, offsets) are moved (`Arc::try_unwrap`), shared ones copied |
 
 `RecordViewMut: RecordView` — `reserve`, `append_row(&[FieldValue])` (type-checked and **atomic**: a
 refused value rolls back the earlier columns of that row), `set_value`, `column_mut`.
 `RecordBatchMut` implements it; its `len()` is the shortest column's, and `freeze()` requires them
 equal. `freeze()` returns a **standalone** batch (chunk 0, no `chunk_id`, no origins): an edit does
 not carry provenance over. `ColumnMut` (`new`, `with_capacity`, `reserve`, `push`, `set`, `len`,
-`data_type`, `freeze`) is growable and aligned from the start, so `freeze` moves its value buffer;
-`set` on a `Text` / `Binary` cell rebuilds the tail
-([`COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY`](../issues/COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY.md)).
+`data_type`, `freeze`) is growable and aligned from the start, so `freeze` moves its buffers. Its
+validity is packed and allocated only at the first null, so a column with none freezes with
+`validity: None` (as does one whose nulls were all overwritten). `set` on a `Text` / `Binary` cell
+of the same byte length writes it in place; another length moves the bytes after the cell once and
+shifts the later offsets by the difference.
 The first non-null vector pushed fixes a `Vector` column's `dim` and backfills earlier nulls.
 
 ## Arrow interoperability
@@ -881,6 +883,7 @@ materializes to an empty batch; without one it is an error.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-03 | Batch ↔ mutable: validity, `Bool` values and offsets move like value buffers; `ColumnMut` validity is allocated at the first null; a variable-length `set` shifts only the tail. | `design/column-mut-zero-copy-validity/` |
 | 2026-11-01 | Polars bridge: a nanosecond `Datetime` with a sub-microsecond part is refused instead of silently truncated (`POLARS-BRIDGE-TRUNCATES-SUB-MICROSECOND-DATETIMES`). | issue fix |
 | 2026-11-01 | §Arrow IPC: `liquers.origins` carries `sources` (written when non-empty, dropped on read without a `Source` field). §Rows: `read_chunk`, shared by `ns-rec/rowid` and liquers-py. §ChunkOrigin and §Table formats updated. | `design/liquers-py-records/` (phase-5) |
 | 2026-10-30 | Manifest validation: the `recipes.yaml` name clash is the chain's two-owner error. §Provider chain: the `manifest` entry type, `LibKind`'s list, every member asked, `with_records_recipe_provider` idempotent. | design `recipe-provider-chain-config` |

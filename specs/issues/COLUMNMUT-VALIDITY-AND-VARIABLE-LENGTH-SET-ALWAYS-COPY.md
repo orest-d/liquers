@@ -2,7 +2,7 @@
 id: COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY
 kind: issue
 title: ColumnMut always copies validity, and rebuilds the whole column to overwrite one Text/Binary cell
-status: draft
+status: closed
 priority: P3
 complexity: M
 area: [records]
@@ -77,3 +77,7 @@ Also found: `Text`/`Binary` offsets are copied both ways too (`offsets.as_slice(
 5-million-row `Text` column: 100 full-column copies plus validity and offsets copied twice. Should:
 validity and offsets move, and each `set` moves only the tail after the cell (nothing for a
 same-length value).
+
+## Resolution
+
+Closed 2026-11-03 by design `column-mut-zero-copy-validity`, PR #251. Validity, `Bool` values and offsets move through `into_mut`/`freeze`; a variable-length `set` writes in place or shifts only the tail.

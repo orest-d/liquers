@@ -6,6 +6,35 @@
 //! a type-erased [`ContextOps`]. It is valid only during its call: the adapter clears the slot when
 //! `run` (or its promise) settles, and every method afterwards throws, as `lq.Context` does in
 //! `liquers-py`.
+//!
+//! # Main components
+//!
+//! - [`LiquersContext`] (`Context`): `info`, `warning`, `error`, `evaluate`, `isCancelled`,
+//!   `element`, and the template calls `render`, `expand`, `validate` (`TEMPLATE06`, `10`, `11`).
+//! - `ContextOps`: the type-erased operations behind it; `as_any` lets the template calls recover
+//!   the concrete `Context<WebEnvironment>` that `crate::template` renders through.
+//! - [`JsPayload`]: what a payload tells a command (the UI element handle).
+//!
+//! # Where it is used
+//!
+//! Built by `crate::command::adapter::call_js_command` for a command whose declaration places a
+//! `context`.
+//!
+//! # Related concepts
+//!
+//! `liquers_core::context::Context`; `specs/reference/JAVASCRIPT_INTEGRATION.md` §4 "Context";
+//! `COMMAND07` in `tests/commands_COMMAND.rs`.
+//!
+//! # Examples
+//!
+//! Run by `template06_in_command_render_records_dependencies` in `tests/template_TEMPLATE.rs`:
+//!
+//! ```javascript
+//! liquers.registerCommand({
+//!   name: "report", async: true,
+//!   run: async (context) => context.render(liquers.Query.parse("-R/templates/count.md")),
+//! });
+//! ```
 
 use std::cell::RefCell;
 use std::future::Future;
@@ -49,6 +78,9 @@ pub(crate) trait ContextOps {
     fn is_cancelled(&self) -> bool;
     fn element(&self) -> Option<u64>;
     fn evaluate(&self, query: String) -> LocalBoxFuture<Result<JsValue, Error>>;
+    /// The context itself, for the template calls, which need the concrete value type
+    /// (`crate::template` renders through `liquers_lib`'s `ContextHost`).
+    fn as_any(&self) -> &dyn std::any::Any;
 }
 
 impl<E> ContextOps for Context<E>
@@ -82,6 +114,54 @@ where
             value_to_js_in(&context.get_envref(), value.as_ref())
         })
     }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+/// What a template call inside a command needs: the command's own context, with the web
+/// environment's value type. A downstream environment with another value type gets an error
+/// naming the reason, rather than a render that silently bypasses the command's asset.
+fn web_context(ops: &Rc<dyn ContextOps>) -> Result<Context<crate::environment::WebEnvironment>, Error> {
+    ops.as_any()
+        .downcast_ref::<Context<crate::environment::WebEnvironment>>()
+        .cloned()
+        .ok_or_else(|| {
+            Error::from_error(
+                liquers_core::error::ErrorType::NotSupported,
+                "Templates render inside a command only in the default web environment, whose \
+                 value type ContextHost reads"
+                    .to_string(),
+            )
+        })
+}
+
+/// A template call inside a command: the command's context, the parsed arguments, then `run`.
+fn template_call<F, Fut>(slot: Result<Rc<dyn ContextOps>, Error>, call: F) -> js_sys::Promise
+where
+    F: FnOnce(Context<crate::environment::WebEnvironment>) -> Fut + 'static,
+    Fut: Future<Output = Result<JsValue, Error>> + 'static,
+{
+    let context = slot.and_then(|ops| web_context(&ops));
+    wasm_bindgen_futures::future_to_promise(async move {
+        let context = context.map_err(liquers_error_to_js)?;
+        call(context).await.map_err(liquers_error_to_js)
+    })
+}
+
+/// Reads the template arguments shared by `render` and `expand`. `full` is refused: inside a
+/// command, recovered errors are warnings in the command's own log.
+fn command_options(options: &JsValue) -> Result<crate::template::TemplateOptions, Error> {
+    let options = crate::template::options_from_js(options)?;
+    if options.full {
+        return Err(Error::from_error(
+            liquers_core::error::ErrorType::ParameterError,
+            "Template options: `full` is for top-level calls; inside a command the warnings are \
+             in the command's log"
+                .to_string(),
+        ));
+    }
+    Ok(options)
 }
 
 /// The slot a [`LiquersContext`] reads through. Emptied when the call ends.
@@ -172,6 +252,74 @@ impl LiquersContext {
         wasm_bindgen_futures::future_to_promise(async move {
             let ops = ops.map_err(liquers_error_to_js)?;
             ops.evaluate(query).await.map_err(liquers_error_to_js)
+        })
+    }
+
+    /// Renders a template inside this command (`TEMPLATE06`): `state` is the bottom frame and
+    /// `.`, `data` (an object) names above it. Its queries and partials become dependencies of
+    /// the command's result; recovered errors are warnings in the command's log.
+    #[wasm_bindgen(unchecked_return_type = "Promise<string>")]
+    pub fn render(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "string | Query")] template: JsValue,
+        state: Option<JsValue>,
+        #[wasm_bindgen(unchecked_optional_param_type = "Record<string, unknown> | null")]
+        data: Option<JsValue>,
+        #[wasm_bindgen(unchecked_optional_param_type = "LiquersTemplateOptions")] options: Option<
+            JsValue,
+        >,
+    ) -> js_sys::Promise {
+        let parsed = (|| {
+            Ok::<_, Error>((
+                crate::template::source_from_js(&template)?,
+                crate::template::value_from_js(&state.unwrap_or(JsValue::UNDEFINED))?,
+                crate::template::value_from_js(&data.unwrap_or(JsValue::UNDEFINED))?,
+                command_options(&options.unwrap_or(JsValue::UNDEFINED))?,
+            ))
+        })();
+        template_call(self.ops(), move |context| async move {
+            let (source, state, data, options) = parsed?;
+            let frames = crate::template::Frames::Render { state, data };
+            let text = crate::template::render_in(&context, &source, frames, &options).await?;
+            Ok(JsValue::from_str(&text))
+        })
+    }
+
+    /// Renders a template whose only frame (and `.`) is `data`, inside this command.
+    #[wasm_bindgen(unchecked_return_type = "Promise<string>")]
+    pub fn expand(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "string | Query")] template: JsValue,
+        #[wasm_bindgen(unchecked_optional_param_type = "Record<string, unknown> | null")]
+        data: Option<JsValue>,
+        #[wasm_bindgen(unchecked_optional_param_type = "LiquersTemplateOptions")] options: Option<
+            JsValue,
+        >,
+    ) -> js_sys::Promise {
+        let parsed = (|| {
+            Ok::<_, Error>((
+                crate::template::source_from_js(&template)?,
+                crate::template::value_from_js(&data.unwrap_or(JsValue::UNDEFINED))?,
+                command_options(&options.unwrap_or(JsValue::UNDEFINED))?,
+            ))
+        })();
+        template_call(self.ops(), move |context| async move {
+            let (source, data, options) = parsed?;
+            let frames = crate::template::Frames::Expand { data };
+            let text = crate::template::render_in(&context, &source, frames, &options).await?;
+            Ok(JsValue::from_str(&text))
+        })
+    }
+
+    /// A template's positioned diagnostics; runs nothing.
+    #[wasm_bindgen(unchecked_return_type = "Promise<LiquersTemplateDiagnostic[]>")]
+    pub fn validate(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "string | Query")] template: JsValue,
+    ) -> js_sys::Promise {
+        let source = crate::template::source_from_js(&template);
+        template_call(self.ops(), move |context| async move {
+            crate::template::validate(&context, &source?).await
         })
     }
 }

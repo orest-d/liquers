@@ -150,7 +150,7 @@ where
     });
 
     let Some(run) = run else {
-        return register_pipeline_metadata(registry, key, metadata);
+        return register_definition_metadata(registry, key, metadata);
     };
 
     let shared = Rc::new(CallableSpec::new(
@@ -173,26 +173,56 @@ where
     Ok(())
 }
 
-/// Registers a pipeline command: metadata only, as `CommandRegistry::register_pipeline` does,
-/// since the planner expands a call into the body's steps and their executors run.
+/// Registers a pipeline or template command: metadata only, as
+/// `CommandRegistry::register_pipeline` and `register_alias` do, since the planner expands a call
+/// into the body's steps (or the alias's target) and their executors run.
 ///
-/// Argument types the declaration left as `any` are completed from the slots their placeholders
-/// fill. The definition is **not** checked here: `registerCommands` checked it with its whole
-/// batch before anything was registered, and a rebuild replays what was accepted then. Checking
-/// again would make replay depend on order, which validation does not.
-fn register_pipeline_metadata<E: Environment>(
+/// The metadata is completed first ([`complete_definition`]). The definition is **not** checked
+/// here: `registerCommands` checked it with its whole batch before anything was registered, and a
+/// rebuild replays what was accepted then. Checking again would make replay depend on order,
+/// which validation does not.
+fn register_definition_metadata<E: Environment>(
     registry: &mut CommandRegistry<E>,
     key: CommandKey,
     mut metadata: liquers_core::command_metadata::CommandMetadata,
 ) -> Result<(), Error> {
-    registry
-        .command_metadata_registry
-        .complete_pipeline_command(&mut metadata);
+    complete_definition(&registry.command_metadata_registry, &mut metadata);
     // Drops an executor a function command of the same key left behind; the planner would
     // otherwise still find it.
     registry.unregister(key);
     registry.command_metadata_registry.add_command(&metadata);
     Ok(())
+}
+
+/// Completes a definition command's metadata from the registry it is checked or registered in.
+///
+/// A pipeline command's argument types left as `any` are taken from the slots their placeholders
+/// fill (`complete_pipeline_command`). An alias takes from its target what
+/// `CommandRegistry::register_alias` copies: the state argument, volatility, payload, expiry and
+/// whether it is async. A target that is not registered leaves the alias as it is, for the check
+/// to refuse.
+pub(crate) fn complete_definition(
+    registry: &liquers_core::command_metadata::CommandMetadataRegistry,
+    metadata: &mut liquers_core::command_metadata::CommandMetadata,
+) {
+    use liquers_core::command_metadata::CommandDefinition;
+    let target = match &metadata.definition {
+        CommandDefinition::Registered => return,
+        CommandDefinition::Pipeline { .. } => {
+            registry.complete_pipeline_command(metadata);
+            return;
+        }
+        CommandDefinition::Alias { command, .. } => {
+            registry.find_command(&command.realm, &command.namespace, &command.name)
+        }
+    };
+    if let Some(target) = target {
+        metadata.state_argument = target.state_argument.clone();
+        metadata.volatile = target.volatile;
+        metadata.payload_required = target.payload_required.clone();
+        metadata.expires = target.expires.clone();
+        metadata.is_async = target.is_async;
+    }
 }
 
 /// The retained callable and how to call it.
