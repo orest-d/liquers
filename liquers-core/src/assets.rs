@@ -5880,7 +5880,11 @@ impl<E: Environment> AssetRef<E> {
     }
 
     /// Returns the current authoritative status.
+    ///
+    /// A closure asset whose dropped inline run was only marked abandoned is ended here first, so
+    /// an observer that follows the asset by notifications and `status` sees it `Cancelled`.
     pub async fn status(&self) -> Status {
+        self.repair_abandoned_closure_run().await;
         let lock = self.data.read().await;
         lock.status
     }
@@ -6919,6 +6923,9 @@ impl<E: Environment> ClosureAsset<E> {
         F: FnOnce(Context<E>) -> Fut,
         Fut: std::future::Future<Output = Result<(E::Value, T), Error>>,
     {
+        // The asset holds the environment weakly and the context's reference ends with the body,
+        // so a caller dropping its last `EnvRef` mid-run would fail the completion that follows.
+        let _envref = self.asset.try_get_envref().await?;
         if !self.asset.claim_closure_run().await? {
             return Ok(None);
         }
@@ -6942,6 +6949,8 @@ impl<E: Environment> ClosureAsset<E> {
         F: FnOnce(Context<E>) -> Fut,
         Fut: std::future::Future<Output = Result<(E::Value, T), Error>>,
     {
+        // As in `run`: pinned until the run has completed, not only while the claim is held.
+        let _envref = self.asset.try_get_envref().await?;
         let mut out = None;
         self.asset
             .run_with_future_inline(self.asset.compute_closure(body, payload, &mut out))
@@ -18692,5 +18701,46 @@ mod key_without_recipe_tests {
         env.with_async_store(Box::new(no_recipe_store(&[("data/a.txt", b"a")]).await));
         env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider::new()));
         directory_state_checks(env.to_ref()).await;
+    }
+}
+
+#[cfg(test)]
+mod closure_asset_tests {
+    //! The closure-asset paths an integration test cannot reach (`specs/design/ad-hoc-closure-asset/`).
+    use super::*;
+    use crate::context::SimpleEnvironment;
+    use crate::value::Value;
+
+    /// A dropped inline run that could not take the lock is ended by the next `status` read, so an
+    /// observer that follows the asset by notifications and status, and never reads its value,
+    /// still sees it end.
+    #[tokio::test]
+    async fn abandoned_inline_closure_run_is_ended_by_status() {
+        let envref = SimpleEnvironment::<Value>::new().to_ref();
+        let closure = envref
+            .get_asset_manager()
+            .closure_asset("abandoned")
+            .expect("a closure asset");
+        let asset = closure.asset().clone();
+        let mut rx = asset.subscribe_to_notifications().await;
+        let mut run = Box::pin(closure.run_inline(
+            |_context| async move {
+                std::future::pending::<()>().await;
+                Ok((Value::none(), ()))
+            },
+            None,
+        ));
+        assert!(futures::poll!(run.as_mut()).is_pending());
+        assert_eq!(asset.status().await, Status::Processing);
+        // Another task holds the lock while the run is dropped: `Drop` can only mark it.
+        let guard = asset.data.read().await;
+        rx.mark_unchanged();
+        drop(run);
+        drop(guard);
+        tokio::time::timeout(std::time::Duration::from_secs(5), rx.changed())
+            .await
+            .expect("the drop wakes observers")
+            .expect("the sender is alive");
+        assert_eq!(asset.status().await, Status::Cancelled);
     }
 }
