@@ -346,6 +346,7 @@ deliberately folded behind a broader line.
 - design `async-store-wrapper-docs`
 - design `automatic-value-conversion`
 - design `axum-recipes-metadata-entry`
+- design `axum-server-assembly`
 - design `axum-store-keys-deep`
 - design `axum-store-makedir-test-unignore`
 - design `axum-store-upload-metadata`
@@ -452,7 +453,6 @@ deliberately folded behind a broader line.
 - design `lib-integration-test-feature-gates`
 - design `lib-polars-ethnum-rust-1-98`
 - design `library-no-panic-lint`
-- design `liquers-py-modules`
 - design `liquers-py-ui-window`
 - design `liquers-py-ui`
 - design `liquers-py-web-server`
@@ -645,6 +645,7 @@ deliberately folded behind a broader line.
 - feature `ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE`
 - feature `ASSET-REGISTRATION-OWNERSHIP-CONTRACT`
 - feature `ASSETS-API-ADMIN-OPERATIONS`
+- feature `AXUM-CANNOT-SERVE-STATIC-WEB-CONTENT`
 - feature `AXUM-HAS-NO-SERVER-WITH-GRACEFUL-SHUTDOWN`
 - feature `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS`
 - feature `COMMAND-ENUM-ALTERNATIVES-CANNOT-BE-COMPUTED`
@@ -676,7 +677,6 @@ deliberately folded behind a broader line.
 - feature `NO-TEMPLATE-EDITOR-UI`
 - feature `NO-WRITE-PATH-FROM-RECORDS-INTO-A-RELATIONAL-DATABASE`
 - feature `PIPELINES-NOT-IN-LANGUAGE-BINDINGS`
-- feature `PY-CANNOT-IMPORT-MODULES-FROM-THE-STORE`
 - feature `PY-CANNOT-OPEN-A-LIQUERS-UI-WINDOW`
 - feature `PY-CANNOT-START-A-WEB-SERVER`
 - feature `PY-CANNOT-USE-A-LIQUERS-UI`

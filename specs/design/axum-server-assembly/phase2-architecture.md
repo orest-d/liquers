@@ -1,4 +1,4 @@
-# Phase 2: Solution & Architecture — liquers-py-modules
+# Phase 2: Solution & Architecture — axum-server-assembly
 
 ## Overview
 <The chosen solution in 2-4 sentences. Rejected alternatives, one line each with the reason.>

@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [axum]
-design:
+design: axum-server-assembly
 created: 2026-11-06
 github:
 ---

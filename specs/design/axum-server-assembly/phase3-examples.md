@@ -1,4 +1,4 @@
-# Phase 3: Examples & Use-cases — liquers-py-modules
+# Phase 3: Examples & Use-cases — axum-server-assembly
 
 ## Overview Table
 | # | Kind | Name | Shows / checks | Scenarios |

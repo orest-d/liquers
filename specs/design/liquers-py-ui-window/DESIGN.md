@@ -16,7 +16,7 @@ created: 2026-11-06
 
 The window half of the `UIUSE` feature for liquers-py: milestone M7 of the liquers-py plan, over the
 model of [`liquers-py-ui`](../liquers-py-ui/DESIGN.md), which lands first, with
-[`liquers-py-web-server`](../liquers-py-web-server/DESIGN.md) and [`liquers-py-modules`](../liquers-py-modules/DESIGN.md).
+[`liquers-py-web-server`](../liquers-py-web-server/DESIGN.md).
 Full form (`L`). Requires a reusable native egui app in `liquers-lib` (`EGUI-HAS-NO-REUSABLE-NATIVE-APP`,
 Phase 1 question 2), its own design and PR first.
 Based on `main` at `bd36cf1`; M6 (PRs #257, #259–#263) is still open and lands first.

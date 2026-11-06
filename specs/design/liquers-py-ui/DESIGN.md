@@ -15,7 +15,7 @@ created: 2026-11-06
 # liquers-py-ui — show, drive and observe a Liquers UI model
 
 The model half of the `UIUSE` feature for liquers-py: milestone M7 of the liquers-py plan, together with
-[`liquers-py-web-server`](../liquers-py-web-server/DESIGN.md), [`liquers-py-modules`](../liquers-py-modules/DESIGN.md) and
+[`liquers-py-web-server`](../liquers-py-web-server/DESIGN.md) and
 [`liquers-py-ui-window`](../liquers-py-ui-window/DESIGN.md), the window half, split from this design on 2026-11-06
 (Phase 1 review) so the wheel decision does not hold up the model. Full form (`L`); needs no egui.
 Based on `main` at `bd36cf1`; M6 (PRs #257, #259–#263) is still open and lands first.

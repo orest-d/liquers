@@ -5,13 +5,16 @@
 Let a Python script serve its own environment, Python commands included, over the standard Liquers
 HTTP API (`liquers-axum`), in the foreground or the background: the `WEBSERV` feature of
 `LANGUAGE-INTEGRATION_GUIDE.md` and the owner's "server" usage mode, for `VISION.md`'s data services
-("every reachable query is a REST endpoint"). Milestone M7, with
-[`liquers-py-modules`](../liquers-py-modules/DESIGN.md) and [`liquers-py-ui`](../liquers-py-ui/DESIGN.md).
+("every reachable query is a REST endpoint"), including a web application or report site kept in
+the store's `web` folder and an index page, as LiQuer's server had. Milestone M7, with
+[`liquers-py-ui`](../liquers-py-ui/DESIGN.md); the server itself is
+[`axum-server-assembly`](../axum-server-assembly/DESIGN.md).
 
 ## Design Readiness
 
 - **Readiness:** `needs-decision`: Phase 1 written and reviewed twice; Orest decided questions 3
-  and 5 on 2026-11-06 (Decisions 1 and 2); `proceed` outstanding.
+  and 5 and added static content and the index page on 2026-11-06 (Decisions 1-3); `proceed`
+  outstanding.
 - **Automatic fixing:** `not-eligible`: an `L` feature with new public Python API and a new
   dependency of `liquers-py`.
 - **Leading issue:** the security documentation that Decision 1 requires. Source
@@ -25,7 +28,8 @@ HTTP API (`liquers-axum`), in the foreground or the background: the `WEBSERV` fe
 - **Open questions:**
   1. **Proposed resolution: the call and its configuration.** The server's settings are part of the
      environment's configuration document (a `server:` section of `lq.Environment(config=…)`:
-     host, port, prefix, which APIs, read-only), and `env.serve(**overrides)` starts it with
+     host, port, prefix, which APIs, read-only, `web` and `index`, the `ServerConfig` of
+     `axum-server-assembly`), and `env.serve(**overrides)` starts it with
      keyword arguments overriding the section (Decision 1). Defaults: `127.0.0.1:8080`, prefix
      `/liquer`, all four APIs, writes enabled, `background=True` (Decision 2). `lq.serve(…)` serves
      the default environment, as `lq.evaluate` does. It returns an `lq.Server` (`address`, `port`,
@@ -52,17 +56,20 @@ HTTP API (`liquers-axum`), in the foreground or the background: the `WEBSERV` fe
      read-only store mount, `specs/design/web-api-spec-read-only-mount/`, protects part of a store).
      The risk stays real and is documented, not defaulted away: liquers-axum has no authentication
      and no Host or Origin check, so any local client, or a web page through DNS rebinding, can
-     write, and a write under a `liquers-py-modules` prefix is code the next import runs. The
+     write (and, once the deferred `liquers-py-modules` lands, a write under a module prefix is code
+     the next import runs). The
      default host is `127.0.0.1`; authentication waits for `access-policy-at-entry-points`. The
      sensitive settings are listed in a new security guideline and in a security chapter of the
      user guides (`SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED`, filed with this decision, its
      own documentation design); this design adds its settings there.
-  6. **Proposed resolution: a shared server assembly in `liquers-axum`, first.** One public builder
-     composes the routers and owns the accept loop, so it can stop accepting, let in-flight
-     requests finish, end WebSocket tasks and abort what is left at a deadline; `axum::serve`
-     aborted after a timeout does not end connections already spawned. Its own issue
-     (`AXUM-HAS-NO-SERVER-WITH-GRACEFUL-SHUTDOWN`, filed with this design) and PR; the example and
-     later hosts (a CLI server, `WEBAPI`) use it.
+  6. **Proposed resolution: the server is `axum-server-assembly`, first.** Its own design and PR:
+     one builder for the standard APIs, the `web` route over the store's `web/` folder, the index
+     page at `/` and `/index.html`, and a shutdown within a deadline. This design exposes it to
+     Python; its open questions (computed web content, the index target) are decided there.
+  9. **Proposed resolution: putting content in the web folder from Python.** A configuration mount
+     at `web` (a folder of the host), or `env.store_set("web/index.html", …)` for generated pages;
+     no separate Python API. Shipping a built-in Liquers web UI under `web/` in the wheel belongs
+     with the UI designs and the wheel-contents decision.
   7. **Proposed resolution: Python handlers.** `WEBSERV06`–`08` stay `NS` in the conformance matrix,
      recorded in `PY-WEB-SERVER-CANNOT-TAKE-PYTHON-HANDLERS`. A custom endpoint is a command under
      `/liquer/q`.
@@ -79,6 +86,10 @@ HTTP API (`liquers-axum`), in the foreground or the background: the `WEBSERV` fe
      should be a security guideline and the user documentation should have a section(s) dealing
      with security implications and security sensitive settings."
   2. Orest, 2026-11-06, on question 3: "ok, server should be running in background".
+  3. Orest, 2026-11-06: modules support is split out of M7 into its own design and PR (#265).
+     "There are (at least) two needs: serving static content (similarly as the web folder in
+     https://github.com/orest-d/liquer which exposes a predefined store) and serving /index.html."
+     Added as AC-10 and AC-11 and question 9.
 - **Deviations from Appendix A** (copied to the conformance matrix): `WEBSERV01`'s `ready()` and
   `WEBSERV04`'s `is_running()` are the `running` property; `shutdown(graceful=True)` is
   `shutdown(timeout=…)`, always graceful until the timeout; `inflight_requests()` is not offered
@@ -138,18 +149,25 @@ the block ends. `greet-Ann` validates with `greet` declared (`liquers-validate -
   WHEN `await env.serve_async(port=0)` runs in a task that is then cancelled, and
   `await server.shutdown_async()` stops a background server
   THEN each stops the server gracefully without blocking the event loop
+- **AC-10** A web application from the store (addition, Decision 3)
+  WHEN the configuration mounts a folder holding `index.html` and `app.js` at `web`, and the server
+  runs
+  THEN `GET {url}/liquer/web/` returns `index.html` as `text/html` and `…/web/app.js` the script
+- **AC-11** The index page (addition, Decision 3)
+  WHEN a browser opens `{url}/` or `{url}/index.html`
+  THEN it reaches the web folder's `index.html`, or the configured `index` target
 
 Non-goals: Python handlers and middleware (question 7); TLS; authentication; a Python web framework
 (`WEBAPI`, milestone M8); one server over several environments.
 
 ## Core Interactions
 
-Web/API: `liquers-axum` over `PyEnvironment`. Environment: the current build per request; shutdown
+Web/API: the `axum-server-assembly` server over `PyEnvironment`, with its web folder and index. Environment: the current build per request; shutdown
 and exit stop servers. Bindings: `Environment.serve`, `lq.serve`, `lq.Server`.
 
 ## Crate Placement
 
-`liquers-axum`: the shared assembly (question 6), its own PR first. `liquers-py`: `liquers-axum` as a
+`liquers-axum`: `axum-server-assembly` (question 6), its own PR first. `liquers-py`: `liquers-axum` as a
 dependency (it depends on core and store only, so the flow holds; liquers-py's own `tokio` gains
 `net`), a new `src/server.rs`, the Python surface in `_env.py`, the stubs and `__init__.py`.
 
@@ -168,12 +186,13 @@ dependency (it depends on core and store only, so the flow holds; liquers-py's o
 
 ## Design Dependencies
 
-- `AXUM-HAS-NO-SERVER-WITH-GRACEFUL-SHUTDOWN`: **requires** (question 6).
+- `axum-server-assembly` (`AXUM-HAS-NO-SERVER-WITH-GRACEFUL-SHUTDOWN`,
+  `AXUM-CANNOT-SERVE-STATIC-WEB-CONTENT`): **requires** (question 6).
 - `SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED`: **requires** (Decision 1); its documentation
   design lands before or with this design's Phase 5.
 - `language-late-registration-without-rebuild`, `post-init-command-registration` (in review):
   **overlap** question 4; either landing first removes the rebuild to follow.
-- `liquers-py-modules`: **overlaps** question 5 (code planted over HTTP).
+- `liquers-py-modules` (deferred, PR #265): **overlaps** question 5 (code planted over HTTP).
 - `access-policy-at-entry-points`, `http-request-body-limit` (in review): **overlap**; their
   settings are passed on once they exist.
 - `liquers-py-ui`: **required-by**, for its GUI-plus-server criterion. M6 (PRs #257, #259–#263): none.

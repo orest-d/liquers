@@ -15,8 +15,8 @@ created: 2026-11-06
 # liquers-py-web-server — serve an environment over the Liquers HTTP API
 
 The `WEBSERV` feature for liquers-py: milestone M7 of the liquers-py plan, together with
-[`liquers-py-modules`](../liquers-py-modules/DESIGN.md), [`liquers-py-ui`](../liquers-py-ui/DESIGN.md) and [`liquers-py-ui-window`](../liquers-py-ui-window/DESIGN.md). Full form (`L`). Requires a shared server assembly with graceful shutdown in `liquers-axum`
-(`AXUM-HAS-NO-SERVER-WITH-GRACEFUL-SHUTDOWN`, Phase 1 question 6), its own PR first.
+[`liquers-py-ui`](../liquers-py-ui/DESIGN.md) and [`liquers-py-ui-window`](../liquers-py-ui-window/DESIGN.md). Full form (`L`). Requires the `liquers-axum` server of [`axum-server-assembly`](../axum-server-assembly/DESIGN.md)
+(standard APIs, web folder, index page, graceful shutdown; Phase 1 question 6), its own PR first.
 Based on `main` at `bd36cf1`; M6 (PRs #257, #259–#263) is still open and lands first.
 
 Phase 1 written and reviewed twice on 2026-11-06 (conformity and records; codebase and soundness); findings applied.
