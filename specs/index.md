@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 224
+Total rows: 226
 - P2: 67
-- P3: 157
+- P3: 159
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -190,6 +190,7 @@ Total rows: 224
 | [`PY-EXIT-WITH-UNCANCELLABLE-COMMAND-CRASHES-BEFORE-3-14`](issues/PY-EXIT-WITH-UNCANCELLABLE-COMMAND-CRASHES-BEFORE-3-14.md) | issue | Exiting Python while a command ignores cancellation can still abort the process before CPython 3.14 | draft |  |  | P3 | M | py |  | 2026-10-31 |
 | [`TEMPLATE-HAS-NO-MDBOOK-INCLUDE-SYNTAX`](issues/TEMPLATE-HAS-NO-MDBOOK-INCLUDE-SYNTAX.md) | feature | Liquers templates cannot read mdBook's {{#include}} syntax | draft |  |  | P3 | M | lib/commands;docs |  | 2026-11-01 |
 | [`WEB-API-REFERENCE-NOT-GENERATED`](issues/WEB-API-REFERENCE-NOT-GENERATED.md) | feature | liquers-web has no generated API reference and no check that every export is documented | draft |  |  | P3 | M | web;docs |  | 2026-10-26 |
+| [`WEB-FOLDER-SERVES-STORED-FILES-ONLY`](issues/WEB-FOLDER-SERVES-STORED-FILES-ONLY.md) | feature | The web folder serves stored files only; a page that a recipe would compute is 404 | draft |  |  | P3 | M | axum |  | 2026-11-06 |
 | [`WEB-HAS-NO-READ-WRITE-REMOTE-STORE`](issues/WEB-HAS-NO-READ-WRITE-REMOTE-STORE.md) | feature | A browser page cannot mount a Liquers server's store read/write | draft |  |  | P3 | M | web |  | 2026-10-20 |
 | [`WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG`](issues/WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG.md) | issue | liquers-web hand-rolls the environment configuration that EnvironmentConfig will own | draft |  |  | P3 | M | web;core/store;core/context |  | 2026-08-31 |
 | [`AGENT-CANNOT-PROPOSE-A-COMMAND`](issues/AGENT-CANNOT-PROPOSE-A-COMMAND.md) | feature | An agent has no sanctioned way to propose a new command into a staging area | draft | needs-decision | not-eligible | P3 | L | mcp;core/commands;py;docs | [phase1](design/agent-command-proposal/phase1-high-level-design.md)  [phase2](design/agent-command-proposal/phase2-architecture.md)  [phase3](design/agent-command-proposal/phase3-examples.md)  [phase4](design/agent-command-proposal/phase4-implementation.md)  | 2026-10-21 |
@@ -228,6 +229,7 @@ Total rows: 224
 | [`REGISTERED-ASSET-CANNOT-BE-PROTECTED-FROM-UNREGISTRATION`](issues/REGISTERED-ASSET-CANNOT-BE-PROTECTED-FROM-UNREGISTRATION.md) | feature | A registered asset cannot be protected from unregistration, so asset users cannot rely on converging on one asset | draft | phase2-blocked | not-eligible | P3 | L | core/assets | [phase1](design/registered-asset-protection/phase1-high-level-design.md)  [phase2](design/registered-asset-protection/phase2-architecture.md)  | 2026-10-20 |
 | [`AGENT-MEMORY-HAS-NO-INDEXES-OR-CONTEXT-PACKS`](issues/AGENT-MEMORY-HAS-NO-INDEXES-OR-CONTEXT-PACKS.md) | feature | Agent memory derives nothing from its documents — no rendered templates, index assets or context packs | draft |  |  | P3 | L | lib/commands;docs | [phase1](design/agent-memory-derived/phase1-high-level-design.md)  [phase2](design/agent-memory-derived/phase2-architecture.md)  [phase3](design/agent-memory-derived/phase3-examples.md)  [phase4](design/agent-memory-derived/phase4-implementation.md)  [phase5](design/agent-memory-derived/phase5-documentation.md)  | 2026-10-21 |
 | [`COMMAND-REGISTRY-NOT-ORGANIZED-BY-REALM`](issues/COMMAND-REGISTRY-NOT-ORGANIZED-BY-REALM.md) | issue | The command metadata registry is a flat list, so a realm cannot have its own default namespaces | draft |  |  | P3 | L | core/commands;core/plan |  | 2026-11-01 |
+| [`INDEX-PAGE-IS-A-FIXED-REDIRECT`](issues/INDEX-PAGE-IS-A-FIXED-REDIRECT.md) | feature | A Liquers server's index page can only redirect to the web folder | draft |  |  | P3 | L | axum;core/value;core/commands |  | 2026-11-06 |
 | [`MODULE-DOCS-DO-NOT-FOLLOW-THE-API-DOC-RULES`](issues/MODULE-DOCS-DO-NOT-FOLLOW-THE-API-DOC-RULES.md) | issue | Existing module docs lack purpose, usage, related concepts and examples | draft |  |  | P3 | L | docs;core/commands;core/value;lib/commands;axum;py |  | 2026-11-01 |
 | [`NO-SOURCE-CODE-AND-API-DOC-NAVIGATION`](issues/NO-SOURCE-CODE-AND-API-DOC-NAVIGATION.md) | feature | Source code and API documentation cannot be navigated or extracted | draft |  |  | P3 | L | lib/commands |  | 2026-10-11 |
 | [`NO-SQL-ENGINE-IN-WASM-BUILDS`](issues/NO-SQL-ENGINE-IN-WASM-BUILDS.md) | feature | SQL over records is unavailable in wasm builds, where polars does not build | draft |  |  | P3 | L | records;lib/commands;web |  | 2026-10-21 |

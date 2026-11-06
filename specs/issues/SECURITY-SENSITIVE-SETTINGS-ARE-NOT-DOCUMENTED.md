@@ -44,7 +44,11 @@ A security guideline in `specs/guides/` naming every security-sensitive setting,
 risk and the safe configuration, kept current by every design that adds one; and a "Security"
 chapter (or sections) in each user guide, written from it. Owner's decision of 2026-11-06 (thread
 "Design M7 web server, modules and UI"): defaults stay "batteries included", and the risks are
-documented rather than defaulted away.
+documented rather than defaulted away. On the web route (2026-11-06): the security section must warn
+explicitly that a page stored under `web/` runs with access to the write APIs, and show how to
+configure the `web` mount `read_only`; a later version may make `web` read-only by default. Today a
+store is made read-only per mount or for the whole router (`STORE_CONFIG_FSD.md`), not per key
+(`STORE-CONFIG-SPEC-CANNOT-SCOPE-HANDLERS-TO-A-KEY`).
 
 ## Discovery
 

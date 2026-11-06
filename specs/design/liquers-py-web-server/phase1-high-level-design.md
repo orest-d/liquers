@@ -28,7 +28,7 @@ the store's `web` folder and an index page, as LiQuer's server had. Milestone M7
 - **Open questions:**
   1. **Proposed resolution: the call and its configuration.** The server's settings are part of the
      environment's configuration document (a `server:` section of `lq.Environment(config=…)`:
-     host, port, prefix, which APIs, read-only, `web` and `index`, the `ServerConfig` of
+     host, port, prefix, which APIs, read-only and `web`, the `ServerConfig` of
      `axum-server-assembly`, read from the document by `ServerConfig::from_document`, so
      liquers-py keeps the configuration text it was given), and `env.serve(**overrides)` starts it with
      keyword arguments overriding the section (Decision 1). Defaults: `127.0.0.1:8080`, prefix
@@ -66,7 +66,8 @@ the store's `web` folder and an index page, as LiQuer's server had. Milestone M7
   6. **Proposed resolution: the server is `axum-server-assembly`, first.** Its own design and PR:
      one builder for the standard APIs, the `web` route over the store's `web/` folder, the index
      page at `/` and `/index.html`, and a shutdown within a deadline. This design exposes it to
-     Python; its open questions (computed web content, the index target) are decided there.
+     Python; Orest decided there that web content is read from the store only and the index
+     page is a fixed redirect (2026-11-06).
   7. **Proposed resolution: Python handlers.** `WEBSERV06`–`08` stay `NS` in the conformance matrix,
      recorded in `PY-WEB-SERVER-CANNOT-TAKE-PYTHON-HANDLERS`. A custom endpoint is a command under
      `/liquer/q`.
@@ -159,7 +160,7 @@ the block ends. `greet-Ann` validates with `greet` declared (`liquers-validate -
   THEN `GET {url}/liquer/web/` returns `index.html` as `text/html` and `…/web/app.js` the script
 - **AC-11** The index page (addition, Decision 3)
   WHEN a browser opens `{url}/` or `{url}/index.html`
-  THEN it reaches the web folder's `index.html`, the configured `index` target, or the built-in page
+  THEN it is redirected to the web folder and gets its `index.html` (`axum-server-assembly` Decision 2)
 
 Non-goals: Python handlers and middleware (question 7); TLS; authentication; a Python web framework
 (`WEBAPI`, milestone M8); one server over several environments.
