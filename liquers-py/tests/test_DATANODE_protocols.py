@@ -162,3 +162,16 @@ def test_raising_protocols_are_opaque():
         assert node.kind == lq.NodeKind.Opaque
         with pytest.raises(lq.LiquersError, match="boom"):
             node.to_json()
+
+
+def test_protocol_map_json_rejects_a_non_str_key():
+    """An opted-in mapping with a key JSON cannot hold fails `to_json`, as a dict does, rather
+    than dropping the entry."""
+
+    class Mapping(dict):
+        __liquers_data__ = True
+
+    node = lq.data_node(Mapping({7: "x", "a": 1}))
+    with pytest.raises(lq.ConversionError, match="key 7 is not a str"):
+        node.to_json()
+    assert lq.data_node(Mapping({"a": 1})).to_json() == {"a": 1}
