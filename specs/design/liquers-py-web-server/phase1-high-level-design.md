@@ -13,12 +13,12 @@ the store's `web` folder and an index page, as LiQuer's server had. Milestone M7
 ## Design Readiness
 
 - **Readiness:** `needs-decision`: Phase 1 written and reviewed twice; Orest decided questions 3
-  and 5 and added static content and the index page on 2026-11-06 (Decisions 1-3); `proceed`
-  outstanding.
+  and 5 and added static content and the index page on 2026-11-06 (Decisions 1-3); approved
+  2026-11-07 ("proceed").
 - **Automatic fixing:** `not-eligible`: an `L` feature with new public Python API and a new
   dependency of `liquers-py`.
-- **Leading issue:** the security documentation that Decision 1 requires. Source
-  issue `PY-CANNOT-START-A-WEB-SERVER` (P2 L, filed with this design).
+- **Leading issue:** `PY-CANNOT-START-A-WEB-SERVER` (P2 L, filed with this design); the security
+  documentation that Decision 1 requires lands with Phase 5.
 - **Explanation:** the route builders exist and are generic over the environment; liquers-py has
   a process-wide Tokio runtime (`liquers-py/src/runtime.rs`). Missing are a server assembly that
   can shut down gracefully (nothing in the repository calls `with_graceful_shutdown`, and
@@ -29,8 +29,8 @@ the store's `web` folder and an index page, as LiQuer's server had. Milestone M7
   1. **Proposed resolution: the call and its configuration.** The server's settings are part of the
      environment's configuration document (a `server:` section of `lq.Environment(config=…)`:
      host, port, prefix, which APIs, read-only and `web`, the `ServerConfig` of
-     `axum-server-assembly`, read from the document by `ServerConfig::from_document`, so
-     liquers-py keeps the configuration text it was given), and `env.serve(**overrides)` starts it with
+     `axum-server-assembly`, parsed from the document when the environment is created
+     (`ServerConfig::from_yaml`; Phase 2)), and `env.serve(**overrides)` starts it with
      keyword arguments overriding the section (Decision 1). Defaults: `127.0.0.1:8080`, prefix
      `/liquer`, all four APIs, writes enabled, `background=True` (Decision 2). `lq.serve(…)` serves
      the default environment, as `lq.evaluate` does. It returns an `lq.Server` (`address`, `port`,
@@ -46,10 +46,10 @@ the store's `web` folder and an index page, as LiQuer's server had. Milestone M7
      running ones. A notebook cell `env.serve()` therefore keeps serving.
   4. **Proposed resolution: late registrations reach the server.** Each request is answered by the
      environment the handle has at that moment, so a command registered after `serve` is
-     callable over HTTP (AC-7). The web and index routes follow it like the others. Phase 2 chooses the mechanism: a service that takes the current
-     `EnvRef` per request (as `mount_web`'s `current_env` does per tick), or landing
-     `language-late-registration-without-rebuild` first. A rebuild starts a new asset manager, so
-     WebSocket subscribers of the retired one see no further events; Phase 2 states the outcome.
+     callable over HTTP (AC-7). The web and index routes follow it like the others. Resolved in Phase 2:
+     an `EnvSource` over `EnvCell` (defined by `axum-server-assembly`) gives each request the current
+     build. An open WebSocket keeps the build it connected to: its subscriptions keep reporting, and
+     a new connection sees the new commands.
   5. **Decided (Decision 1): writes enabled by default, a setting of the configuration, and
      documented as security-sensitive.** Python is "batteries included", so the store and assets
      APIs accept writes unless `read_only: true` (assets read-only through

@@ -14,10 +14,11 @@ links") and is the prerequisite of [`liquers-py-web-server`](../liquers-py-web-s
 ## Design Readiness
 
 - **Readiness:** `needs-decision`: Phase 1 written and reviewed twice; Orest decided questions 2
-  and 3 on 2026-11-06 (Decisions 1 and 2); `proceed` outstanding.
+  and 3 on 2026-11-06 (Decisions 1 and 2); approved 2026-11-07 ("proceed"). Phase 2 (2026-11-07) adds: the `EnvSource` (see Non-goals), a
+  server that keeps running when its handle is dropped (question 7), and `Cache-Control: no-cache`.
 - **Automatic fixing:** `not-eligible`: new public API of `liquers-axum`, complexity `L`.
-- **Leading issue:** none open. Source issues
-  `AXUM-CANNOT-SERVE-STATIC-WEB-CONTENT` (P2 L, leading) and
+- **Leading issue:** `AXUM-CANNOT-SERVE-STATIC-WEB-CONTENT` (P2 L). Source issues
+  `AXUM-CANNOT-SERVE-STATIC-WEB-CONTENT` and
   `AXUM-HAS-NO-SERVER-WITH-GRACEFUL-SHUTDOWN` (P2 M), merged into this design on 2026-11-06 because
   both change the same site (overlap test T3): the builder and its `ServerConfig`, and
   `examples/basic_server.rs`. If question 2 or 3 holds up M7, the shutdown half can be split off.
@@ -41,7 +42,7 @@ links") and is the prerequisite of [`liquers-py-web-server`](../liquers-py-web-s
      the builders' switches (`read_only`, `without_websocket`, timeouts), an extensible set of APIs
      (later ones such as registry publication plug in), `web` and `ServerConfig` (serde,
      in `liquers-axum`, `deny_unknown_fields`) reads the `server` section of a configuration
-     document (`ServerConfig::from_document`); core's `EnvironmentConfig` is not changed. Keys:
+     document (`ServerConfig::from_yaml`, `from_toml`; Phase 2); core's `EnvironmentConfig` is not changed. Keys:
      `host`, `port`, `prefix`, `apis`, `read_only`, `web` (the root key, default `web`; `false`
      turns the route off). `bind` returns a running `LiquersServer` with its bound address
      and `shutdown(deadline)`. No CORS layer, deliberately, as today.
@@ -89,7 +90,8 @@ links") and is the prerequisite of [`liquers-py-web-server`](../liquers-py-web-s
      tasks through a cancellation token so they send a Close frame, and aborts what is left at the
      deadline; the port is free when `shutdown` returns. Aborting a request does not cancel an
      evaluation it started: draining or cancelling the environment is the host's choice
-     (`environment-orderly-shutdown`).
+     (`environment-orderly-shutdown`). Dropping the handle does not stop the server (added in Phase 2,
+     for `liquers-py-web-server` Decision 2).
 
 ## Problem Example
 
@@ -144,8 +146,9 @@ which returns `./site/index.html` as `text/html`; `GET /liquer/web/app.js` retur
   a Close frame, everything is gone after `d`, and the port is free
 
 Non-goals: authentication, TLS and CORS; directory listings over `web/`; range requests and
-streaming (`store-streaming-read-write`); Python handlers; following an environment rebuild (the host
-gives the server its environment; `liquers-py-web-server` question 4).
+streaming (`store-streaming-read-write`); Python handlers; rebuilding an environment (the server
+rebuilds nothing; since Phase 2 a host may hand it an `EnvSource` that returns its current build,
+`liquers-py-web-server` question 4).
 
 ## Core Interactions
 
