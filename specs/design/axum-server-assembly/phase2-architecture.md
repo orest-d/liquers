@@ -119,18 +119,25 @@ builds the environment from the rest and binds:
 
 ```rust
 use liquers_axum::{LiquersServerBuilder, ServerConfig};
-use liquers_core::environment_config::ConfigDocument;
+use liquers_core::{command_metadata::CommandMetadataRegistry, environment_config::ConfigDocument};
+use liquers_core::{error::{Error, ErrorType}, validate::registry::from_json_or_yaml};
 use liquers_lib::{environment::default_environment_builder, value::Value};
 use liquers_store::store_factory::default_store_factory;           // OpenDAL types too
 
 let mut doc = ConfigDocument::load(Path::new("liquers.yaml"))?;
 let server = ServerConfig::from_document(&mut doc)?;
-let base = doc.base.clone();
-let (environment, commands) = doc.finish()?;                       // an unknown section fails
+let cmr_path = doc.command_registry_path();                       // the CMR file, if named
+let environment = doc.finish()?;                                   // an unknown section fails
 let mut builder = default_environment_builder::<Value, ()>()
     .with_config(environment, Box::new(default_store_factory()));
 register_my_commands(&mut builder.command_registry)?;
-commands.apply(base.as_deref(), &mut builder.command_registry.command_metadata_registry)?;
+if let Some(path) = cmr_path {                                     // the host applies it
+    let text = std::fs::read_to_string(&path).map_err(|e| Error::from_error(ErrorType::General, e))?;
+    let cmr: CommandMetadataRegistry = from_json_or_yaml(&path.to_string_lossy(), &text)?;
+    for command in &cmr.commands {
+        builder.command_registry.command_metadata_registry.add_command(command);
+    }
+}
 let running = LiquersServerBuilder::from_config(server).bind(builder.build()?).await?;
 tokio::signal::ctrl_c().await.ok();
 running.shutdown(Duration::from_secs(5)).await;

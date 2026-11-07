@@ -14,6 +14,6 @@ A `filesystem` mount's `config.path` is passed through `StoreConfig.config`, an 
 (`liquers-core/src/store_config.rs`), and the factory uses it as given, so `path: ./site` in
 `/srv/app/liquers.yaml` means `./site` under whatever directory the process was started in. A
 configuration file moved with its data, or started from another directory, then mounts the wrong
-folder. The `configuration-document` design resolves only `commands.metadata` against the file's
+folder. The `configuration-document` design resolves only `command_registry` against the file's
 folder (`ConfigDocument::base`). A fix would pass `base` to the store factories, so path-like
 arguments of a store type resolve against it.

@@ -91,7 +91,7 @@ string. Python side: `lq.serve` and `lq.serve_async` in `_env.py`, `Server` expo
 ## Configuration Document
 
 One file configures everything (Decision 4). The document, its sections and `PyConfig`, which
-assembles `environment`, `commands`, `server` and `python` from it, are the design
+assembles `environment`, `command_registry` (the CMR file), `server` and `python` from it, are the design
 [`configuration-document`](../configuration-document/DESIGN.md), split out on 2026-11-07; this
 design uses `PyConfig.server` and the keyword-override rule it defines.
 
@@ -123,8 +123,7 @@ store:
   stores:
     - {type: filesystem, prefix: data, config: {path: ./data}}   # relative to the working directory
     - {type: filesystem, prefix: web, read_only: true, config: {path: ./site}}
-commands:
-  metadata: [commands.yaml]       # relative to this file
+command_registry: commands.yaml  # the CMR file, relative to this file
 python:
   pickle: false
 server:

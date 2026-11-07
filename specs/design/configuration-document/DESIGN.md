@@ -40,8 +40,7 @@ error for a section nobody took, lets one file set up a whole application.
 store:
   stores:
     - {type: filesystem, prefix: web, read_only: true, config: {path: ./site}}
-commands:
-  metadata: [commands.yaml]
+command_registry: commands.yaml
 python:
   pickle: true
 server:
@@ -51,9 +50,9 @@ sever:                 # typo
 ```
 
 **Today** `lq.Environment(config=…)` keeps the store, ignores the rest, and the typo passes.
-**After** the Python host takes `server` and `python`, imports `commands.yaml`, and refuses the
+**After** the Python host takes `server` and `python`, loads `commands.yaml` as its command metadata registry, and refuses the
 document: `ConfigurationError: unknown section 'sever' (this host knows: store, recipes, assets,
-default_namespaces, commands, server, python)`.
+default_namespaces, command_registry, server, python)`.
 
 ### Scope and Acceptance Criteria
 
@@ -63,9 +62,9 @@ default_namespaces, commands, server, python)`.
 - **AC-2** An unknown section is refused
   WHEN a document has a section the host does not take
   THEN construction fails with `ConfigurationError` naming it and the known sections
-- **AC-3** Command metadata from a file
-  WHEN `commands.metadata` names a file relative to the document
-  THEN it is applied as `command-registry-file` defines
+- **AC-3** The command metadata registry file
+  WHEN `command_registry` names a file relative to the document
+  THEN it is loaded as the command metadata registry, as `import_metadata` loads metadata today
 - **AC-4** Keyword arguments override the file
   WHEN the file sets `python.pickle: false` and the call passes `pickle=True`, or `serve(port=0)`
   THEN the keyword wins
@@ -86,7 +85,7 @@ variable selection of a file.
 
 ### Documentation Intent
 
-- Reference: `ENVIRONMENT_CONFIG.md` gains §The configuration document (sections, `commands`,
+- Reference: `ENVIRONMENT_CONFIG.md` gains §The configuration document (sections, `command_registry`,
   hosts and their sections, unknown sections, defaults).
 - Guide: `ENVIRONMENT_CONSTRUCTION_GUIDE.md` "Configure from one file"; `PYTHON_GUIDE.md`
   "Configure with a file".
@@ -95,12 +94,12 @@ variable selection of a file.
 
 ### Open Questions
 
-1. **Decided: what a command metadata file is.** Orest, 2026-11-07, by examples: a CMR file can
-   enrich existing commands, disable commands by not listing them, add aliases, carry a language
-   mutation of labels and descriptions, and provide GUI information and hints; without one the
-   default CMR is used, and a default file can be generated on demand. Its semantics are the
-   design [`command-registry-file`](../command-registry-file/DESIGN.md); this design only reads
-   `commands.metadata` (a list of paths relative to the document) and hands it on.
+1. **Decided: one field names the CMR file.** Orest, 2026-11-07: "I only ask for a field in config
+   saying which file to load as a CMR." `command_registry` names a file in the
+   `CommandMetadataRegistry` format (`specs/command_registry.yaml`), relative to the document; the
+   host loads it as it loads command metadata today (liquers-py: `import_metadata`). Absent, the
+   default registry (what code registers) is used. What a CMR file can express is the existing
+   format's business, not this design's.
 2. **One rule for keyword arguments (recommended: keyword wins).** A keyword given explicitly
    overrides the file, the file overrides the built-in default. Today `job_capacity=` that differs
    from `assets.job_capacity` is an error (`liquers-py-async`); under this rule it would override.
@@ -111,7 +110,7 @@ variable selection of a file.
 ### Solution
 
 A `ConfigDocument` in `liquers-core` splits a document's top-level keys into the environment's
-keys (to `EnvironmentConfig`, unchanged), `commands` and waiting host sections; a host takes its
+keys (to `EnvironmentConfig`, unchanged), `command_registry` and waiting host sections; a host takes its
 sections with `take_section` and calls `finish`, which refuses what is left. Each host assembles a
 typed struct: liquers-py's `PyConfig`; a Rust server's own struct around `ServerConfig::from_document`.
 Rejected: one portable assembled struct in liquers-lib (the server lives in liquers-axum, which
@@ -126,13 +125,10 @@ carries a host section, such as the agent's `memory`).
 #[derive(Debug, Clone, Default)]
 pub struct ConfigDocument {
     pub environment: EnvironmentConfig,
-    pub commands: CommandsConfig,
-    pub base: Option<PathBuf>,                     // the file's folder: `commands.metadata` only
+    pub command_registry: Option<String>,          // the CMR file
+    pub base: Option<PathBuf>,                     // the file's folder: `command_registry` only
     sections: BTreeMap<String, serde_json::Value>, // host sections not taken yet
 }
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct CommandsConfig { #[serde(default)] pub metadata: Vec<String> }
 impl ConfigDocument {
     pub const ENVIRONMENT_KEYS: &'static [&'static str] =
         &["store", "recipes", "assets", "default_namespaces"];
@@ -143,20 +139,16 @@ impl ConfigDocument {
     #[cfg(not(target_arch = "wasm32"))] pub fn load(path: &Path) -> Result<Self, Error>;
     pub fn take_section<T: DeserializeOwned>(&mut self, name: &str) -> Result<Option<T>, Error>;
     /// `Err(configuration_error("unknown section …"))` for a section nobody took.
-    pub fn finish(self) -> Result<(EnvironmentConfig, CommandsConfig), Error>;
+    pub fn finish(self) -> Result<EnvironmentConfig, Error>;
+    /// `command_registry` resolved against `base`.
+    pub fn command_registry_path(&self) -> Option<PathBuf>;
 }
-impl CommandsConfig {
-    /// Reads every file (relative to `base`) and applies it (`command-registry-file`).
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn apply(&self, base: Option<&Path>, registry: &mut CommandMetadataRegistry) -> Result<IssueReport, Error>;
-}
-
 // liquers-axum/src/server/config.rs
 impl ServerConfig { pub fn from_document(doc: &mut ConfigDocument) -> Result<Self, Error>; }
 
 // liquers-py/src/config.rs — new
-pub struct PyConfig { pub environment: EnvironmentConfig, pub commands: CommandsConfig,
-                      pub base: Option<PathBuf>, pub server: ServerConfig, pub python: PythonSettings }
+pub struct PyConfig { pub environment: EnvironmentConfig, pub command_registry: Option<PathBuf>,
+                      pub server: ServerConfig, pub python: PythonSettings }
 #[derive(Debug, Clone, Default, Deserialize)] #[serde(deny_unknown_fields)]
 pub struct PythonSettings { pub conversion: Option<String>, pub pickle: Option<bool>,
                             pub async_loops: Option<NonZeroUsize> }
@@ -164,9 +156,9 @@ impl PyConfig {
     pub fn from_document(mut doc: ConfigDocument) -> Result<Self, Error> {
         let server = ServerConfig::from_document(&mut doc)?;
         let python = doc.take_section("python")?.unwrap_or_default();
-        let base = doc.base.clone();
-        let (environment, commands) = doc.finish()?;
-        Ok(PyConfig { environment, commands, base, server, python })
+        let command_registry = doc.command_registry_path();
+        let environment = doc.finish()?;
+        Ok(PyConfig { environment, command_registry, server, python })
     }
 }
 ```
@@ -181,7 +173,8 @@ impl PyConfig {
   Keywords `conversion`, `pickle`, `async_loops` become `None` by default in the signature and the
   stubs, resolved keyword → `python:` → built-in default (question 2); `EnvCell` keeps its
   `conversion` and `pickle` fields, filled from the resolved values, and holds the `PyConfig`.
-  `commands.metadata` goes through `CommandsConfig::apply` when the environment is built.
+  The `command_registry` file is read and passed to `import_metadata` when the environment is
+  built; a read or parse error raises at construction.
 - liquers-py does not enable core's `toml` feature, so a `.toml` path raises naming it.
 - Documents: as Documentation Intent; `ENVIRONMENT_CONFIG.md` History row.
 
@@ -191,4 +184,4 @@ Files: `environment_config.rs`, `liquers-py/src/{config,environment}.rs`, stubs,
 `records/resolver.rs` (a test call site of `EnvCell::new`), `ServerConfig`. Compatibility: through
 `lq.Environment`, an unknown top-level key used to be ignored and becomes an error; core's
 `EnvironmentConfig::from_yaml` keeps ignoring it, so `an_unknown_key_is_currently_ignored` stays.
-Recovery: revert. Certainty: high; `apply` follows `command-registry-file`.
+Recovery: revert. Certainty: high.
