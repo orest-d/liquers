@@ -367,6 +367,7 @@ deliberately folded behind a broader line.
 - design `command-io-type-declarations`
 - design `command-metadata-descriptions-and-hints`
 - design `command-parameter-editor`
+- design `command-registry-file`
 - design `command-registry-impl-version-freshness`
 - design `command-registry-issue-fields-coverage`
 - design `command-registry-issue-fields`
@@ -657,6 +658,7 @@ deliberately folded behind a broader line.
 - feature `DEPENDENCY-ANALYSIS-REWALKS-UPSTREAM-PER-EVALUATION`
 - feature `DEPENDENCY-ANALYSIS-SUMMARIES-NOT-REUSED-ACROSS-EVALUATIONS`
 - feature `EGUI-HAS-NO-REUSABLE-NATIVE-APP`
+- feature `ENVIRONMENT-CANNOT-BE-SHAPED-BY-A-COMMAND-REGISTRY-FILE`
 - feature `ENVIRONMENT-ORDERLY-SHUTDOWN`
 - feature `EXTENDED-SCALARS-NOT-MAPPED-BY-LANGUAGE-BRIDGES`
 - feature `EXTERNAL-INDEX-HAS-NO-RECONCILIATION-CONTRACT`

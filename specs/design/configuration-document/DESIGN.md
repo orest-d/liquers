@@ -65,7 +65,7 @@ default_namespaces, commands, server, python)`.
   THEN construction fails with `ConfigurationError` naming it and the known sections
 - **AC-3** Command metadata from a file
   WHEN `commands.metadata` names a file relative to the document
-  THEN its entries are applied as `import_metadata` applies them
+  THEN it is applied as `command-registry-file` defines
 - **AC-4** Keyword arguments override the file
   WHEN the file sets `python.pickle: false` and the call passes `pickle=True`, or `serve(port=0)`
   THEN the keyword wins
@@ -95,13 +95,12 @@ variable selection of a file.
 
 ### Open Questions
 
-1. **What a command metadata file is (recommended: an overlay).** Recommended: a file in the
-   `CommandMetadataRegistry` format of `specs/command_registry.yaml`, read with core's
-   `validate::registry::from_json_or_yaml`; its `commands` overlay the metadata of commands the
-   host registers (an entry with no registered command is an error, as `import_metadata` reports
-   today), its `default_namespaces` apply as the document's would, and its `global_enums` join the
-   registry. Alternative: a declared registry used only for validation, which never touches the
-   running environment. Which did you mean?
+1. **Decided: what a command metadata file is.** Orest, 2026-11-07, by examples: a CMR file can
+   enrich existing commands, disable commands by not listing them, add aliases, carry a language
+   mutation of labels and descriptions, and provide GUI information and hints; without one the
+   default CMR is used, and a default file can be generated on demand. Its semantics are the
+   design [`command-registry-file`](../command-registry-file/DESIGN.md); this design only reads
+   `commands.metadata` (a list of paths relative to the document) and hands it on.
 2. **One rule for keyword arguments (recommended: keyword wins).** A keyword given explicitly
    overrides the file, the file overrides the built-in default. Today `job_capacity=` that differs
    from `assets.job_capacity` is an error (`liquers-py-async`); under this rule it would override.
@@ -147,7 +146,7 @@ impl ConfigDocument {
     pub fn finish(self) -> Result<(EnvironmentConfig, CommandsConfig), Error>;
 }
 impl CommandsConfig {
-    /// Reads every file (relative to `base`) and applies it to `registry` (question 1).
+    /// Reads every file (relative to `base`) and applies it (`command-registry-file`).
     #[cfg(not(target_arch = "wasm32"))]
     pub fn apply(&self, base: Option<&Path>, registry: &mut CommandMetadataRegistry) -> Result<IssueReport, Error>;
 }
@@ -192,4 +191,4 @@ Files: `environment_config.rs`, `liquers-py/src/{config,environment}.rs`, stubs,
 `records/resolver.rs` (a test call site of `EnvCell::new`), `ServerConfig`. Compatibility: through
 `lq.Environment`, an unknown top-level key used to be ignored and becomes an error; core's
 `EnvironmentConfig::from_yaml` keeps ignoring it, so `an_unknown_key_is_currently_ignored` stays.
-Recovery: revert. Certainty: high; question 1 decides `apply`.
+Recovery: revert. Certainty: high; `apply` follows `command-registry-file`.
