@@ -24,7 +24,7 @@ request to call `EnvCell::envref` (serializes the server on Python).
 | `KEY-NAMES-CANNOT-HOLD-COMMON-WEB-FILENAMES` | draft | P3 | some bundles cannot be stored (question 9) | no | no | documented |
 | `LANGUAGE-INTEGRATIONS-REBUILD-ENVIRONMENT-ON-REGISTRATION` | draft | P3 | a registration rebuilds; WebSocket clients keep the old build | no | no | outcome documented below |
 | `ASSET-MANAGER-GET-PRINTS-DEBUG-OUTPUT` | draft | P3 | stderr noise per request | no | no | its own PR |
-| `HOSTS-READ-CONFIGURATION-DOCUMENTS-DIFFERENTLY` | draft | P3 | this design starts the shared document | no | no | agent and liquers-web follow (filed 2026-11-07) |
+| `HOSTS-READ-CONFIGURATION-DOCUMENTS-DIFFERENTLY` | draft | P3 | one file for every section | yes | no | design `configuration-document` lands first |
 | `PY-WEB-SERVER-CANNOT-TAKE-PYTHON-HANDLERS` | draft | P3 | `WEBSERV06`–`08` stay `NS` | no | no | M8 |
 
 ## Interfaces
@@ -90,73 +90,16 @@ string. Python side: `lq.serve` and `lq.serve_async` in `_env.py`, `Server` expo
 
 ## Configuration Document
 
-One file configures everything (Orest, 2026-11-07, Decision 4): the environment's sections as today,
-a `commands` section naming command-metadata files, and one section per host feature. The document
-is portable and lives in core; each host assembles its own typed struct from it and refuses a
-section it does not know, so `server:` in a liquers-web document is an error there rather than
-silently ignored.
-
-```rust
-// liquers-core/src/environment_config.rs — additive, sync (startup), wasm-safe except `load`
-#[derive(Debug, Clone, Default)]
-pub struct ConfigDocument {
-    pub environment: EnvironmentConfig,            // store, recipes, assets, default_namespaces
-    pub commands: CommandsConfig,
-    pub base: Option<PathBuf>,                     // the file's folder; relative paths resolve here
-    sections: BTreeMap<String, serde_json::Value>, // host sections not taken yet
-}
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct CommandsConfig { #[serde(default)] pub metadata: Vec<String> } // registry files
-impl ConfigDocument {
-    pub fn from_yaml(text: &str) -> Result<Self, Error>;  // JSON is accepted as YAML
-    #[cfg(feature = "toml")] pub fn from_toml(text: &str) -> Result<Self, Error>;
-    #[cfg(not(target_arch = "wasm32"))] pub fn load(path: &Path) -> Result<Self, Error>; // by extension
-    pub fn take_section<T: DeserializeOwned>(&mut self, name: &str) -> Result<Option<T>, Error>;
-    /// Ends assembly: a section nobody took is `configuration_error("unknown section `x`")`.
-    pub fn finish(self) -> Result<(EnvironmentConfig, CommandsConfig), Error>;
-}
-
-// liquers-axum: the `server` section
-impl ServerConfig {
-    pub fn from_document(doc: &mut ConfigDocument) -> Result<Self, Error>; // absent → defaults
-}
-
-// liquers-py/src/config.rs — new: the Python host's assembled configuration
-#[derive(Debug, Clone, Default)]
-pub struct PyConfig {
-    pub environment: EnvironmentConfig,
-    pub commands: CommandsConfig,      // imported with `import_metadata` at construction
-    pub server: ServerConfig,
-    pub python: PythonSettings,
-}
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PythonSettings { pub conversion: Option<String>, pub pickle: Option<bool>, pub async_loops: Option<usize> }
-impl PyConfig {
-    pub fn from_document(mut doc: ConfigDocument) -> Result<Self, Error> {
-        let server = ServerConfig::from_document(&mut doc)?;
-        let python = doc.take_section("python")?.unwrap_or_default();
-        let (environment, commands) = doc.finish()?;
-        Ok(PyConfig { environment, commands, server, python })
-    }
-}
-```
-
-`ConfigDocument` splits the top-level keys: the environment's own keys go to `EnvironmentConfig`
-(a constant list, kept in step with the struct by a test), `commands` to `CommandsConfig`, the rest
-waits in `sections`. `EnvironmentConfig` itself is unchanged, so every existing reader keeps
-working. Later sections join the same way: `ui` (`liquers-py-ui`), `modules`, `memory` (the
-agent's `AgentConfig` can move onto this). A portable assembled struct in liquers-lib was rejected:
-the server is in liquers-axum, which liquers-lib does not depend on, and liquers-web has no server;
-the shared part is the document, and the assembly is per host.
+One file configures everything (Decision 4). The document, its sections and `PyConfig`, which
+assembles `environment`, `commands`, `server` and `python` from it, are the design
+[`configuration-document`](../configuration-document/DESIGN.md), split out on 2026-11-07; this
+design uses `PyConfig.server` and the keyword-override rule it defines.
 
 ## Setup Examples
 
 A Rust host reads the same file as in `axum-server-assembly` §Integration Points.
-
-A Python script with the same file (`config=` takes a `pathlib.Path` or any `os.PathLike` as a
-file; a `str` stays YAML text and a `dict` a document, as today):
+A Python script with the same file (`config=` takes a `pathlib.Path` as a file; a `str` stays YAML
+text and a `dict` a document):
 
 ```python
 from pathlib import Path
@@ -178,7 +121,7 @@ server.shutdown()
 # liquers.yaml
 store:
   stores:
-    - {type: filesystem, prefix: data, config: {path: ./data}}
+    - {type: filesystem, prefix: data, config: {path: ./data}}   # relative to the working directory
     - {type: filesystem, prefix: web, read_only: true, config: {path: ./site}}
 commands:
   metadata: [commands.yaml]       # relative to this file
@@ -195,12 +138,7 @@ code, a minimal file with every default described, and specialised configuration
 ## Integration Points
 
 - `liquers-py/Cargo.toml`: `liquers-axum` (path); its tokio `full` already brings `net`.
-- `liquers-core/src/environment_config.rs`: `ConfigDocument`, `CommandsConfig`.
-- New `liquers-py/src/config.rs`: `PyConfig`, `PythonSettings`. `environment.rs`: `parse_config`
-  returns a `PyConfig` (a path is read with `ConfigDocument::load`, a `str` with `from_yaml`, a
-  `dict` through `json.dumps`); keyword arguments become `Option`s that override `python`;
-  `EnvCell::new` takes the `PyConfig` (three call sites, including `records/resolver.rs:186`) and
-  imports `commands.metadata` as `import_metadata` does. `shutdown` stops the servers (5 s each, a Phase 2 default,
+- `environment.rs`: `EnvCell` holds the `PyConfig` of `configuration-document`. `shutdown` stops the servers (5 s each, a Phase 2 default,
   waiting with `py.detach` and not the shut-aware `block_on`) before `self.shut.fire()`, then
   stops the managers as today.
 - Exit: `server::stop_all(py, 1 s)` (a Phase 2 default) runs from an `atexit` hook registered at the
@@ -227,7 +165,7 @@ blocking form raises, as every blocking call there does.
 | Failure | Constructor → Python |
 |---|---|
 | port in use, unresolvable host | axum's `Error::from_error(ErrorType::General, …)` → `lq.LiquersError` |
-| unknown section, or unknown key in `server:` or `python:` (at `lq.Environment`); bad prefix or API name (at `serve`) | `Error::configuration_error(…)` → `lq.ConfigurationError` |
+| unknown key in `server:` (at `lq.Environment`, `configuration-document`); bad prefix or API name (at `serve`) | `Error::configuration_error(…)` → `lq.ConfigurationError` |
 | `serve` after `env.shutdown()` | existing `shut_down_error()` |
 | a rebuild fails during a request | 503 with the error detail; the next request retries |
 | Ctrl-C during foreground `serve` | graceful stop, then the `KeyboardInterrupt` is re-raised |
@@ -246,8 +184,7 @@ None; no namespace is involved. Python commands are reached through `{prefix}/q/
 | `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` | guide | integrators | §6 Python: WEBSERV status |
 | `docs/guides/python/12-serving.md` | user guide | users | serving, web folder, security notes |
 | `liquers-py/src/server.rs` | API doc | developers | all five parts |
-| `liquers-py/src/environment.rs`, new `src/config.rs` | API doc | developers | components gain `config`, `current`, `servers`; `config.rs` all five parts |
-| `liquers-core/src/environment_config.rs` | API doc | developers | components and example gain `ConfigDocument` |
+| `liquers-py/src/environment.rs` | API doc | developers | components gain `current`, `servers` |
 | `_env.py`, `__init__.py`, `_native.pyi`, `__init__.pyi` | docstrings | Python users | every new name |
 | `specs/README.md` | index | all | link to this design (exists) |
 
@@ -258,7 +195,7 @@ None; no namespace is involved. Python commands are reached through `{prefix}/q/
 
 | Assessment | Finding |
 |---|---|
-| Files likely to change | core `environment_config.rs`, `config.rs` and `server.rs` (new), `environment.rs`, `exit.rs`, `lib.rs`, `_env.py`, `__init__.py`, the stubs, `Cargo.toml` |
+| Files likely to change | `server.rs` (new), `environment.rs`, `exit.rs`, `lib.rs`, `_env.py`, `__init__.py`, the stubs, `Cargo.toml` |
 | Crates and workflows affected | `liquers-py`; its CI job and the release workflow (wheel grows by axum and hyper: measured in Phase 4) |
 | Existing tests likely to change | none; `EnvCell::new` call sites gain the server settings. Recovery: revert the PR |
 | New validation | `test_server.py`; free-threaded run (3.14t) of the same file |

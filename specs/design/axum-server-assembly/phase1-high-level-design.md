@@ -177,6 +177,7 @@ lock file): new `server` and `web` modules; `assets/websocket.rs` takes the canc
 
 ## Design Dependencies
 
+- `configuration-document` (2026-11-07, Decision 4): **requires**; the `server` section is read from it.
 - `liquers-py-web-server`: **required-by**.
 - `environment-orderly-shutdown` (in review): **overlaps** question 7, the server stop it names.
 - `http-request-body-limit` (in review): **overlaps**; it also edits `examples/basic_server.rs`,

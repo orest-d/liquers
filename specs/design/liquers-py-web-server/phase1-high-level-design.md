@@ -197,6 +197,7 @@ dependency (it depends on core and store only, so the flow holds; liquers-py's o
 
 ## Design Dependencies
 
+- `configuration-document` (2026-11-07, Decision 4): **requires**; the `server` section is read from it.
 - `axum-server-assembly` (`AXUM-HAS-NO-SERVER-WITH-GRACEFUL-SHUTDOWN`,
   `AXUM-CANNOT-SERVE-STATIC-WEB-CONTENT`): **requires** (question 6).
 - `SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED`: **requires** (Decision 1); its documentation

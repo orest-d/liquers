@@ -48,8 +48,8 @@ pub enum Api { Query, Store, Assets, Recipes }
 #[serde(untagged)]
 pub enum WebSetting { Enabled(bool), Root(String) }           // Default: Enabled(true)
 impl ServerConfig {
-    /// Takes the `server` section of core's `ConfigDocument` (one file for every section,
-    /// `liquers-py-web-server` §Configuration Document); absent → defaults.
+    /// Takes the `server` section of core's `ConfigDocument` (design `configuration-document`);
+    /// absent → defaults.
     pub fn from_document(doc: &mut ConfigDocument) -> Result<Self, Error>;
 }
 
@@ -113,15 +113,24 @@ pub(crate) fn content_type_for(metadata: &Metadata, key: &Key) -> String;
   `build_or_500` (line 15) and `api_core::error::{error_to_status_code, error_to_detail}`.
 - `examples/basic_server.rs`: the builder, Ctrl-C → `shutdown(5 s)`.
 
-A Rust host reads one file, takes `server`, builds the environment from the rest and binds:
+A Rust host crate (one depending on `liquers-lib`, `liquers-store` and `liquers-axum`; the
+example moves there or keeps core types) reads one file (`configuration-document`), takes `server`,
+builds the environment from the rest and binds:
 
 ```rust
+use liquers_axum::{LiquersServerBuilder, ServerConfig};
+use liquers_core::environment_config::ConfigDocument;
+use liquers_lib::{environment::default_environment_builder, value::Value};
+use liquers_store::store_factory::default_store_factory;           // OpenDAL types too
+
 let mut doc = ConfigDocument::load(Path::new("liquers.yaml"))?;
 let server = ServerConfig::from_document(&mut doc)?;
-let (environment, _) = doc.finish()?;
+let base = doc.base.clone();
+let (environment, commands) = doc.finish()?;                       // an unknown section fails
 let mut builder = default_environment_builder::<Value, ()>()
     .with_config(environment, Box::new(default_store_factory()));
 register_my_commands(&mut builder.command_registry)?;
+commands.apply(base.as_deref(), &mut builder.command_registry.command_metadata_registry)?;
 let running = LiquersServerBuilder::from_config(server).bind(builder.build()?).await?;
 tokio::signal::ctrl_c().await.ok();
 running.shutdown(Duration::from_secs(5)).await;

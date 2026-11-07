@@ -373,6 +373,7 @@ deliberately folded behind a broader line.
 - design `command-specialization-by-input-type`
 - design `composite-variadic-arguments`
 - design `computed-enum-alternatives`
+- design `configuration-document`
 - design `configuration-error-kind`
 - design `console-mounts-nested-element`
 - design `context-title-description`
