@@ -95,6 +95,12 @@ the store's `web` folder and an index page, as LiQuer's server had. Milestone M7
      Added as AC-10 and AC-11 and question 9.
      The web route's risks (pages stored over HTTP run on the API's origin) are named in
      `axum-server-assembly` question 6.
+  4. Orest, 2026-11-07, at the Phase 2 review: "there should be a single configuration file (yaml or
+     json) that would configure all aspects - server, store, environment, recipe providers, command
+     metadata registry (a separate file)... a single config struct assembled from specific config
+     structs." Phase 2 should show Rust snippets and a Python example; Phase 3 adds examples without
+     a server, of configuring the server in code, a minimal file with every default described,
+     and specialised configurations. Phase 2 §Configuration Document answers it.
 - **Deviations from Appendix A** (copied to the conformance matrix): `WEBSERV01`'s `ready()` and
   `WEBSERV04`'s `is_running()` are the `running` property; `shutdown(graceful=True)` is
   `shutdown(timeout=…)`, always graceful until the timeout; `inflight_requests()` is not offered

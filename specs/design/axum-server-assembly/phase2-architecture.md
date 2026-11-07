@@ -48,10 +48,9 @@ pub enum Api { Query, Store, Assets, Recipes }
 #[serde(untagged)]
 pub enum WebSetting { Enabled(bool), Root(String) }           // Default: Enabled(true)
 impl ServerConfig {
-    /// The `server` section of a configuration document; absent → defaults. Other sections are
-    /// ignored, so core's `EnvironmentConfig` is unchanged. One per format, as core has.
-    pub fn from_yaml(text: &str) -> Result<Self, Error>;      // JSON parses as YAML too
-    #[cfg(feature = "toml")] pub fn from_toml(text: &str) -> Result<Self, Error>;
+    /// Takes the `server` section of core's `ConfigDocument` (one file for every section,
+    /// `liquers-py-web-server` §Configuration Document); absent → defaults.
+    pub fn from_document(doc: &mut ConfigDocument) -> Result<Self, Error>;
 }
 
 // server/source.rs — async: a host may need a blocking rebuild
@@ -104,7 +103,7 @@ pub(crate) fn content_type_for(metadata: &Metadata, key: &Key) -> String;
 
 - New `liquers-axum/src/server/{mod,config,source,builder,running}.rs`, `src/web/mod.rs`; `lib.rs`
   re-exports them. `Cargo.toml`: `hyper-util` (`server-auto`, `server-graceful`, `tokio`), `hyper`,
-  `tokio-util` (`rt`), a `toml` feature forwarding to `liquers-core/toml`; all in the lock file.
+  `tokio-util` (`rt`); all in the lock file.
 - `assets/websocket.rs`: the writer channel (line 797) carries `enum Outgoing { Notify(…),
   Close(CloseFrame) }`. `handle_socket` (line 788) reads `Option<Extension<ServerStop>>` (token and
   tracker), holds `tracker.token()` for its life, and on cancel sends `Close(1001)`, drops the
@@ -113,6 +112,23 @@ pub(crate) fn content_type_for(metadata: &Metadata, key: &Key) -> String;
 - `axum_integration.rs`: `BinaryResponse` uses `content_type_for`; the web handler uses
   `build_or_500` (line 15) and `api_core::error::{error_to_status_code, error_to_detail}`.
 - `examples/basic_server.rs`: the builder, Ctrl-C → `shutdown(5 s)`.
+
+A Rust host reads one file, takes `server`, builds the environment from the rest and binds:
+
+```rust
+let mut doc = ConfigDocument::load(Path::new("liquers.yaml"))?;
+let server = ServerConfig::from_document(&mut doc)?;
+let (environment, _) = doc.finish()?;
+let mut builder = default_environment_builder::<Value, ()>()
+    .with_config(environment, Box::new(default_store_factory()));
+register_my_commands(&mut builder.command_registry)?;
+let running = LiquersServerBuilder::from_config(server).bind(builder.build()?).await?;
+tokio::signal::ctrl_c().await.ok();
+running.shutdown(Duration::from_secs(5)).await;
+```
+
+Or with no file: `LiquersServerBuilder::new("/api").read_only().without_api(Api::Recipes)
+.bind(envref).await?`.
 
 ## Web Endpoints
 

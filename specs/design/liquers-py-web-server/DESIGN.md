@@ -7,7 +7,7 @@ status: in_review
 phase: architecture
 readiness: needs-decision
 autofix: not-eligible
-area: [py, axum]
+area: [py, axum, core/context]
 issues: [PY-CANNOT-START-A-WEB-SERVER]
 affects_docs: [specs/reference/PYTHON_INTEGRATION.md, specs/guides/PYTHON_GUIDE.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, liquers-py/README.md, specs/README.md, docs/guides/python/12-serving.md]
 created: 2026-11-06

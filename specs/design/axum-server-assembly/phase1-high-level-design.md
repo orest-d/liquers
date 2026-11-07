@@ -31,6 +31,9 @@ links") and is the prerequisite of [`liquers-py-web-server`](../liquers-py-web-s
   3. Orest, 2026-11-06, on question 6: "the security section should explicitly warn about this and
      show how to configure /web store as read only. In future versions it may be configured as read
      only by default."
+  4. Orest, 2026-11-07: one configuration file for every aspect, assembled from per-section structs
+     (`liquers-py-web-server` Decision 4); `ServerConfig` reads its section from core's
+     `ConfigDocument` (Phase 2).
 - **Explanation:** the four route builders exist (`liquers-axum/src/*/builder.rs`), each a
   `Router<EnvRef<E>>`; `examples/basic_server.rs` merges them and calls a bare `axum::serve`. axum
   0.8's graceful shutdown has no deadline, its connection tasks are detached, and the assets
