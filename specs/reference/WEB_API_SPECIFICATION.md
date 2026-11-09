@@ -808,7 +808,7 @@ Not available at HEAD; listed so that no reader mistakes them for features:
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-11-09 | §8 rewritten: §8.1 server assembly (`ServerConfig`, the `server` section and its defaults, `LiquersServerBuilder`, `EnvSource`, 503 when the source fails), §8.2 the two-stage stop with the WebSocket Close, §8.3 the web folder, §8.4 the index redirect, §8.5 composing routers by hand; §9 the security-sensitive settings `host`, `read_only`, `web` and the read-only web mount. | `design/axum-server-assembly/` |
+| 2026-11-09 | §8 rewritten: §8.1 server assembly (`ServerConfig`, the `server` section and its defaults, `LiquersServerBuilder`, `EnvSource`, 503 when the source fails), §8.2 the two-stage stop with the WebSocket Close, §8.3 the web folder, §8.4 the index redirect, §8.5 composing routers by hand; §9 the security-sensitive settings `host`, `read_only`, `web` and the read-only web mount. | phase-5, `design/axum-server-assembly/` |
 | 2026-10-27 | §9: a mount is protected by the store configuration's `read_only` (or `ReadOnlyStore`), with writes answered 501 `NotSupported`, and when reads may still write (a store without data-only access, a pipeline assembled in code without its own `read_only`); the stale reference to the closed `STORE-NO-READ-ONLY-ADAPTER` is removed. | `design/web-api-spec-read-only-mount/` |
 | 2026-10-27 | Recipes API `resolve`: the returned plan is the server build's inspection format, not a stable schema. | `design/plan-serialization-internal-contract/` |
 | 2026-10-25 | §Errors: `AssetNotFound` and `AssetNotSupported` map to 404; key endpoints refusing an unmakeable key answer `AssetNotFound`. | `design/key-without-recipe-answer/` |

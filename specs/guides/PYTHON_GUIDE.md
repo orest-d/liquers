@@ -1310,7 +1310,7 @@ What you will notice; the complete list, with the tracking issues, is
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-11-09 | §4: `config=` takes a file (`pathlib.Path`), YAML text or a dict; the `python` section; keywords override the file; unknown sections and server/python keys are refused; the command metadata file. §6: serving over HTTP, with its security settings. §10: the server's limits. | `design/configuration-document/`, `design/liquers-py-web-server/` |
+| 2026-11-09 | §4: `config=` takes a file (`pathlib.Path`), YAML text or a dict; the `python` section; keywords override the file; unknown sections and server/python keys are refused; the command metadata file. §6: serving over HTTP, with its security settings. §10: the server's limits. | phase-5, `design/configuration-document/`, `design/liquers-py-web-server/` |
 | 2026-11-05 | §7: cancelling an awaited read cancels it only for `env.data_node`. | phase-5, `design/liquers-py-data-nodes/` |
 | 2026-11-04 | §6 Pipelines: `evaluate` of a pipeline, `lq.Pipeline` and `to_query`, the editors, `pipeline_command`; §2 the new names. | `design/liquers-py-pipelines/` |
 | 2026-11-04 | §6 Templates: `render`, `expand`, `validate_template`, `template_command`, `lq.link`; §2 the new names. | `design/liquers-py-templates/` |

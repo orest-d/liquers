@@ -596,7 +596,7 @@ JobFinished              status=Ready managed=False
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-11-09 | §1: a server from a configuration document (one prefix, `127.0.0.1:8080`, the web folder and the index redirect); §9: its security-sensitive settings. | `design/axum-server-assembly/` |
+| 2026-11-09 | §1: a server from a configuration document (one prefix, `127.0.0.1:8080`, the web folder and the index redirect); §9: its security-sensitive settings. | phase-5, `design/axum-server-assembly/` |
 | 2026-10-16 | Error examples: the not-registered message now names the command keys tried. | `design/store-adapters/` phase-5 review |
 | 2026-10-12 | §4 naming arguments: argument overrides from the query string and a JSON body, `_link_`, the managed/unmanaged distinction, errors and type warnings; §5 submitting what cannot be polled (unmanaged assets: no result, still useful for side effects); §8 subscribe with `arguments`, `Subscribed`, `subscription_id`, `cancel`; `?format=` → `?_entry_format=`. Examples run against `examples/assets_recipes_basic.rs`. | phase-5, `design/axum-query-named-arguments/` |
 | 2026-10-09 | `q/cancel` is best-effort (a completed command stays `Ready`), the cause in `error_data`; the cancel-ends-`Ready` known gap removed. | phase-5 (`design/asset-cancellation-outcome/`) |

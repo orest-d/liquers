@@ -477,7 +477,7 @@ is the moment when that is safe: it runs before anything else can observe the re
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-11-09 | §Configure from one file: `ConfigDocument`, a host's sections, `finish`, the command registry file, the server from the same file. | `design/configuration-document/` |
+| 2026-11-09 | §Configure from one file: `ConfigDocument`, a host's sections, `finish`, the command registry file, the server from the same file. | phase-5, `design/configuration-document/` |
 | 2026-11-01 | §Configuring from a document: `default_namespaces`, its precedence over the registry, shadowing and portability, `liquers-validate --default-namespace`. | `design/plan-default-namespaces/` |
 | 2026-11-01 | Build errors: only an identical `recipes` entry is refused; a type with different arguments may repeat. | `design/liquers-py-recipes/` (phase-5) |
 | 2026-10-30 | The recipe provider chain is a list: §Building gains `with_recipes`, `with_appended_recipe_entry`, `with_recipe_provider_factory`; §Configuring from a document shows the list and the entry errors; §Library defaults rewritten (kind lists, every member asked, two-owner error, `with_records_recipe_provider` idempotent, the raw-manifest hazard, declaring an entry type). | design `recipe-provider-chain-config` |

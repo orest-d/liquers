@@ -1028,7 +1028,7 @@ authentication, TLS, and a web folder answered by recipes (`WEB-FOLDER-SERVES-ST
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-11-09 | §3: `config=` is a configuration document (file, YAML text, dict), with the `python` section and `command_registry`; keywords override the file, and `job_capacity=` replaces `assets.job_capacity` instead of conflicting; `serve`/`servers` methods; shutdown stops the servers first. §1, §2, §7: `Server`, `liquers-axum`, servers stop first at exit. §17 Web server. | `design/configuration-document/`, `design/liquers-py-web-server/` |
+| 2026-11-09 | §3: `config=` is a configuration document (file, YAML text, dict), with the `python` section and `command_registry`; keywords override the file, and `job_capacity=` replaces `assets.job_capacity` instead of conflicting; `serve`/`servers` methods; shutdown stops the servers first. §1, §2, §7: `Server`, `liquers-axum`, servers stop first at exit. §17 Web server. | phase-5, `design/configuration-document/`, `design/liquers-py-web-server/` |
 | 2026-11-06 | §16: an `ActionEditor` is stale after any edit that can move its step, not only its removal. | PR #263 review |
 | 2026-11-05 | §16: `evaluate` takes a tuple too; `to_list()` is the JSON form; a JSON-slot error path starts at `$`. | phase-5, `design/liquers-py-pipelines/` |
 | 2026-11-05 | §14: a `__liquers_data__` method's result still reads through the protocols when its class opts in; a raise in `keys()` gives no keys. | phase-5, `design/liquers-py-data-nodes/` |
