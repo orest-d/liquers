@@ -106,6 +106,13 @@ the store's `web` folder and an index page, as LiQuer's server had. Milestone M7
   `WEBSERV04`'s `is_running()` are the `running` property; `shutdown(graceful=True)` is
   `shutdown(timeout=…)`, always graceful until the timeout; `inflight_requests()` is not offered
   (the test observes a slow request completing); `WEBSERV05` follows question 3.
+- **Decision log (pre-approval, 2026-11-09):**
+  - *Needs decision:* the keyword rule (`configuration-document` Decision 2), asked on a card;
+    the recommended "keyword wins" is assumed until answered.
+  - *Assumption:* all three server designs are implemented on branch `claude/project-thread-5j5pvg`
+    (PR #264) in two commit groups (core and liquers-axum, then liquers-py), splittable later.
+  - *Assumption:* the security guideline (`SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED`) stays
+    its own design; these designs write the serving chapters' security sections.
 
 ## Problem Example
 

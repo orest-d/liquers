@@ -4,7 +4,7 @@ kind: design
 title: "Web server in liquers-py: serve an environment over the Liquers HTTP API"
 workflow: liquers-project
 status: in_review
-phase: examples
+phase: implementation
 readiness: ready
 autofix: not-eligible
 area: [py, axum, core/context]
@@ -24,6 +24,9 @@ Phase 1 written and reviewed twice on 2026-11-06 (conformity and records; codeba
 Phase 1 approved 2026-11-07 (Orest: "proceed"). Phase 2 written the same day and reviewed twice (conformity and records; codebase and soundness); findings applied.
 
 Phase 2 approved 2026-11-09 (Orest: "proceed"). Phase 3 written the same day and reviewed twice (conformity and records; codebase and soundness); findings applied.
+
+Pre-approved after Phase 3 on 2026-11-09 (Orest: "proceed all"). Phase 4
+written the same day.
 
 ## Phases
 

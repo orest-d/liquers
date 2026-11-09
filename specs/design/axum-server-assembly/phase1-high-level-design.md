@@ -95,6 +95,13 @@ links") and is the prerequisite of [`liquers-py-web-server`](../liquers-py-web-s
      evaluation it started: draining or cancelling the environment is the host's choice
      (`environment-orderly-shutdown`). Dropping the handle does not stop the server (added in Phase 2,
      for `liquers-py-web-server` Decision 2).
+- **Decision log (pre-approval, 2026-11-09):**
+  - *Needs decision:* the keyword rule (`configuration-document` Decision 2), asked on a card;
+    the recommended "keyword wins" is assumed until answered.
+  - *Assumption:* all three server designs are implemented on branch `claude/project-thread-5j5pvg`
+    (PR #264) in two commit groups (core and liquers-axum, then liquers-py), splittable later.
+  - *Assumption:* the security guideline (`SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED`) stays
+    its own design; these designs write the serving chapters' security sections.
 
 ## Problem Example
 

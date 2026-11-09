@@ -29,6 +29,13 @@ error for a section nobody took, lets one file set up a whole application (Orest
      overrides it instead of raising (a change to `liquers-py-async`'s rule).
   3. Orest, 2026-11-07: Phase 3 shows use without a server, the server configured in code, a
      minimal file with every default described, and specialised configurations.
+- **Decision log (pre-approval, 2026-11-09):**
+  - *Needs decision:* the keyword rule (`configuration-document` Decision 2), asked on a card;
+    the recommended "keyword wins" is assumed until answered.
+  - *Assumption:* all three server designs are implemented on branch `claude/project-thread-5j5pvg`
+    (PR #264) in two commit groups (core and liquers-axum, then liquers-py), splittable later.
+  - *Assumption:* the security guideline (`SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED`) stays
+    its own design; these designs write the serving chapters' security sections.
 
 ## Scope Changes
 

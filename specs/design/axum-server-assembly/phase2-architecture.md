@@ -93,8 +93,9 @@ impl LiquersServer {
 // web/mod.rs — async handlers
 pub fn web_routes<E: Environment>(prefix: &str, root: Key) -> Router<EnvRef<E>>;
 pub fn index_routes<E: Environment>(prefix: &str) -> Router<EnvRef<E>>;
-// axum_integration.rs — shared with BinaryResponse
-pub(crate) fn content_type_for(metadata: &Metadata, key: &Key) -> String;
+// web/mod.rs — the web route's rule; `BinaryResponse` keeps its own, so the store and
+// assets APIs answer exactly as today
+fn content_type_for(metadata: &Metadata, key: &Key) -> String;
 ```
 
 `shutdown` takes `&self` and is idempotent. The APIs mount at the conventional bases under the
@@ -113,8 +114,8 @@ store API is left out. Commands, ExtValue variants: none.
   tracker), holds `tracker.token()` for its life, and on cancel sends `Close(1001)`, drops the
   sender and awaits the writer for up to 1 s instead of aborting it (line 827). The subscription
   tasks (line 636) are aborted as on disconnect. Without a server nothing changes.
-- `axum_integration.rs`: `BinaryResponse` uses `content_type_for`; the web handler uses
-  `build_or_500` (line 15) and `api_core::error::{error_to_status_code, error_to_detail}`.
+- `axum_integration.rs`: none; `build_or_500` (line 15) is already `pub(crate)`, and the
+  web handler uses it and `api_core::error::{error_to_status_code, error_to_detail}`.
 - `examples/basic_server.rs`: the builder, Ctrl-C → `shutdown(5 s)`.
 
 A Rust host crate (one depending on `liquers-lib`, `liquers-store` and `liquers-axum`; the
