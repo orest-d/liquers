@@ -29,7 +29,10 @@ cancelled. Writes are enabled by default and documented as security-sensitive (D
 It conforms to Phases 1–4. One correction during testing: `pyo3-async-runtimes` returns an
 `asyncio.Future`, which `asyncio.create_task` refuses, so `serve_async` wraps it in a coroutine
 (`liquers._env._awaiting`) to keep Phase 3's `asyncio.create_task(env.serve_async())` working.
-The wheel-size measurement of Step 7 is taken from the pull request's Linux abi3 wheel in CI.
+Wheel size (Step 7), from the pull request's CI: the Linux x86_64 abi3 wheel is 33.2 MB, against
+29.6 MB measured on 2026-11-06 before M6 and the server; the 3.6 MB difference includes M6 (merged
+in since), so the server's own share is smaller. It adds no linked library (auditwheel lists only
+the system ones).
 
 ## Documentation Delivered
 
@@ -74,7 +77,7 @@ server's `shutdown` only awaits tokens, so `futures::executor::block_on` is enou
 ## Conformance and Remaining Work
 
 Implemented as approved; `WEBSERV` is `PARTIAL` because Python handlers were out of scope from
-Phase 1. Remaining: the open issues above and the wheel size from CI.
+Phase 1. Remaining: the open issues above.
 
 ## Validation
 
