@@ -97,7 +97,7 @@ async fn build_tree_feeds_both_renderers() -> Res {
 
     let tsv = std::fs::read_to_string(out.join("guides.tsv"))?;
     assert_eq!(tsv, "python\tliquers-for-python\tLiquers for Python\n");
-    assert!(out.join("home/src/index.md").is_file());
+    assert!(out.join("home/src/overview.md").is_file());
     assert!(out.join("home/src/guides/index.md").is_file());
 
     let release = build(&root, &out, BuildMode::Release).await?;

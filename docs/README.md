@@ -6,7 +6,8 @@ GitHub Pages.
 
 | Path | What |
 |---|---|
-| `index.md` | the site's home page |
+| `site/` | the landing page, the site's `index.html`: plain HTML with its logo and favicon, copied to the site root as is. A link not yet published carries `data-soon` (a "coming soon" badge); remove it when the target is live |
+| `index.md` | the home page, every guide and API reference, published as `overview.html` |
 | `guides/index.md` | how the three guides relate |
 | `guides/{rust,python,web}/` | the guides: `guide.yaml` (title, chapter order), the chapters, `HISTORY.md` |
 | `guides/_shared/` | language-neutral fragments, included by chapters of all three guides |

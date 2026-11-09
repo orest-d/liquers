@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Builds the documentation site: the three user guides (HTML with and without search, EPUB, PDF),
-# the home page and the API references (every Rust crate, Python, JavaScript), assembled into one
-# folder ready for GitHub Pages.
+# Builds the documentation site: the landing page (docs/site/), the three user guides (HTML with
+# and without search, EPUB, PDF), the home page (overview.html) and the API references (every
+# Rust crate, Python, JavaScript), assembled into one folder ready for GitHub Pages.
 #
 #   bash scripts/build-docs.sh [--release] [--out DIR] [--skip-api] [--skip-pdf] [--latex]
 #                              [--verify | --verify-only]
@@ -94,6 +94,11 @@ if have mdbook; then
     done
 fi
 
+# The landing page (docs/site/), over the home book's index.html: mdBook writes its first page
+# twice, and the home page stays as overview.html.
+echo "== landing page" >&2
+cp -r "$ROOT/docs/site/." "$OUT/"
+
 if have pandoc; then
     echo "== pandoc" >&2
     for line in "${GUIDES[@]}"; do
@@ -175,6 +180,8 @@ if [ "$VERIFY" = 1 ]; then
         fi
     }
     expect index.html
+    expect overview.html
+    expect images/logo.png
     expect guides/index.html
     expect downloads/index.html
     for line in "${GUIDES[@]}"; do

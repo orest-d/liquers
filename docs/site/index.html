@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Liquers</title>
+<meta name="description" content="Liquers names computations with queries. Results are cached as assets, and commands are written in Rust, Python or JavaScript.">
+<link rel="icon" type="image/png" href="images/favicon.png">
+<link rel="icon" href="favicon.ico" sizes="any">
+<!--
+  The landing page of https://orest-d.github.io/liquers/. scripts/build-docs.sh copies docs/site/
+  to the root of the site, over the index.html of the mdBook home book (whose page is overview.html).
+
+  A link that is not published yet carries data-soon: it shows a "coming soon" badge and cannot be
+  clicked. Remove the attribute once the target is live; the href is already the real path.
+-->
+<style>
+:root {
+  --bg: #0b0f0c;
+  --bg-raised: #121813;
+  --border: #223026;
+  --text: #e6ede7;
+  --muted: #93a297;
+  --accent: #09bd25;
+  --accent-strong: #35e04f;
+  --accent-soft: rgba(9, 189, 37, 0.12);
+  --code-bg: #070a08;
+  --q-resource: #7cc4ff;
+  --q-command: #35e04f;
+  --q-arg: #f2c14e;
+  --q-sep: #5d6b61;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f6f8f6;
+    --bg-raised: #ffffff;
+    --border: #d9e2db;
+    --text: #142017;
+    --muted: #55645a;
+    --accent: #067617;
+    --accent-strong: #067617;
+    --accent-soft: rgba(9, 189, 37, 0.10);
+    --code-bg: #0b0f0c;
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; text-decoration: none; }
+code, .mono { font-family: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace; }
+.wrap { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
+
+/* Header */
+header {
+  position: sticky; top: 0; z-index: 10;
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+header .wrap { display: flex; align-items: center; justify-content: space-between; height: 60px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: 0.02em; }
+.brand img { width: 28px; height: 28px; }
+nav { display: flex; gap: 22px; font-size: 15px; color: var(--muted); }
+nav a:hover { color: var(--text); }
+
+/* Hero */
+.hero { position: relative; overflow: hidden; padding: 88px 0 72px; text-align: center; }
+.hero::before {
+  content: ""; position: absolute; inset: -40% -10% auto; height: 520px; z-index: -1;
+  background: radial-gradient(closest-side, var(--accent-soft), transparent 70%);
+}
+.hero img.logo { width: min(320px, 70vw); height: auto; filter: drop-shadow(0 0 24px rgba(9, 189, 37, 0.25)); }
+.hero h1 { font-size: clamp(36px, 6vw, 56px); line-height: 1.1; margin: 28px 0 12px; letter-spacing: -0.02em; }
+.hero p.tagline { font-size: clamp(17px, 2.2vw, 21px); color: var(--muted); max-width: 600px; margin: 0 auto 32px; }
+.actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.btn {
+  display: inline-flex; align-items: center; gap: 8px; padding: 11px 20px; border-radius: 10px;
+  font-weight: 600; font-size: 15px; border: 1px solid var(--border); background: var(--bg-raised);
+  transition: border-color .15s, transform .15s;
+}
+.btn:hover { border-color: var(--accent); transform: translateY(-1px); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); color: #04210a; }
+.btn svg { width: 18px; height: 18px; }
+
+/* Query */
+.query {
+  margin: 56px auto 0; max-width: 640px; text-align: left;
+  background: var(--code-bg); border: 1px solid #1c2a20; border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+}
+.query .bar { display: flex; gap: 6px; padding: 12px 14px; border-bottom: 1px solid #1c2a20; }
+.query .bar i { width: 10px; height: 10px; border-radius: 50%; background: #26352a; }
+.query pre { margin: 0; padding: 20px 22px; font-size: clamp(14px, 2.4vw, 18px); color: #e6ede7; overflow-x: auto; }
+.q-r { color: var(--q-resource); } .q-c { color: var(--q-command); } .q-a { color: var(--q-arg); } .q-s { color: var(--q-sep); }
+.legend { display: flex; flex-wrap: wrap; gap: 18px; padding: 0 22px 18px; font-size: 13px; color: #93a297; }
+.legend span::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; background: currentColor; }
+.legend .l-r { color: var(--q-resource); } .legend .l-c { color: var(--q-command); } .legend .l-a { color: var(--q-arg); }
+
+/* Pillars */
+.pillars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; padding: 24px 0 72px; }
+.pillar { padding: 22px; border-radius: 14px; border: 1px solid var(--border); background: var(--bg-raised); }
+.pillar h3 { margin: 10px 0 6px; font-size: 17px; }
+.pillar p { margin: 0; color: var(--muted); font-size: 15px; }
+.pillar svg { width: 26px; height: 26px; color: var(--accent); }
+
+/* Documentation */
+section.docs { padding: 0 0 80px; }
+h2 { font-size: 26px; margin: 0 0 6px; letter-spacing: -0.01em; }
+.sub { color: var(--muted); margin: 0 0 24px; }
+.group { margin-bottom: 36px; }
+.group h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin: 0 0 12px; }
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.card {
+  position: relative; display: flex; flex-direction: column; gap: 6px; padding: 20px;
+  border-radius: 14px; border: 1px solid var(--border); background: var(--bg-raised);
+  transition: border-color .15s, transform .15s;
+}
+.card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.card .lang { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 17px; }
+.card .lang b { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9px; font: 700 13px/1 ui-monospace, Menlo, monospace; background: var(--accent-soft); color: var(--accent); }
+.card p { margin: 0; color: var(--muted); font-size: 14.5px; }
+.card[data-soon] { cursor: default; pointer-events: none; }
+.card[data-soon] .lang, .card[data-soon] p { opacity: 0.6; }
+.card[data-soon]::after {
+  content: "coming soon"; align-self: flex-start; margin-top: 8px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+  padding: 3px 8px; border-radius: 999px; border: 1px dashed var(--border); color: var(--muted);
+}
+
+footer { border-top: 1px solid var(--border); padding: 28px 0; color: var(--muted); font-size: 14px; }
+footer .wrap { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+footer a:hover { color: var(--text); }
+
+@media (max-width: 760px) {
+  nav { gap: 16px; }
+  nav .optional { display: none; }
+  .hero { padding: 56px 0 48px; }
+  .pillars, .cards { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <a class="brand" href="./"><img src="images/favicon.png" alt="">Liquers</a>
+    <nav>
+      <a href="#docs">Guides</a>
+      <a href="#api" class="optional">API</a>
+      <a href="https://github.com/orest-d/liquers">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="wrap">
+      <img class="logo" src="images/logo.png" alt="Liquers logo" width="792" height="417">
+      <h1>Liquers</h1>
+      <p class="tagline">Name computations with queries. Every result is cached, stored and served by its query, with commands written in Rust, Python or JavaScript.</p>
+      <div class="actions">
+        <a class="btn primary" href="#docs">Documentation</a>
+        <a class="btn" href="https://github.com/orest-d/liquers">
+          <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          GitHub
+        </a>
+      </div>
+
+      <div class="query" role="figure" aria-label="An example query">
+        <div class="bar"><i></i><i></i><i></i></div>
+        <pre class="mono"><span class="q-r">-R/data/sales.csv</span><span class="q-s">/-/</span><span class="q-c">ns-pl</span><span class="q-s">/</span><span class="q-c">head</span><span class="q-s">-</span><span class="q-a">10</span></pre>
+        <div class="legend"><span class="l-r">resource</span><span class="l-c">command</span><span class="l-a">argument</span></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="wrap">
+    <div class="pillars">
+      <div class="pillar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h10M4 17h6"/><path d="M17 15l3 3-3 3"/></svg>
+        <h3>Queries</h3>
+        <p>A path of data and commands that names a result.</p>
+      </div>
+      <div class="pillar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.66 3.58 3 8 3s8-1.34 8-3V6"/><path d="M4 12v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6"/></svg>
+        <h3>Assets</h3>
+        <p>Results are cached and stored; the same query, the same result.</p>
+      </div>
+      <div class="pillar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6l-6 6 6 6M16 6l6 6-6 6"/></svg>
+        <h3>Rust, Python, Web</h3>
+        <p>One core, used from Rust, Python or a browser page.</p>
+      </div>
+    </div>
+  </div>
+
+  <section class="docs" id="docs">
+    <div class="wrap">
+      <h2>Documentation</h2>
+      <p class="sub">Three user guides with the same chapters, and the API reference of each language.</p>
+
+      <div class="group">
+        <h3>User guides</h3>
+        <div class="cards">
+          <a class="card" data-soon href="guides/rust/index.html">
+            <span class="lang"><b>Rs</b>Liquers for Rust</span>
+            <p>Building on the crates: commands, value types, stores and servers.</p>
+          </a>
+          <a class="card" data-soon href="guides/python/index.html">
+            <span class="lang"><b>Py</b>Liquers for Python</span>
+            <p>The <code>liquers</code> package, for data work and Python services.</p>
+          </a>
+          <a class="card" data-soon href="guides/web/index.html">
+            <span class="lang"><b>JS</b>Liquers for the Web</span>
+            <p>Liquers running in a browser page, compiled to WebAssembly.</p>
+          </a>
+        </div>
+      </div>
+
+      <div class="group" id="api">
+        <h3>API reference</h3>
+        <div class="cards">
+          <a class="card" data-soon href="overview.html#api-reference">
+            <span class="lang"><b>Rs</b>Rust API</span>
+            <p>Every crate, from <code>liquers-core</code> to <code>liquers-lib</code>.</p>
+          </a>
+          <a class="card" data-soon href="api/python/liquers.html">
+            <span class="lang"><b>Py</b>Python API</span>
+            <p>The <code>liquers</code> package.</p>
+          </a>
+          <a class="card" data-soon href="api/js/index.html">
+            <span class="lang"><b>JS</b>JavaScript API</span>
+            <p>The <code>liquers-web</code> module.</p>
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Liquers · AGPL-3.0-or-later</span>
+    <a href="https://github.com/orest-d/liquers">github.com/orest-d/liquers</a>
+  </div>
+</footer>
+
+</body>
+</html>
