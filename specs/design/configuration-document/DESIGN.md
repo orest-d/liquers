@@ -20,7 +20,7 @@ configure all aspects - server, store, environment, recipe providers, command me
 separate file)", assembled "from specific config structs" (that design's Decision 4). Converted from the compact form to the full form
 on 2026-11-09, at Phase 3, when its examples outgrew the compact page budget. Required by `liquers-py-web-server` and `axum-server-assembly`; lands first, with or before
 `axum-server-assembly`. Phases 1 and 2 written together, since the owner set the direction,
-reviewed once by an independent reviewer before the split, and approved 2026-11-09 ("proceed").
+reviewed once by an independent reviewer before the split, and approved 2026-11-09 ("proceed"). Phase 3 reviewed twice; findings applied.
 
 ## Phases
 

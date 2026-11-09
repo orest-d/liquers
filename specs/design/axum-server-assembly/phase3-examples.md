@@ -46,8 +46,10 @@ let server = LiquersServerBuilder::<MyEnv>::new("/api")
 eprintln!("listening on {}", server.local_addr());
 ```
 
-`ServerConfig { host: "0.0.0.0".into(), port: 0, ..Default::default() }` passed to `from_config`
-does the same from a value; port 0 binds an ephemeral port, which `local_addr()` reports (AC-8).
+The same settings as a value: `ServerConfig { prefix: "/api".into(), apis: vec![Api::Query,
+Api::Store, Api::Assets], read_only: true, web: WebSetting::Root("site".into()), port: 0,
+..Default::default() }` passed to `from_config`; port 0 binds an ephemeral port, which
+`local_addr()` reports (AC-8). (The query timeout has no configuration key.)
 
 ## Example 3: the server from one file
 
@@ -58,7 +60,8 @@ The program of Phase 2 §Integration Points: `ConfigDocument::load`, `ServerConf
 server: {port: 8000, apis: [query, assets], read_only: true, web: false}
 ```
 
-there is no store or recipes route, every assets mutation is refused, and neither `/` nor
+there is no `/liquer/api/store` or `/liquer/api/recipes` route, the assets mutation routes are
+left out (404 or 405), and neither `/` nor
 `/liquer/web/` exists (`web: false` turns the index redirect off too). A section with
 `prot: 8000` fails at `from_document` with `ConfigurationError` naming `prot` (AC-8).
 
@@ -69,6 +72,9 @@ let liquers = LiquersServerBuilder::<MyEnv>::new("/liquer").router().with_state(
 let app = Router::new().route("/health", get(|| async { "ok" })).merge(liquers);
 axum::serve(listener, app).await?;    // the host's own loop: no graceful deadline from us
 ```
+
+`router()` includes `/` and `/index.html` while `web` is on; a host with its own `/` calls
+`without_index()` first, or `merge` panics on the overlapping route.
 
 ## Example 5: graceful shutdown
 
@@ -86,35 +92,41 @@ default deadline from code that does not hold the server.
 | Symptom | Expected behaviour | Test |
 |---|---|---|
 | port already in use | `bind` returns `Error` (General) naming the address; nothing listens | `bind_port_in_use_is_an_error` |
-| `prefix: /` | routes under `/web/…`, not `//web` | `root_prefix_has_no_double_slash` |
+| `prefix: /` | routes under `/web/…`, not `//web` | `root_prefix_has_no_double_slash` (server_assembly) |
+| `prefix` without a leading `/`, a `web` root that is not a key, a wrong type | `ConfigurationError` | `bad_prefix_or_web_key_is_refused` (config unit) |
+| a `str` stored at `web/x.html` (metadata `data_format: txt`) | served as `text/html` | `stored_text_html_is_text_html` (server_web) |
 | `GET {prefix}/web/a~b.js` (not a valid key) | 404 | `invalid_key_is_404` |
 | metadata media type not a valid header value | 500 from `build_or_500`, no panic | `bad_media_type_is_500` |
 | `data_facts` unsupported by the store | no `Last-Modified`, still 200 | `no_data_facts_no_last_modified` |
 | `If-None-Match: *`, a list, a `W/` tag | 304 on a match | `if_none_match_forms` |
-| the source fails (a host's rebuild) | 503 with the error detail | `failing_source_is_503` |
-| the source returns a new `EnvRef` | later requests use it; the router is re-stated once | `new_envref_is_used` |
-| dropped `LiquersServer` | still serving; `stop_token` stops it | `dropped_handle_keeps_serving` |
-| `shutdown` called twice | the second returns at once | `shutdown_is_idempotent` |
+| the source fails (a host's rebuild) | 503 with the error detail | `failing_source_is_503` (server_assembly) |
+| the source returns a new `EnvRef` | later requests use it; the router is re-stated once | `new_envref_is_used` (server_assembly) |
+| dropped `LiquersServer` | still serving; `stop_token` stops it | `dropped_handle_keeps_serving` (server_shutdown) |
+| `shutdown` called twice | the second returns at once | `shutdown_is_idempotent` (server_shutdown) |
 
 ## Test Plan
 
 - Unit: `liquers-axum/src/server/config.rs` `tests`
   - `web_setting_forms` (AC-8): `true`, `false`, `site`, absent; each serializes back to its form.
-  - `unknown_key_is_refused` (AC-8); `defaults_match_the_documented_ones` (AC-8).
+  - `unknown_key_is_refused` (AC-8); `defaults_match_the_documented_ones` (no scenario: it pins
+    `configuration-document` Example 1); `bad_prefix_or_web_key_is_refused` (AC-8).
 - Integration: `liquers-axum/tests/server_web.rs` (memory store with `web/…` keys)
-  - `stored_file_is_served_with_its_media_type` (AC-1); `missing_file_is_404` (AC-1).
+  - `stored_file_is_served_with_its_media_type` (AC-1): also `nosniff`, `Cache-Control: no-cache`,
+    and `HEAD` with the same headers and no body; `missing_file_is_404` (AC-1).
   - `folder_with_slash_serves_index_and_without_redirects` (AC-2).
   - `root_and_index_html_redirect_to_web` (AC-3); `web_false_removes_index_redirect` (AC-3).
   - `extension_gives_the_type_without_metadata` (AC-5): `index.html`, `app.js`, `app.wasm`.
-  - `etag_round_trip_gives_304_then_200_after_change` (AC-6); plus the web rows above.
+  - `etag_round_trip_gives_304_then_200_after_change` (AC-6); `last_modified_from_data_facts`
+    (AC-6, a filesystem mount); plus the web rows above.
 - Integration: `liquers-axum/tests/server_assembly.rs`
   - `config_without_store_api_and_read_only` (AC-7); `bind_port_zero_reports_port` (AC-8);
     `bind_port_in_use_is_an_error` (AC-8); the source and handle rows above.
 - Integration: `liquers-axum/tests/server_shutdown.rs` (a `slow` command waiting on a gate)
   - `slow_request_completes_within_deadline` (AC-9); `slow_request_is_aborted_at_deadline` (AC-9);
   - `websocket_gets_close_frame` (AC-9); `new_connections_refused_and_port_free` (AC-9).
-- Command: `cargo test -p liquers-axum --lib server --test server_web --test server_assembly
-  --test server_shutdown` (needs `libssl-dev`, as every `liquers-axum` test run).
+- Commands (two, since a name filter applies to every target): `cargo test -p liquers-axum --lib
+  server::` and `cargo test -p liquers-axum --test server_web --test server_assembly --test
+  server_shutdown --test server_config_document` (needs `libssl-dev`, as every `liquers-axum` test run).
 
 ## Learning Log
 

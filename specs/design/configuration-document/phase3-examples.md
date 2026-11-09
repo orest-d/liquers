@@ -5,18 +5,21 @@
 | # | Kind | Name | Shows / checks | Scenarios |
 |---|---|---|---|---|
 | 1 | Example | The minimal file and its defaults | an empty document, every default named | AC-6 |
-| 2 | Example | An environment without a server | a file with no `server:`, queries from Python | AC-1, AC-3 |
+| 2 | Example | An environment without a server | a file with no `server:`, queries from Python | AC-3 |
 | 3 | Example | A specialised deployment | several mounts, recipes, assets, CMR, `python`, `server` | AC-1, AC-3 |
 | 4 | Example | Keywords over the file | `pickle=True`, `job_capacity=` over the file | AC-4 |
 | 5 | Example | A Rust host | the same file read from Rust | AC-7 |
 | 6 | Test | `liquers-core` `environment_config::tests::*` | splitting, unknown sections, keys in step, defaults | AC-2, AC-3, AC-6 |
 | 7 | Test | `liquers-py/tests/test_CONFIG_document.py` | the Python host end to end | AC-1–AC-6 |
-| 8 | Test | `liquers-axum/tests/server_config_document.rs` | `ServerConfig` from a document; a Rust host | AC-6, AC-7 |
+| 8 | Test | `liquers-axum/tests/server_config_document.rs` (carried by the `axum-server-assembly` PR) | `ServerConfig` from a document; a Rust host | AC-6, AC-7 |
 
 ## Example 1: the minimal file and its defaults
 
-An empty file, `{}`, or no `config=` at all configures this (AC-6); each line is the default spelt
-out, and writing it out changes nothing (`test_CONFIG_written_defaults_equal_empty`):
+An empty file, `{}`, or no `config=` at all configures this for the Python host (AC-6); each line
+is the default spelt out, and writing it out changes nothing the host does
+(`test_CONFIG_written_defaults_equal_empty` compares effective values: the store's mounts, the
+recipe chain, `cut_predecessors()`, the queue capacity, the `python` and `server` settings, since
+`job_capacity: 4` written out is `Some(4)` where absent is `None`):
 
 ```yaml
 store:
@@ -45,6 +48,9 @@ server:                   # used only by env.serve(); nothing listens until then
   web: true               # GET {prefix}/web/… serves store key web/…; / redirects there
 ```
 
+A Rust host's empty document differs: no store is mounted unless the program adds one, the recipe
+chain is the manager kind's default, and a `python:` section is refused unless the host takes it.
+
 ## Example 2: an environment without a server
 
 `server:` is optional and nothing listens unless `serve` is called, so a script that only evaluates
@@ -64,7 +70,7 @@ import liquers as lq
 
 env = lq.Environment(config=Path("analysis.yaml"))
 
-@env.command
+@env.first_command
 def greet(name: str = "world") -> str:
     return f"Hello, {name}!"
 
@@ -80,11 +86,16 @@ commands:
   - name: greet
     label: Greet someone
     doc: Returns a greeting for a name.
+    module: python
+    state_argument: null            # a source; omitted, it would default to `state`
     arguments:
       - {name: name, label: Name, default: !Value world, argument_type: string, gui_info: !TextField 20}
 default_namespaces: ['', root]
 global_enums: {}
 ```
+
+An entry replaces the command's metadata (`import_metadata`, `add_command`), so it restates every
+field it needs; the easiest start is the registry as code registered it (`env.command_metadata`).
 
 ## Example 3: a specialised deployment
 
@@ -118,7 +129,7 @@ server:
 ## Example 4: keywords over the file
 
 ```python
-env = lq.Environment(config=Path("deploy.yaml"), pickle=False, job_capacity=2)
+env = lq.Environment(config=Path("deploy.yaml"), pickle=False, job_capacity=2)   # Example 3's file
 server = env.serve(port=0)    # an ephemeral port instead of 8000
 ```
 
@@ -131,6 +142,16 @@ The program of `axum-server-assembly` Phase 2 §Integration Points reads the fil
 Rust host that shares a file with Python takes the `python` section and ignores it explicitly
 (`doc.take_section::<serde_json::Value>("python")?`).
 
+Without a server the same file builds an environment only:
+
+```rust
+let doc = ConfigDocument::load(Path::new("analysis.yaml"))?;
+let envref = default_environment_builder::<Value, ()>()
+    .with_config(doc.finish()?, Box::new(default_store_factory()))
+    .build()?;
+let state = envref.evaluate("-R/data/report.csv").await?.get().await?;   // no server
+```
+
 ## Edge and Error Cases
 
 | Symptom | Expected behaviour | Test |
@@ -142,6 +163,11 @@ Rust host that shares a file with Python takes the `python` section and ignores 
 | `command_registry` file missing or unparsable | raises at `lq.Environment`, naming the path | `test_CONFIG_missing_command_registry_file` |
 | YAML tag (`!Value`) at section level | `ParseError`: sections are plain data | `document_refuses_tags_in_sections` |
 | `async_loops: 0` | `ConfigurationError`, as the keyword | `test_CONFIG_async_loops_zero` |
+| a YAML syntax error | `ParseError` | `test_CONFIG_syntax_error` |
+| a non-string key (`1: x`) at the top | `ParseError` | `document_refuses_non_string_keys` |
+| an empty file, or `str` `""` | the defaults, not the AC-5 hint | `test_CONFIG_empty_file_is_defaults` |
+| unknown extension (`liquers.conf`) | `ConfigurationError` naming the extensions | `load_refuses_an_unknown_extension` |
+| document file unreadable | `LiquersError` naming the path | `test_CONFIG_unreadable_document` |
 
 ## Test Plan
 
@@ -151,7 +177,8 @@ Rust host that shares a file with Python takes the `python` section and ignores 
   - `finish_refuses_an_untaken_section` (AC-2): the message names it and the known keys.
   - `environment_keys_match_the_struct` (AC-6): a fully set `EnvironmentConfig` round-trips through
     `ConfigDocument` unchanged.
-  - `empty_document_is_the_default` (AC-6); `document_refuses_tags_in_sections`.
+  - `empty_document_is_the_default` (AC-6); `document_refuses_tags_in_sections`;
+    `document_refuses_non_string_keys`; `load_refuses_an_unknown_extension`.
 - Integration: `liquers-axum/tests/server_config_document.rs`
   - `server_config_defaults_from_an_empty_document` (AC-6);
   - `rust_host_builds_from_one_document` (AC-7): a core `EnvironmentBuilder` from `finish()`,
@@ -163,7 +190,9 @@ Rust host that shares a file with Python takes the `python` section and ignores 
   - `test_CONFIG_keywords_override_the_file` (AC-4): `pickle`, `job_capacity`, `serve(port=0)`;
   - `test_CONFIG_str_file_name_is_explained` (AC-5);
   - `test_CONFIG_written_defaults_equal_empty` (AC-6): Example 1 written out equals `{}`;
-  - the remaining edge-case tests above.
+  - the remaining edge-case tests above; `test_ASYNC_loops.py`'s invalid case
+    `{"job_capacity": 2, "config": {"assets": {"job_capacity": 3}}}` moves to the override test.
+  - These land with `liquers-py-web-server` (Phase 1 landing order), so `serve` exists.
 - Commands: `cargo test -p liquers-core --lib environment_config`,
   `cargo test -p liquers-axum --test server_config_document`, `bash scripts/test-liquers-py.sh`.
 

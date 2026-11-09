@@ -45,7 +45,7 @@ links") and is the prerequisite of [`liquers-py-web-server`](../liquers-py-web-s
      the builders' switches (`read_only`, `without_websocket`, timeouts), an extensible set of APIs
      (later ones such as registry publication plug in), `web` and `ServerConfig` (serde,
      in `liquers-axum`, `deny_unknown_fields`) reads the `server` section of a configuration
-     document (`ServerConfig::from_yaml`, `from_toml`; Phase 2); core's `EnvironmentConfig` is not changed. Keys:
+     document (`ServerConfig::from_document` over core's `ConfigDocument`; Phase 2); core's `EnvironmentConfig` is not changed. Keys:
      `host`, `port`, `prefix`, `apis`, `read_only`, `web` (the root key, default `web`; `false`
      turns the route off). `bind` returns a running `LiquersServer` with its bound address
      and `shutdown(deadline)`. No CORS layer, deliberately, as today.

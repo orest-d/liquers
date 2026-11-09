@@ -68,9 +68,9 @@ Commands, ExtValue variants: none.
 ## Integration Points
 
 - Parsing: YAML (and JSON) becomes a `serde_json::Value` map first, so YAML tags and non-string
-  keys are refused; the environment keys go to `EnvironmentConfig` through the existing
+  keys are refused; an empty document (`null`) is the empty map; the environment keys go to `EnvironmentConfig` through the existing
   `from_json`. A test keeps `ENVIRONMENT_KEYS` in step with `EnvironmentConfig` by round-tripping
-  a fully set instance.
+  a fully set instance and comparing the serialized YAML (`EnvironmentConfig` has no `PartialEq`).
 - liquers-py `Environment(config=…)`: `os.PathLike` (via `__fspath__`) → `ConfigDocument::load`;
   `str` → `from_yaml` (a scalar result raises AC-5's hint); `dict` → `json.dumps` → `from_json`.
   Keywords `conversion`, `pickle`, `async_loops`, `job_capacity` become `None` by default in the
@@ -84,7 +84,7 @@ Commands, ExtValue variants: none.
 
 | Failure | Constructor |
 |---|---|
-| syntax error in the document | `Error::parse_error` (as `from_yaml` today) |
+| syntax error; a YAML tag or a non-string key at section level | `Error::parse_error` (as `from_yaml` today) |
 | unknown section; a section's bad value or unknown key | `Error::configuration_error` |
 | `.toml` without the feature, unknown extension | `Error::configuration_error` |
 | unreadable file (document or CMR) | `Error::from_error(ErrorType::General, io_error)` naming the path |

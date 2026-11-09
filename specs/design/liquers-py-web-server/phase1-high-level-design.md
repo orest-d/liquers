@@ -30,7 +30,7 @@ the store's `web` folder and an index page, as LiQuer's server had. Milestone M7
      environment's configuration document (a `server:` section of `lq.Environment(config=…)`:
      host, port, prefix, which APIs, read-only and `web`, the `ServerConfig` of
      `axum-server-assembly`, parsed from the document when the environment is created
-     (`ServerConfig::from_yaml`; Phase 2)), and `env.serve(**overrides)` starts it with
+     (`PyConfig` of `configuration-document`; Phase 2)), and `env.serve(**overrides)` starts it with
      keyword arguments overriding the section (Decision 1). Defaults: `127.0.0.1:8080`, prefix
      `/liquer`, all four APIs, writes enabled, `background=True` (Decision 2). `lq.serve(…)` serves
      the default environment, as `lq.evaluate` does. It returns an `lq.Server` (`address`, `port`,
@@ -72,7 +72,8 @@ the store's `web` folder and an index page, as LiQuer's server had. Milestone M7
      recorded in `PY-WEB-SERVER-CANNOT-TAKE-PYTHON-HANDLERS`. A custom endpoint is a command under
      `/liquer/q`.
   8. **Proposed resolution: conventions shared by the M7 designs.** Every blocking call has an
-     `_async` form (`await env.serve_async(…)` serves until its task is cancelled;
+     `_async` form (`await env.serve_async(…)` serves until its task is cancelled; a background
+     server from async code is `env.serve()`, which returns once bound;
      `await server.shutdown_async()`); every `env.` entry point has an `lq.` form on the default
      environment; a blocking call on the main thread ends on Ctrl-C after a graceful stop and raises
      `KeyboardInterrupt`; `env.shutdown()` and interpreter exit stop what the environment started,
@@ -112,7 +113,7 @@ the store's `web` folder and an index page, as LiQuer's server had. Milestone M7
 import liquers as lq, urllib.request
 env = lq.Environment()
 
-@env.command
+@env.first_command
 def greet(name: str = "world") -> str:
     return f"Hello, {name}!"
 

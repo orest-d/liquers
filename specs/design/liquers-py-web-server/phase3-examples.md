@@ -21,7 +21,7 @@ configurations are `configuration-document` Phase 3, Examples 1–3.
 import liquers as lq, urllib.request
 env = lq.Environment()
 
-@env.command
+@env.first_command                                    # a source: no input state
 def greet(name: str = "world") -> str:
     return f"Hello, {name}!"
 
@@ -42,8 +42,8 @@ No configuration file; every setting is a keyword, overriding the defaults of
 ```python
 server = env.serve(host="0.0.0.0", port=8000, prefix="/api",
                    apis=["query", "assets"], read_only=True, web=False)
-# GET /api/q/greet-Ann answers; /api/store/… does not exist; POST /api/assets/… is refused;
-# neither / nor /api/web/ exists
+# GET /api/q/greet-Ann answers; /api/api/store/… does not exist; the assets mutation routes
+# under /api/api/assets are left out (404 or 405); neither / nor /api/web/ exists
 ```
 
 ## Example 3: the server from one file
@@ -72,7 +72,8 @@ server = env.serve(port=0)
 # GET {server.url}/liquer/web/ → 200 text/html (by the .html extension), the page above
 ```
 
-A stored page has no media type, so the type comes from the key's extension (Phase 1 question 9).
+A `str` is stored with `data_format: txt` and no declared media type, so the web route takes the
+type from the key's extension before `data_format` (`axum-server-assembly` Phase 2).
 Pages stored over the HTTP API run on the same origin: the security guideline shows the read-only
 `web` mount of Example 3.
 
@@ -82,7 +83,7 @@ Pages stored over the HTTP API run on the same origin: the security guideline sh
 env.serve(port=8080)               # handle dropped: keeps serving (Decision 2)
 env.servers                        # [<liquers.Server http://127.0.0.1:8080 running>]
 
-@env.command                       # registered after serve
+@env.first_command                 # registered after serve
 def report() -> str:
     return "rows: 3"
 # GET /liquer/q/report answers at once (AC-7); env.shutdown() or exit stops the server
@@ -96,13 +97,16 @@ env.serve(port=8080, background=False)   # blocks; Ctrl-C stops it and raises Ke
 
 ```python
 async def main():
-    server = await env.serve_async(port=0)       # returns when bound
+    task = asyncio.create_task(env.serve_async(port=8080))   # serves until cancelled
+    ...
+    task.cancel()                       # the guard of Phase 2 stops the server gracefully
+
+    server = env.serve(port=0)          # a background server from async code: returns when bound
     ...
     await server.shutdown_async()
 ```
 
-`await env.serve_async(…)` inside a task that is cancelled stops the server through the guard of
-Phase 2 (AC-9).
+(AC-9.)
 
 ## Edge and Error Cases
 
@@ -121,19 +125,23 @@ Phase 2 (AC-9).
 
 - Python: `liquers-py/tests/test_WEBSERV_server.py`, with `urllib.request` and `port=0` throughout
   - `test_WEBSERV01_start_on_ephemeral_port_and_reach_readiness` (AC-1)
-  - `test_WEBSERV02_standard_route_uses_configured_environment` (AC-2): body and reuse
+  - `test_WEBSERV02_standard_route_uses_configured_environment` (AC-2): body, and a call counter
+    in the command shows `env.evaluate` reused the asset
   - `test_WEBSERV03_port_in_use_raises`, `test_WEBSERV03_bad_host_raises` (AC-3)
   - `test_WEBSERV04_graceful_shutdown` (AC-4): a command waiting on a `threading.Event`; with
     the event set it completes, without it it is cut off at the timeout; then the port is free
   - `test_WEBSERV05_background_handle_owns_server_lifetime` (AC-5): `with`, `env.shutdown()`,
     dropped handle listed in `env.servers`; `test_WEBSERV05_exit_stops_server` in a subprocess
-  - `test_WEBSERV_foreground_ctrl_c` (AC-6): a subprocess sent `SIGINT` exits with
-    `KeyboardInterrupt` after the server stopped
-  - `test_WEBSERV_late_registration_is_served` (AC-7)
-  - `test_WEBSERV_settings_from_the_configuration` (AC-8): Example 3 with `port: 0`
+  - `test_WEBSERV_foreground_ctrl_c` (AC-6): a subprocess prints a ready line, is then sent
+    `SIGINT`, and exits with `KeyboardInterrupt` after the server stopped; skipped on Windows
+  - `test_WEBSERV_late_registration_is_served` (AC-7); `test_WEBSERV_open_websocket_keeps_its_build`
+    (AC-7): an open WebSocket still reports its subscription after a registration
+  - `test_WEBSERV_settings_from_the_configuration` (AC-8): Example 3 with `port: 0`; with no
+    settings a store write succeeds; `web="site"` serves store key `site/…`
   - `test_WEBSERV_async_forms` (AC-9): `serve_async` cancelled, `shutdown_async`
   - `test_WEBSERV_web_folder_from_a_mount` (AC-10): a `tmp_path` mount at `web`
-  - `test_WEBSERV_index_redirects_to_web` (AC-11): `/` and `/index.html` with redirects followed
+  - `test_WEBSERV_index_redirects_to_web` (AC-11): asserts the 307 and 308 and their `Location`
+    without following them (urllib follows 308 only from Python 3.11), then fetches the page
 - Rust: `liquers-py/src/server.rs` `tests` — `cell_source_rebuilds_once_after_invalidate` (AC-7).
 - Command: `bash scripts/test-liquers-py.sh` (venv, `maturin develop`, pytest, the Rust tests).
 

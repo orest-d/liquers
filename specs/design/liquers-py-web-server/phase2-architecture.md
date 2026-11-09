@@ -67,6 +67,7 @@ pub struct Server { slot: Arc<ServerSlot> }
     #[pyo3(signature = (timeout = 5.0))] fn shutdown_async<'py>(&self, py: Python<'py>, timeout: f64) -> PyResult<Bound<'py, PyAny>>;
     fn __enter__(slf: Py<Self>) -> Py<Self>;
     fn __exit__(&self, py: Python<'_>, _exc: …) -> PyResult<bool>;   // shutdown(), False
+    fn __repr__(&self) -> String;                       // <liquers.Server http://… running>
 }
 
 // on `Environment` (#[pymethods]) — new
@@ -107,7 +108,7 @@ import liquers as lq
 
 env = lq.Environment(config=Path("liquers.yaml"))
 
-@env.command
+@env.first_command
 def greet(name: str = "world") -> str:
     return f"Hello, {name}!"
 
@@ -146,7 +147,7 @@ code, a minimal file with every default described, and specialised configuration
   cancelled.
 - `lib.rs` registers `Server`; `aio::check_blocking_call` guards foreground `serve` and `shutdown`
   on loop-pool threads; `liquers-py/README.md` gains the `WEBSERV` rows.
-- `liquers-py/tests/test_server.py`: AC-1..AC-11 with `urllib` and `port=0`.
+- `liquers-py/tests/test_WEBSERV_server.py`: AC-1..AC-11 with `urllib` and `port=0`.
 
 ## Concurrency
 
@@ -197,6 +198,6 @@ None; no namespace is involved. Python commands are reached through `{prefix}/q/
 | Files likely to change | `server.rs` (new), `environment.rs`, `exit.rs`, `lib.rs`, `_env.py`, `__init__.py`, the stubs, `Cargo.toml` |
 | Crates and workflows affected | `liquers-py`; its CI job and the release workflow (wheel grows by axum and hyper: measured in Phase 4) |
 | Existing tests likely to change | none; `EnvCell::new` call sites gain the server settings. Recovery: revert the PR |
-| New validation | `test_server.py`; free-threaded run (3.14t) of the same file |
+| New validation | `test_WEBSERV_server.py`; free-threaded run (3.14t) of the same file |
 | Compatibility / data / concurrency / performance / security | additive; a server's port is held until shutdown or exit; writes enabled by default (Decision 1), on `127.0.0.1` |
 | Certainty and open questions | high; medium for the exit ordering on CPython < 3.14, covered by the existing exit tests plus one with a running server |

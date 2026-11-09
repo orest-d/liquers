@@ -29,7 +29,7 @@ environment is rebuilt (liquers-py) hands it a source instead of one `EnvRef`.
 
 ```rust
 // server/config.rs — sync (pure data)
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]   // + a hand-written `Default`: the values below
 #[serde(deny_unknown_fields)]
 pub struct ServerConfig {
     #[serde(default = "default_host")] pub host: String,       // 127.0.0.1
@@ -46,7 +46,7 @@ pub enum Api { Query, Store, Assets, Recipes }
 /// `web: site` → root `site`. Serializes back to the same form.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
-pub enum WebSetting { Enabled(bool), Root(String) }           // Default: Enabled(true)
+pub enum WebSetting { Enabled(bool), Root(String) }           // `impl Default`: Enabled(true)
 impl ServerConfig {
     /// Takes the `server` section of core's `ConfigDocument` (design `configuration-document`);
     /// absent → defaults.
@@ -69,6 +69,7 @@ impl<E: Environment> LiquersServerBuilder<E> {
     pub fn without_websocket(self) -> Self;
     pub fn with_query_timeout(self, timeout: Duration) -> Self;
     pub fn with_web(self, web: WebSetting) -> Self;
+    pub fn without_index(self) -> Self;                          // a host with its own `/`
     pub fn with_stop_deadline(self, deadline: Duration) -> Self; // default 5 s, for stop_token()
     pub fn router(&self) -> Router<EnvRef<E>>;                  // hosts that serve it themselves
     pub async fn bind(self, source: impl EnvSource<E>) -> Result<LiquersServer, Error>;
@@ -96,14 +97,17 @@ pub fn index_routes<E: Environment>(prefix: &str) -> Router<EnvRef<E>>;
 pub(crate) fn content_type_for(metadata: &Metadata, key: &Key) -> String;
 ```
 
-`shutdown` takes `&self` and is idempotent. `read_only` keeps today's meaning per API:
-`AssetsApiBuilder::read_only`, and the store API left out. Commands, ExtValue variants: none.
+`shutdown` takes `&self` and is idempotent. The APIs mount at the conventional bases under the
+prefix (`WEB_API_SPECIFICATION.md`): `{prefix}/q`, `{prefix}/api/store`, `{prefix}/api/assets`,
+`{prefix}/api/recipes`, and `{prefix}/web`. `read_only` keeps today's meaning per API:
+`AssetsApiBuilder::read_only` leaves the mutation routes out (a request gets 404 or 405), and the
+store API is left out. Commands, ExtValue variants: none.
 
 ## Integration Points
 
 - New `liquers-axum/src/server/{mod,config,source,builder,running}.rs`, `src/web/mod.rs`; `lib.rs`
   re-exports them. `Cargo.toml`: `hyper-util` (`server-auto`, `server-graceful`, `tokio`), `hyper`,
-  `tokio-util` (`rt`); all in the lock file.
+  `tokio-util` (`rt`), `arc-swap`; all in the lock file.
 - `assets/websocket.rs`: the writer channel (line 797) carries `enum Outgoing { Notify(…),
   Close(CloseFrame) }`. `handle_socket` (line 788) reads `Option<Extension<ServerStop>>` (token and
   tracker), holds `tracker.token()` for its life, and on cancel sends `Close(1001)`, drops the
@@ -156,8 +160,11 @@ Or with no file: `LiquersServerBuilder::new("/api").read_only().without_api(Api:
 
 `web_file` parses `<root>/{path}` (invalid → 404), checks `store.is_dir`, then `store.get(key)` for
 bytes and metadata, as `get_data_handler` does. Errors map with `error_to_status_code`
-(`KeyNotFound`, `KeyNotSupported` → 404). Content type: the metadata's unless empty or
-`application/octet-stream`, else `file_extension_to_media_type`; `nosniff`. `ETag` is
+(`KeyNotFound`, `KeyNotSupported` → 404). Content type: the metadata's `declared_media_type()`
+if set, else the key's extension (`file_extension_to_media_type`, unless that gives
+`application/octet-stream`), else `get_media_type()` (from `data_format`); `nosniff`. The extension
+comes before `data_format` because text stored from a binding records `txt`, which would serve a
+stored `index.html` as `text/plain`. `ETag` is
 `Version::from_content`; `If-None-Match` matches a list, `*` and `W/` tags → 304. `Last-Modified`
 when `store.data_facts` reports `modified` (an RFC 3339 `BackendTime`, reformatted as an HTTP date
 with chrono); an `Err` from `data_facts` counts as none. `Cache-Control: no-cache` (new in Phase 2).
@@ -209,6 +216,6 @@ security guideline (`SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED`).
 | Files likely to change | the new modules, `assets/websocket.rs`, `axum_integration.rs`, `lib.rs`, `Cargo.toml`, the example |
 | Crates and workflows affected | `liquers-axum`; its CI job (its tests need `libssl-dev`, unchanged) |
 | Existing tests likely to change | none: WebSocket tests run without a server. Recovery: revert the PR |
-| New validation | `tests/server.rs` (AC-1–3, AC-5–9): ephemeral port, reqwest, tokio-tungstenite |
+| New validation | `tests/server_web.rs`, `server_assembly.rs`, `server_shutdown.rs` (AC-1–3, AC-5–9): ephemeral port, reqwest, tokio-tungstenite |
 | Compatibility / data / concurrency / performance / security | additive; one `ArcSwap` load per request; files are buffered whole (streaming is a non-goal); stored XSS documented |
 | Certainty and open questions | high for routes; medium for the Close frame under `TaskTracker`, which AC-9's test checks first |

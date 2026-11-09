@@ -5,7 +5,7 @@ title: "Each host parses its configuration document on its own and ignores secti
 status: draft
 design: configuration-document
 priority: P3
-complexity: M
+complexity: L
 area: [core/context, mcp, web, py]
 created: 2026-11-07
 ---
