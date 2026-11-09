@@ -3,7 +3,7 @@ title: User Documentation Editing Guide
 kind: guide
 audience: internal
 area: [docs]
-reviewed: 2026-11-02
+reviewed: 2026-11-09
 ---
 # User Documentation Editing Guide
 
@@ -19,7 +19,8 @@ is built and deployed: [`GITHUB_ACTIONS_GUIDE.md`](GITHUB_ACTIONS_GUIDE.md).
 
 ```
 docs/
-  index.md                    the site's home page
+  site/                       the landing page (index.html, logo, favicon), the site's root
+  index.md                    the home page, published as overview.html
   guides/index.md             how the three guides relate
   guides/_shared/*.md         language-neutral fragments, included by all three guides
   guides/{rust,python,web}/
@@ -189,5 +190,6 @@ artifact of its `docs-site` run.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-09 | §1: `docs/site/`, the landing page (maintained under [`PROJECT_SITE_GUIDE.md`](PROJECT_SITE_GUIDE.md)); the home page is published as `overview.html`. | PR #266 |
 | 2026-11-02 | §8: the API references the build adds, their tools, and the home page's link per crate. | `design/user-documentation-guides` (phase-4 addendum) |
 | 2026-11-01 | Created: layout, chapter format, style, markers, includes, tool-neutral rule, maintenance, building. | `design/user-documentation-guides` (phase-5) |

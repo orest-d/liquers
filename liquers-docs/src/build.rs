@@ -5,7 +5,8 @@
 //! - `<guide>/book.toml`, `<guide>/theme/liquers.css` and `<guide>/src/` (with `SUMMARY.md`): an
 //!   mdBook book per guide;
 //! - `<guide>.md`: the guide as one Pandoc document with a title block, for EPUB and PDF;
-//! - `home/`: the home book, from `docs/index.md` and `docs/guides/index.md`;
+//! - `home/`: the home book, from `docs/index.md` (as `overview.md`, so the page is `overview.html`
+//!   and the site's `index.html` can be the landing page, `docs/site/`) and `docs/guides/index.md`;
 //! - `guides.tsv`: one line per guide, `name<TAB>slug<TAB>title`, for the build script.
 
 use std::collections::BTreeSet;
@@ -370,7 +371,7 @@ pub async fn process(
 
     let mut home = Vec::new();
     for (source, target) in [
-        ("docs/index.md", "index.md"),
+        ("docs/index.md", "overview.md"),
         ("docs/guides/index.md", "guides/index.md"),
     ] {
         let path = repo_root.join(source);
@@ -576,10 +577,10 @@ pub fn write_tree(tree: &BuildTree, out: &Path) -> Result<(), Error> {
         &book_toml("Liquers", &format!("{SITE_PATH}/"), true),
     )?;
     write(&home.join("theme/liquers.css"), &theme)?;
-    let mut summary = String::from("# Summary\n\n[Liquers](index.md)\n");
+    let mut summary = String::from("# Summary\n\n[Liquers](overview.md)\n");
     for (file, text) in &tree.home {
         write(&home.join("src").join(file), text)?;
-        if file != "index.md" {
+        if file != "overview.md" {
             summary.push_str(&format!("[User guides]({file})\n"));
         }
     }

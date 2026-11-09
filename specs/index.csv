@@ -157,6 +157,7 @@ DOCS-DEAD-LINKS-OUTSIDE-README,issue,Relative links outside README are never val
 DOCS-INDEX-EMITS-MACHINE-LOCAL-PATHS,issue,The generated index.md emits design phase links in filesystem order,closed,local,,ready,eligible,P2,S,docs;build,,,,docs-index-phase-link-targets,,2026-09-04,specs/issues/DOCS-INDEX-EMITS-MACHINE-LOCAL-PATHS.md
 DOCS-INDEX-GENERATION-DIFFERS-BY-HOST,issue,Documentation index generation differs by host filesystem ordering,closed,local,,,,P2,S,docs;build,,,,,,2026-09-04,specs/issues/DOCS-INDEX-GENERATION-DIFFERS-BY-HOST.md
 DOCS-LINK-CHECK-READS-CODE-SPANS,issue,The docs dead-link check treats link syntax inside code spans and code blocks as links,closed,local,,ready,,P3,S,docs;build,,,,docs-link-check-code-spans,,2026-10-04,specs/issues/DOCS-LINK-CHECK-READS-CODE-SPANS.md
+DOCS-SITE-HAS-NO-PER-RELEASE-VERSIONS,feature,"The documentation site publishes only the latest main, with no documentation per release",draft,local,,,,P3,M,docs;build,,,,,,2026-11-09,specs/issues/DOCS-SITE-HAS-NO-PER-RELEASE-VERSIONS.md
 DOCS-STORE-CONFIG-DESCRIBES-ASYNC-FILESTORE-AS-FUTURE-WORK,issue,Store configuration reference describes AsyncFileStore as future work,closed,local,,,,P2,S,docs;core/store,,,,documentation-currentness-small-fixes,,2026-09-04,specs/issues/DOCS-STORE-CONFIG-DESCRIBES-ASYNC-FILESTORE-AS-FUTURE-WORK.md
 DOCS-TOOLING-TESTS-NOT-RUN-IN-CI,issue,The unit tests of the documentation tooling are not run by CI,closed,local,,ready,eligible,P3,S,docs;build,,,,docs-tooling-tests-in-ci,,2026-10-20,specs/issues/DOCS-TOOLING-TESTS-NOT-RUN-IN-CI.md
 DRAFT-MARKERS-LOOK-ALIKE,issue,Draft builds show every editorial marker the same way,draft,local,,,,P3,S,docs,,,,,,2026-11-01,specs/issues/DRAFT-MARKERS-LOOK-ALIKE.md
@@ -1040,10 +1041,11 @@ COMMAND_DESIGN_GUIDE,guide,Command Design Guide,current,local,,,,,,core/commands
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,core/commands;macro,,,,,2026-11-04,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 DEPENDENCY_CONSISTENCY_GUIDE,guide,Dependency Consistency Guide,current,local,,,,,,core/assets,,,,,2026-10-08,,specs/guides/DEPENDENCY_CONSISTENCY_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,,core/context;core/assets;core/store,,,,,2026-11-01,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
-GITHUB_ACTIONS_GUIDE,guide,GitHub Actions Guide,current,local,,,,,,build;docs,,,,,2026-11-03,,specs/guides/GITHUB_ACTIONS_GUIDE.md
+GITHUB_ACTIONS_GUIDE,guide,GitHub Actions Guide,current,local,,,,,,build;docs,,,,,2026-11-09,,specs/guides/GITHUB_ACTIONS_GUIDE.md
 JAVASCRIPT_GUIDE,guide,Using Liquers from JavaScript in the browser,current,local,,,,,,web,,,,,2026-11-04,,specs/guides/JAVASCRIPT_GUIDE.md
 LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store;core/value;lib/commands,,,,,2026-11-04,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 PIPELINE_GUIDE,guide,Pipeline Guide,current,local,,,,,,core/commands;core/plan;core/query;core/validate,,,,,2026-11-04,,specs/guides/PIPELINE_GUIDE.md
+PROJECT_SITE_GUIDE,guide,Project Site Guide,current,local,,,,,,docs;build,,,,,2026-11-09,,specs/guides/PROJECT_SITE_GUIDE.md
 PYTHON_GUIDE,guide,Using Liquers from Python,current,local,,,,,,py,,,,,2026-11-05,,specs/guides/PYTHON_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,,core/query,,,,,2026-11-04,,specs/guides/QUERY_ESCAPING_GUIDE.md
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,,records;lib/value,,,,,2026-10-30,,specs/guides/RECORD_STREAM_GUIDE.md
@@ -1055,7 +1057,7 @@ STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,,c
 TEMPLATE_GUIDE,guide,Template Guide,current,local,,,,,,core/query;lib/commands,,,,,2026-11-04,,specs/guides/TEMPLATE_GUIDE.md
 TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,,core/value;lib/value,,,,,2026-11-04,,specs/guides/TYPE_SYSTEM_GUIDE.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,,build;core/assets,,,,,2026-10-20,,specs/guides/UNITTEST_GUIDE.md
-USER_DOCS_EDITING_GUIDE,guide,User Documentation Editing Guide,current,local,,,,,,docs,,,,,2026-11-02,,specs/guides/USER_DOCS_EDITING_GUIDE.md
+USER_DOCS_EDITING_GUIDE,guide,User Documentation Editing Guide,current,local,,,,,,docs,,,,,2026-11-09,,specs/guides/USER_DOCS_EDITING_GUIDE.md
 WEB_API_GUIDE,guide,Web API Guide,current,local,,,,,,axum;web,,,,,2026-10-16,,specs/guides/WEB_API_GUIDE.md
 python/01-introduction,chapter,Introduction,outline,local,,,,,,docs,,,,,,,docs/guides/python/01-introduction.md
 python/02-installing,chapter,Installing and setting up,outline,local,,,,,,docs,,,,,,,docs/guides/python/02-installing.md
