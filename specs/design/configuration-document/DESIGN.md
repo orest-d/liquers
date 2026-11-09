@@ -4,7 +4,7 @@ kind: design
 title: "One configuration document for every aspect of a host: environment, commands, server, language settings"
 workflow: liquers-project
 status: in_review
-phase: implementation
+phase: documentation
 readiness: ready
 autofix: not-eligible
 area: [core/context, axum, py]
@@ -28,6 +28,8 @@ written the same day.
 Pre-implementation stop (2026-11-09): the only open item of the three designs' decision logs,
 `configuration-document` Decision 2 (the keyword rule), was answered the same day ("Keyword wins
 everywhere"); implementation proceeds. Phase 4 reviewed twice (consistency; codebase and soundness); findings applied.
+
+Implemented 2026-11-09 on PR #264 (group A: core and liquers-axum; group B: liquers-py) and validated; Phase 5 written the same day. Results go to Orest before `status: complete`.
 
 ## Phases
 

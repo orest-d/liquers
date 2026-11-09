@@ -3,7 +3,7 @@ title: Liquers Web API Specification
 kind: reference
 audience: internal
 area: [axum, web]
-reviewed: 2026-10-27
+reviewed: 2026-11-09
 ---
 # Liquers Web API Specification
 
@@ -605,9 +605,86 @@ manager holds the query.
 
 ## 8. Assembling a server
 
-There is no single "full" builder: merge the routers you want and give the result the
-environment as state. The routers are generic over any `E: Environment`; `EnvRef<E>` is
-`liquers_core::context::EnvRef`, re-exported by `liquers-axum`.
+### 8.1 Server assembly
+
+`liquers_axum::server` assembles the four APIs, the web folder (§8.3) and the index page (§8.4)
+under one prefix and runs them in its own accept loop. It is the server `liquers-py`'s
+`env.serve()` starts, and the one a Rust program starts from the `server` section of a
+configuration document ([ENVIRONMENT_CONFIG.md](ENVIRONMENT_CONFIG.md) §The configuration
+document). Design: `specs/design/axum-server-assembly/`.
+
+`ServerConfig` is that section. Every key is optional and an unknown key is a `ConfigurationError`:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `host` | `127.0.0.1` | the address to listen on; `0.0.0.0` is reachable from the network (§9) |
+| `port` | `8080` | `0` picks a free port, which `LiquersServer::local_addr` reports |
+| `prefix` | `/liquer` | the path every route is under; a trailing `/` is ignored, `/` is the root; it must start with `/` |
+| `apis` | `[query, store, assets, recipes]` | the APIs mounted: `{prefix}/q`, `{prefix}/api/store`, `{prefix}/api/assets`, `{prefix}/api/recipes` |
+| `read_only` | `false` | leaves out the store API and the assets mutation routes (the Assets API's `read_only()`, §5.6) (§9) |
+| `web` | `true` | `true`: serve store folder `web` at `{prefix}/web/`; `false`: no web folder and no index redirect; a string: serve that store folder (§9) |
+
+```rust
+use liquers_axum::{LiquersServerBuilder, ServerConfig};
+use liquers_core::environment_config::ConfigDocument;
+
+let mut doc = ConfigDocument::load(std::path::Path::new("liquers.yaml"))?;
+let config = ServerConfig::from_document(&mut doc)?;   // absent section: the defaults
+doc.finish()?;                                         // an unknown section fails here
+let server = LiquersServerBuilder::from_config(config).bind(envref).await?;
+eprintln!("listening on http://{}", server.local_addr());
+server.stopped().await;                                // or server.shutdown(deadline).await
+```
+
+`LiquersServerBuilder::new(prefix)` starts from the defaults instead; its switches are
+`read_only`, `without_api`, `without_websocket`, `with_query_timeout`, `with_web`,
+`without_index` and `with_stop_deadline`. `router()` returns the composed
+`Router<EnvRef<E>>` for a host that runs its own loop; `bind(source)` listens and returns a
+`LiquersServer`.
+
+`bind` takes an `EnvSource`: the environment each request is answered with. A fixed `EnvRef<E>` is
+one. A host whose environment is rebuilt (`liquers-py` after a late registration) implements
+`current()` to hand out its current build; the server keeps the router stated with the last
+`EnvRef` it saw and states a new one when the build changes. A request already running keeps the
+build it started with, and a WebSocket keeps its build for its whole session. When `current()`
+fails the request is answered 503 with the §3.2 body.
+
+### 8.2 Stopping
+
+`LiquersServer::shutdown(deadline)` stops in two stages. The listener is closed at once, so new
+connections are refused; requests in flight, and WebSocket sessions, get up to `deadline` to finish
+and are then cut off. Each WebSocket receives `Close(1001, "server shutting down")` first. When
+`shutdown` returns, the port is free. A second call does nothing, `is_running()` turns false, and
+`stopped()` resolves for every waiter. Dropping a `LiquersServer` does not stop it; `stop_token()`
+returns a token that stops it when cancelled. Handlers reach the stop through the request extension
+`ServerStop` (token and task tracker).
+
+### 8.3 Web folder
+
+`GET {prefix}/web/{path}` answers with the bytes stored at `<root>/{path}`, root `web` unless
+`web:` names another store folder. It reads stored data only: a key with no stored data is 404 even
+when a recipe could make it (`WEB-FOLDER-SERVES-STORED-FILES-ONLY`), and the route never evaluates.
+
+- `{prefix}/web` is a 308 to `{prefix}/web/`. A path ending in `/` serves that folder's
+  `index.html`; a folder named without the slash is a 308 to the slash form.
+- `Content-Type` is the metadata's declared media type, else the one the key's extension implies,
+  else the stored data format's.
+- Every answer carries `X-Content-Type-Options: nosniff` and `Cache-Control: no-cache`, an `ETag`
+  (the content hash) and, when the store reports one, `Last-Modified`. `If-None-Match` (`*`, a list,
+  weak tags) matching the `ETag` is answered 304.
+- A key that is not a store key, or has no data, is 404 with the §3.2 body.
+
+### 8.4 Index page
+
+`GET /` and `GET /index.html` are a 307 to `{prefix}/web/`, so a browser opening the server's
+address lands in the web folder. They are mounted only while `web` is on, and not with
+`without_index()`. The target is fixed (`INDEX-PAGE-IS-A-FIXED-REDIRECT`).
+
+### 8.5 Composing routers by hand
+
+The builders of §1 can also be merged directly, with the environment as state. The routers are
+generic over any `E: Environment`; `EnvRef<E>` is `liquers_core::context::EnvRef`, re-exported by
+`liquers-axum`. `liquers_axum::web::{web_routes, index_routes}` add §8.3 and §8.4 to such a router.
 
 ```rust
 use liquers_axum::{AssetsApiBuilder, QueryApiBuilder, RecipesApiBuilder, StoreApiBuilder};
@@ -625,12 +702,13 @@ let app = axum::Router::new()
     .merge(RecipesApiBuilder::new("/liquer/api/recipes").build())
     .with_state(envref);
 
-let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
+let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;
 axum::serve(listener, app).await?;
 ```
 
-Middleware (tracing, CORS, authentication) is added with axum's own `.layer(…)`. Runnable
-servers: `liquers-axum/examples/basic_server.rs`, `assets_recipes_basic.rs`, `websocket_client.rs`.
+Such a server has no two-stage stop and no WebSocket Close on shutdown. Middleware (tracing, CORS,
+authentication) is added with axum's own `.layer(…)`. Runnable servers:
+`liquers-axum/examples/basic_server.rs` (§8.1), `assets_recipes_basic.rs`, `websocket_client.rs`.
 
 ---
 
@@ -638,6 +716,26 @@ servers: `liquers-axum/examples/basic_server.rs`, `assets_recipes_basic.rs`, `we
 
 There is none in `liquers-axum`: no session, user or permission reaches the handlers, and every
 route acts with the environment's full rights. The design is `CORE-SESSION-AND-KEY-ACL`.
+
+Three `server` settings decide who can reach a server assembled by §8.1 and what they can do:
+
+- `host`: the default `127.0.0.1` answers only this machine, but every local program, and a web
+  page through DNS rebinding (the server checks no `Host` or `Origin`), can still reach it.
+  `0.0.0.0` (or a public address) exposes every mounted API, with the environment's full rights,
+  to the network.
+- `read_only`: off by default, so the store API and the assets mutation routes are mounted and any
+  client that reaches the server can write and delete stored data. `read_only: true` leaves them out.
+- `web`: on by default. Pages under the web folder run in the browser with the server's origin, so
+  anyone who can write the store can store a page that calls every API on a visitor's behalf
+  (stored cross-site scripting). Serve pages from a read-only mount (below), or turn `web` off.
+
+A web folder that cannot be written through the server is a read-only mount:
+
+```yaml
+store:
+  stores:
+    - {type: filesystem, prefix: web, read_only: true, config: {path: ./site}}   # serves ./site/web/
+```
 
 Until it exists, the Assets API's `read_only()` and `with_admin(false)` (§5.6) and the Store API's
 default without `with_destructive_gets()` limit what a deployment exposes, and an embedding
@@ -702,12 +800,15 @@ Not available at HEAD; listed so that no reader mistakes them for features:
   (`AXUM-WEBSOCKET-HARDENING`);
 - manager-wide or scope subscriptions (`ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET`);
 - streaming of large values (`VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`);
-- batch operations, server-sent events, an OpenAPI document, built-in CORS or rate limiting.
+- batch operations, server-sent events, an OpenAPI document, built-in CORS or rate limiting;
+- a web folder answered by recipes, or a configurable index page (`WEB-FOLDER-SERVES-STORED-FILES-ONLY`,
+  `INDEX-PAGE-IS-A-FIXED-REDIRECT`).
 
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-09 | §8 rewritten: §8.1 server assembly (`ServerConfig`, the `server` section and its defaults, `LiquersServerBuilder`, `EnvSource`, 503 when the source fails), §8.2 the two-stage stop with the WebSocket Close, §8.3 the web folder, §8.4 the index redirect, §8.5 composing routers by hand; §9 the security-sensitive settings `host`, `read_only`, `web` and the read-only web mount. | `design/axum-server-assembly/` |
 | 2026-10-27 | §9: a mount is protected by the store configuration's `read_only` (or `ReadOnlyStore`), with writes answered 501 `NotSupported`, and when reads may still write (a store without data-only access, a pipeline assembled in code without its own `read_only`); the stale reference to the closed `STORE-NO-READ-ONLY-ADAPTER` is removed. | `design/web-api-spec-read-only-mount/` |
 | 2026-10-27 | Recipes API `resolve`: the returned plan is the server build's inspection format, not a stable schema. | `design/plan-serialization-internal-contract/` |
 | 2026-10-25 | §Errors: `AssetNotFound` and `AssetNotSupported` map to 404; key endpoints refusing an unmakeable key answer `AssetNotFound`. | `design/key-without-recipe-answer/` |

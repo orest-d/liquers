@@ -2,7 +2,7 @@
 id: AXUM-HAS-NO-SERVER-WITH-GRACEFUL-SHUTDOWN
 kind: feature
 title: liquers-axum has no server assembly that can shut down gracefully
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [axum]
@@ -34,3 +34,12 @@ WebSocket tasks finish, then abort what is left at a deadline. The example uses 
 ## Discovery
 
 `liquers-py-web-server` Phase 1 review, 2026-11-06.
+
+## Resolution
+
+Closed 2026-11-09 by `axum-server-assembly` (PR #264). `LiquersServerBuilder` binds a
+`LiquersServer` whose `shutdown(deadline)` stops accepting at once, lets requests and WebSockets
+finish up to the deadline, sends each WebSocket `Close(1001)`, aborts the rest, and frees the port
+before it returns; it is idempotent, and `stopped()` / `stop_token()` let other code wait or stop.
+Evidence: `liquers-axum/tests/server_shutdown.rs`, `server_assembly.rs`. Reference:
+`WEB_API_SPECIFICATION.md` §8.1, §8.2.

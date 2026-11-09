@@ -37,9 +37,9 @@ AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED,issue,Six documented assets API endpoi
 AXUM-ASSETS-API-SERVES-ONLY-BYTES-AND-TEXT,issue,"The assets data and entry endpoints serialize with try_into_bytes, so they serve only bytes and text values",closed,local,,,,P2,S,axum,,,,axum-assets-endpoints,,2026-09-24,specs/issues/AXUM-ASSETS-API-SERVES-ONLY-BYTES-AND-TEXT.md
 AXUM-ASSETS-CANCEL-STARTS-EVALUATION,issue,POST /api/assets/cancel starts an evaluation before cancelling it,closed,local,,,,P3,S,axum,,,,axum-assets-endpoints,,2026-09-27,specs/issues/AXUM-ASSETS-CANCEL-STARTS-EVALUATION.md
 AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS,issue,AssetsApiBuilder::build panics whenever the WebSocket route is enabled,closed,local,,,,P1,S,axum,,,,axum-assets-endpoints,,2026-09-27,specs/issues/AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS.md
-AXUM-CANNOT-SERVE-STATIC-WEB-CONTENT,feature,The Liquers HTTP server cannot serve a web application from the store or answer at /index.html,draft,local,,ready,not-eligible,P2,L,axum,,,,axum-server-assembly,,2026-11-06,specs/issues/AXUM-CANNOT-SERVE-STATIC-WEB-CONTENT.md
+AXUM-CANNOT-SERVE-STATIC-WEB-CONTENT,feature,The Liquers HTTP server cannot serve a web application from the store or answer at /index.html,closed,local,,ready,not-eligible,P2,L,axum,,,,axum-server-assembly,,2026-11-06,specs/issues/AXUM-CANNOT-SERVE-STATIC-WEB-CONTENT.md
 AXUM-HANDLER-TEST-COVERAGE,issue,"liquers-axum has no handler test scaffolding, so handler behaviour is verified only by review",closed,local,,,,P2,M,axum,,,,axum-assets-endpoints,,2026-08-08,specs/issues/AXUM-HANDLER-TEST-COVERAGE.md
-AXUM-HAS-NO-SERVER-WITH-GRACEFUL-SHUTDOWN,feature,liquers-axum has no server assembly that can shut down gracefully,draft,local,,ready,not-eligible,P2,M,axum,,,,axum-server-assembly,,2026-11-06,specs/issues/AXUM-HAS-NO-SERVER-WITH-GRACEFUL-SHUTDOWN.md
+AXUM-HAS-NO-SERVER-WITH-GRACEFUL-SHUTDOWN,feature,liquers-axum has no server assembly that can shut down gracefully,closed,local,,ready,not-eligible,P2,M,axum,,,,axum-server-assembly,,2026-11-06,specs/issues/AXUM-HAS-NO-SERVER-WITH-GRACEFUL-SHUTDOWN.md
 AXUM-QUERY-API-QUERY-KEEPS-LEADING-SLASH,issue,The Query API mounted without a trailing slash evaluates the query with a leading slash,closed,local,,ready,eligible,P3,S,axum,,,,axum-query-api-base-slash,,2026-10-12,specs/issues/AXUM-QUERY-API-QUERY-KEEPS-LEADING-SLASH.md
 AXUM-QUERY-TIMEOUT-HARDCODED,issue,The query handler's 30-second timeout is hardcoded,closed,local,,,,P2,S,axum,,,,axum-assets-endpoints,,2026-09-16,specs/issues/AXUM-QUERY-TIMEOUT-HARDCODED.md
 AXUM-RECIPES-METADATA-AND-ENTRY-ARE-PLACEHOLDERS,issue,The Recipes API's metadata and entry endpoints return placeholder metadata and ignore the format,closed,local,,ready,eligible,P3,S,axum,,,,axum-recipes-metadata-entry,,2026-09-28,specs/issues/AXUM-RECIPES-METADATA-AND-ENTRY-ARE-PLACEHOLDERS.md
@@ -308,7 +308,7 @@ PY-ADD-PYTHON-COMMAND-STILL-DECLARES-PYCALL-ALIASES,issue,CommandMetadataRegistr
 PY-API-REFERENCE-NOT-GENERATED,feature,The Python package has no generated API reference,closed,local,,ready,not-eligible,P2,S,py;docs,,,,py-api-reference,,2026-10-19,specs/issues/PY-API-REFERENCE-NOT-GENERATED.md
 PY-ASYNC-EVALUATION-NOT-SUPPORTED,feature,liquers-py has no awaitable evaluation and cannot register async def commands,closed,local,,ready,not-eligible,P3,L,py,,,,liquers-py-async,,2026-10-20,specs/issues/PY-ASYNC-EVALUATION-NOT-SUPPORTED.md
 PY-CANNOT-OPEN-A-LIQUERS-UI-WINDOW,feature,Python cannot open the Liquers desktop UI in a window,draft,local,,needs-decision,not-eligible,P3,L,py;lib/egui;build,,,,liquers-py-ui-window,,2026-11-06,specs/issues/PY-CANNOT-OPEN-A-LIQUERS-UI-WINDOW.md
-PY-CANNOT-START-A-WEB-SERVER,feature,Python cannot serve its environment over the Liquers HTTP API,draft,local,,ready,not-eligible,P2,L,py;axum,,,,liquers-py-web-server,,2026-11-06,specs/issues/PY-CANNOT-START-A-WEB-SERVER.md
+PY-CANNOT-START-A-WEB-SERVER,feature,Python cannot serve its environment over the Liquers HTTP API,closed,local,,ready,not-eligible,P2,L,py;axum,,,,liquers-py-web-server,,2026-11-06,specs/issues/PY-CANNOT-START-A-WEB-SERVER.md
 PY-CANNOT-USE-A-LIQUERS-UI,feature,"Python cannot hold, drive or observe a Liquers UI model on its environment",draft,local,,needs-decision,not-eligible,P3,L,py;lib/ui,,,,liquers-py-ui,,2026-11-06,specs/issues/PY-CANNOT-USE-A-LIQUERS-UI.md
 PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA,feature,Python command decorators cannot declare per-argument metadata,draft,local,,needs-decision,not-eligible,P3,S,py,,,,py-command-decorator-declaration-keywords,,2026-10-18,specs/issues/PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA.md
 PY-COMMAND-DECORATOR-CANNOT-SET-REALM,feature,Python command decorators cannot place a command in a realm,draft,local,,needs-decision,not-eligible,P3,S,py,,,,py-command-decorator-declaration-keywords,,2026-10-18,specs/issues/PY-COMMAND-DECORATOR-CANNOT-SET-REALM.md
@@ -603,7 +603,7 @@ AXUM-ASSETS-RECIPES-API,design,Assets and recipes HTTP API,complete,local,,,,,,a
 AXUM-QUERY-API-BASE-SLASH,design,The Query API route separates its base from the query with a slash,complete,local,,ready,eligible,P3,S,axum,,147,,axum-query-api-base-slash,,2026-10-17,specs/design/axum-query-api-base-slash/DESIGN.md
 AXUM-QUERY-NAMED-ARGUMENTS,design,Argument overrides over HTTP and WebSocket,complete,local,,ready,not-eligible,P2,L,axum;core/assets;core/plan,,,,axum-query-named-arguments,,2026-10-11,specs/design/axum-query-named-arguments/DESIGN.md
 AXUM-RECIPES-METADATA-ENTRY,design,Recipes API metadata and entry return real recipe metadata and negotiate format,complete,local,,ready,eligible,P3,S,axum,,,,axum-recipes-metadata-entry,,2026-10-06,specs/design/axum-recipes-metadata-entry/DESIGN.md
-AXUM-SERVER-ASSEMBLY,design,"A liquers-axum server: standard APIs, a web folder from the store, an index page and graceful shutdown",in_review,local,implementation,ready,not-eligible,P2,L,axum,,,,axum-server-assembly,,2026-11-06,specs/design/axum-server-assembly/DESIGN.md
+AXUM-SERVER-ASSEMBLY,design,"A liquers-axum server: standard APIs, a web folder from the store, an index page and graceful shutdown",in_review,local,documentation,ready,not-eligible,P2,L,axum,,,,axum-server-assembly,,2026-11-06,specs/design/axum-server-assembly/DESIGN.md
 AXUM-STORE-KEYS-DEEP,design,Store API keys route enumerates every key under the prefix,complete,local,,ready,eligible,P3,S,axum,,109,,axum-store-keys-deep,,2026-10-06,specs/design/axum-store-keys-deep/DESIGN.md
 AXUM-STORE-MAKEDIR-TEST-UNIGNORE,design,Run the axum store makedir test that is ignored for a fixed limitation,complete,local,,ready,eligible,P3,S,axum;core/store,,105,,axum-store-makedir-test-unignore,,2026-10-10,specs/design/axum-store-makedir-test-unignore/DESIGN.md
 AXUM-STORE-UPLOAD-METADATA,design,Store API keeps upload media types and serves legacy metadata as stored,complete,local,,ready,eligible,P3,S,axum,,108,,axum-store-upload-metadata,,2026-10-06,specs/design/axum-store-upload-metadata/DESIGN.md
@@ -636,7 +636,7 @@ COMMAND-SPECIALIZATION-BY-INPUT-TYPE,design,A generic command dispatches to the 
 COMPOSITE-COMMAND-DEFINITION,design,"Pipelines - pipeline commands, recipe pipelines and the pipeline as query builder and editor",complete,local,,ready,not-eligible,P2,XL,core/commands;core/plan;core/assets;core/query;core/validate;web,237,,,composite-command-definition,,2026-11-01,specs/design/composite-command-definition/DESIGN.md
 COMPOSITE-VARIADIC-ARGUMENTS,design,Variadic arguments with tuple elements,in_review,local,implementation,needs-decision,not-eligible,P3,L,core/commands;macro;core/plan,,,,composite-variadic-arguments,,2026-10-20,specs/design/composite-variadic-arguments/DESIGN.md
 COMPUTED-ENUM-ALTERNATIVES,design,Enum alternatives computed at run time by a registered provider,in_review,local,implementation,needs-decision,not-eligible,P3,L,core/commands;core/plan,,,,computed-enum-alternatives,,2026-10-26,specs/design/computed-enum-alternatives/DESIGN.md
-CONFIGURATION-DOCUMENT,design,"One configuration document for every aspect of a host: environment, commands, server, language settings",in_review,local,implementation,ready,not-eligible,P3,L,core/context;axum;py,,,,configuration-document,,2026-11-07,specs/design/configuration-document/DESIGN.md
+CONFIGURATION-DOCUMENT,design,"One configuration document for every aspect of a host: environment, commands, server, language settings",in_review,local,documentation,ready,not-eligible,P3,L,core/context;axum;py,,,,configuration-document,,2026-11-07,specs/design/configuration-document/DESIGN.md
 CONFIGURATION-ERROR-KIND,design,Classify semantic configuration failures,complete,local,,ready,not-eligible,P3,S,core/error;store/config,,117,,configuration-error-kind,,2026-08-31,specs/design/configuration-error-kind/DESIGN.md
 CONSOLE-MOUNTS-NESTED-ELEMENT,design,A query console mounts a UIElement result as its child node,in_review,local,implementation,needs-decision,not-eligible,P3,M,lib/ui,,,,console-mounts-nested-element,,2026-10-21,specs/design/console-mounts-nested-element/DESIGN.md
 CONTEXT-PARAM-ORDER,design,Context parameter at any position in register_command!,complete,local,,,,,,core/commands;macro,,99,,context-param-order,,2026-10-10,specs/design/context-param-order/DESIGN.md
@@ -756,7 +756,7 @@ LIQUERS-PY-STORE,design,"Stores written in Python, and configured store routers 
 LIQUERS-PY-STUBS,design,"Type declarations for the liquers Python package, checked against the runtime",complete,local,,ready,not-eligible,P2,L,py,,,,liquers-py-stubs,,2026-11-01,specs/design/liquers-py-stubs/DESIGN.md
 LIQUERS-PY-UI-WINDOW,design,Liquers UI window from liquers-py: open the egui desktop UI over a Python environment,in_review,local,high-level,needs-decision,not-eligible,P3,L,py;lib/egui;build,,,,liquers-py-ui-window,,2026-11-06,specs/design/liquers-py-ui-window/DESIGN.md
 LIQUERS-PY-UI,design,"Liquers UI model in liquers-py: show, drive and observe UI elements",in_review,local,high-level,needs-decision,not-eligible,P3,L,py;lib/ui,,,,liquers-py-ui,,2026-11-06,specs/design/liquers-py-ui/DESIGN.md
-LIQUERS-PY-WEB-SERVER,design,Web server in liquers-py: serve an environment over the Liquers HTTP API,in_review,local,implementation,ready,not-eligible,P2,L,py;axum;core/context,,,,liquers-py-web-server,,2026-11-06,specs/design/liquers-py-web-server/DESIGN.md
+LIQUERS-PY-WEB-SERVER,design,Web server in liquers-py: serve an environment over the Liquers HTTP API,in_review,local,documentation,ready,not-eligible,P2,L,py;axum;core/context,,,,liquers-py-web-server,,2026-11-06,specs/design/liquers-py-web-server/DESIGN.md
 LIQUERS-PY,design,Python integration of Liquers (liquers-py),complete,local,,ready,not-eligible,P2,M,py,,150;163,,liquers-py,,2026-10-17,specs/design/liquers-py/DESIGN.md
 LIQUERS-WEB-RECORDS-BRIDGE,design,"Complete the liquers-web records bridge — sources, streaming and the way back",complete,local,,ready,not-eligible,P2,L,web;records,,157,,liquers-web-records-bridge,,2026-10-17,specs/design/liquers-web-records-bridge/DESIGN.md
 LIQUERS-WEB-STORE,design,Browser stores for liquers-web,complete,local,,,,,,web;store/config;core/store,,,,liquers-web-store,,2026-08-09,specs/design/liquers-web-store/DESIGN.md
@@ -1015,7 +1015,7 @@ COMMAND_ALIASES,reference,Command Aliases,current,local,,,,,,core/commands;core/
 COMMAND_DECLARATION,reference,Command Declaration Format,current,local,,,,,,core/commands;web;py,,,,,2026-11-04,,specs/reference/COMMAND_DECLARATION.md
 CONFORMANCE_TERMS,reference,Conformance Terms,current,local,,,,,,docs,,,,,2026-09-02,,specs/reference/CONFORMANCE_TERMS.md
 DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,,,core/assets,,,,,2026-11-03,,specs/reference/DEPENDENCIES_STATUS.md
-ENVIRONMENT_CONFIG,reference,Environment Configuration,current,local,,,,,,core/context;core/store;core/assets,,,,,2026-11-01,,specs/reference/ENVIRONMENT_CONFIG.md
+ENVIRONMENT_CONFIG,reference,Environment Configuration,current,local,,,,,,core/context;core/store;core/assets,,,,,2026-11-09,,specs/reference/ENVIRONMENT_CONFIG.md
 IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,current,local,,,,,,lib/image,,,,,2026-11-03,,specs/reference/IMAGE_COMMAND_LIBRARY.md
 JAVASCRIPT_INTEGRATION,reference,JavaScript Integration,current,local,,,,,,web;core/value;core/error;core/store;lib/value,,,,,2026-11-04,,specs/reference/JAVASCRIPT_INTEGRATION.md
 MARKDOWN,reference,Markdown Navigation,current,local,,,,,,lib/commands;records,,,,,2026-11-01,,specs/reference/MARKDOWN.md
@@ -1024,7 +1024,7 @@ PIPELINES,reference,Pipelines,current,local,,,,,,core/commands;core/plan;core/qu
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,,lib/polars,,,,,2026-11-03,,specs/reference/POLARS_COMMAND_LIBRARY.md
 POSITIONING,reference,Positioning and Marketing Plan (draft),current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/POSITIONING.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-11-04,,specs/reference/PROJECT_OVERVIEW.md
-PYTHON_INTEGRATION,reference,Python Integration,current,local,,,,,,py;core/value;core/error;lib/value;core/store;store/config;core/assets,,,,,2026-11-02,,specs/reference/PYTHON_INTEGRATION.md
+PYTHON_INTEGRATION,reference,Python Integration,current,local,,,,,,py;core/value;core/error;lib/value;core/store;store/config;core/assets,,,,,2026-11-09,,specs/reference/PYTHON_INTEGRATION.md
 REALMS,reference,Realms,current,local,,,,,,core/plan;core/commands;store/config,,,,,2026-11-04,,specs/reference/REALMS.md
 RECIPES_AND_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/query;core/assets;core/context,,,,,2026-11-04,,specs/reference/RECIPES_AND_PLANS.md
 RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-11-03,,specs/reference/RECORD_STREAMS.md
@@ -1036,7 +1036,7 @@ TEMPLATE_LANGUAGE,reference,Template Language,current,local,,,,,,core/query;lib/
 UI_INTERFACE_FSD,reference,UI Interface Specification,current,local,,,,,,lib/ui,,,,,2026-10-30,,specs/reference/UI_INTERFACE_FSD.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-11-04,,specs/reference/VALUE_TYPE_SYSTEM.md
 VISION,reference,Liquers Vision and Strategy,current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/VISION.md
-WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,,axum;web,,,,,2026-10-27,,specs/reference/WEB_API_SPECIFICATION.md
+WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,,axum;web,,,,,2026-11-09,,specs/reference/WEB_API_SPECIFICATION.md
 AGENT_MEMORY_MIGRATION_GUIDE,guide,Agent Memory Migration Guide,current,local,,,,,,lib/commands;docs,,,,,2026-10-19,,specs/guides/AGENT_MEMORY_MIGRATION_GUIDE.md
 API_DOCUMENTATION_GUIDE,guide,API Documentation Guide,current,local,,,,,,docs,,,,,2026-11-03,,specs/guides/API_DOCUMENTATION_GUIDE.md
 ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,current,local,,,,,,core/assets,,,,,2026-10-22,,specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md
@@ -1045,12 +1045,12 @@ autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,
 COMMAND_DESIGN_GUIDE,guide,Command Design Guide,current,local,,,,,,core/commands,,,,,2026-11-04,,specs/guides/COMMAND_DESIGN_GUIDE.md
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,core/commands;macro,,,,,2026-11-04,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 DEPENDENCY_CONSISTENCY_GUIDE,guide,Dependency Consistency Guide,current,local,,,,,,core/assets,,,,,2026-10-08,,specs/guides/DEPENDENCY_CONSISTENCY_GUIDE.md
-ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,,core/context;core/assets;core/store,,,,,2026-11-01,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
+ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,,core/context;core/assets;core/store,,,,,2026-11-09,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
 GITHUB_ACTIONS_GUIDE,guide,GitHub Actions Guide,current,local,,,,,,build;docs,,,,,2026-11-03,,specs/guides/GITHUB_ACTIONS_GUIDE.md
 JAVASCRIPT_GUIDE,guide,Using Liquers from JavaScript in the browser,current,local,,,,,,web,,,,,2026-11-04,,specs/guides/JAVASCRIPT_GUIDE.md
-LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store;core/value;lib/commands,,,,,2026-11-04,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
+LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store;core/value;lib/commands,,,,,2026-11-09,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 PIPELINE_GUIDE,guide,Pipeline Guide,current,local,,,,,,core/commands;core/plan;core/query;core/validate,,,,,2026-11-04,,specs/guides/PIPELINE_GUIDE.md
-PYTHON_GUIDE,guide,Using Liquers from Python,current,local,,,,,,py,,,,,2026-11-02,,specs/guides/PYTHON_GUIDE.md
+PYTHON_GUIDE,guide,Using Liquers from Python,current,local,,,,,,py,,,,,2026-11-09,,specs/guides/PYTHON_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,,core/query,,,,,2026-11-04,,specs/guides/QUERY_ESCAPING_GUIDE.md
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,,records;lib/value,,,,,2026-10-30,,specs/guides/RECORD_STREAM_GUIDE.md
 SEARCH_GUIDE,guide,Search Guide,current,local,,,,,,lib/commands;records,,,,,2026-10-17,,specs/guides/SEARCH_GUIDE.md
@@ -1062,7 +1062,7 @@ TEMPLATE_GUIDE,guide,Template Guide,current,local,,,,,,core/query;lib/commands,,
 TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,,core/value;lib/value,,,,,2026-11-04,,specs/guides/TYPE_SYSTEM_GUIDE.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,,build;core/assets,,,,,2026-10-20,,specs/guides/UNITTEST_GUIDE.md
 USER_DOCS_EDITING_GUIDE,guide,User Documentation Editing Guide,current,local,,,,,,docs,,,,,2026-11-02,,specs/guides/USER_DOCS_EDITING_GUIDE.md
-WEB_API_GUIDE,guide,Web API Guide,current,local,,,,,,axum;web,,,,,2026-10-16,,specs/guides/WEB_API_GUIDE.md
+WEB_API_GUIDE,guide,Web API Guide,current,local,,,,,,axum;web,,,,,2026-11-09,,specs/guides/WEB_API_GUIDE.md
 python/01-introduction,chapter,Introduction,outline,local,,,,,,docs,,,,,,,docs/guides/python/01-introduction.md
 python/02-installing,chapter,Installing and setting up,outline,local,,,,,,docs,,,,,,,docs/guides/python/02-installing.md
 python/03-queries,chapter,Queries,outline,local,,,,,,docs,,,,,,,docs/guides/python/03-queries.md
@@ -1070,11 +1070,11 @@ python/04-values,chapter,"Values, state and metadata",outline,local,,,,,,docs,,,
 python/05-commands,chapter,Commands,outline,local,,,,,,docs,,,,,,,docs/guides/python/05-commands.md
 python/06-stores,chapter,Stores,outline,local,,,,,,docs,,,,,,,docs/guides/python/06-stores.md
 python/07-assets,chapter,"Recipes, assets and caching",outline,local,,,,,,docs,,,,,,,docs/guides/python/07-assets.md
-python/08-environment,chapter,The environment,outline,local,,,,,,docs,,,,,,,docs/guides/python/08-environment.md
+python/08-environment,chapter,The environment,draft,local,,,,,,docs,,,,,,,docs/guides/python/08-environment.md
 python/09-data,chapter,Working with data,outline,local,,,,,,docs,,,,,,,docs/guides/python/09-data.md
 python/10-templates,chapter,Templates,outline,local,,,,,,docs,,,,,,,docs/guides/python/10-templates.md
 python/11-ui,chapter,User interfaces,outline,local,,,,,,docs,,,,,,,docs/guides/python/11-ui.md
-python/12-serving,chapter,Serving and embedding,outline,local,,,,,,docs,,,,,,,docs/guides/python/12-serving.md
+python/12-serving,chapter,Serving and embedding,draft,local,,,,,,docs,,,,,,,docs/guides/python/12-serving.md
 python/13-search,chapter,Search and agent memory,outline,local,,,,,,docs,,,,,,,docs/guides/python/13-search.md
 python/14-testing,chapter,Testing,outline,local,,,,,,docs,,,,,,,docs/guides/python/14-testing.md
 python/15-troubleshooting,chapter,Troubleshooting,outline,local,,,,,,docs,,,,,,,docs/guides/python/15-troubleshooting.md
@@ -1090,11 +1090,11 @@ rust/04-values,chapter,"Values, state and metadata",outline,local,,,,,,docs,,,,,
 rust/05-commands,chapter,Commands,outline,local,,,,,,docs,,,,,,,docs/guides/rust/05-commands.md
 rust/06-stores,chapter,Stores,outline,local,,,,,,docs,,,,,,,docs/guides/rust/06-stores.md
 rust/07-assets,chapter,"Recipes, assets and caching",outline,local,,,,,,docs,,,,,,,docs/guides/rust/07-assets.md
-rust/08-environment,chapter,The environment,outline,local,,,,,,docs,,,,,,,docs/guides/rust/08-environment.md
+rust/08-environment,chapter,The environment,draft,local,,,,,,docs,,,,,,,docs/guides/rust/08-environment.md
 rust/09-data,chapter,Working with data,outline,local,,,,,,docs,,,,,,,docs/guides/rust/09-data.md
 rust/10-templates,chapter,Templates,outline,local,,,,,,docs,,,,,,,docs/guides/rust/10-templates.md
 rust/11-ui,chapter,User interfaces,outline,local,,,,,,docs,,,,,,,docs/guides/rust/11-ui.md
-rust/12-serving,chapter,Serving and embedding,outline,local,,,,,,docs,,,,,,,docs/guides/rust/12-serving.md
+rust/12-serving,chapter,Serving and embedding,draft,local,,,,,,docs,,,,,,,docs/guides/rust/12-serving.md
 rust/13-search,chapter,Search and agent memory,outline,local,,,,,,docs,,,,,,,docs/guides/rust/13-search.md
 rust/14-testing,chapter,Testing,outline,local,,,,,,docs,,,,,,,docs/guides/rust/14-testing.md
 rust/15-troubleshooting,chapter,Troubleshooting,outline,local,,,,,,docs,,,,,,,docs/guides/rust/15-troubleshooting.md
@@ -1114,7 +1114,7 @@ web/08-environment,chapter,The environment,outline,local,,,,,,docs,,,,,,,docs/gu
 web/09-data,chapter,Working with data,outline,local,,,,,,docs,,,,,,,docs/guides/web/09-data.md
 web/10-templates,chapter,Templates,outline,local,,,,,,docs,,,,,,,docs/guides/web/10-templates.md
 web/11-ui,chapter,User interfaces,outline,local,,,,,,docs,,,,,,,docs/guides/web/11-ui.md
-web/12-serving,chapter,Serving and embedding,outline,local,,,,,,docs,,,,,,,docs/guides/web/12-serving.md
+web/12-serving,chapter,Serving and embedding,draft,local,,,,,,docs,,,,,,,docs/guides/web/12-serving.md
 web/13-search,chapter,Search and agent memory,outline,local,,,,,,docs,,,,,,,docs/guides/web/13-search.md
 web/14-testing,chapter,Testing,outline,local,,,,,,docs,,,,,,,docs/guides/web/14-testing.md
 web/15-troubleshooting,chapter,Troubleshooting,outline,local,,,,,,docs,,,,,,,docs/guides/web/15-troubleshooting.md

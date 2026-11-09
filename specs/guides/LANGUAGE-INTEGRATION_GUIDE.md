@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets, core/store, core/value, lib/commands]
-reviewed: 2026-11-04
+reviewed: 2026-11-09
 ---
 # Liquers Language Integration Guide
 
@@ -2136,6 +2136,17 @@ settled on, and the list after them is what cost time. Its contract is
   static, lock and `#[pyclass]`; PyO3 0.28+ defaults to it, so state it explicitly. Test on 3.14t,
   whose venv needs its own tag (`sys.abiflags`) and whose Rust tests need `LIBDIR` on
   `LD_LIBRARY_PATH`.
+- **Web server** (`WEBSERV`, `specs/design/liquers-py-web-server/`). Start liquers-axum's
+  `LiquersServer` on the integration's runtime and give it an `EnvSource` that hands out the
+  handle's *current* build without the language runtime: `liquers-py` keeps the last `EnvRef` in a
+  lock the server reads with no GIL, and only a request after a registration rebuilds, once, on a
+  blocking thread that takes the GIL. Settings come from the configuration document's `server`
+  section with call keywords overriding it, and the language's own settings from a section it owns
+  (`python:`), so one file configures the whole host and a typo is refused
+  (`reference/ENVIRONMENT_CONFIG.md` §The configuration document). A dropped handle keeps the
+  server running; stop every server first at environment shutdown and at interpreter exit, before
+  commands are cancelled, or a request can enter a finalizing interpreter. Stop without needing a
+  runtime context (`futures::executor::block_on` over tokens), because the exit hook has none.
 
 - **Templates and data nodes.** The `ns-template` commands are in the built-in set
   (`liquers-py/src/builtins.rs`); a template command, `render` / `expand` on the environment and
@@ -4002,6 +4013,7 @@ def test_DOCS04_every_public_name_is_documented():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-09 | §6 Python: the web server (an `EnvSource` over the current build without the GIL, settings from the configuration document, servers stop first at shutdown and exit). | `design/liquers-py-web-server/` |
 | 2026-11-04 | New feature `PIPELINE` (overview row, soft dependency, §5 section with tests `PIPELINE01`–`05`); no binding implements it yet. | phase-5, `design/composite-command-definition/` |
 | 2026-11-04 | §PIPELINE: `liquers-web` implements the feature. | design `web-pipelines` |
 | 2026-11-04 | §TEMPLATE and §6 Browser JavaScript: `liquers-web` implements `TEMPLATE`. | design `web-templates` |

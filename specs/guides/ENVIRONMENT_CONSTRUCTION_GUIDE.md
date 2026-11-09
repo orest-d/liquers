@@ -3,7 +3,7 @@ title: Building and Configuring an Environment
 kind: guide
 audience: both
 area: [core/context, core/assets, core/store]
-reviewed: 2026-11-01
+reviewed: 2026-11-09
 ---
 # Building and Configuring an Environment
 
@@ -234,6 +234,48 @@ Which backends exist is a build fact, so the factory chain is an argument rather
 `liquers-core` supplies `default_store_factory()` (memory, plus filesystem off wasm),
 `liquers-store` chains OpenDAL onto it, `liquers-web` chains its own.
 
+### Configure from one file
+
+A host reads **one** file for everything: the keys above, a `command_registry` file and its own
+sections, such as liquers-axum's `server`. Read it as a `ConfigDocument`, let each part take its
+section, then `finish()`; an unknown section (a typo such as `sever:`) fails there, naming the
+known ones ([ENVIRONMENT_CONFIG.md](../reference/ENVIRONMENT_CONFIG.md) §The configuration
+document).
+
+```yaml
+store: {stores: [{type: memory, prefix: tmp}]}
+recipes: trivial
+command_registry: commands.yaml       # relative to this file
+server: {port: 0, prefix: /api, apis: [query], web: false}
+```
+
+```rust,ignore
+let mut doc = ConfigDocument::load(Path::new("liquers.yaml"))?;     // .yaml/.yml/.json (.toml with `toml`)
+let server = ServerConfig::from_document(&mut doc)?;                // liquers-axum takes `server`
+let cmr_path = doc.command_registry_path();                         // resolved against the file's folder
+let environment = doc.finish()?;                                    // untaken section → ConfigurationError
+
+let mut builder = EnvironmentBuilder::<Value>::new()
+    .with_config(environment, Box::new(default_store_factory()));
+register_my_commands(&mut builder.command_registry)?;
+if let Some(path) = cmr_path {
+    let text = std::fs::read_to_string(&path)?;
+    let cmr: CommandMetadataRegistry = from_json_or_yaml(&path.to_string_lossy(), &text)?;
+    for command in &cmr.commands {
+        builder.command_registry.command_metadata_registry.add_command(command);
+    }
+}
+let envref = builder.build()?;
+let running = LiquersServerBuilder::from_config(server).bind(envref).await?;
+```
+
+The command registry file adds metadata (labels, documentation, argument hints) to commands the
+code registers; it registers nothing itself. An entry naming no registered command is a validation
+error at `build()` (§Validating imported command metadata). Runnable:
+`liquers-axum/tests/server_config_document.rs`. In Python the same file is
+`lq.Environment(config=pathlib.Path("liquers.yaml"))`, which also takes a `python` section
+([PYTHON_INTEGRATION.md](../reference/PYTHON_INTEGRATION.md) §3).
+
 ## Library defaults
 
 `liquers-lib` configures a different recipe provider from `liquers-core`:
@@ -435,6 +477,7 @@ is the moment when that is safe: it runs before anything else can observe the re
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-09 | §Configure from one file: `ConfigDocument`, a host's sections, `finish`, the command registry file, the server from the same file. | `design/configuration-document/` |
 | 2026-11-01 | §Configuring from a document: `default_namespaces`, its precedence over the registry, shadowing and portability, `liquers-validate --default-namespace`. | `design/plan-default-namespaces/` |
 | 2026-11-01 | Build errors: only an identical `recipes` entry is refused; a type with different arguments may repeat. | `design/liquers-py-recipes/` (phase-5) |
 | 2026-10-30 | The recipe provider chain is a list: §Building gains `with_recipes`, `with_appended_recipe_entry`, `with_recipe_provider_factory`; §Configuring from a document shows the list and the entry errors; §Library defaults rewritten (kind lists, every member asked, two-owner error, `with_records_recipe_provider` idempotent, the raw-manifest hazard, declaring an entry type). | design `recipe-provider-chain-config` |

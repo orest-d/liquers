@@ -50,6 +50,21 @@ configure the `web` mount `read_only`; a later version may make `web` read-only 
 store is made read-only per mount or for the whole router (`STORE_CONFIG_FSD.md`), not per key
 (`STORE-CONFIG-SPEC-CANNOT-SCOPE-HANDLERS-TO-A-KEY`).
 
+## Done so far
+
+The `server` settings that exist at HEAD (2026-11-09, `axum-server-assembly` and
+`liquers-py-web-server`) are documented where they are used, pending the guideline:
+
+| Setting | Default | Risk | Documented in |
+|---|---|---|---|
+| `server.host` | `127.0.0.1` | `0.0.0.0` exposes every API to the network; locally, any process or a DNS-rebinding page reaches it | `WEB_API_SPECIFICATION.md` §9, `PYTHON_INTEGRATION.md` §14, chapter 12 of every user guide (`docs/guides/_shared/serving.md`) |
+| `server.read_only` | `false` | any client that reaches the server writes and deletes stored data | the same |
+| `server.web` | `true` | a page stored under `web/` runs with the server's origin (stored XSS); the read-only `web` mount is shown | the same |
+| `python.pickle` / `pickle=` | `false` | reading pickle runs code | `PYTHON_GUIDE.md` §4, `docs/guides/python/08-environment.md` |
+
+Still missing: the guideline in `specs/guides/`, the MCP allow-list, the modules search path (when
+it lands), and the command-writes-on-`GET` case.
+
 ## Discovery
 
 `liquers-py-web-server` Phase 1 gate, 2026-11-06: Orest chose writes enabled by default and asked

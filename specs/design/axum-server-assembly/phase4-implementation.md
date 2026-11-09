@@ -11,13 +11,13 @@ issue must be fixed first.
 
 ## Progress
 
-- [ ] Step 1: dependencies and `ServerConfig`
-- [ ] Step 2: the web and index routes
-- [ ] Step 3: `EnvSource` and the assembled router
-- [ ] Step 4: the accept loop, `bind` and `LiquersServer`
-- [ ] Step 5: WebSocket stop and the Close frame
-- [ ] Step 6: `server_config_document.rs` and the example
-- [ ] Step 7: documentation and module docs
+- [x] Step 1: dependencies and `ServerConfig`
+- [x] Step 2: the web and index routes
+- [x] Step 3: `EnvSource` and the assembled router
+- [x] Step 4: the accept loop, `bind` and `LiquersServer`
+- [x] Step 5: WebSocket stop and the Close frame
+- [x] Step 6: `server_config_document.rs` and the example
+- [x] Step 7: documentation and module docs
 
 ## Implementation Steps
 
@@ -127,6 +127,6 @@ As Step 7; `specs/index.csv` regenerated. User-guide chapters follow
 
 ## Phase 5 Entry Criteria
 
-- [ ] Implementation finished and validated
-- [ ] User and review comments answered
-- [ ] Documentation checkable against implemented and tested behaviour
+- [x] Implementation finished and validated
+- [x] User and review comments answered
+- [x] Documentation checkable against implemented and tested behaviour

@@ -11,11 +11,11 @@ must be fixed first. Decision 2 was answered "keyword wins" (2026-11-09).
 
 ## Progress
 
-- [ ] Step 1: core `ConfigDocument` and its unit tests
-- [ ] Step 2: liquers-py `PyConfig`, `config=` forms, the keyword rule and the stubs
-- [ ] Step 3: the command registry file in liquers-py
-- [ ] Step 4: Python tests `test_CONFIG_document.py`
-- [ ] Step 5: documentation and module docs
+- [x] Step 1: core `ConfigDocument` and its unit tests
+- [x] Step 2: liquers-py `PyConfig`, `config=` forms, the keyword rule and the stubs
+- [x] Step 3: the command registry file in liquers-py
+- [x] Step 4: Python tests `test_CONFIG_document.py`
+- [x] Step 5: documentation and module docs
 
 ## Implementation Steps
 
@@ -118,6 +118,6 @@ change.
 
 ## Phase 5 Entry Criteria
 
-- [ ] Implementation finished and validated
-- [ ] User and review comments answered
-- [ ] Documentation checkable against implemented and tested behaviour
+- [x] Implementation finished and validated
+- [x] User and review comments answered
+- [x] Documentation checkable against implemented and tested behaviour

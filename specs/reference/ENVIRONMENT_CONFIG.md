@@ -3,7 +3,7 @@ title: Environment Configuration
 kind: reference
 audience: both
 area: [core/context, core/store, core/assets]
-reviewed: 2026-11-01
+reviewed: 2026-11-09
 ---
 # Environment Configuration
 
@@ -95,8 +95,10 @@ manager reports them through the `AssetManager` accessors of the same names (the
 defaults equal to today's behaviour, so a custom manager need not implement them).
 
 Every field has a serde default, so a document may configure one section and omit the rest, and a
-field added later does not break an existing document. Unknown keys are currently **ignored**
-(`deny_unknown_fields` is not set).
+field added later does not break an existing document. Unknown keys inside these sections are
+currently **ignored** (`deny_unknown_fields` is not set). An unknown *top-level* key is refused
+when the document is read as a `ConfigDocument` (§The configuration document), which is how a host
+reads it; `EnvironmentConfig::from_yaml` on its own ignores it.
 
 ## Constructors
 
@@ -138,6 +140,60 @@ setters infallible and chainable; three failures surface at `build()` instead:
 
 Use `with_store_config_unexpanded` where there are no environment variables to expand — a browser
 page — mirroring `StoreRouterBuilder::build_without_env_expansion`.
+
+## The configuration document
+
+A host (a Rust program, `liquers-py`) is set up from **one** file: the environment's keys above,
+a `command_registry` file and the host's own sections. `ConfigDocument`
+(`liquers-core/src/environment_config.rs`) reads it, and each part of the host takes the section it
+knows. Design: `specs/design/configuration-document/`.
+
+```yaml
+store: {stores: [{type: memory, prefix: data}]}   # EnvironmentConfig keys
+assets: {job_capacity: 4}
+command_registry: commands.yaml                    # command metadata registry file
+server: {port: 8000, read_only: true}              # liquers-axum's ServerConfig
+python: {pickle: true}                             # liquers-py only
+```
+
+| Top-level key | Taken by |
+|---|---|
+| `store`, `recipes`, `assets`, `default_namespaces` (`ConfigDocument::ENVIRONMENT_KEYS`) | `environment`, an `EnvironmentConfig`, parsed when the document is read |
+| `command_registry` | `command_registry` (the string) and `command_registry_path()` (resolved) |
+| any other | a host section, taken with `take_section::<T>(name)` |
+
+```rust,ignore
+let mut doc = ConfigDocument::load(Path::new("liquers.yaml"))?;   // or from_yaml / from_json / from_toml
+let server = ServerConfig::from_document(&mut doc)?;              // takes `server`
+let cmr = doc.command_registry_path();
+let environment = doc.finish()?;                                  // an untaken section is an error
+```
+
+- **Reading.** `from_yaml` and `from_json` are always available, `from_toml` behind the `toml`
+  feature. `load(path)` (native targets only) chooses by extension, `.yaml`, `.yml`, `.json` or
+  `.toml`; any other extension, or `.toml` without the feature, is a `ConfigurationError` naming
+  the supported ones, and an unreadable file is an error naming the path. An empty document, or
+  one that is `null`, is every default. YAML tags and non-string keys are a `ParseError`, so every
+  section is plain JSON-shaped data.
+- **Sections.** `take_section::<T>(name)` returns `None` for an absent section, treats `null` as
+  `{}`, and reports a value that does not deserialize as a `ConfigurationError` naming the
+  section. A host section type sets `deny_unknown_fields`, so a misspelled key inside it is refused
+  too (`ServerConfig` does; `EnvironmentConfig`'s sections do not, above).
+- **Finishing.** `finish()` returns the `EnvironmentConfig`, or a `ConfigurationError` naming every
+  section no one took (`unknown section 'sever'`) and listing the known keys: the environment
+  keys, `command_registry` and every name passed to `take_section`.
+- **Relative paths.** `load` records the document's folder as `base`; `command_registry_path()`
+  resolves a relative `command_registry` against it. Store paths are not rewritten and stay
+  relative to the working directory.
+- **Command registry file.** `command_registry` names a command metadata registry in the format of
+  `specs/command_registry.yaml` (`commands`, `default_namespaces`, `global_enums`). The host reads
+  it and applies its metadata to the commands code registers (labels, documentation, argument
+  GUI hints); it never registers a command.
+
+Sections known at HEAD: `server` (liquers-axum,
+[WEB_API_SPECIFICATION.md](WEB_API_SPECIFICATION.md) §8.1) and `python` (liquers-py,
+[PYTHON_INTEGRATION.md](PYTHON_INTEGRATION.md)). A host refuses a section it does not take, so a
+`python` section in a Rust host's file is an error there.
 
 ## Two deliberate omissions
 
@@ -272,6 +328,7 @@ and the default gains `manifest`.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-09 | §The configuration document: `ConfigDocument` (one file per host: environment keys, `command_registry`, host sections; `load` by extension, `take_section`, `finish` refusing an unknown section, paths relative to the document); §Format: unknown top-level keys are refused by a `ConfigDocument`. | phase-5, `design/configuration-document/` |
 | 2026-11-01 | `default_namespaces`: namespaces searched after a query's `ns`, root appended unless listed, replacing the command registry's chain; field row, sample, `with_config` equivalence, the empty-entry build failure. | `design/plan-default-namespaces/` |
 | 2026-11-01 | §The recipe provider chain: one entry type may repeat with different arguments, only an identical entry is refused; repeated types name their members `type#position`; integration entry types (Python) in the entries table, replacing the `{type: python, …}` placeholder. | `design/liquers-py-recipes/` (phase-5) |
 | 2026-10-30 | `recipes` is a `RecipesConfig`: an ordered list of entries (bare name or `{type: …}`), `default` the kind's list, `trivial` the empty list. §The recipe provider chain rewritten: entry types and factories, `resolve_recipes`, every member asked (any error fails, two owners is an error naming both), the setters including `with_recipes`, `with_appended_recipe_entry` and `try_with_recipes`, `LibKind`'s list, the migration hazard. Build-time failures gain the entry errors. | phase-5 (`design/recipe-provider-chain-config/`) |

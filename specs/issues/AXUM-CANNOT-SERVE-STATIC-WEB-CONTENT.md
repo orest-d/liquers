@@ -2,7 +2,7 @@
 id: AXUM-CANNOT-SERVE-STATIC-WEB-CONTENT
 kind: feature
 title: The Liquers HTTP server cannot serve a web application from the store or answer at /index.html
-status: draft
+status: closed
 priority: P2
 complexity: L
 area: [axum]
@@ -39,3 +39,14 @@ metadata, conditional requests, and an index page at `/` and `/index.html`.
 Orest, 2026-11-06, on the M7 web-server design: "There are (at least) two needs: serving static
 content (similarly as the web folder in https://github.com/orest-d/liquer which exposes a predefined
 store) and serving /index.html."
+
+## Resolution
+
+Closed 2026-11-09 by `axum-server-assembly` (PR #264). `liquers_axum::web` serves stored files at
+`{prefix}/web/…` (folders answer with their `index.html`, a content type from the metadata, the
+extension or the data format, `nosniff`, `no-cache`, ETag with 304, Last-Modified), and `/` and
+`/index.html` redirect there; the server mounts both while `web` is on. Evidence:
+`liquers-axum/tests/server_web.rs`, `liquers-py/tests/test_WEBSERV_server.py`
+(`test_WEBSERV_web_folder_from_a_mount`, `test_WEBSERV_index_redirects_to_web`). Recipe-made pages
+and a configurable index stay open as `WEB-FOLDER-SERVES-STORED-FILES-ONLY` and
+`INDEX-PAGE-IS-A-FIXED-REDIRECT`. Reference: `WEB_API_SPECIFICATION.md` §8.3, §8.4.

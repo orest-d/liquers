@@ -2,54 +2,83 @@
 
 ## Completion Preconditions
 
-- [ ] Implementation is finished and validated
-- [ ] All user comments are answered or incorporated
-- [ ] All review comments are answered or incorporated
-- [ ] Documentation is consistent with the implemented and tested behavior
-- [ ] Documentation is included in the implementation PR when practical
+- [x] Implementation is finished and validated
+- [x] All user comments are answered or incorporated
+- [x] All review comments are answered or incorporated (no PR review comments yet)
+- [x] Documentation is consistent with the implemented and tested behavior
+- [x] Documentation is included in the implementation PR when practical (PR #264)
 
 ## Implementation Summary
 
-<About one page; never more than three pages for this whole document. State what was implemented
-and whether it conforms to the request and approved design. Identify anything omitted or added and
-explain why. Link to reference/guide documents for detail.>
+`env.serve()` serves an environment with liquers-axum's standard server
+(`liquers-py/src/server.rs`, `environment.rs`). Settings are the configuration's `server` section,
+then the keywords `host`, `port`, `prefix`, `apis`, `read_only`, `web`. `serve` binds before it
+returns an `lq.Server` (`address`, `port`, `url`, `running`, `shutdown(timeout=5.0)`,
+`shutdown_async`, a context manager); the server runs in the background and survives a dropped
+handle (Orest, 2026-11-06), or with `background=False` serves until Ctrl-C. `serve_async()` is a
+coroutine that serves until its task is cancelled. `lq.serve` / `lq.serve_async` serve the default
+environment; `env.servers` lists the running servers.
+
+Requests are answered from the environment's current build through `CellSource`: `EnvCell` keeps
+the last `EnvRef` in a slot read without the GIL, a registration clears it, and the next request
+rebuilds once on a blocking thread while the others wait; a failing build answers 503. Servers stop
+first: `env.shutdown()` stops its servers (5 s each) before the asset managers, and the exit hooks
+(`serve`'s own, the module's, the loop pool's) stop every server (1 s each) before commands are
+cancelled. Writes are enabled by default and documented as security-sensitive (Decision 1).
+
+It conforms to Phases 1–4. One correction during testing: `pyo3-async-runtimes` returns an
+`asyncio.Future`, which `asyncio.create_task` refuses, so `serve_async` wraps it in a coroutine
+(`liquers._env._awaiting`) to keep Phase 3's `asyncio.create_task(env.serve_async())` working.
+The wheel-size measurement of Step 7 is taken from the pull request's Linux abi3 wheel in CI.
 
 ## Documentation Delivered
 
 ### New Reference Documents
-<Paths and purposes, or `None` with rationale>
+None: the server is §14 of `PYTHON_INTEGRATION.md`, as planned.
 
 ### New Guide Documents
-<Paths and purposes, or `None` with rationale>
+None, as planned.
 
 ### Existing Documents Reviewed or Updated
-<Authoritative `affects_docs` set, review result, and History/reviewed updates>
+`specs/reference/PYTHON_INTEGRATION.md` (§14 Web server; §1–§3 and §7: `Server`, `liquers-axum`,
+`serve`/`servers`, servers stop first), `specs/guides/PYTHON_GUIDE.md` (§6 "Serving over HTTP",
+run by `test_GUIDE_examples.py`; §10), `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` (§6 Python:
+the web server pattern), `liquers-py/README.md` (`WEBSERV` row: `PARTIAL`, `WEBSERV01`–`05` pass,
+`06`–`08` `NS`). History rows and `reviewed: 2026-11-09` on the `specs/` documents.
 
 ### Module Docs
-<Each module doc the design created or changed, reviewed against `API_DOCUMENTATION_GUIDE.md` §3,
-and the output of `scripts/check_api_docs.py` for those files; or `None`>
+`src/server.rs` (new), `src/environment.rs` and `src/aio.rs` (brought up to §3), `src/exit.rs`:
+`check_api_docs.py` 0 warnings, 0 errors. `python/liquers/__init__.py` lists `Server`, `serve`,
+`serve_async`; the stubs declare them (`serve_async` as a `Coroutine`).
 
 ### User-Guide Chapters
-<Output of `docs_index.py chapters-for`, and for each chapter: reviewed, fixed, or marked `CHECK:`
-with an issue; or `None`>
+`docs/guides/python/12-serving.md` is `draft`: 12.1 starting (background, foreground, asyncio),
+12.2 settings with the shared settings, web folder and **Security** fragment, 12.3 stopping;
+12.4–12.5 stay `TBD:`. Other chapters listed by `chapters-for`: see `configuration-document`.
 
 ### Links and Capability Map
-<Links added, updated, or replaced in `specs/README.md` and other documentation>
+`specs/README.md` keeps its design row until `status: complete`.
 
 ## Issues Filed
 
-<New issue IDs and one-line explanations, including intentionally omitted design scope; or `None`>
+None new. Closed: `PY-CANNOT-START-A-WEB-SERVER`. Open by decision: `PY-WEB-SERVER-CANNOT-TAKE-PYTHON-HANDLERS`
+(`WEBSERV06`–`08`), `SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED` (the guideline).
 
 ## Important Learning
 
-<Meaning and importance of the work, connections to existing functionality, repeatable guidance,
-corrections, and unexpected learning. Keep details in reference/guide documents and link them here.>
+An `lq.Environment` is a frozen native class: tests cannot hang attributes on it. A stopped
+server's port can sit in `TIME_WAIT` after the server cut a request off, so the tests check for a
+listener with `SO_REUSEADDR`. A stop that runs from `atexit` must not need a tokio context; the
+server's `shutdown` only awaits tokens, so `futures::executor::block_on` is enough.
 
 ## Conformance and Remaining Work
 
-<Compare requested, approved, and implemented scope explicitly. State whether anything remains. Every
-deferred remainder must have an issue rather than a partial design status.>
+Implemented as approved; `WEBSERV` is `PARTIAL` because Python handlers were out of scope from
+Phase 1. Remaining: the open issues above and the wheel size from CI.
 
 ## Validation
 
-<Documentation checks run and outcomes.>
+`bash scripts/test-liquers-py.sh` on CPython 3.13: 450 passed, 23 skipped (STUBS needs 3.14 and
+runs in CI), plus the crate's Rust unit tests (`cell_source_rebuilds_once_after_invalidate`);
+`test_WEBSERV_server.py` and `test_CONFIG_document.py` five times in a row; `check_api_docs.py`;
+`cargo run -p liquers-docs -- check`; `python3 scripts/docs_index.py --check`.

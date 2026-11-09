@@ -11,13 +11,13 @@ liquers-py --no-default-features --features debug-handles --lib`, with the venv'
 
 ## Progress
 
-- [ ] Step 1: the `liquers-axum` dependency
-- [ ] Step 2: `EnvCell`'s current build
-- [ ] Step 3: `server.rs`: `CellSource`, `ServerSlot`, `stop_all`, `lq.Server`, its stub
-- [ ] Step 4: `serve`, `serve_async`, `servers`, shutdown and exit order
-- [ ] Step 5: the Python surface and stubs
-- [ ] Step 6: tests
-- [ ] Step 7: documentation, module docs and the wheel size
+- [x] Step 1: the `liquers-axum` dependency
+- [x] Step 2: `EnvCell`'s current build
+- [x] Step 3: `server.rs`: `CellSource`, `ServerSlot`, `stop_all`, `lq.Server`, its stub
+- [x] Step 4: `serve`, `serve_async`, `servers`, shutdown and exit order
+- [x] Step 5: the Python surface and stubs
+- [x] Step 6: tests
+- [x] Step 7: documentation, module docs and the wheel size
 
 ## Implementation Steps
 
@@ -119,6 +119,6 @@ chapter's security section and adds its settings to that issue.
 
 ## Phase 5 Entry Criteria
 
-- [ ] Implementation finished and validated
-- [ ] User and review comments answered
-- [ ] Documentation checkable against implemented and tested behaviour
+- [x] Implementation finished and validated
+- [x] User and review comments answered
+- [x] Documentation checkable against implemented and tested behaviour
