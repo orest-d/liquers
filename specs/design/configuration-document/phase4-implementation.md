@@ -7,7 +7,7 @@ Two parts, in the landing order of Phase 1: the core `ConfigDocument` first, wit
 design's AC-6/AC-7 Rust test in its Step 6); then liquers-py's `PyConfig`, with
 `liquers-py-web-server`. Everything lands on branch `claude/project-thread-5j5pvg` (PR #264) as two
 commit groups, so group A (core and liquers-axum) can be split into its own PR if wanted. No issue
-must be fixed first. Step 2 waits for Orest's answer on Decision 2 (pre-implementation stop).
+must be fixed first. Decision 2 was answered "keyword wins" (2026-11-09).
 
 ## Progress
 
@@ -51,17 +51,13 @@ must be fixed first. Step 2 waits for Orest's answer on Decision 2 (pre-implemen
   and the four keywords `… | None = ...`.
 - Change: `os.PathLike` (has `__fspath__`) → `ConfigDocument::load`; `str` → `from_yaml`, with the
   AC-5 hint when the result is a scalar; `dict` → `json.dumps` → `from_json`. Resolution: keyword →
-  `python:` section → default. `job_capacity` per Decision 2, whose answer decides one branch:
-  - *keyword wins* (recommended): `job_capacity=` replaces `assets.job_capacity`; the conflict case
-    of `test_ASYNC_loops.py` moves to `test_CONFIG_keywords_override_the_file` (Step 4);
-  - *conflict raises* (today's rule): the existing check stays, extended to a file's
-    `assets.job_capacity`, and `test_ASYNC_loops.py` is unchanged.
-  Needs `ServerConfig::from_document` (`axum-server-assembly` Step 1) and `liquers-axum` as a
+  `python:` section → default. `job_capacity` per Decision 2 (keyword wins): `job_capacity=`
+  replaces `assets.job_capacity`, and the conflict case of `test_ASYNC_loops.py` moves to
+  `test_CONFIG_keywords_override_the_file` (Step 4). Needs `ServerConfig::from_document` (`axum-server-assembly` Step 1) and `liquers-axum` as a
   dependency (`liquers-py-web-server` Step 1).
-- Depends on: Step 1; `axum-server-assembly` Step 1; `liquers-py-web-server` Step 1; the answer
-  on Decision 2.
+- Depends on: Step 1; `axum-server-assembly` Step 1; `liquers-py-web-server` Step 1.
 - Proof: `cargo check -p liquers-py`; `bash scripts/test-liquers-py.sh` with the existing suite
-  green (under *keyword wins*, except `test_ASYNC_loops.py`'s conflict case, moved in Step 4),
+  green (except `test_ASYNC_loops.py`'s conflict case, moved in Step 4),
   including `test_STUBS_declarations.py`, which runs only on CPython 3.14 with the GIL (run the
   script with `PYTHON=python3.14`).
 - Rollback: revert; `EnvCell` goes back to `EnvironmentConfig`.
@@ -82,8 +78,7 @@ must be fixed first. Step 2 waits for Orest's answer on Decision 2 (pre-implemen
 ### Step 4: Python tests
 
 - Files / symbols: new `liquers-py/tests/test_CONFIG_document.py` (Phase 3 Test Plan, Python),
-  its file fixtures from `tmp_path` in the file itself; `liquers-py/tests/test_ASYNC_loops.py` —
-  under *keyword wins*, the conflict case moves to `test_CONFIG_keywords_override_the_file`.
+  its file fixtures from `tmp_path` in the file itself; `liquers-py/tests/test_ASYNC_loops.py` — the conflict case moves to `test_CONFIG_keywords_override_the_file`.
 - Depends on: Steps 2–3; `liquers-py-web-server` Step 4 for the tests that call `serve`.
 - Proof: `bash scripts/test-liquers-py.sh`.
 - Rollback: revert the test files with the steps they cover.

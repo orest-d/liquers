@@ -14,8 +14,8 @@ links") and is the prerequisite of [`liquers-py-web-server`](../liquers-py-web-s
 ## Design Readiness
 
 - **Readiness:** `ready` (Phase 2 approved 2026-11-09; Phase 3 approved and Phase 4, implementation and Phase 5
-  pre-approved the same day, "proceed all"; implementation waits at the pre-implementation stop for
-  `configuration-document` Decision 2): Phase 1 written and reviewed twice; Orest decided questions 2
+  pre-approved the same day, "proceed all"; `configuration-document` Decision 2 answered the same day, so
+  implementation proceeds): Phase 1 written and reviewed twice; Orest decided questions 2
   and 3 on 2026-11-06 (Decisions 1 and 2); approved 2026-11-07 ("proceed"). Phase 2 (2026-11-07) adds: the `EnvSource` (see Non-goals), a
   server that keeps running when its handle is dropped (question 7), and `Cache-Control: no-cache`.
 - **Automatic fixing:** `not-eligible`: new public API of `liquers-axum`, complexity `L`.

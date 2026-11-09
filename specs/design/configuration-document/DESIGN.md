@@ -25,9 +25,9 @@ reviewed once by an independent reviewer before the split, and approved 2026-11-
 Pre-approved after Phase 3 on 2026-11-09 (Orest: "proceed all"). Phase 4
 written the same day.
 
-Pre-implementation stop (2026-11-09): implementation waits for Orest's answer on
-`configuration-document` Decision 2 (the keyword rule), the only open item of the three designs'
-decision logs. Phase 4 reviewed twice (consistency; codebase and soundness); findings applied.
+Pre-implementation stop (2026-11-09): the only open item of the three designs' decision logs,
+`configuration-document` Decision 2 (the keyword rule), was answered the same day ("Keyword wins
+everywhere"); implementation proceeds. Phase 4 reviewed twice (consistency; codebase and soundness); findings applied.
 
 ## Phases
 

@@ -13,8 +13,8 @@ the store's `web` folder and an index page, as LiQuer's server had. Milestone M7
 ## Design Readiness
 
 - **Readiness:** `ready` (Phase 2 approved 2026-11-09; Phase 3 approved and Phase 4, implementation and Phase 5
-  pre-approved the same day, "proceed all"; implementation waits at the pre-implementation stop for
-  `configuration-document` Decision 2): Phase 1 written and reviewed twice; Orest decided questions 3
+  pre-approved the same day, "proceed all"; `configuration-document` Decision 2 answered the same day, so
+  implementation proceeds): Phase 1 written and reviewed twice; Orest decided questions 3
   and 5 and added static content and the index page on 2026-11-06 (Decisions 1-3); approved
   2026-11-07 ("proceed").
 - **Automatic fixing:** `not-eligible`: an `L` feature with new public Python API and a new

@@ -14,8 +14,7 @@ error for a section nobody took, lets one file set up a whole application (Orest
 
 - **Readiness:** `ready`: Phases 1 and 2 approved 2026-11-09 ("proceed"); Phase 3 approved and
   Phase 4, implementation and Phase 5 pre-approved the same day ("proceed all"). Phase 4 is
-  written; implementation waits at the pre-implementation stop for Orest's explicit answer on
-  Decision 2.
+  written; Decision 2 answered 2026-11-09, so implementation proceeds.
 - **Automatic fixing:** `not-eligible`: new public API in core and liquers-py.
 - **Leading issue:** `HOSTS-READ-CONFIGURATION-DOCUMENTS-DIFFERENTLY` (P3 L).
 - **Decisions:**
@@ -24,16 +23,13 @@ error for a section nobody took, lets one file set up a whole application (Orest
      (`specs/command_registry.yaml`), relative to the document; the host loads it as it loads
      command metadata today (liquers-py: `import_metadata`). Absent, the default registry (what
      code registers) is used. What a CMR file can express is the existing format's business.
-  2. Inferred, not yet confirmed: Orest's generic "proceed" at the Phase 2 gate (2026-11-09) did
-     not address former question 2 specifically; its recommendation is taken provisionally and is
-     asked again before implementation. An explicit keyword argument overrides the file, and the file
+  2. Orest, 2026-11-09 (decision card, "Keyword wins everywhere"): an explicit keyword argument overrides the file, and the file
      overrides the built-in default; `job_capacity=` that differs from `assets.job_capacity`
      overrides it instead of raising (a change to `liquers-py-async`'s rule).
   3. Orest, 2026-11-07: Phase 3 shows use without a server, the server configured in code, a
      minimal file with every default described, and specialised configurations.
 - **Decision log (pre-approval, 2026-11-09):**
-  - *Needs decision:* the keyword rule (`configuration-document` Decision 2), asked on a card;
-    the recommended "keyword wins" is assumed until answered.
+  - *Decided:* the keyword rule (Decision 2), answered on its card 2026-11-09: keyword wins.
   - *Assumption:* all three server designs are implemented on branch `claude/project-thread-5j5pvg`
     (PR #264) in two commit groups (core and liquers-axum, then liquers-py), splittable later.
   - *Assumption:* the security guideline (`SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED`) stays
