@@ -178,13 +178,13 @@ mod tests {
     use liquers_core::parse::parse_query;
     use liquers_records::ChunkValue;
 
-    use liquers_core::environment_config::EnvironmentConfig;
+    use crate::config::PyConfig;
     use crate::runtime::runtime;
     use crate::value::ConversionMode;
 
     fn new_cell() -> Result<Arc<EnvCell>, Error> {
         Ok(Arc::new(EnvCell::new(
-            EnvironmentConfig::default(),
+            PyConfig::default(),
             ConversionMode::Permissive,
             false,
             NonZeroUsize::MIN,

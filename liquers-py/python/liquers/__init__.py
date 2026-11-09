@@ -12,6 +12,8 @@ added to or removed from this file too.
 - `liquers.default_environment` and `liquers.Environment` — the environment: its store, commands
   and assets; configure it before the first query.
 - `liquers.Query` and `liquers.parse` — the query language, parsed and inspected without running.
+- `liquers.Environment.serve` and `liquers.Server` — serve an environment over the Liquers HTTP
+  API.
 
 # Where it is used
 - [`liquers-py/tests/test_GUIDE_examples.py`](https://github.com/orest-d/liquers/blob/main/liquers-py/tests/test_GUIDE_examples.py)
@@ -103,6 +105,7 @@ from liquers._native import (
     # Environments
     Environment,
     Issue,
+    Server,
     Context,
     State,
     AssetRef,
@@ -123,7 +126,7 @@ from liquers._native import (
     # The Liquers version in PEP 440 form; deliberately not in __all__ (OBJECT08).
     __version__,
 )
-from liquers._env import default_environment, evaluate, evaluate_async
+from liquers._env import default_environment, evaluate, evaluate_async, serve, serve_async
 from liquers._commands import command, first_command
 from liquers._extras import require
 from liquers._errors import LiquersError, _install as _install_errors
@@ -180,6 +183,7 @@ __all__ = [
     "RecipeProviders",
     "Environment",
     "Issue",
+    "Server",
     "Context",
     "State",
     "AssetRef",
@@ -199,6 +203,8 @@ __all__ = [
     "default_environment",
     "evaluate",
     "evaluate_async",
+    "serve",
+    "serve_async",
     "command",
     "first_command",
     "require",

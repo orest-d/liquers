@@ -21,6 +21,39 @@
 //! which detaches the evaluation rather than cancelling it; `AssetRef.cancel_async` is the explicit
 //! cancel. The result is converted to Python by [`ToPy`] on a blocking thread, so no runtime worker
 //! takes the GIL.
+//!
+//! # Main components
+//!
+//! - [`LazyLoopPool`]: the environment's loops, started by the first `async def` command.
+//! - [`awaitable`]: a core future as an `asyncio.Future` of the caller's loop.
+//! - [`check_blocking_call`]: refuses a blocking call on a liquers-owned loop thread.
+//! - [`Shut`]: the handle's shut flag, which ends a wait outstanding at `shutdown()`.
+//!
+//! # Where it is used
+//!
+//! - `Environment.evaluate_async` and the other `_async` methods (`environment.rs`).
+//! - The command adapter, which runs an `async def` command on a pool loop (`command.rs`).
+//! - `Server.shutdown` and `shutdown_async` (`server.rs`); `tests/test_ASYNC_loops.py`.
+//!
+//! # Related concepts
+//!
+//! - [`crate::runtime`] is the tokio runtime core futures run on; this module bridges it to asyncio.
+//! - [`crate::exit`] waits for liquers-owned threads at interpreter exit; the pool's own hook stops
+//!   the loops (and, first, the servers).
+//!
+//! # Examples
+//!
+//! ```python
+//! import asyncio, liquers as lq
+//! env = lq.Environment()
+//! @env.first_command
+//! async def slow(name: str = "world") -> str:
+//!     await asyncio.sleep(0)
+//!     return f"Hello, {name}!"
+//! assert asyncio.run(env.evaluate_async("slow-Ann")) == "Hello, Ann!"
+//! ```
+//!
+//! More: `liquers-py/tests/test_ASYNC_loops.py`, `tests/test_ASYNCQ_evaluation.py`.
 
 use std::cell::Cell;
 use std::future::Future;
@@ -501,6 +534,8 @@ struct StopAtExit {
 #[pymethods]
 impl StopAtExit {
     fn __call__(&self, py: Python<'_>) -> PyResult<()> {
+        // Servers stop before the loops their requests' async commands run on.
+        crate::server::stop_all(py, crate::server::EXIT_DEADLINE);
         match self.pool.upgrade() {
             Some(pool) => pool.stop(py),
             None => Ok(()),

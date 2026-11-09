@@ -26,6 +26,11 @@ liquers-records = { path = "../liquers-records", features = ["ipc"] }
 # Already in the graph through liquers-lib; named here for its store factory chain (memory,
 # filesystem, then the OpenDAL types), which a configured `lq.Environment(config=…)` builds with.
 liquers-store = { path = "../liquers-store" }
+# The HTTP server `Environment.serve` starts (`src/server.rs`), and the `server` section of the
+# configuration document (`src/config.rs`).
+liquers-axum = { path = "../liquers-axum" }
+# The stop token of a running server (`serve_async` cancels it when its task is cancelled).
+tokio-util = "0.7.20"
 futures = "0.3"
 async-trait = "0.1"
 # One multi-thread runtime per process runs every evaluation (`runtime.rs`).
