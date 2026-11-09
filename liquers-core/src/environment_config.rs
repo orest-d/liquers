@@ -1,49 +1,49 @@
-//! One document describing an environment and its store.
+//! One document describing an environment and its store, and the configuration document a whole
+//! host is set up from.
 //!
-//! # What a configuration can and cannot cover
+//! [`EnvironmentConfig`] is the environment's part (store, recipes, assets, default namespaces);
+//! [`ConfigDocument`] is the whole file a host reads: those keys, a `command_registry` file, and
+//! the host's own sections (`server`, `python`, …), each taken by the host that knows it.
 //!
-//! Commands are Rust functions registered by a macro, and no document can name one. So a
-//! configuration configures *services* and code registers *commands*. [`EnvironmentBuilder`] splits
-//! along exactly that line — the `with_*` setters are the config-drivable half, the public
-//! `command_registry` field is the code-only half — and this type drives the first half.
+//! # Main components
 //!
-//! ```yaml
-//! store:
-//!   stores:
-//!     - type: filesystem
-//!       prefix: data
-//!       config:
-//!         path: ${LIQUERS_DATA}
-//!     - type: memory
-//!       prefix: tmp
-//! recipes:                 # absent or `default`: the kind's list; `trivial` or `[]`: none
-//!   - recipes_yaml
-//!   - manifest
-//! assets:
-//!   job_capacity: 8
+//! - [`EnvironmentConfig`]: the environment's keys; applied with
+//!   [`EnvironmentBuilder::with_config`].
+//! - [`ConfigDocument`]: `from_yaml` / `from_json` / `from_toml` / `load`, `take_section`,
+//!   `finish` (an untaken section is an error), `command_registry_path`.
+//!
+//! # Where it is used
+//!
+//! - `liquers-axum`'s `ServerConfig::from_document` takes the `server` section.
+//! - `liquers-py`'s `Environment(config=…)` reads a document and takes `server` and `python`.
+//! - `liquers-agent` and `liquers-web` read an `EnvironmentConfig` directly.
+//!
+//! Every test that configures an environment from YAML uses one of the two.
+//!
+//! # Related concepts
+//!
+//! - [`StoreRouterConfig`] is the `store` key alone; this module reuses it verbatim.
+//! - [`EnvironmentBuilder`] is where the configuration goes; commands are registered there in
+//!   code, never in a document (a configuration configures *services*, code registers
+//!   *commands*; a `command_registry` file only describes commands that code registered).
+//! - The asset-manager kind and the store factories are build facts, not document keys: the kind
+//!   selects a concrete type, and the factory chain reaches the builder as an argument.
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_core::environment_config::ConfigDocument;
+//! let mut doc = ConfigDocument::from_yaml(
+//!     "store:\n  stores: [{type: memory, prefix: tmp}]\nassets: {job_capacity: 8}\nserver: {port: 9000}\n",
+//! ).unwrap();
+//! let server: Option<serde_json::Value> = doc.take_section("server").unwrap();  // the host's part
+//! let environment = doc.finish().unwrap();     // an unknown section would fail here
+//! assert_eq!(environment.assets.job_capacity, Some(8));
+//! # assert!(server.is_some());
 //! ```
 //!
-//! ```ignore
-//! let config = EnvironmentConfig::from_yaml(&std::fs::read_to_string("environment.yaml")?)?;
-//! let mut builder = EnvironmentBuilder::<Value>::new()
-//!     .with_config(config, Box::new(default_store_factory()));
-//! register_my_commands(&mut builder.command_registry)?;   // code, not config
-//! let envref = builder.build()?;
-//! ```
-//!
-//! # Two things that are deliberately absent
-//!
-//! **The asset-manager kind.** A YAML string cannot select a type: `"queued"` and `"inline"`
-//! produce two different concrete environment types, and [`Environment`](crate::context::Environment)
-//! is not object-safe, so they cannot be erased behind a `dyn`. The choice is a *build* fact rather
-//! than a deployment one — wasm has no choice at all, and natively the inline manager exists for
-//! deterministic testing rather than production tuning. An application that genuinely wants runtime
-//! selection monomorphizes its own tail with an explicit two-arm match.
-//!
-//! **The store factories.** Which backends exist is a build fact for the same reason:
-//! `liquers-core` supplies memory and filesystem, `liquers-store` chains OpenDAL onto them, and
-//! `liquers-web` chains its own. So the factory reaches the builder as an argument, and the
-//! document names store *types* the chain is expected to resolve.
+//! More: the tests at the end of this file, `liquers-core/tests/recipe_provider_chain_config.rs`,
+//! and `liquers-axum/tests/server_config_document.rs` (a server from one file).
 
 use crate::environment_builder::{
     AssetManagerKind, AssetManagerOptions, EnvironmentBuilder,
