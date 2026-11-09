@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Liquers</title>
-<meta name="description" content="Liquers names computations with queries. Results are cached as assets, and commands are written in Rust, Python or JavaScript.">
+<meta name="description" content="Liquers makes derived data addressable: every result has a short, URL-compatible name that says how to produce it.">
 <link rel="icon" type="image/png" href="images/favicon.png">
 <link rel="icon" href="favicon.ico" sizes="any">
 <!--
@@ -28,6 +28,7 @@
   --q-resource: #7cc4ff;
   --q-command: #35e04f;
   --q-arg: #f2c14e;
+  --q-format: #d49cff;
   --q-sep: #5d6b61;
 }
 @media (prefers-color-scheme: light) {
@@ -91,17 +92,18 @@ nav a:hover { color: var(--text); }
 
 /* Query */
 .query {
-  margin: 56px auto 0; max-width: 640px; text-align: left;
+  margin: 56px auto 0; max-width: 820px; text-align: left;
   background: var(--code-bg); border: 1px solid #1c2a20; border-radius: 14px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
 }
 .query .bar { display: flex; gap: 6px; padding: 12px 14px; border-bottom: 1px solid #1c2a20; }
 .query .bar i { width: 10px; height: 10px; border-radius: 50%; background: #26352a; }
-.query pre { margin: 0; padding: 20px 22px; font-size: clamp(14px, 2.4vw, 18px); color: #e6ede7; overflow-x: auto; }
-.q-r { color: var(--q-resource); } .q-c { color: var(--q-command); } .q-a { color: var(--q-arg); } .q-s { color: var(--q-sep); }
-.legend { display: flex; flex-wrap: wrap; gap: 18px; padding: 0 22px 18px; font-size: 13px; color: #93a297; }
+.query pre { margin: 0; padding: 20px 22px; font-size: clamp(14px, 1.9vw, 17px); color: #e6ede7; white-space: normal; }
+.query .seg { white-space: nowrap; }
+.q-r { color: var(--q-resource); } .q-c { color: var(--q-command); } .q-a { color: var(--q-arg); } .q-f { color: var(--q-format); } .q-s { color: var(--q-sep); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 0 22px 18px; font-size: 13px; color: #93a297; }
 .legend span::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; background: currentColor; }
-.legend .l-r { color: var(--q-resource); } .legend .l-c { color: var(--q-command); } .legend .l-a { color: var(--q-arg); }
+.legend .l-r { color: var(--q-resource); } .legend .l-c { color: var(--q-command); } .legend .l-a { color: var(--q-arg); } .legend .l-f { color: var(--q-format); }
 
 /* Pillars */
 .pillars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; padding: 24px 0 72px; }
@@ -164,7 +166,7 @@ footer a:hover { color: var(--text); }
     <div class="wrap">
       <img class="logo" src="images/logo.png" alt="Liquers logo" width="792" height="417">
       <h1>Liquers</h1>
-      <p class="tagline">Name computations with queries. Every result is cached, stored and served by its query, with commands written in Rust, Python or JavaScript.</p>
+      <p class="tagline">Make derived data addressable. Every result has a short, URL-compatible name that says how to produce it.</p>
       <div class="actions">
         <a class="btn primary" href="#docs">Documentation</a>
         <a class="btn" href="https://github.com/orest-d/liquers">
@@ -175,8 +177,8 @@ footer a:hover { color: var(--text); }
 
       <div class="query" role="figure" aria-label="An example query">
         <div class="bar"><i></i><i></i><i></i></div>
-        <pre class="mono"><span class="q-r">-R/data/sales.csv</span><span class="q-s">/-/</span><span class="q-c">ns-pl</span><span class="q-s">/</span><span class="q-c">head</span><span class="q-s">-</span><span class="q-a">10</span></pre>
-        <div class="legend"><span class="l-r">resource</span><span class="l-c">command</span><span class="l-a">argument</span></div>
+        <pre class="mono"><span class="seg"><span class="q-r">-R/data/sales.csv</span></span><wbr><span class="seg"><span class="q-s">/-/</span><span class="q-c">ns-rec</span></span><wbr><span class="seg"><span class="q-s">/</span><span class="q-c">to_record</span></span><wbr><span class="seg"><span class="q-s">/</span><span class="q-c">eq</span><span class="q-s">-</span><span class="q-a">region</span><span class="q-s">-</span><span class="q-a">EU</span></span><wbr><span class="seg"><span class="q-s">/</span><span class="q-c">sort</span><span class="q-s">-</span><span class="q-a">month</span></span><wbr><span class="seg"><span class="q-s">/</span><span class="q-f">report.html</span></span><wbr></pre>
+        <div class="legend"><span class="l-r">data</span><span class="l-c">command</span><span class="l-a">argument</span><span class="l-f">output format</span></div>
       </div>
     </div>
   </section>
@@ -185,18 +187,18 @@ footer a:hover { color: var(--text); }
     <div class="pillars">
       <div class="pillar">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h10M4 17h6"/><path d="M17 15l3 3-3 3"/></svg>
-        <h3>Queries</h3>
-        <p>A path of data and commands that names a result.</p>
+        <h3>One string, four roles</h3>
+        <p>A query is a recipe, a link, a cache key and a provenance record.</p>
       </div>
       <div class="pillar">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.66 3.58 3 8 3s8-1.34 8-3V6"/><path d="M4 12v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6"/></svg>
-        <h3>Assets</h3>
-        <p>Results are cached and stored; the same query, the same result.</p>
+        <h3>Results that stay fresh</h3>
+        <p>Cached with their dependencies, reused while valid, recomputed when not.</p>
       </div>
       <div class="pillar">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6l-6 6 6 6M16 6l6 6-6 6"/></svg>
-        <h3>Rust, Python, Web</h3>
-        <p>One core, used from Rust, Python or a browser page.</p>
+        <h3>Runs where it is needed</h3>
+        <p>The same commands serve over HTTP, run in a browser, a desktop app or Python.</p>
       </div>
     </div>
   </div>
@@ -204,18 +206,18 @@ footer a:hover { color: var(--text); }
   <section class="docs" id="docs">
     <div class="wrap">
       <h2>Documentation</h2>
-      <p class="sub">Three user guides with the same chapters, and the API reference of each language.</p>
+      <p class="sub">A user guide and an API reference for each language.</p>
 
       <div class="group">
         <h3>User guides</h3>
         <div class="cards">
-          <a class="card" data-soon href="guides/rust/index.html">
-            <span class="lang"><b>Rs</b>Liquers for Rust</span>
-            <p>Building on the crates: commands, value types, stores and servers.</p>
-          </a>
           <a class="card" data-soon href="guides/python/index.html">
             <span class="lang"><b>Py</b>Liquers for Python</span>
             <p>The <code>liquers</code> package, for data work and Python services.</p>
+          </a>
+          <a class="card" data-soon href="guides/rust/index.html">
+            <span class="lang"><b>Rs</b>Liquers for Rust</span>
+            <p>Building on the crates: commands, value types, stores and servers.</p>
           </a>
           <a class="card" data-soon href="guides/web/index.html">
             <span class="lang"><b>JS</b>Liquers for the Web</span>
@@ -227,13 +229,13 @@ footer a:hover { color: var(--text); }
       <div class="group" id="api">
         <h3>API reference</h3>
         <div class="cards">
-          <a class="card" data-soon href="overview.html#api-reference">
-            <span class="lang"><b>Rs</b>Rust API</span>
-            <p>Every crate, from <code>liquers-core</code> to <code>liquers-lib</code>.</p>
-          </a>
           <a class="card" data-soon href="api/python/liquers.html">
             <span class="lang"><b>Py</b>Python API</span>
             <p>The <code>liquers</code> package.</p>
+          </a>
+          <a class="card" data-soon href="overview.html#api-reference">
+            <span class="lang"><b>Rs</b>Rust API</span>
+            <p>Every crate, from <code>liquers-core</code> to <code>liquers-lib</code>.</p>
           </a>
           <a class="card" data-soon href="api/js/index.html">
             <span class="lang"><b>JS</b>JavaScript API</span>
