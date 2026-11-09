@@ -3,7 +3,7 @@ title: Using Liquers from Python
 kind: guide
 audience: user
 area: [py]
-reviewed: 2026-11-05
+reviewed: 2026-11-09
 ---
 # Using Liquers from Python
 
@@ -1224,15 +1224,10 @@ What you will notice; the complete list, with the tracking issues, is
 
 | Date | Change | Source |
 |---|---|---|
-<<<<<<< HEAD
+| 2026-11-09 | History: removed merge-conflict markers left between the rows of 2026-11-04 and 2026-11-05. The user guide *Liquers for Python* (`docs/guides/python/`) is now written from this guide, and `test_GUIDE_examples.py` runs its examples too. | Python user guide |
 | 2026-11-04 | §6 Pipelines: `evaluate` of a pipeline, `lq.Pipeline` and `to_query`, the editors, `pipeline_command`; §2 the new names. | `design/liquers-py-pipelines/` |
-=======
-<<<<<<< HEAD
->>>>>>> py-templates-local
 | 2026-11-04 | §6 Templates: `render`, `expand`, `validate_template`, `template_command`, `lq.link`; §2 the new names. | `design/liquers-py-templates/` |
-=======
 | 2026-11-05 | §7: cancelling an awaited read cancels it only for `env.data_node`. | phase-5, `design/liquers-py-data-nodes/` |
->>>>>>> py-data-nodes-local
 | 2026-11-04 | §7 Reading data field by field: `lq.data_node`, the `__liquers_data__` opt-in, states read in place, async folder reads. | `design/liquers-py-data-nodes/` |
 | 2026-11-02 | The generated API reference: where it is published and how to build it. | design `py-api-reference` |
 | 2026-11-01 | §1 Installing: from source until the first release, then pip; the extras and where they install nothing; §7 Records (views, `fields=`, buffers, pyarrow/pandas/polars, sources); §9 Type checking; §10 updated. | `design/liquers-py-records/`, `design/liquers-py-package/`, `design/liquers-py-stubs/` (phase-5) |

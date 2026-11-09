@@ -6,3 +6,4 @@ have a row here (`specs/guides/USER_DOCS_EDITING_GUIDE.md`, maintenance).
 | Date | Chapter | Change |
 |---|---|---|
 | 2026-11-01 | (all) | skeleton created, every chapter `outline` |
+| 2026-11-09 | a-query-syntax.md | includes the new shared fragment `_shared/query-syntax.md`; still `outline` |

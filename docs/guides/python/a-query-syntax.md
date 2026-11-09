@@ -1,16 +1,31 @@
 ---
 title: Query syntax
-status: outline
-sources: [reference/PROJECT_OVERVIEW.md, guides/QUERY_ESCAPING_GUIDE.md, reference/PIPELINES.md]
-reviewed:
+status: draft
+sources: [reference/PROJECT_OVERVIEW.md, reference/RECIPES_AND_PLANS.md, guides/QUERY_ESCAPING_GUIDE.md, reference/PIPELINES.md]
+reviewed: 2026-11-09
 ---
 # A. Query syntax
 
 PURPOSE: A reference for the query notation, the same in every guide.
 
-TBD: The syntax table: segments, headers, actions, arguments and escapes in one table.
-SOURCE: reference/PROJECT_OVERVIEW.md
-TBD: Escapes: the escape sequences.
-SOURCE: guides/QUERY_ESCAPING_GUIDE.md
-EDITOR: the Query Language section of reference/PROJECT_OVERVIEW.md has relative links, so ns-docs/include refuses it; give it a link-free syntax subsection and include that, rather than copying the text here.
-TBD: Segment header names are realms; the pipeline form of a query. Not yet available in this binding.
+This appendix collects the notation of queries in one place. Chapter 3 introduces it step by
+step.
+
+{{> ../_shared/query-syntax.md}}
+
+## A.6 Pipelines in Python
+
+A pipeline is a query written as data (chapter 3). In Python it is a list of steps. Each step is
+one of:
+
+| Step | Meaning |
+|---|---|
+| a `str` | query text, one or more actions or a resource segment |
+| `{"action": name, "arguments": {name: value}}` | an action with arguments by name; a value can be any JSON-like data |
+| `{"action": name, "parameters": [value, …]}` | an action with arguments by position |
+| `{"placeholder": name}` in place of a value | an argument of a pipeline command (chapter 5) |
+
+`lq.Pipeline(steps)` wraps such a list, `lq.Pipeline.from_query(text)` makes one from a query,
+and `pipeline.to_query(env)` turns it back when every argument can be written as text.
+
+TBD: Realms: the name in a transform segment's header (`-<realm>/…`) selects the realm in which the commands are looked up. Describe once the Python decorators can set a realm.
