@@ -205,8 +205,13 @@ assert len(source.materialize()) == 3                              # everything,
 env.shutdown()
 ```
 
-Iterating reads one chunk per step, so memory holds one chunk at a time. Each chunk is the
-result of a query, and so each chunk is cached and tracked like any other result. In async code,
+Iterating reads one chunk per step, so your program never needs the whole table at once. Each
+chunk is the result of a query, and so each chunk is cached and tracked like any other result.
+That has a consequence for memory: with the default settings, the environment keeps every chunk
+it has computed, so that a second pass does not compute them again. For a table that really
+does not fit into memory, turn that off with
+`lq.Environment(config={"assets": {"query_cache_strategy": "none"}})`. Each chunk is then
+released when you move on, and computed again if you ask for it a second time. In async code,
 use `async for chunk in source` and `await source.chunk_async(i)`.
 
 A manifest is more often a file than a command: a file named `<name>.manifest.yaml` in the
