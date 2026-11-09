@@ -16,5 +16,7 @@ GitHub Pages.
 Chapters are Liquers templates expanded by `liquers-docs`, then rendered by mdBook (HTML) and
 Pandoc (EPUB, PDF). How to write and maintain them: `specs/guides/USER_DOCS_EDITING_GUIDE.md`.
 How to build them: `bash scripts/build-docs.sh` (or `cargo run -p liquers-docs -- check`).
+How the site is deployed, and how to maintain and extend it and its landing page:
+`specs/guides/PROJECT_SITE_GUIDE.md`.
 
 This folder is not under `specs/`: it is written for users, and nothing in it links into `specs/`.

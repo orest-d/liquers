@@ -206,6 +206,15 @@ if [ "$VERIFY" = 1 ]; then
             expect "$target"
         done < <(grep -o '](api/[^)#]*' "$ROOT/docs/index.md" | sed 's/^](//')
     fi
+    # Every page the landing page links to, "coming soon" cards included, so removing a card's
+    # data-soon never exposes a broken link. Links into api/ only when the API was built.
+    while read -r target; do
+        case "$target" in
+            api/*) [ "$SKIP_API" = 0 ] && expect "$target" ;;
+            *) expect "$target" ;;
+        esac
+    done < <(grep -o 'href="[^"#]*' "$ROOT/docs/site/index.html" | sed 's/^href="//' \
+        | grep -v -e '^[a-z]*:' -e '/$' -e '^$' | sort -u)
     if [ "$missing" = 1 ]; then
         exit 1
     fi

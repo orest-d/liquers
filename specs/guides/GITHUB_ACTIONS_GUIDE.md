@@ -61,8 +61,9 @@ Job `build`, on every trigger:
 3. `scripts/build-docs.sh`: a draft build on pull requests, a release build (`--release`) on
    `main`.
 4. *Verify outputs* (`build-docs.sh --verify-only`): every guide has its online HTML with a search
-   index, an offline zip without one, an EPUB and a PDF; and every `api/...` page the home page
-   links exists.
+   index, an offline zip without one, an EPUB and a PDF; every `api/...` page the home page
+   links exists; and every page the landing page links to exists, its "coming soon" cards
+   included.
 5. Uploads the site: as the `docs-site` artifact on pull requests (download it from the run's
    summary page and open `index.html`), or as the Pages artifact on `main`.
 
@@ -104,7 +105,7 @@ npm is not implemented yet; it gets a design and a section here when it is.
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-11-09 | §2: the landing page (`docs/site/`) is the site's `index.html`; the home page moves to `overview.html`. | landing page PR |
+| 2026-11-09 | §2: the landing page (`docs/site/`) is the site's `index.html`; the home page moves to `overview.html`; *Verify outputs* checks the landing page's links. Maintaining the site as a whole: [`PROJECT_SITE_GUIDE.md`](PROJECT_SITE_GUIDE.md). | PR #266 |
 | 2026-11-03 | §1: `build-matrix.yml`'s `rustdoc` job; `docs-check.yml` runs `check_api_docs.py` and triggers on source files. | `design/api-documentation-rules/` |
 | 2026-11-03 | §1: `liquers-py-package.yml` and `liquers-py-release.yml`, merged from `main`; §4 PyPI points to them. | merge of `design/liquers-py-package` |
 | 2026-11-02 | §1, §2: the site carries every API reference (all crates, Python, JavaScript); its layout, the new setup steps and the home-page link check. | `design/user-documentation-guides` (phase-4 addendum) |

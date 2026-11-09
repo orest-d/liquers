@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 216
+Total rows: 217
 - P2: 62
-- P3: 154
+- P3: 155
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -178,6 +178,7 @@ Total rows: 216
 | [`WEB-QUERY-EDITOR-NOT-LIVE`](issues/WEB-QUERY-EDITOR-NOT-LIVE.md) | feature | The browser query console checks and highlights a query only when it re-renders, not while typing | draft | needs-decision | not-eligible | P3 | M | lib/ui | [design](design/web-query-editor-live-preview/DESIGN.md) | 2026-10-21 |
 | [`WORKSPACE-NOT-RUSTFMT-CLEAN`](issues/WORKSPACE-NOT-RUSTFMT-CLEAN.md) | issue | The workspace is not rustfmt-clean, so formatting drift hides in every diff | draft | needs-decision | not-eligible | P3 | M | build;docs | [design](design/workspace-rustfmt-check/DESIGN.md) | 2026-08-29 |
 | [`AGENT-MEMORY-HAS-NO-MIGRATE-COMMAND`](issues/AGENT-MEMORY-HAS-NO-MIGRATE-COMMAND.md) | feature | Agent memory schema changes are applied by hand, with no migrate command | draft |  |  | P3 | M | lib/commands | [brainstorm](design/agent-memory-mvp/brainstorm-workflow-improvements.md)  [execution](design/agent-memory-mvp/execution-plan.md)  [interfaces](design/agent-memory-mvp/interfaces-and-mcp.md)  [memory](design/agent-memory-mvp/memory-systems-survey.md)  [migration](design/agent-memory-mvp/migration-guide-draft.md)  [phase1](design/agent-memory-mvp/phase1-high-level-design.md)  [phase2](design/agent-memory-mvp/phase2-architecture.md)  [phase3](design/agent-memory-mvp/phase3-examples.md)  [phase4](design/agent-memory-mvp/phase4-implementation.md)  [phase5](design/agent-memory-mvp/phase5-documentation.md)  [service](design/agent-memory-mvp/service-specification.md)  [template](design/agent-memory-mvp/template-language-evaluation.md)  [tiers](design/agent-memory-mvp/tiers-and-storage.md)  [workbench](design/agent-memory-mvp/workbench-direction.md)  [workflow](design/agent-memory-mvp/workflow-porting.md)  | 2026-10-17 |
+| [`DOCS-SITE-HAS-NO-PER-RELEASE-VERSIONS`](issues/DOCS-SITE-HAS-NO-PER-RELEASE-VERSIONS.md) | feature | The documentation site publishes only the latest main, with no documentation per release | draft |  |  | P3 | M | docs;build |  | 2026-11-09 |
 | [`LIQUERS-DOCS-HAS-NO-LIVE-PREVIEW`](issues/LIQUERS-DOCS-HAS-NO-LIVE-PREVIEW.md) | feature | liquers-docs is not an mdBook preprocessor, so there is no live preview | draft |  |  | P3 | M | docs |  | 2026-11-01 |
 | [`MARKDOWN-CODE-BLOCKS-FRONT-MATTER-AND-BACKLINKS-ARE-NOT-COMMANDS`](issues/MARKDOWN-CODE-BLOCKS-FRONT-MATTER-AND-BACKLINKS-ARE-NOT-COMMANDS.md) | feature | Fenced blocks, front matter, folders and incoming links cannot be read with ns-md | draft |  |  | P3 | M | lib/commands |  | 2026-11-01 |
 | [`MCP-SERVER-APPLIES-NO-ACCESS-POLICY`](issues/MCP-SERVER-APPLIES-NO-ACCESS-POLICY.md) | feature | The MCP server limits its query tool by a command allow-list, not by an access policy | draft |  |  | P3 | M | mcp |  | 2026-10-20 |

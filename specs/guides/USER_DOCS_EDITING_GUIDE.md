@@ -190,6 +190,6 @@ artifact of its `docs-site` run.
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-11-09 | §1: `docs/site/`, the landing page; the home page is published as `overview.html`. | landing page PR |
+| 2026-11-09 | §1: `docs/site/`, the landing page (maintained under [`PROJECT_SITE_GUIDE.md`](PROJECT_SITE_GUIDE.md)); the home page is published as `overview.html`. | PR #266 |
 | 2026-11-02 | §8: the API references the build adds, their tools, and the home page's link per crate. | `design/user-documentation-guides` (phase-4 addendum) |
 | 2026-11-01 | Created: layout, chapter format, style, markers, includes, tool-neutral rule, maintenance, building. | `design/user-documentation-guides` (phase-5) |
