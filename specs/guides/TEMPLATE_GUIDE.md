@@ -3,7 +3,7 @@ title: Template Guide
 kind: guide
 audience: internal
 area: [core/query, lib/commands]
-reviewed: 2026-10-17
+reviewed: 2026-11-04
 ---
 # Template Guide
 
@@ -96,6 +96,10 @@ metadata is a dependency too. The arguments after the head line up with `render`
 `template_command_alias_renders` and `template_command_invalidates_on_template_edit` in
 `liquers-lib/tests/template_commands.rs`.
 
+From Python the same declaration is one call, `env.template_command("open_issues",
+template="-R/templates/open_issues.md", label="Open issues")`, kept across rebuilds of the
+environment (`PYTHON_GUIDE.md` §Templates).
+
 Write a template command rather than a Rust one when the result is text assembled from other
 queries; write Rust when it computes.
 
@@ -111,9 +115,28 @@ stack.push(AnyNode::from_json(serde_json::json!({"name": "world"})), FrameKind::
 let text = render(&template, stack, &MapHost::new(), &RenderOptions::default()).await?;
 ```
 
-`MapHost` holds partials and refuses queries. Inside a command use `template::ContextHost::new(context,
-cwd)`, which evaluates queries through the command's `Context` (as `render` does). Another host
-implements `TemplateHost`: `evaluate`, `partial`, `command_registry` (to name overrides) and `warn`.
+`MapHost` holds partials and refuses queries. With an environment, use the Liquers host through
+one function, inside a command or at the top level of a program:
+
+```rust
+use liquers_lib::template::{render_in_context, render_top_level, ErrorMode, FrameData, FrameKind,
+    RenderRequest, TemplateSource};
+
+let request = RenderRequest {
+    template: TemplateSource::Link(parse_query("-R/templates/page.md")?),
+    frames: vec![(FrameData::State(state), FrameKind::Data)],
+    errors: ErrorMode::Strict, cwd: parse_key("templates")?, html_escape: false,
+};
+// In a command: let rendered = render_in_context(context, request).await?;
+let render = render_top_level(&envref, request)?;   // a closure asset; parse errors fail here
+let asset = render.asset().clone();                 // to cancel it
+let rendered = render.run().await?;                 // Some(Rendered { text, warnings })
+```
+
+Both evaluate queries through a `Context` (`template::ContextHost`), so query tags are
+dependencies, recovered errors come back as positioned warnings, and the `ns-template` commands give
+the same text. Another host implements `TemplateHost`: `evaluate`, `partial`, `command_registry`
+(to name overrides) and `warn`.
 
 ## 5. Making a value readable by templates
 
@@ -124,6 +147,8 @@ to return a node that reads in place: `AnyNode::Sync` with a `DataNode` when the
 the value from `as_any` when a host should pass it on as itself. The default is a JSON snapshot,
 or opaque. Examples: `liquers-records/src/data_node.rs`, `liquers-lib/src/polars/data_node.rs`,
 `liquers-lib/src/template/folder.rs`.
+A language integration does the same for its retained objects through `ForeignValue::data_node`:
+`liquers-py` reads a Python `dict` in place (`liquers-py/src/data_node.rs`).
 
 ## 6. Adding a syntax
 
@@ -135,6 +160,9 @@ stack, query templates, hosts and error modes are shared.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | §3: the Python form of a template command (`env.template_command`). | `design/liquers-py-templates/` |
+| 2026-11-04 | §5: a retained language object reads in place through `ForeignValue::data_node` (liquers-py). | `design/liquers-py-data-nodes/` |
+| 2026-11-04 | §4: `render_in_context` and `render_top_level` with frames given directly. | `design/template-render-in-env/` |
 | 2026-10-17 | Volatility advice relaxed: a volatile query in a template makes the render volatile by itself. | `design/runtime-volatility` |
 | 2026-10-17 | Corrected the volatility advice: `v` goes before the render action; a trailing `/v` serves the cached render. | `RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE` |
 | 2026-10-17 | Created: writing and validating templates, `render` and `expand`, template commands, rendering from Rust, data nodes, adding a syntax. | `design/liquers-mustache/` |

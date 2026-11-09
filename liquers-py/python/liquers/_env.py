@@ -20,7 +20,7 @@ def default_environment() -> Environment:
 
 
 def evaluate(query: Any) -> Any:
-    """Evaluates ``query`` in the default environment and returns its value."""
+    """Evaluates ``query`` (a query, or a pipeline) in the default environment and returns its value."""
     return default_environment().evaluate(query)
 
 

@@ -152,6 +152,24 @@ template/validate(state)
 A **template command** is an alias of `template/render` whose head parameter is the template link
 ([`COMMAND_ALIASES.md`](COMMAND_ALIASES.md); worked example in the guide).
 
+### Rendering from Rust
+
+`render` and `expand` build a `RenderRequest` and call `template::render_in_context(context,
+request) -> Rendered`, which a language integration calls too, so there is one render.
+`RenderRequest` holds the template (`TemplateSource::Text`, or `Link(query)`, read as a dependency,
+relative to `cwd`), the frames bottom first (`FrameData::State`, read through
+`ContextHost::node_of`, or `FrameData::Node`, each with its `FrameKind`), the `ErrorMode`, `cwd`
+and `html_escape`. `Rendered` is the text and one warning `LogEntry` per recovered error, with its
+template position; the same entries are in the asset's log.
+
+At the top level, outside any command, `template::render_top_level(&envref, request)` parses text
+at once (a parse error fails with no asset), then makes a closure asset
+(`AssetManager::closure_asset`, [`ASSETS.md`](ASSETS.md) §Closure assets) and returns a
+`TopLevelRender`. Its `asset()` is what a caller clones to cancel the render; `run()` (native) or
+`run_inline()` renders in the asset's context, so query tags are dependencies of that asset, and
+returns `Ok(Some(rendered))`, `Ok(None)` when it was cancelled before it started, or the error. The
+asset ends `Ready` holding the text; it is not keyed and never stored.
+
 ## 5. Evaluation
 
 `template::ContextHost` evaluates a query tag:
@@ -209,6 +227,7 @@ positions of §2; `QueryTemplate::try_into_query` succeeds exactly when it has n
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | §Rendering from Rust: `render_in_context` and `render_top_level`; warnings carry their template position. | `design/template-render-in-env/` |
 | 2026-11-04 | Slots are checked with the shared `escape::is_*` token predicates; structured values for earlier actions go through a recipe pipeline. | phase-5, `design/composite-command-definition/` |
 | 2026-10-17 | Volatility of the template's queries now makes the render volatile; the `v/` advice is removed. | `design/runtime-volatility` |
 | 2026-10-17 | `_meta`, exact large integers, apply inputs keep their type, a failed ad-hoc query's dependencies (PR #139 review). | `design/liquers-mustache/` |

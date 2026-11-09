@@ -22,7 +22,8 @@ parameter, plus the keyword arguments as the author's *declaration*. Rust runs t
 
 A keyword-only parameter or ``**kwargs`` has no place in a positional query, so it is refused with
 ``TypeError`` naming the parameter; ``context`` after ``*args`` is keyword-only too, and is refused
-the same way. A default must be ``None``, a ``str``, an ``int``, a finite ``float`` or a ``bool``.
+the same way. A default must be ``None``, a ``str``, an ``int``, a finite ``float``, a ``bool``,
+or ``lq.link(query)``: a default link, the value of ``query`` when the argument is not written.
 The function is returned unchanged.
 """
 
@@ -36,11 +37,11 @@ import warnings
 from collections.abc import Callable
 from typing import Any
 
-from liquers._native import Environment
+from liquers._native import Environment, Link
 
 _SIMPLE_TYPES = {str: "string", int: "int", float: "float", bool: "bool"}
 _OPTIONAL_TYPES = {int: "int_opt", float: "float_opt", bool: "bool_opt"}
-_DEFAULT_TYPES = (str, int, float, bool)
+_DEFAULT_TYPES = (str, int, float, bool, Link)
 
 
 def _argument_type(annotation: Any) -> str:
@@ -122,7 +123,7 @@ def _baseline(
             if default is not None and not isinstance(default, _DEFAULT_TYPES):
                 raise TypeError(
                     f"command {name!r}: the default of {parameter.name!r} must be None, a str, "
-                    f"int, float or bool, not {type(default).__name__}"
+                    f"int, float, bool or lq.link(...), not {type(default).__name__}"
                 )
             if isinstance(default, float) and not math.isfinite(default):
                 raise TypeError(

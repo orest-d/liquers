@@ -24,36 +24,32 @@
 //!
 //! # Main components
 //!
-//! - [`LazyLoopPool`]: the environment's loops, started by the first `async def` command.
-//! - [`awaitable`]: a core future as an `asyncio.Future` of the caller's loop.
-//! - [`check_blocking_call`]: refuses a blocking call on a liquers-owned loop thread.
-//! - [`Shut`]: the handle's shut flag, which ends a wait outstanding at `shutdown()`.
+//! - [`LazyLoopPool`]: the event loops `async def` commands run on.
+//! - [`awaitable`]: a core future as an `asyncio` awaitable; [`ToPy`] converts what it resolves
+//!   to, one variant per result kind (a value, a state, an awaited `DataNode` read, a render).
+//! - [`Shut`]: an environment's shut signal; [`check_blocking_call`]: the blocking-call rule.
 //!
 //! # Where it is used
 //!
-//! - `Environment.evaluate_async` and the other `_async` methods (`environment.rs`).
-//! - The command adapter, which runs an `async def` command on a pool loop (`command.rs`).
-//! - `Server.shutdown` and `shutdown_async` (`server.rs`); `tests/test_ASYNC_loops.py`.
+//! - Every `_async` method (`environment.rs`, `context.rs`, `asset.rs`, `store.rs`,
+//!   `data_node.rs`), and `command.rs` for `async def` commands.
+//! - `Server.shutdown` refuses a loop thread; `Server.shutdown_async` (`server.rs`).
 //!
 //! # Related concepts
 //!
-//! - [`crate::runtime`] is the tokio runtime core futures run on; this module bridges it to asyncio.
-//! - [`crate::exit`] waits for liquers-owned threads at interpreter exit; the pool's own hook stops
-//!   the loops (and, first, the servers).
+//! - `closure.rs`: the awaitable of a closure asset's run, which must not be dropped as a plain
+//!   future is.
+//! - `specs/reference/PYTHON_INTEGRATION.md` §7.
 //!
 //! # Examples
 //!
 //! ```python
-//! import asyncio, liquers as lq
-//! env = lq.Environment()
-//! @env.first_command
-//! async def slow(name: str = "world") -> str:
-//!     await asyncio.sleep(0)
-//!     return f"Hello, {name}!"
-//! assert asyncio.run(env.evaluate_async("slow-Ann")) == "Hello, Ann!"
+//! async def main():
+//!     return await env.evaluate_async("hello")   # an `awaitable`, resolved by `ToPy::Value`
+//! assert asyncio.run(main()) == "hello"
 //! ```
 //!
-//! More: `liquers-py/tests/test_ASYNC_loops.py`, `tests/test_ASYNCQ_evaluation.py`.
+//! Executed in `liquers-py/tests/test_ASYNCQ_*.py`.
 
 use std::cell::Cell;
 use std::future::Future;
@@ -188,6 +184,11 @@ pub(crate) enum ToPy {
     Next(Result<Option<Arc<dyn liquers_records::RecordView>>, Error>),
     /// A record view, as `lq.RecordView` whatever its shape (no single-cell rule).
     View(Result<Arc<dyn liquers_records::RecordView>, Error>),
+    /// An awaited read of an `lq.DataNode`.
+    Node(Result<crate::data_node::NodeAnswer, Error>),
+    /// An awaited render, and whether to return the full `lq.RenderResult`; `None` when the render
+    /// was cancelled before it started (`CancelledError`).
+    Rendered(Result<(Option<liquers_lib::template::Rendered>, bool), Error>),
 }
 
 impl<'py> IntoPyObject<'py> for ToPy {
@@ -241,6 +242,11 @@ impl<'py> IntoPyObject<'py> for ToPy {
                 Py::new(py, crate::records::view::RecordView::new(view))
                     .map(Py::into_any)
                     .map_err(|e| pyerr_to_error(py, &e))
+            }),
+            ToPy::Node(result) => result.and_then(|answer| answer.into_py(py)),
+            ToPy::Rendered(result) => result.and_then(|(rendered, full)| {
+                let rendered = rendered.ok_or_else(crate::template::not_started)?;
+                crate::template::rendered_to_py(py, rendered, full).map_err(|e| pyerr_to_error(py, &e))
             }),
             ToPy::ResourceNames(result) => result.and_then(|names| {
                 let names: PyResult<Vec<Py<crate::query::ResourceName>>> =

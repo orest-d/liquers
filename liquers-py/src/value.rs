@@ -4,6 +4,38 @@
 //! variants, DataFrames and images onto their `ExtValue` variants, and anything else is retained
 //! as an opaque [`PyObjectValue`] inside `ExtValue::Foreign` (`py.Object`), or refused in strict
 //! mode. See `specs/design/liquers-py/phase2-architecture.md` §Interfaces.
+//!
+//! # Main components
+//!
+//! - [`value_to_py`] / [`py_to_value`]: the two directions of the bridge.
+//! - [`ConversionMode`]: whether an object with no structural mapping is retained or refused.
+//! - [`PyObjectValue`]: a retained Python object (`py.Object`); [`py_type_info`] and
+//!   [`decode_pickle`]: its type entry and its optional pickle codec.
+//! - The wrapper classes cross as themselves: `lq.Query`, `lq.Key`, `lq.Recipe`, `lq.Pipeline`,
+//!   metadata and command metadata.
+//!
+//! # Where it is used
+//!
+//! - `command.rs`: a Python command's arguments and result.
+//! - `environment.rs`, `context.rs`, `asset.rs`: every value `evaluate` and its forms return,
+//!   and every value `store_set` writes.
+//!
+//! # Related concepts
+//!
+//! - `specs/reference/PYTHON_INTEGRATION.md` §5: the conversion table.
+//! - `records/convert.rs`: record views and sources, which have bridges of their own.
+//!
+//! # Examples
+//!
+//! Executed in `liquers-py/tests/test_PIPELINE_evaluate.py` and `test_VALUE_value_bridge.py`
+//! (a Rust doctest cannot start the interpreter):
+//!
+//! ```python
+//! @env.first_command
+//! def make():
+//!     return lq.Pipeline(top)
+//! assert env.evaluate("make") == lq.Pipeline(top)   # a pipeline value crosses as lq.Pipeline
+//! ```
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashSet};
@@ -121,6 +153,16 @@ impl ForeignValue for PyObjectValue {
     fn origin(&self) -> &'static str {
         "python"
     }
+    /// The object read in place (`data_node.rs`): standard types by the mapping table, other
+    /// classes only when they opt in with `__liquers_data__`.
+    fn data_node(self: Arc<Self>) -> liquers_core::data_node::AnyNode {
+        attach_off_worker(|py| {
+            liquers_core::data_node::AnyNode::Sync(Arc::new(crate::data_node::node_of(
+                py,
+                self.object.bind(py),
+            )))
+        })
+    }
     fn as_any(&self) -> &dyn core::any::Any {
         self
     }
@@ -187,7 +229,7 @@ impl ForeignValue for PyObjectValue {
 /// would stall every task queued behind that worker for as long as some Python thread holds it.
 /// `block_in_place` exists on a multi-thread runtime only, so on any other thread the GIL is
 /// simply taken.
-fn attach_off_worker<T>(f: impl for<'py> FnOnce(Python<'py>) -> T) -> T {
+pub(crate) fn attach_off_worker<T>(f: impl for<'py> FnOnce(Python<'py>) -> T) -> T {
     let on_worker = match tokio::runtime::Handle::try_current() {
         Ok(handle) => match handle.runtime_flavor() {
             tokio::runtime::RuntimeFlavor::MultiThread => true,
@@ -317,12 +359,8 @@ fn simple_to_py(py: Python<'_>, value: &SimpleValue) -> Result<Py<PyAny>, Error>
         ),
         SimpleValue::Query { value } => into_py(py, crate::query::Query(value.as_ref().clone()), "query"),
         SimpleValue::Key { value } => into_py(py, crate::query::Key(value.clone()), "key"),
-        // No Python class yet: a pipeline crosses as its serialized form, a dict.
         SimpleValue::Pipeline { value } => {
-            simple_to_py(
-                py,
-                &<SimpleValue as liquers_core::value::ValueInterface>::try_from_json_value(&value.to_json())?,
-            )
+            into_py(py, crate::pipeline::Pipeline(value.as_ref().clone()), "pipeline")
         }
     }
 }
@@ -422,6 +460,15 @@ pub fn py_to_value(
     }
 }
 
+/// The error of a Python `int` outside the 64-bit range, as conversion and a data node raise it.
+pub(crate) fn int_out_of_range_error(object: &Bound<'_, PyAny>) -> Error {
+    Error::conversion_error_with_message(
+        "int",
+        "I64",
+        &format!("{} is outside the 64-bit range", object),
+    )
+}
+
 /// A structural value, `None` when the object (or something inside it) has no structural form.
 ///
 /// `path` holds the identities of the containers being converted, so a container that contains
@@ -439,13 +486,9 @@ fn py_to_simple(
         return Ok(Some(SimpleValue::Bool { value: b.is_true() }));
     }
     if object.cast::<PyInt>().is_ok() {
-        let value = object.extract::<i64>().map_err(|_| {
-            Error::conversion_error_with_message(
-                "int",
-                "I64",
-                &format!("{} is outside the 64-bit range", object),
-            )
-        })?;
+        let value = object
+            .extract::<i64>()
+            .map_err(|_| int_out_of_range_error(object))?;
         return Ok(Some(SimpleValue::I64 { value }));
     }
     if let Ok(f) = object.cast::<PyFloat>() {
@@ -552,6 +595,9 @@ fn wrapper_to_simple(object: &Bound<'_, PyAny>) -> Option<SimpleValue> {
     }
     if let Ok(c) = object.extract::<crate::command_metadata::CommandMetadata>() {
         return Some(SimpleValue::CommandMetadata { value: std::sync::Arc::new(c.0) });
+    }
+    if let Ok(p) = object.cast::<crate::pipeline::Pipeline>() {
+        return Some(SimpleValue::Pipeline { value: std::sync::Arc::new(p.get().0.clone()) });
     }
     None
 }

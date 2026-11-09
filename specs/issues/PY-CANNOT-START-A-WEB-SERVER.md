@@ -48,4 +48,4 @@ foreground; requests use the current build without the GIL, a late registration 
 one rebuild, and servers stop first at `env.shutdown()` and at interpreter exit. Evidence:
 `liquers-py/tests/test_WEBSERV_server.py` (`WEBSERV01`–`05` and the rest). Python request handlers
 (`WEBSERV06`–`08`) stay open as `PY-WEB-SERVER-CANNOT-TAKE-PYTHON-HANDLERS`. Reference:
-`PYTHON_INTEGRATION.md` §14.
+`PYTHON_INTEGRATION.md` §17.

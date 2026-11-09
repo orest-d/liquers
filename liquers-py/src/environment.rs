@@ -29,39 +29,48 @@
 //! A wait is cut into short slices. Between two, `block_on` runs the pending signal handlers, so
 //! Ctrl-C raises `KeyboardInterrupt` in a waiting `evaluate`, and it checks the handle's shut
 //! flag, so a wait outstanding when `shutdown()` is called raises `CancelledError` instead of
-//! hanging on an asset manager that no longer runs. Leaving a wait does not cancel the asset.
+//! hanging on an asset manager that no longer runs. Leaving the wait for a query does not cancel
+//! its asset, which others may share; a pipeline's or a render's asset is private to the call, so
+//! leaving that wait cancels it (`closure.rs`).
 //!
 //! # Main components
 //!
-//! - `Environment` (`lq.Environment`): `evaluate`, `store_set`, the decorators, `serve`.
-//! - [`EnvCell`]: the retained declarations and the current build, shared with the servers.
-//! - [`crate::config::PyConfig`]: what `config=` and the keywords resolve to.
+//! - [`Environment`] (`lq.Environment`): evaluation of queries and pipelines, the store, command
+//!   registration, renders (`render`, `expand`, `validate_template`, `template_command`),
+//!   pipelines (`pipeline_command`, `pipeline_editor`, `query_editor`), data nodes, shutdown.
+//! - [`to_evaluable`], [`evaluate_evaluable`], [`pipeline_recipe`]: what `evaluate` takes, and how
+//!   a pipeline runs (a pipeline-only recipe through `apply_queued`).
+//! - [`EnvCell`]: the retained declarations, the lazy build and the rebuild, and the current
+//!   build the servers read.
+//! - [`crate::config::PyConfig`]: what `config=` and the keywords resolve to; `serve` starts a
+//!   server over the environment (`server.rs`).
+//! - [`block_on`]: the sliced, GIL-free wait every blocking call uses.
 //!
 //! # Where it is used
 //!
-//! - The `liquers` package's default environment (`python/liquers/_env.py`).
+//! - Every Python entry point that needs an environment: `lq.Environment`, the default
+//!   environment of `python/liquers/_env.py`, and the factories of `store/` and
+//!   `recipe_provider.rs`.
 //! - [`crate::server::CellSource`], which answers HTTP requests from the current build.
-//! - Every test under `liquers-py/tests/`.
 //!
 //! # Related concepts
 //!
-//! - `liquers_lib::environment::DefaultEnvironment` is the frozen Rust environment one build makes;
-//!   this handle rebuilds it when a declaration arrives late.
+//! - `command.rs` and `declared.rs`: the commands the declarations hold.
+//! - `template.rs`, `closure.rs`: the top-level render and its wait.
 //! - [`crate::config`] parses the configuration document; this module applies it.
+//! - `specs/reference/PYTHON_INTEGRATION.md` §3.
 //!
 //! # Examples
 //!
 //! ```python
-//! import liquers as lq
-//! env = lq.Environment(config={"python": {"pickle": False}})
-//! @env.first_command
-//! def greet(name: str = "world") -> str:
-//!     return f"Hello, {name}!"
-//! assert env.evaluate("greet-Ann") == "Hello, Ann!"
+//! env = lq.Environment()
+//! env.store_set("templates/greet.md", "Hello, {{.}}!")
+//! env.template_command("greeting", template="-R/templates/greet.md")
+//! assert env.render(lq.parse("-R/templates/greet.md"), state="Ann") == "Hello, Ann!"
 //! env.shutdown()
 //! ```
 //!
-//! More: `liquers-py/tests/test_ENVIRON_environment.py`, `docs/guides/python/08-environment.md`.
+//! Executed in `liquers-py/tests/test_ENVIRON_*.py` and `test_TEMPLATE_*.py`.
 
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, RwLock};
@@ -124,6 +133,9 @@ struct Declarations {
     specs: Vec<PyCommandSpec>,
     /// Keys `unregister` removed, applied after the built-ins so a built-in stays removed.
     unregistered: Vec<CommandKey>,
+    /// Commands defined by declaration (template commands), in registration order; at most one
+    /// per key, and never a key a Python command has.
+    declared: Vec<crate::declared::DeclaredCommand>,
     /// Command metadata from `import_metadata`, applied last, so it can describe any command.
     imported: Vec<CommandMetadata>,
     /// Python store types, in registration order (`register_store_factory`).
@@ -173,6 +185,7 @@ impl EnvCell {
                 retired: Vec::new(),
                 specs: Vec::new(),
                 unregistered: Vec::new(),
+                declared: Vec::new(),
                 imported,
                 store_types: Vec::new(),
                 recipe_types: Vec::new(),
@@ -284,6 +297,9 @@ impl EnvCell {
         for spec in &declarations.specs {
             register_py_command(&mut builder.command_registry, spec)?;
         }
+        for declared in &declarations.declared {
+            declared.apply(&mut builder.command_registry)?;
+        }
         let issues = apply_imported(&mut builder.command_registry, &declarations.imported);
         Ok((builder, issues))
     }
@@ -387,6 +403,8 @@ impl EnvCell {
         refuse_if_shut(&declarations)?;
         let replaced = if declarations.specs.iter().any(|s| s.key == spec.key) {
             Replaced::Python
+        } else if declarations.declared.iter().any(|d| d.key() == &spec.key) {
+            Replaced::Declared
         } else if !declarations.unregistered.contains(&spec.key)
             && builtin_keys()?.contains(&spec.key)
         {
@@ -395,6 +413,7 @@ impl EnvCell {
             Replaced::Nothing
         };
         take_specs(&mut declarations.specs, &spec.key, &mut removed);
+        declarations.declared.retain(|d| d.key() != &spec.key);
         declarations.unregistered.retain(|k| k != &spec.key);
         declarations.specs.push(spec);
         retire(self, &mut declarations)?;
@@ -410,7 +429,9 @@ impl EnvCell {
         let mut declarations = self.lock(py)?;
         refuse_if_shut(&declarations)?;
         take_specs(&mut declarations.specs, &key, &mut taken);
-        let removed = if !taken.is_empty() {
+        let declared_before = declarations.declared.len();
+        declarations.declared.retain(|d| d.key() != &key);
+        let removed = if !taken.is_empty() || declarations.declared.len() != declared_before {
             true
         } else if !declarations.unregistered.contains(&key) && builtin_keys()?.contains(&key) {
             declarations.unregistered.push(key);
@@ -422,6 +443,45 @@ impl EnvCell {
             retire(self, &mut declarations)?;
         }
         Ok(removed)
+    }
+
+    /// Declares a command (a template command), replacing any command under its key. The next
+    /// build is tried first: an error raises and leaves every declaration as it was.
+    pub(crate) fn declare(&self, py: Python<'_>, command: crate::declared::DeclaredCommand) -> Result<Replaced, Error> {
+        let key = command.key().clone();
+        let mut removed: Vec<PyCommandSpec> = Vec::new();
+        let mut declarations = self.lock(py)?;
+        refuse_if_shut(&declarations)?;
+        let replaced = if declarations.specs.iter().any(|s| s.key == key) {
+            Replaced::Python
+        } else if declarations.declared.iter().any(|d| d.key() == &key) {
+            Replaced::Declared
+        } else if !declarations.unregistered.contains(&key) && builtin_keys()?.contains(&key) {
+            Replaced::Builtin
+        } else {
+            Replaced::Nothing
+        };
+        let previous = declarations.declared.clone();
+        declarations.declared.retain(|d| d.key() != &key);
+        declarations.declared.push(command);
+        // A declared command is applied after the Python ones and replaces one with its key, so
+        // the trial needs no change to `specs`.
+        let trial = (|| {
+            let (mut builder, mut issues) = self.configured_builder(&declarations)?;
+            issues.append(builder.validate().clone());
+            match issues.short_summary("Command metadata") {
+                Some(summary) => Err(Error::configuration_error(summary)),
+                None => Ok(()),
+            }
+        })();
+        if let Err(error) = trial {
+            declarations.declared = previous;
+            return Err(error);
+        }
+        take_specs(&mut declarations.specs, &key, &mut removed);
+        declarations.unregistered.retain(|k| k != &key);
+        retire(self, &mut declarations)?;
+        Ok(replaced)
     }
 
     pub fn import_metadata(&self, py: Python<'_>, commands: Vec<CommandMetadata>) -> Result<(), Error> {
@@ -664,14 +724,93 @@ pub fn to_query(query: &Bound<'_, PyAny>) -> Result<liquers_core::query::Query, 
     }
 }
 
+/// Starts evaluating `evaluable`: a query as `EnvRef::evaluate`, a pipeline as a pipeline-only
+/// recipe through the job queue.
+pub(crate) async fn evaluate_evaluable(
+    envref: &EnvRef<PyEnvironment>,
+    evaluable: Evaluable,
+) -> Result<liquers_core::assets::AssetRef<PyEnvironment>, Error> {
+    match evaluable {
+        Evaluable::Query(query) => envref.evaluate(query).await,
+        Evaluable::Pipeline(pipeline) => {
+            envref
+                .get_asset_manager()
+                .apply_queued(pipeline_recipe(pipeline), liquers_core::state::State::new())
+                .await
+        }
+    }
+}
+
+/// `get_asset` takes queries only.
+fn refuse_pipeline(object: &Bound<'_, PyAny>) -> PyResult<()> {
+    if object.cast::<crate::pipeline::Pipeline>().is_ok()
+        || object.is_instance_of::<pyo3::types::PyList>()
+        || object.is_instance_of::<pyo3::types::PyTuple>()
+        || object.is_instance_of::<PyDict>()
+    {
+        return Err(pyo3::exceptions::PyTypeError::new_err(
+            "get_asset takes a query; a pipeline's asset is private to one evaluation (use evaluate)",
+        ));
+    }
+    Ok(())
+}
+
+/// What `evaluate` takes: a query, or a pipeline.
+pub(crate) enum Evaluable {
+    Query(liquers_core::query::Query),
+    Pipeline(liquers_core::pipeline::Pipeline),
+}
+
+/// A `str` or an `lq.Query` is a query; an `lq.Pipeline`, a list, a tuple or a dict is a pipeline.
+pub(crate) fn to_evaluable(py: Python<'_>, object: &Bound<'_, PyAny>) -> Result<Evaluable, Error> {
+    if object.is_instance_of::<PyString>() || object.cast::<crate::query::Query>().is_ok() {
+        return to_query(object).map(Evaluable::Query);
+    }
+    if object.cast::<crate::pipeline::Pipeline>().is_ok()
+        || object.is_instance_of::<pyo3::types::PyList>()
+        || object.is_instance_of::<pyo3::types::PyTuple>()
+        || object.is_instance_of::<PyDict>()
+    {
+        return crate::pipeline::pipeline_from_py(object)
+            .map(Evaluable::Pipeline)
+            .map_err(|e| pyerr_to_error(py, &e));
+    }
+    to_query(object).map(Evaluable::Query)
+}
+
+/// The recipe a pipeline evaluates as: the pipeline alone, with no query.
+pub(crate) fn pipeline_recipe(pipeline: liquers_core::pipeline::Pipeline) -> liquers_core::recipes::Recipe {
+    liquers_core::recipes::Recipe {
+        pipeline: Some(pipeline),
+        ..Default::default()
+    }
+}
+
 /// A JSON-compatible Python object (the decorator's documents) as JSON.
 pub(crate) fn py_to_json(py: Python<'_>, object: &Bound<'_, PyAny>) -> Result<serde_json::Value, Error> {
     let text = py
         .import("json")
-        .and_then(|json| json.call_method1("dumps", (object,)))
+        .and_then(|json| {
+            let options = PyDict::new(py);
+            options.set_item("default", wrap_pyfunction!(json_default, py)?)?;
+            json.call_method("dumps", (object,), Some(&options))
+        })
         .and_then(|dumped| dumped.extract::<String>().map_err(PyErr::from))
         .map_err(|e| pyerr_to_error(py, &e))?;
     serde_json::from_str(&text).map_err(|e| Error::general_error(format!("invalid declaration: {e}")))
+}
+
+/// `json.dumps`'s `default=` for the declaration documents: an `lq.Link` default becomes
+/// `{"Query": …}`; anything else is refused as `json` refuses it.
+#[pyfunction]
+fn json_default(object: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+    match object.cast::<crate::query::Link>() {
+        Ok(link) => link.call_method0("_declaration").map(Bound::unbind),
+        Err(_) => Err(pyo3::exceptions::PyTypeError::new_err(format!(
+            "Object of type {} is not JSON serializable",
+            object.get_type().name().map(|n| n.to_string()).unwrap_or_else(|_| "?".to_string())
+        ))),
+    }
 }
 
 /// One validation finding.
@@ -830,8 +969,81 @@ impl Environment {
         result.map_err(|e| error_to_pyerr(py, &e))
     }
 
+    /// A top-level render: a closure asset, waited on with the GIL released.
+    fn render_top(
+        &self,
+        py: Python<'_>,
+        call: crate::template::Call,
+        arguments: crate::template::Arguments<'_, '_>,
+        full: bool,
+    ) -> PyResult<Py<PyAny>> {
+        check_blocking_call(py, call.name())?;
+        let request = crate::template::build_request(py, call, arguments, self.cell.conversion, self.cell.pickle)?;
+        let render = (|| {
+            let envref = self.cell.envref(py)?;
+            liquers_lib::template::render_top_level(&envref, request)
+        })()
+        .map_err(|e| error_to_pyerr(py, &e))?;
+        let asset = render.asset().clone();
+        let outcome = crate::closure::wait_for_run(py, &self.cell.shut, asset, render.run())
+            .map_err(|e| e.into_pyerr(py))?;
+        let rendered = outcome
+            .ok_or_else(crate::template::not_started)
+            .map_err(|e| error_to_pyerr(py, &e))?;
+        crate::template::rendered_to_py(py, rendered, full)
+    }
+
+    /// The awaitable form of [`Self::render_top`].
+    fn render_top_async<'py>(
+        &self,
+        py: Python<'py>,
+        call: crate::template::Call,
+        arguments: crate::template::Arguments<'_, 'py>,
+        full: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let request = crate::template::build_request(py, call, arguments, self.cell.conversion, self.cell.pickle)?;
+        let render = (|| {
+            runtime()?;
+            let envref = self.cell.envref(py)?;
+            liquers_lib::template::render_top_level(&envref, request)
+        })()
+        .map_err(|e| error_to_pyerr(py, &e))?;
+        let asset = render.asset().clone();
+        crate::closure::awaitable_run(py, &self.cell.shut, asset, render.run(), move |result| {
+            ToPy::Rendered(result.map(|rendered| (rendered, full)))
+        })
+    }
+
     /// The parsed query and the built environment an `_async` method needs, so that a bad query
     /// or a shut environment raises at call time.
+    fn evaluable_and_envref(
+        &self,
+        py: Python<'_>,
+        query: &Bound<'_, PyAny>,
+    ) -> PyResult<(Evaluable, EnvRef<PyEnvironment>)> {
+        let prepared = (|| -> Result<_, Error> {
+            crate::runtime::runtime()?;
+            Ok((to_evaluable(py, query)?, self.cell.envref(py)?))
+        })();
+        prepared.map_err(|e| error_to_pyerr(py, &e))
+    }
+
+    /// Submits `pipeline` as a pipeline-only recipe, taking a job-queue slot as `evaluate` does.
+    fn start_pipeline(
+        &self,
+        py: Python<'_>,
+        envref: &EnvRef<PyEnvironment>,
+        pipeline: liquers_core::pipeline::Pipeline,
+    ) -> Result<liquers_core::assets::AssetRef<PyEnvironment>, PyFailure> {
+        let envref = envref.clone();
+        Ok(block_on(py, &self.cell.shut, async move {
+            envref
+                .get_asset_manager()
+                .apply_queued(pipeline_recipe(pipeline), liquers_core::state::State::new())
+                .await
+        })?)
+    }
+
     fn query_and_envref(
         &self,
         py: Python<'_>,
@@ -862,6 +1074,216 @@ impl Environment {
 
 #[pymethods]
 impl Environment {
+    /// Renders `template` over `state` (the context, `{{.}}`) and `data` (names looked up above
+    /// it) at the top level. The render runs as an asset of its own, as a command would: its query
+    /// tags are its dependencies and the errors a recovering `errors` mode handles are warnings in
+    /// its log. Returns the text, or with `full=True` an `lq.RenderResult` with the warnings too.
+    ///
+    /// `template` is the text (`str`) or a link (`lq.Query`, `lq.Key`); relative keys resolve
+    /// against `cwd` (an `lq.Key`, default the root). `html=True` escapes substituted text.
+    /// `state` is an `lq.State` or any value; `data` reads in place and must be a mapping.
+    #[pyo3(signature = (template, state=None, data=None, *, errors="strict", cwd=None, html=false, full=false))]
+    #[allow(clippy::too_many_arguments)]
+    fn render(
+        &self,
+        py: Python<'_>,
+        template: &Bound<'_, PyAny>,
+        state: Option<&Bound<'_, PyAny>>,
+        data: Option<&Bound<'_, PyAny>>,
+        errors: &str,
+        cwd: Option<&Bound<'_, PyAny>>,
+        html: bool,
+        full: bool,
+    ) -> PyResult<Py<PyAny>> {
+        let arguments = crate::template::Arguments { template, state, data, errors, cwd, html };
+        self.render_top(py, crate::template::Call::Render, arguments, full)
+    }
+
+    /// Expands `template` over `data` (the context, `{{.}}`), as `render` does with no state.
+    #[pyo3(signature = (template, data=None, *, errors="strict", cwd=None, html=false, full=false))]
+    #[allow(clippy::too_many_arguments)]
+    fn expand(
+        &self,
+        py: Python<'_>,
+        template: &Bound<'_, PyAny>,
+        data: Option<&Bound<'_, PyAny>>,
+        errors: &str,
+        cwd: Option<&Bound<'_, PyAny>>,
+        html: bool,
+        full: bool,
+    ) -> PyResult<Py<PyAny>> {
+        let arguments = crate::template::Arguments { template, state: None, data, errors, cwd, html };
+        self.render_top(py, crate::template::Call::Expand, arguments, full)
+    }
+
+    /// Awaitable `render`. Cancelling the awaiting task cancels the render's asset.
+    #[pyo3(signature = (template, state=None, data=None, *, errors="strict", cwd=None, html=false, full=false))]
+    #[allow(clippy::too_many_arguments)]
+    fn render_async<'py>(
+        &self,
+        py: Python<'py>,
+        template: &Bound<'py, PyAny>,
+        state: Option<&Bound<'py, PyAny>>,
+        data: Option<&Bound<'py, PyAny>>,
+        errors: &str,
+        cwd: Option<&Bound<'py, PyAny>>,
+        html: bool,
+        full: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let arguments = crate::template::Arguments { template, state, data, errors, cwd, html };
+        self.render_top_async(py, crate::template::Call::Render, arguments, full)
+    }
+
+    /// Awaitable `expand`. Cancelling the awaiting task cancels the render's asset.
+    #[pyo3(signature = (template, data=None, *, errors="strict", cwd=None, html=false, full=false))]
+    #[allow(clippy::too_many_arguments)]
+    fn expand_async<'py>(
+        &self,
+        py: Python<'py>,
+        template: &Bound<'py, PyAny>,
+        data: Option<&Bound<'py, PyAny>>,
+        errors: &str,
+        cwd: Option<&Bound<'py, PyAny>>,
+        html: bool,
+        full: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let arguments = crate::template::Arguments { template, state: None, data, errors, cwd, html };
+        self.render_top_async(py, crate::template::Call::Expand, arguments, full)
+    }
+
+    /// Declares a template command `name`: an alias of `ns-template/render` whose template is the
+    /// link `template` (a query `str`, an `lq.Query`, or an `lq.Key` read as `-R/<key>`; never
+    /// template text). It needs no function, survives every rebuild, and takes the render's
+    /// arguments: `data`, `errors` and `cwd` (default the folder of the input's key). The last
+    /// registration under a name wins, whether a Python command or a declared one; a declaration
+    /// that would not build raises and changes nothing.
+    #[pyo3(signature = (name, template, *, namespace="", label=None, doc=None, filename=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn template_command(
+        &self,
+        py: Python<'_>,
+        name: &str,
+        template: &Bound<'_, PyAny>,
+        namespace: &str,
+        label: Option<String>,
+        doc: Option<String>,
+        filename: Option<String>,
+    ) -> PyResult<()> {
+        let link = if let Ok(key) = template.cast::<crate::query::Key>() {
+            liquers_core::query::Query::from(&key.borrow().0)
+        } else {
+            to_query(template).map_err(|e| match template.cast::<PyString>() {
+                Ok(_) => error_to_pyerr(py, &e),
+                Err(_) => pyo3::exceptions::PyTypeError::new_err(
+                    "a template command's template must be a link: a query str, an lq.Query or an lq.Key",
+                ),
+            })?
+        };
+        let overrides = crate::declared::Overrides { label, doc, filename };
+        let command = crate::declared::template_command(CommandKey::new("", namespace, name), link, overrides);
+        self.cell
+            .declare(py, command)
+            .map(|_replaced| ())
+            .map_err(|e| error_to_pyerr(py, &e))
+    }
+
+    /// Declares a pipeline command `name` that runs `body` (an `lq.Pipeline`, a list of elements
+    /// or a dict in the pipeline's JSON form). `arguments` name its placeholders, in order: a `str`
+    /// is an argument of any type with no default, an `lq.ArgumentInfo` is taken as is. Like
+    /// `template_command`, it needs no function, survives every rebuild, the last registration
+    /// under a name wins, and a body that does not plan raises and changes nothing.
+    #[pyo3(signature = (name, body, *, arguments=Vec::new(), namespace="", label=None, doc=None, filename=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn pipeline_command(
+        &self,
+        py: Python<'_>,
+        name: &str,
+        body: &Bound<'_, PyAny>,
+        arguments: Vec<Bound<'_, PyAny>>,
+        namespace: &str,
+        label: Option<String>,
+        doc: Option<String>,
+        filename: Option<String>,
+    ) -> PyResult<()> {
+        let pipeline = crate::pipeline::pipeline_from_py(body)?;
+        let arguments = arguments
+            .iter()
+            .map(|argument| {
+                if let Ok(name) = argument.extract::<String>() {
+                    return Ok(liquers_core::command_metadata::ArgumentInfo::any_argument(&name));
+                }
+                match argument.cast::<crate::command_metadata::ArgumentInfo>() {
+                    Ok(info) => Ok(info.borrow().0.clone()),
+                    Err(_) => Err(pyo3::exceptions::PyTypeError::new_err(
+                        "a pipeline command argument is a str (its name) or an lq.ArgumentInfo",
+                    )),
+                }
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        let command = crate::declared::DeclaredCommand::Pipeline {
+            key: CommandKey::new("", namespace, name),
+            pipeline,
+            arguments,
+            overrides: crate::declared::Overrides { label, doc, filename },
+        };
+        self.cell
+            .declare(py, command)
+            .map(|_replaced| ())
+            .map_err(|e| error_to_pyerr(py, &e))
+    }
+
+    /// A `PipelineEditor` on `pipeline` (default: an empty one), checking each edit against this
+    /// environment's commands as they are now; a command registered later is unknown to it.
+    #[pyo3(signature = (pipeline=None))]
+    fn pipeline_editor(&self, py: Python<'_>, pipeline: Option<&Bound<'_, PyAny>>) -> PyResult<crate::pipeline::PipelineEditor> {
+        let pipeline = pipeline.map(crate::pipeline::pipeline_from_py).transpose()?;
+        let cmr = crate::pipeline::editor_registry(self, py).map_err(|e| error_to_pyerr(py, &e))?;
+        let editor = match pipeline {
+            Some(pipeline) => liquers_core::pipeline::PipelineEditor::from_pipeline(pipeline, cmr),
+            None => Ok(liquers_core::pipeline::PipelineEditor::new(cmr)),
+        };
+        editor
+            .map(crate::pipeline::PipelineEditor::new)
+            .map_err(|e| error_to_pyerr(py, &e))
+    }
+
+    /// A `QueryEditor` on `query` (a `str` or an `lq.Query`; default: an empty one), checking each
+    /// edit against this environment's commands as they are now.
+    #[pyo3(signature = (query=None))]
+    fn query_editor(&self, py: Python<'_>, query: Option<&Bound<'_, PyAny>>) -> PyResult<crate::pipeline::QueryEditor> {
+        let query = query.map(to_query).transpose().map_err(|e| error_to_pyerr(py, &e))?;
+        let cmr = crate::pipeline::editor_registry(self, py).map_err(|e| error_to_pyerr(py, &e))?;
+        let editor = match query {
+            Some(query) => liquers_core::pipeline::QueryEditor::from_query(&query, cmr),
+            None => Ok(liquers_core::pipeline::QueryEditor::new(cmr)),
+        };
+        editor
+            .map(crate::pipeline::QueryEditor::new)
+            .map_err(|e| error_to_pyerr(py, &e))
+    }
+
+    /// Every problem in template `text`, as `lq.Diagnostic`s, checked against this environment's
+    /// commands; nothing is evaluated. (`validate()` checks the command registry itself.)
+    fn validate_template(&self, py: Python<'_>, text: &str) -> PyResult<Vec<crate::template::Diagnostic>> {
+        let envref = self.cell.envref(py).map_err(|e| error_to_pyerr(py, &e))?;
+        Ok(crate::template::validate(text, envref.get_command_metadata_registry()))
+    }
+
+    /// `x` as a data node read at the top level of this environment: an `lq.State` whose value
+    /// needs a context (a record source, a directory listing) is read asynchronously, each read in
+    /// its own ad-hoc asset; anything else is read as `lq.data_node(x)`.
+    fn data_node(&self, py: Python<'_>, x: &Bound<'_, PyAny>) -> PyResult<crate::data_node::DataNodeView> {
+        if let Ok(state) = x.cast::<crate::asset::State>() {
+            let envref = self.cell.envref(py).map_err(|e| error_to_pyerr(py, &e))?;
+            return Ok(crate::data_node::DataNodeView::of_env(
+                state.get().core().clone(),
+                &envref,
+                self.cell.shut.clone(),
+            ));
+        }
+        Ok(crate::data_node::data_node(py, x))
+    }
+
     #[new]
     #[pyo3(signature = (*, config=None, conversion=None, pickle=None, async_loops=None, job_capacity=None))]
     fn new(
@@ -1014,40 +1436,65 @@ impl Environment {
     }
 
     /// Evaluates a query and returns its value as a Python object.
+    ///
+    /// `query` is a `str` or an `lq.Query`, or a pipeline: an `lq.Pipeline`, a list of elements or
+    /// a dict in the pipeline's JSON form. A pipeline runs as a recipe of its own, in a private
+    /// asset that an interrupt cancels.
     fn evaluate(&self, py: Python<'_>, query: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
         check_blocking_call(py, "evaluate")?;
         let result = (|| -> Result<_, PyFailure> {
-            let query = to_query(query)?;
+            let evaluable = to_evaluable(py, query)?;
             let envref = self.cell.envref(py)?;
             let scope = Scope::from_envref(&envref, self.cell.shut.clone());
-            let value = block_on(py, &self.cell.shut, async move {
-                let asset = envref.evaluate(query).await?;
-                let state = asset.get().await?;
-                state.value()
-            })?;
+            let value = match evaluable {
+                Evaluable::Query(query) => block_on(py, &self.cell.shut, async move {
+                    let asset = envref.evaluate(query).await?;
+                    let state = asset.get().await?;
+                    state.value()
+                })?,
+                Evaluable::Pipeline(pipeline) => {
+                    let asset = self.start_pipeline(py, &envref, pipeline)?;
+                    let waited = asset.clone();
+                    crate::closure::wait_for_asset(py, &self.cell.shut, asset, async move {
+                        waited.get().await?.value()
+                    })?
+                }
+            };
             Ok(value_to_py(py, &value, &scope)?)
         })();
         result.map_err(|e| e.into_pyerr(py))
     }
 
-    /// Evaluates a query and returns the result as a `State`, metadata included.
+    /// Evaluates a query or a pipeline and returns the result as a `State`, metadata included.
     fn evaluate_state(&self, py: Python<'_>, query: &Bound<'_, PyAny>) -> PyResult<Py<crate::asset::State>> {
         check_blocking_call(py, "evaluate_state")?;
         let result = (|| -> Result<_, PyFailure> {
-            let query = to_query(query)?;
+            let evaluable = to_evaluable(py, query)?;
             let envref = self.cell.envref(py)?;
             let scope = Scope::from_envref(&envref, self.cell.shut.clone());
-            let state = block_on(py, &self.cell.shut, async move {
-                let asset = envref.evaluate(query).await?;
-                asset.get().await?.value_state()
-            })?;
+            let state = match evaluable {
+                Evaluable::Query(query) => block_on(py, &self.cell.shut, async move {
+                    let asset = envref.evaluate(query).await?;
+                    asset.get().await?.value_state()
+                })?,
+                Evaluable::Pipeline(pipeline) => {
+                    let asset = self.start_pipeline(py, &envref, pipeline)?;
+                    let waited = asset.clone();
+                    crate::closure::wait_for_asset(py, &self.cell.shut, asset, async move {
+                        waited.get().await?.value_state()
+                    })?
+                }
+            };
             Ok(crate::asset::State::from_core(py, &state, &scope)?)
         })();
         result.map_err(|e| e.into_pyerr(py))
     }
 
     /// Starts evaluating a query and returns its `AssetRef` without waiting for the value.
+    ///
+    /// A pipeline raises `TypeError`: its asset is private to one evaluation (use `evaluate`).
     fn get_asset(&self, py: Python<'_>, query: &Bound<'_, PyAny>) -> PyResult<crate::asset::AssetRef> {
+        refuse_pipeline(query)?;
         check_blocking_call(py, "get_asset")?;
         let result = (|| -> Result<_, PyFailure> {
             let query = to_query(query)?;
@@ -1080,13 +1527,13 @@ impl Environment {
     /// A malformed query raises at call time. Cancelling the future ends only the wait; the
     /// evaluation goes on.
     fn evaluate_async<'py>(&self, py: Python<'py>, query: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        let (query, envref) = self.query_and_envref(py, query)?;
+        let (evaluable, envref) = self.evaluable_and_envref(py, query)?;
         let scope = Scope::from_envref(&envref, self.cell.shut.clone());
         awaitable(
             py,
             &self.cell.shut,
             async move {
-                let asset = envref.evaluate(query).await?;
+                let asset = evaluate_evaluable(&envref, evaluable).await?;
                 Ok((asset.get().await?.value()?, scope))
             },
             ToPy::Value,
@@ -1095,13 +1542,13 @@ impl Environment {
 
     /// Awaitable `evaluate_state`.
     fn evaluate_state_async<'py>(&self, py: Python<'py>, query: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        let (query, envref) = self.query_and_envref(py, query)?;
+        let (evaluable, envref) = self.evaluable_and_envref(py, query)?;
         let scope = Scope::from_envref(&envref, self.cell.shut.clone());
         awaitable(
             py,
             &self.cell.shut,
             async move {
-                let asset = envref.evaluate(query).await?;
+                let asset = evaluate_evaluable(&envref, evaluable).await?;
                 Ok((asset.get().await?.value_state()?, scope))
             },
             ToPy::State,
@@ -1110,6 +1557,7 @@ impl Environment {
 
     /// Awaitable `get_asset`: resolves to the `AssetRef` once the evaluation has started.
     fn get_asset_async<'py>(&self, py: Python<'py>, query: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+        refuse_pipeline(query)?;
         let (query, envref) = self.query_and_envref(py, query)?;
         let shut = self.cell.shut.clone();
         let scope = Scope::from_envref(&envref, shut.clone());

@@ -17,6 +17,35 @@
 //! The metadata comes from the shared declaration pipeline: the decorator in
 //! `python/liquers/_commands.py` supplies the baseline (stage 1) and the author's keyword
 //! arguments, and [`PyCommandSpec::new`] runs stages 2–5 with `CommandDeclaration`.
+//!
+//! # Main components
+//!
+//! - [`PyCommandSpec`]: a Python command as the environment retains it (key, callable, metadata).
+//! - [`register_py_command`]: registers a spec in a command registry, at every build.
+//! - [`Replaced`]: what a registration replaced (a built-in, a Python or a declared command),
+//!   reported to the decorator for its warning.
+//!
+//! # Where it is used
+//!
+//! - `environment.rs` (`EnvCell::register`, `configured_builder`) and the decorators of
+//!   `python/liquers/_commands.py`.
+//!
+//! # Related concepts
+//!
+//! - `declared.rs`: commands with no callable (template commands); the last registration under a
+//!   key wins, whichever kind.
+//! - `specs/reference/COMMAND_DECLARATION.md`, `specs/reference/PYTHON_INTEGRATION.md` §4.
+//!
+//! # Examples
+//!
+//! ```python
+//! @env.command
+//! def greet(state, greeting: str = "Hello") -> str:
+//!     return f"{greeting}, {state.value}!"
+//! assert env.evaluate("hello/greet") == "Hello, hello!"
+//! ```
+//!
+//! Executed in `liquers-py/tests/test_COMMAND_*.py`.
 
 use std::sync::{Arc, Mutex};
 
@@ -52,6 +81,8 @@ pub enum Replaced {
     Nothing,
     Builtin,
     Python,
+    /// A declared command (a template command).
+    Declared,
 }
 
 impl Replaced {
@@ -60,6 +91,7 @@ impl Replaced {
             Replaced::Nothing => "nothing",
             Replaced::Builtin => "built-in",
             Replaced::Python => "Python",
+            Replaced::Declared => "declared",
         }
     }
 }
@@ -348,7 +380,8 @@ fn prepare_call<'py>(
     context: CoreContext<PyEnvironment>,
 ) -> Result<(Bound<'py, PyTuple>, Context), Error> {
     let envref = context.get_envref();
-    let context = Context::new(context, callable.shut.clone());
+    let context = Context::new(context, callable.shut.clone())
+        .with_conversion(callable.conversion, callable.pickle);
     let scope = context.scope(&envref);
     let mut positional: Vec<Py<PyAny>> = Vec::with_capacity(arguments.len() + 2);
     match &callable.delivery {

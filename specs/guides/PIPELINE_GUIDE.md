@@ -158,8 +158,32 @@ Strip `pos` before comparing serialized pipelines converted from parsed queries
 (`validate_pipelines.rs` `without_positions`). A new representability rule gets a row in
 `not_representable_each_rule` in `liquers-core/src/pipeline/convert/tests.rs`.
 
+## 8. From Python
+
+`liquers-py` exposes the same model (`reference/PYTHON_INTEGRATION.md` §16): a pipeline is a Python
+list of steps (query text or dicts in the JSON form) or an `lq.Pipeline`, and `env.evaluate` takes
+one wherever it takes a query. The Rust names map one to one:
+
+| Rust | Python |
+|---|---|
+| `Pipeline::from_json` / `to_json`, `TryFrom<&Query>`, `to_query_with(&cmr)` | `lq.Pipeline(list)`, `Pipeline.from_json` / `to_json`, `Pipeline.from_query`, `p.to_query(env)` |
+| `evaluate_pipeline` | `env.evaluate(pipeline)`; inside a command `context.evaluate(pipeline)` |
+| `PipelineEditor`, `QueryEditor`, `ActionEditor` | `env.pipeline_editor()`, `env.query_editor()`, `lq.ActionEditor` |
+| `CommandRegistry::register_pipeline` | `env.pipeline_command(name, body, arguments=[…])` |
+
+```python
+env.pipeline_command("best", [{"action": "top", "parameters": [{"placeholder": "n"}]}],
+                     arguments=["n"])
+assert env.evaluate("numbers/best-1") == [3]
+```
+
+Two differences: a refused edit leaves a Python editor unchanged even when the call made two
+steps, and inside a command a pipeline with a relative key is refused before it runs. Tests:
+`liquers-py/tests/test_PIPELINE_*.py`; usage: `guides/PYTHON_GUIDE.md` §6 Pipelines.
+
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | §8 From Python: the Python names of the pipeline API. | `design/liquers-py-pipelines/` |
 | 2026-11-04 | Created: choosing the tool, writing and evaluating pipelines, converting and editing, pipeline commands, recipe pipelines, validation, testing. | phase-5, `design/composite-command-definition/` |

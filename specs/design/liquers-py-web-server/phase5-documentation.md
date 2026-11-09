@@ -34,13 +34,13 @@ The wheel-size measurement of Step 7 is taken from the pull request's Linux abi3
 ## Documentation Delivered
 
 ### New Reference Documents
-None: the server is §14 of `PYTHON_INTEGRATION.md`, as planned.
+None: the server is §17 of `PYTHON_INTEGRATION.md`, as planned.
 
 ### New Guide Documents
 None, as planned.
 
 ### Existing Documents Reviewed or Updated
-`specs/reference/PYTHON_INTEGRATION.md` (§14 Web server; §1–§3 and §7: `Server`, `liquers-axum`,
+`specs/reference/PYTHON_INTEGRATION.md` (§17 Web server; §1–§3 and §7: `Server`, `liquers-axum`,
 `serve`/`servers`, servers stop first), `specs/guides/PYTHON_GUIDE.md` (§6 "Serving over HTTP",
 run by `test_GUIDE_examples.py`; §10), `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` (§6 Python:
 the web server pattern), `liquers-py/README.md` (`WEBSERV` row: `PARTIAL`, `WEBSERV01`–`05` pass,
@@ -78,7 +78,7 @@ Phase 1. Remaining: the open issues above and the wheel size from CI.
 
 ## Validation
 
-`bash scripts/test-liquers-py.sh` on CPython 3.13: 450 passed, 23 skipped (STUBS needs 3.14 and
+`bash scripts/test-liquers-py.sh` on CPython 3.13: 542 passed, 23 skipped after merging main (STUBS needs 3.14 and
 runs in CI), plus the crate's Rust unit tests (`cell_source_rebuilds_once_after_invalidate`);
 `test_WEBSERV_server.py` and `test_CONFIG_document.py` five times in a row; `check_api_docs.py`;
 `cargo run -p liquers-docs -- check`; `python3 scripts/docs_index.py --check`.

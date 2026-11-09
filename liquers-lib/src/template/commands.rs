@@ -1,5 +1,51 @@
 //! The `ns-template` commands: `render` (the template is an argument), `expand` (the template is
-//! the state) and `validate` (diagnostics, nothing runs).
+//! the state) and `validate` (diagnostics, nothing runs). `render` and `expand` build a
+//! [`RenderRequest`] from their arguments and call [`render_in_context`], the function a language
+//! integration also calls.
+//!
+//! # Main components
+//!
+//! - [`register_template_commands!`](crate::register_template_commands): registers the three
+//!   commands in namespace `template`.
+//! - [`render`], [`expand`], [`validate`]: the command functions.
+//!
+//! # Where it is used
+//!
+//! - Queries such as `-R/page.md/-/ns-template/expand` and template commands, aliases of
+//!   `template/render` with the template link as head (`specs/guides/TEMPLATE_GUIDE.md` §3).
+//! - `liquers-lib/tests/template_commands.rs`, end to end.
+//! - The command registries of the servers and bindings built with the default features.
+//!
+//! # Related concepts
+//!
+//! - [`top_level`](super::top_level): the render these commands call, also callable at the top
+//!   level of a program, with frames given directly.
+//! - [`ContextHost`](super::ContextHost): evaluates a template's queries and partials.
+//!
+//! # Examples
+//!
+//! ```
+//! # use liquers_core::{context::{Context, Environment}, error::Error, parse::parse_query};
+//! # use liquers_core::command_metadata::{ArgumentType, CommandDefinition, CommandParameterValue};
+//! # use liquers_core::value::ValueInterface;
+//! # use liquers_lib::{environment::{CommandRegistryAccess, DefaultEnvironment}, value::Value};
+//! # use liquers_macro::register_command;
+//! # type CommandEnvironment = DefaultEnvironment<Value>;
+//! # fn page() -> Result<Value, Error> { Ok(Value::from("{{x}} and {{$ answer}}")) }
+//! # fn answer() -> Result<Value, Error> { Ok(Value::from(42)) }
+//! # #[tokio::main]
+//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let mut env = CommandEnvironment::new();
+//! let cr = env.get_mut_command_registry();
+//! liquers_lib::register_template_commands!(cr)?;
+//! register_command!(cr, fn page() -> result)?;
+//! register_command!(cr, fn answer() -> result)?;
+//! let envref = env.to_ref();
+//! let query = parse_query("page/ns-template/expand")?;
+//! let text = envref.evaluate(&query).await?.get().await?.try_into_string()?;
+//! assert_eq!(text, " and 42"); // `x` is not defined: an empty name renders nothing
+//! # Ok(()) }
+//! ```
 
 use std::sync::Arc;
 
@@ -9,12 +55,9 @@ use liquers_core::error::Error;
 use liquers_core::query::Key;
 use liquers_core::state::State;
 use liquers_core::value::ValueInterface;
-use liquers_template::{
-    parse_template, render as render_template, validate_template, ContextStack, ErrorMode,
-    FrameKind, RenderOptions, TemplateSyntax,
-};
+use liquers_template::{validate_template, ErrorMode, FrameKind, TemplateSyntax};
 
-use super::host::ContextHost;
+use super::top_level::{render_in_context, FrameData, RenderRequest, TemplateSource};
 use crate::value::Value;
 
 /// `data` as a frame: a map of named values, or `None` for empty text or none. Anything else is an
@@ -43,25 +86,10 @@ fn data_not_a_map(kind: NodeKind) -> Error {
     ))
 }
 
-/// Renders `template` over `stack`; HTML escaping is on when the result is named as HTML.
-async fn render_with<E: Environment<Value = Value>>(
-    template: &str,
-    stack: ContextStack<'_>,
-    errors: &str,
-    host: &ContextHost<E>,
-    context: &Context<E>,
-) -> Result<Value, Error> {
-    let errors = ErrorMode::parse(errors)?;
-    let parsed = parse_template(template, TemplateSyntax::Mustache)?;
+/// HTML escaping is on when the command's result is named as HTML.
+async fn html_escape<E: Environment<Value = Value>>(context: &Context<E>) -> Result<bool, Error> {
     let metadata = context.get_metadata().await?;
-    let html_escape = matches!(metadata.extension().as_deref(), Some("html" | "htm"));
-    let options = RenderOptions {
-        html_escape,
-        errors,
-        ..RenderOptions::default()
-    };
-    let text = render_template(&parsed, stack, host, &options).await?;
-    Ok(Value::from(text))
+    Ok(matches!(metadata.extension().as_deref(), Some("html" | "htm")))
 }
 
 /// Renders the template given as `template`. The state is the bottom frame (and `{{.}}`), `data`
@@ -75,15 +103,22 @@ pub async fn render<E: Environment<Value = Value>>(
     context: Context<E>,
 ) -> Result<Value, Error> {
     let data = data_node(data)?;
-    let host = ContextHost::new(context.clone(), cwd);
-    let mut stack = ContextStack::new();
+    let errors = ErrorMode::parse(&errors)?;
+    let mut frames = Vec::new();
     if !state.is_none() {
-        stack.push(host.node_of(&state), FrameKind::Data);
+        frames.push((FrameData::State(state), FrameKind::Data));
     }
     if let Some(data) = data {
-        stack.push(data, FrameKind::Names);
+        frames.push((FrameData::Node(data), FrameKind::Names));
     }
-    render_with(&template, stack, &errors, &host, &context).await
+    let request = RenderRequest {
+        template: TemplateSource::Text(template),
+        frames,
+        errors,
+        cwd,
+        html_escape: html_escape(&context).await?,
+    };
+    Ok(Value::from(render_in_context(context, request).await?.text))
 }
 
 /// Renders the state as a template; `data` is its data and `{{.}}`.
@@ -96,12 +131,18 @@ pub async fn expand<E: Environment<Value = Value>>(
 ) -> Result<Value, Error> {
     let template = state.try_into_string()?;
     let data = data_node(data)?;
-    let host = ContextHost::new(context.clone(), cwd);
-    let mut stack = ContextStack::new();
-    if let Some(data) = data {
-        stack.push(data, FrameKind::Data);
-    }
-    render_with(&template, stack, &errors, &host, &context).await
+    let errors = ErrorMode::parse(&errors)?;
+    let frames = data
+        .map(|data| vec![(FrameData::Node(data), FrameKind::Data)])
+        .unwrap_or_default();
+    let request = RenderRequest {
+        template: TemplateSource::Text(template),
+        frames,
+        errors,
+        cwd,
+        html_escape: html_escape(&context).await?,
+    };
+    Ok(Value::from(render_in_context(context, request).await?.text))
 }
 
 /// The state's diagnostics as a template, a list of `{severity, message, position}`; runs nothing.

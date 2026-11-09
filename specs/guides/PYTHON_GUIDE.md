@@ -64,7 +64,7 @@ traceback is readable.
 |---|---|
 | `liquers` | The public names, all re-exported here. |
 | `liquers._native` | The Rust extension: every class below except the exception classes, and `parse`, `parse_key`, `build_plan`. |
-| `liquers._env` | `default_environment()` and `evaluate()`. |
+| `liquers._env` | `default_environment()`, `evaluate()`, `serve()` and `serve_async()`. |
 | `liquers._commands` | The `command` and `first_command` decorators. |
 | `liquers._errors` | `LiquersError` and its subclasses, one per `ErrorType`. |
 | `liquers._records` | The pyarrow, pandas and polars side of the record classes. |
@@ -77,7 +77,10 @@ The public names, by purpose:
 | Running queries | `Environment`, `default_environment`, `evaluate`, `AssetRef`, `State` |
 | Tables | `RecordView`, `RecordColumn`, `RecordBuffer`, `RecordSchema`, `FieldSchema`, `FieldType`, `KeyRole`, `ChunkOrigin`, `RecordSource`, `RecordStream`, `RecordChunk` |
 | The package | `require`, `__version__` |
-| Writing commands | `command`, `first_command`, `Context` |
+| Writing commands | `command`, `first_command`, `Context`, `link` |
+| Templates | `Environment.render` / `expand` / `template_command`, `RenderResult`, `Diagnostic` |
+| Pipelines | `Pipeline`, `Environment.pipeline_editor` / `query_editor` / `pipeline_command`, `PipelineEditor`, `QueryEditor`, `ActionEditor` |
+| Reading data in place | `data_node`, `DataNode`, `NodeKind` |
 | Errors | `LiquersError`, `KeyNotFoundError`, `ExecutionError`, … (one per `ErrorType`), `ErrorType` |
 | Results' metadata | `Metadata`, `MetadataRecord`, `AssetInfo`, `Status`, `LogEntry`, `LogEntryKind`, `Version` |
 | The query language | `parse`, `parse_key`, `Query`, `Key`, `ActionRequest`, `ActionParameter`, the segment classes, `Position` |
@@ -85,6 +88,7 @@ The public names, by purpose:
 | Plans and recipes | `build_plan`, `Plan`, `Step`, `Recipe`, `RecipeList`, `RecipeProviders` (`env.recipes`) |
 | Stores | `Store` (`env.store`, `Store.from_object`), `StoreArgumentInfo` |
 | Configuration checks | `Issue` (from `Environment.validate()`) |
+| Serving over HTTP | `Environment.serve` / `serve_async`, `serve`, `serve_async`, `Server` |
 
 `lq.Error` is a plain data object describing a Liquers error. It is not an exception; what is raised
 is a `LiquersError`.
@@ -812,6 +816,153 @@ canonical text. `env.validate()` lists the problems the registered commands and 
 would cause, as `lq.Issue` objects, without building the environment. It does not check the store
 configuration, which only the first use does.
 
+### Templates
+
+Liquers templates are Mustache with query tags: `{{name}}` reads data, `{{$ query}}` evaluates a
+query, `{{> key}}` includes another template (`TEMPLATE_GUIDE.md`). Render one from a script, or
+make a command of it.
+
+```python
+import liquers as lq
+
+env = lq.Environment()
+
+@env.first_command
+def number(n: int) -> int:
+    return n
+
+env.store_set("templates/greet.md", "Hello, {{.}}!")
+assert env.expand("{{name}} has {{$ number-42}}", data={"name": "Ann"}) == "Ann has 42"
+greet = lq.parse("-R/templates/greet.md")                       # a link to the template
+assert env.render(greet, state="Ann") == "Hello, Ann!"           # state is {{.}}
+assert env.render("{{a}}{{b}}", state={"a": 1}, data={"b": 2}) == "12"
+
+result = env.expand("ok\n{{$ missing}}", errors="silent", full=True)
+assert result.text == "ok\n" and result.warnings[0].position.line == 2
+assert env.validate_template("{{$ missing}}")[0].severity == "error"   # nothing runs
+
+env.template_command("greeting", template="-R/templates/greet.md")     # no function needed
+assert env.evaluate("number-7/greeting") == "Hello, 7!"
+env.shutdown()
+```
+
+`template` is the text (a `str`) or a link (an `lq.Query`, or an `lq.Key`). `render` puts `state`
+at the bottom (`{{.}}`) and `data` above it as names; `expand` takes `data` as the context. `data`
+is read in place, so a `dict` holding a `datetime` still renders its other fields. `errors`
+chooses what a failing tag does: `"strict"` raises, with the tag's position; `"expand"`,
+`"expand_html"`, `"expand_md"` write the error in its place; `"silent"` drops it. Every recovered
+error is a warning, returned with `full=True`. `html=True` escapes substituted text; a call never
+escapes on its own, while a template command does when its result is `.html`.
+
+At the top level a render runs as an asset of its own, so Ctrl-C cancels it. Inside a command,
+`context.render` and `context.expand` run in the command's context: the queries the template
+evaluates become the command's dependencies, so its result is recomputed when they change. In an
+`async def` command use `render_async` / `expand_async`.
+
+A template command is kept across every change to the environment; registering a Python command
+under the same name replaces it, and the other way round. `env.command_metadata("greeting")
+.definition.kind` is `"alias"`.
+
+Relative keys in a template resolve against `cwd`. Inside a command, take the command's own folder
+as a default link argument with `lq.link`:
+
+```python
+import liquers as lq
+
+env = lq.Environment()
+env.store_set("templates/header.md", "Header")
+env.store_set("templates/page.md", "{{> ./header.md}} body")
+
+@env.command
+def page(state, cwd: lq.Key = lq.link("-R-key/."), context=None) -> str:
+    return context.render(lq.parse("-R/templates/page.md"), cwd=cwd)
+
+assert env.evaluate("-R-cwd/templates/-/page") == "Header body"
+assert env.render(lq.parse("-R/templates/page.md"), cwd=lq.parse_key("templates")) == "Header body"
+env.shutdown()
+```
+
+### Pipelines
+
+A pipeline is a query written as data: a list of steps, each query text or a dict
+(`PIPELINE_GUIDE.md`). Build one when the arguments come from your program, so nothing has to be
+escaped into query text. `evaluate` takes a pipeline wherever it takes a query.
+
+```python
+import liquers as lq
+
+env = lq.Environment()
+
+@env.first_command
+def numbers() -> list:
+    return [3, 1, 2]
+
+@env.command
+def pick(value, options=None, n: int = 1) -> list:
+    return sorted(value, reverse=options["descending"])[:n]
+
+@env.command
+def top(value, n: int = 1) -> list:
+    return sorted(value, reverse=True)[:n]
+
+steps = ["numbers", {"action": "pick", "arguments": {"options": {"descending": True}, "n": 2}}]
+assert env.evaluate(steps) == [3, 2]                        # the dict arrives whole
+
+p = lq.Pipeline(["numbers", {"action": "top", "arguments": {"n": 2}}])
+assert p.to_query(env).encode() == "numbers/top-2"          # a query, when one can express it
+assert lq.Pipeline.from_query("numbers/top-2").to_query(env).encode() == "numbers/top-2"
+try:
+    lq.Pipeline(steps).to_query(env)                        # an object argument has no query text
+except lq.ParameterError as error:
+    assert "S4" in str(error)
+else:
+    raise AssertionError("expected ParameterError")
+env.shutdown()
+```
+
+An editor builds a pipeline step by step and checks each step against the environment's
+commands: a wrong argument name raises at once, and leaves the editor as it was.
+
+```python
+import liquers as lq
+
+env = lq.Environment()
+
+@env.first_command
+def numbers() -> list:
+    return [3, 1, 2]
+
+@env.command
+def top(value, n: int = 1) -> list:
+    return sorted(value, reverse=True)[:n]
+
+editor = env.query_editor()
+editor.action("numbers")
+step = editor.action("top")
+assert [a.name for a in editor.unset_arguments(step.index)] == ["n"]
+step.set("n", 2)
+try:
+    step.set("count", 2)                                    # no such argument
+except lq.ParameterError:
+    pass
+else:
+    raise AssertionError("expected ParameterError")
+assert editor.query().encode() == "numbers/top-2"
+assert env.evaluate(editor.pipeline) == [3, 2]
+
+env.pipeline_command("best", [{"action": "top", "parameters": [{"placeholder": "n"}]}],
+                     arguments=["n"])                       # a command with no function
+assert env.evaluate("numbers/best-1") == [3]
+assert env.command_metadata("best").definition.kind == "pipeline"
+env.shutdown()
+```
+
+A pipeline evaluated at the top level runs as an asset of its own, so Ctrl-C cancels it. Inside a
+command, `context.evaluate(pipeline)` makes it a dependency of the command; a pipeline that names a
+relative key (`./x.csv`) is refused there, as a relative query is: take the folder as a default
+link argument. `get_asset` takes queries only. An editor knows the commands registered when it was
+made; make a new one after registering more.
+
 ## 7. Values
 
 Values cross between Python and Liquers by kind:
@@ -860,6 +1011,82 @@ receives the same object. Liquers cannot look inside it: a Rust command given on
 `pickle=True`; without it, writing one raises `SerializationError`, and stored pickle bytes are
 never unpickled. With `conversion="strict"`, such an object is refused with `ConversionError` as
 soon as a command returns it.
+
+### Reading data field by field
+
+A data node is a read-only view of a value, one field at a time, without converting the whole
+value. Templates read data this way, and so can you:
+
+```python
+import datetime
+import liquers as lq
+
+node = lq.data_node({"name": "Ann", "when": datetime.datetime.now(), "tags": ["a", "b"]})
+assert node["name"].scalar == "Ann"
+assert node["tags"].kind == lq.NodeKind.List and len(node["tags"]) == 2
+assert node["when"].kind == lq.NodeKind.Opaque          # no Liquers equivalent
+assert node.get("missing") is None
+```
+
+This is how a template renders a dict that conversion keeps opaque (a `datetime` inside, an `int`
+key): the dict is read in place, and only the parts with no Liquers equivalent are opaque.
+`dict`, `list`, `tuple` and plain scalars read automatically; for your own class, opt in on the
+class:
+
+```python
+import liquers as lq
+
+class Person:
+    __liquers_data__ = True                 # read through keys() and __getitem__
+    def keys(self):
+        return ["name"]
+    def __getitem__(self, key):
+        if key == "name":
+            return "Ann"
+        raise KeyError(key)
+
+class Wrapper:
+    def __init__(self, data):
+        self.data = data
+    def __liquers_data__(self):             # or: the data to read instead of the object
+        return self.data
+
+assert lq.data_node(Person())["name"].scalar == "Ann"
+assert lq.data_node(Wrapper({"a": 1}))["a"].scalar == 1
+```
+
+`__liquers_data__ = True` reads `keys` and `__getitem__` as a map, `__len__` and `__getitem__` as a
+list, or `__index__` / `__float__` as a number. A class that does not opt in, a `dict` subclass
+included, is opaque: Liquers never runs its code.
+
+A state reads the same way, without converting its value, so a DataFrame can be read one cell at a
+time without importing polars: `lq.data_node(env.evaluate_state("-R/data/sales.csv/-/ns-pl/from_csv"))[0]["amount"].scalar`.
+`state.value` converts only when you first read it.
+
+A folder (`-R-dir/…`) or a record source is read on demand, through the environment, so it needs
+`await`: `env.data_node(state)` at the top level, `context.data_node(state)` inside a command.
+
+```python
+import asyncio
+import liquers as lq
+
+env = lq.Environment()
+env.store_set("data/sales.csv", b"region,amount\nEU,10\n")
+folder = env.data_node(env.evaluate_state("-R-dir/data"))
+assert folder.kind == lq.NodeKind.Map
+
+async def main():
+    entry = await folder.get_async("sales.csv")
+    return await folder.to_json_async(), entry.kind
+
+print(asyncio.run(main()))                 # (['sales.csv'], NodeKind.Opaque): stored bytes
+env.shutdown()
+```
+
+The sync members (`folder["x"]`, `len(folder)`) raise `NotSupportedError` on such a node. For
+`env.data_node`, cancelling the awaiting task cancels the read and `shutdown()` ends it with
+`CancelledError`; for `context.data_node`, as for `context.evaluate_async`, cancelling ends only the
+wait.
 
 ### Records
 
@@ -1084,6 +1311,10 @@ What you will notice; the complete list, with the tracking issues, is
 | Date | Change | Source |
 |---|---|---|
 | 2026-11-09 | §4: `config=` takes a file (`pathlib.Path`), YAML text or a dict; the `python` section; keywords override the file; unknown sections and server/python keys are refused; the command metadata file. §6: serving over HTTP, with its security settings. §10: the server's limits. | `design/configuration-document/`, `design/liquers-py-web-server/` |
+| 2026-11-05 | §7: cancelling an awaited read cancels it only for `env.data_node`. | phase-5, `design/liquers-py-data-nodes/` |
+| 2026-11-04 | §6 Pipelines: `evaluate` of a pipeline, `lq.Pipeline` and `to_query`, the editors, `pipeline_command`; §2 the new names. | `design/liquers-py-pipelines/` |
+| 2026-11-04 | §6 Templates: `render`, `expand`, `validate_template`, `template_command`, `lq.link`; §2 the new names. | `design/liquers-py-templates/` |
+| 2026-11-04 | §7 Reading data field by field: `lq.data_node`, the `__liquers_data__` opt-in, states read in place, async folder reads. | `design/liquers-py-data-nodes/` |
 | 2026-11-02 | The generated API reference: where it is published and how to build it. | design `py-api-reference` |
 | 2026-11-01 | §1 Installing: from source until the first release, then pip; the extras and where they install nothing; §7 Records (views, `fields=`, buffers, pyarrow/pandas/polars, sources); §9 Type checking; §10 updated. | `design/liquers-py-records/`, `design/liquers-py-package/`, `design/liquers-py-stubs/` (phase-5) |
 | 2026-11-01 | §4 A store written in Python; §6 Recipe providers written in Python; §2 the store and recipe classes; §10 the recipe-provider limitation is lifted. | `design/liquers-py-store/`, `design/liquers-py-recipes/` (phase-5) |

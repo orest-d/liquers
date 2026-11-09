@@ -57,7 +57,7 @@ The `server` settings that exist at HEAD (2026-11-09, `axum-server-assembly` and
 
 | Setting | Default | Risk | Documented in |
 |---|---|---|---|
-| `server.host` | `127.0.0.1` | `0.0.0.0` exposes every API to the network; locally, any process or a DNS-rebinding page reaches it | `WEB_API_SPECIFICATION.md` §9, `PYTHON_INTEGRATION.md` §14, chapter 12 of every user guide (`docs/guides/_shared/serving.md`) |
+| `server.host` | `127.0.0.1` | `0.0.0.0` exposes every API to the network; locally, any process or a DNS-rebinding page reaches it | `WEB_API_SPECIFICATION.md` §9, `PYTHON_INTEGRATION.md` §17, chapter 12 of every user guide (`docs/guides/_shared/serving.md`) |
 | `server.read_only` | `false` | any client that reaches the server writes and deletes stored data | the same |
 | `server.web` | `true` | a page stored under `web/` runs with the server's origin (stored XSS); the read-only `web` mount is shown | the same |
 | `python.pickle` / `pickle=` | `false` | reading pickle runs code | `PYTHON_GUIDE.md` §4, `docs/guides/python/08-environment.md` |

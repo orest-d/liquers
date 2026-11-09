@@ -81,5 +81,5 @@ Requested, approved and implemented scope agree. Remaining: the open issue above
 `cargo test -p liquers-core --lib environment_config` (default and `--features toml`), the doctest,
 `cargo check -p liquers-core --target wasm32-unknown-unknown`;
 `cargo test -p liquers-axum --test server_config_document`; `bash scripts/test-liquers-py.sh` on
-CPython 3.13 (450 passed, 23 skipped; the STUBS checks need 3.14 and run in CI);
+CPython 3.13 (542 passed, 23 skipped after merging main; the STUBS checks need 3.14 and run in CI);
 `cargo run -p liquers-docs -- check` (0 errors, 0 warnings); `python3 scripts/docs_index.py --check`.

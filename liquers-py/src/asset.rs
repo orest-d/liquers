@@ -2,7 +2,8 @@
 //!
 //! A command whose first parameter is named `state` receives a `State` (`StateDelivery::State`),
 //! and `Environment.evaluate_state` returns one. It is a read-only snapshot (VALUE13): the value is
-//! converted once, when the state is made, and the metadata is a copy.
+//! converted once, on the first read of `value` (so a conversion error is raised there, and a value
+//! read only through `data_node()` is never converted), and the metadata is a copy.
 //!
 //! `Environment.get_asset` returns an `AssetRef` without waiting: its status, metadata and log can
 //! be read while it runs, and `cancel()` stops it. With the queued asset manager a `Submitted`
@@ -10,6 +11,35 @@
 //!
 //! `get_async`, `get_state_async` and `cancel_async` are the awaitable forms; awaiting them never
 //! blocks the caller's loop, and cancelling the awaitable ends only the wait (`aio.rs`).
+//!
+//! # Main components
+//!
+//! - [`State`] (`lq.State`): a value and a copy of its metadata; `value` converts lazily,
+//!   `record_view()` and `data_node()` read the Liquers value in place.
+//! - [`AssetRef`] (`lq.AssetRef`): a running or finished evaluation; `get`, `get_state`, `status`,
+//!   `metadata`, `cancel` and their `_async` forms.
+//!
+//! # Where it is used
+//!
+//! - `environment.rs`: `evaluate_state`, `get_asset` and their `_async` forms.
+//! - `command.rs`: a command whose first parameter is `state` receives a `State`.
+//! - `data_node.rs`: `lq.data_node(state)` reads a state's value without converting it.
+//!
+//! # Related concepts
+//!
+//! - `liquers_core::state::State`, `liquers_core::assets::AssetRef`; `specs/reference/ASSETS.md`.
+//! - `specs/reference/PYTHON_INTEGRATION.md` §5 (when a state converts) and §7 (waits).
+//!
+//! # Examples
+//!
+//! Executed in `liquers-py/tests/test_EVAL_*.py` (a Rust doctest cannot start the interpreter):
+//!
+//! ```python
+//! state = env.evaluate_state("hello")
+//! assert state.value == "hello" and state.metadata.status() == "Ready"
+//! asset = env.get_asset("hello")
+//! assert asset.get() == "hello"
+//! ```
 
 use std::sync::Arc;
 
@@ -28,15 +58,20 @@ use crate::value::{value_to_py, Value};
 /// A value and its metadata.
 #[pyclass(frozen, name = "State", module = "liquers")]
 pub struct State {
-    value: Py<PyAny>,
+    /// The core state; the value is read from it, converted at most once.
+    core: CoreState<Value>,
+    /// Where a record source in the value resolves.
+    scope: Scope,
+    value: pyo3::sync::PyOnceLock<Py<PyAny>>,
     metadata: Py<Metadata>,
     /// The record view behind the value, kept whatever its shape (`record_view()`).
     record_view: Option<Arc<dyn liquers_records::RecordView>>,
 }
 
 impl State {
+    /// A state over `state`. Nothing is converted until `value` is read; the `Result` is the
+    /// `Py::new` calls'.
     pub fn from_core(py: Python<'_>, state: &CoreState<Value>, scope: &Scope) -> Result<Py<State>, Error> {
-        let value = value_to_py(py, state.data_unchecked().as_ref(), scope)?;
         let metadata = Py::new(
             py,
             Metadata {
@@ -48,16 +83,44 @@ impl State {
             Value::Extended(liquers_lib::value::ExtValue::RecordView { value: view }) => Some(view.clone()),
             Value::Extended(_) | Value::Base(_) => None,
         };
-        Py::new(py, State { value, metadata, record_view }).map_err(|e| pyerr_to_error(py, &e))
+        Py::new(
+            py,
+            State {
+                core: state.clone(),
+                scope: scope.clone(),
+                value: pyo3::sync::PyOnceLock::new(),
+                metadata,
+                record_view,
+            },
+        )
+        .map_err(|e| pyerr_to_error(py, &e))
+    }
+
+    /// The core state, for the data node view.
+    pub(crate) fn core(&self) -> &CoreState<Value> {
+        &self.core
+    }
+
+    fn converted(&self, py: Python<'_>) -> PyResult<&Py<PyAny>> {
+        self.value.get_or_try_init(py, || {
+            value_to_py(py, self.core.data_unchecked().as_ref(), &self.scope)
+                .map_err(|e| error_to_pyerr(py, &e))
+        })
     }
 }
 
 #[pymethods]
 impl State {
-    /// The value, as a Python object.
+    /// The value, as a Python object. Converted on the first read, which raises the conversion's
+    /// error when the value cannot be converted.
     #[getter]
-    fn value(&self, py: Python<'_>) -> Py<PyAny> {
-        self.value.clone_ref(py)
+    fn value(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        Ok(self.converted(py)?.clone_ref(py))
+    }
+
+    /// The value as an `lq.DataNode`, read in place: nothing is converted.
+    fn data_node(&self) -> crate::data_node::DataNodeView {
+        crate::data_node::DataNodeView::of_value(self.core.data_unchecked().clone())
     }
 
     /// The state's `Metadata`.
@@ -73,8 +136,10 @@ impl State {
     }
 
     fn __repr__(&self, py: Python<'_>) -> String {
-        let value = self
-            .value
+        let Ok(value) = self.converted(py) else {
+            return "State(<unconvertible>)".to_string();
+        };
+        let value = value
             .bind(py)
             .repr()
             .map(|r| r.to_string())

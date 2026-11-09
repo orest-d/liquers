@@ -19,7 +19,10 @@ for stores and recipe providers, [`design/liquers-py-store/`](../design/liquers-
 and [`design/liquers-py-recipes/`](../design/liquers-py-recipes/DESIGN.md); for records, packaging
 and type declarations, [`design/liquers-py-records/`](../design/liquers-py-records/DESIGN.md),
 [`design/liquers-py-package/`](../design/liquers-py-package/DESIGN.md) and
-[`design/liquers-py-stubs/`](../design/liquers-py-stubs/DESIGN.md).
+[`design/liquers-py-stubs/`](../design/liquers-py-stubs/DESIGN.md); for data nodes,
+[`design/liquers-py-data-nodes/`](../design/liquers-py-data-nodes/DESIGN.md); for templates,
+[`design/liquers-py-templates/`](../design/liquers-py-templates/DESIGN.md); for pipelines,
+[`design/liquers-py-pipelines/`](../design/liquers-py-pipelines/DESIGN.md).
 
 ## 1. Layout
 
@@ -47,7 +50,7 @@ which a wheel needs and a Rust test binary cannot link with, so Rust tests run w
 `--no-default-features`. `debug-handles` is test-only: it adds `Environment.live_handle_count()`
 and the `test_panic` command. `liquers-lib` is linked with `image-support`, `polars`, `records`,
 `records-ipc`, `records-parquet` and `templates`, `liquers-records` with `ipc`, and `liquers-axum`
-for the server (§14); `egui` is not
+for the server (§17); `egui` is not
 linked, since a Python process has no egui event loop. `abi3` (off by default) builds against
 CPython's limited API from 3.14 (`pyo3/abi3-py314`), for the `cp314-abi3` wheel (§12).
 
@@ -71,9 +74,12 @@ frozen; the others hold their own copy of the value.
 | `Expires`, `ExpirationTime`, `DependencyRelation`, `PlanDependency` | expiration and dependency types |
 | `ErrorType`, `Error` | `liquers_core::error`; `Error` is a data object, not the exception (§6) |
 | `Environment`, `Issue` | the environment handle (§3) and one `IssueReport` finding |
-| `Server` | a running HTTP server (§14): liquers-axum's `LiquersServer` |
+| `Server` | a running HTTP server (§17): liquers-axum's `LiquersServer` |
 | `Context`, `AssetRef` | a command's context and an asset reference, each watching its environment's shut flag |
-| `State` | a snapshot of a value, converted to Python, and a copy of its metadata; `record_view()` gives the record view behind it, or `None` |
+| `State` | a snapshot of a value and a copy of its metadata; `value` converts to Python on first access (§5), `record_view()` gives the record view behind it, or `None`, and `data_node()` reads it in place (§14) |
+| `NodeKind`, `DataNode`, `data_node` | a data node's kind, a view of one, and the function making a view (§14) |
+| `RenderResult`, `Diagnostic`, `Link`, `link` | a render's text with its warnings, a template problem, and a default link argument (§15) |
+| `Pipeline`, `PipelineEditor`, `QueryEditor`, `ActionEditor` | `liquers_core::pipeline`: a pipeline and the editors (§16) |
 | `RecordView`, `RecordColumn`, `RecordBuffer`, `RecordSchema`, `FieldSchema`, `FieldType`, `KeyRole`, `ChunkOrigin`, `RecordSource`, `RecordStream`, `RecordChunk` | `liquers_records` views, sources and schema types (§11) |
 
 `Plan.to_json` / `to_yaml` and `Plan.from_json` / `from_yaml` round-trip within one version
@@ -103,7 +109,7 @@ job_capacity=None)`. `config` is a configuration document (`reference/ENVIRONMEN
 
 The document holds the environment's keys (`store`, `recipes`, `assets`, `default_namespaces`),
 `command_registry`, and two host sections: `server` (the `ServerConfig` of liquers-axum, used by
-`serve`, §14) and `python`, which liquers-py owns:
+`serve`, §17) and `python`, which liquers-py owns:
 
 | `python:` key | Default | Keyword |
 |---|---|---|
@@ -163,7 +169,7 @@ environment from all declarations **with the same store**. The replaced environm
 retired list, not dropped, because evaluations may still be running in it; its asset cache does
 not carry over.
 
-**Shutdown.** `shutdown()` first stops the environment's servers (§14), giving their requests
+**Shutdown.** `shutdown()` first stops the environment's servers (§17), giving their requests
 up to 5 s. It then sets a shared *shut* signal that every wait started from the handle
 watches (§7), stops the asset managers of the current and every retired environment, then stops
 the loop pool, cancelling the coroutines still running. It is idempotent, and it raises
@@ -188,12 +194,17 @@ under a lock.
 | `command_metadata(name, namespace="")` | the `CommandMetadata` the built environment holds |
 | `import_metadata(yaml)` | adds command metadata from a document with a `commands` list; only an unparseable document raises here, other problems surface through `validate()` and the next build |
 | `validate()` | the issues the next build would meet, as `lq.Issue` |
-| `serve(**settings)`, `serve_async(**settings)`, `servers` | serve the environment over HTTP; the running servers (§14) |
+| `serve(**settings)`, `serve_async(**settings)`, `servers` | serve the environment over HTTP; the running servers (§17) |
 | `evaluate_async(query)`, `evaluate_state_async(query)`, `get_asset_async(query)`, `store_set_async(key, data)` | the same, awaitable (§7) |
+| `data_node(x)` | `x` as an `lq.DataNode` read at the top level; a folder or record source state reads with `_async` (§14) |
+| `render(template, state=None, data=None, …)`, `expand(template, data=None, …)`, their `_async` forms, `validate_template(text)` | templates at the top level (§15) |
+| `template_command(name, template, …)` | declares a template command (§15) |
+| `pipeline_command(name, body, …)`, `pipeline_editor(pipeline=None)`, `query_editor(query=None)` | declares a pipeline command; the editors (§16) |
 | `shutdown()` | stops the environment |
 | `live_handle_count()` | static, `debug-handles` only: Python callables held by every environment's registrations |
 
-`query` is a `str` or an `lq.Query` everywhere.
+`query` is a `str` or an `lq.Query` everywhere; `evaluate`, `evaluate_state` and their `_async`
+forms also take a pipeline (§16), `get_asset` does not.
 
 **Writing to the store.** `store_set(key, data)` converts `data` (§5), serializes it in its
 default data format — raising `SerializationError` when it has no byte form — and sets it through
@@ -281,7 +292,9 @@ asset, and waits with `wait_for_dependency`. `info`, `warning` and `error` appen
 log. An `error` entry also fails the evaluation: the command keeps running, and once it returns
 the query raises `ExecutionError` with the first such message, whatever the command returned
 (`Context::error` in core). `is_cancelled()` reads the asset's cancellation flag.
-`evaluate_async(query)` is the awaitable `evaluate`, for `async def` commands.
+`evaluate_async(query)` is the awaitable `evaluate`, for `async def` commands. `data_node(x)` gives `x` as an
+`lq.DataNode`, a state read through this context (§14). `render`, `expand`, their `_async` forms
+and `validate_template` render in the command's context (§15).
 
 ## 5. Values
 
@@ -298,7 +311,7 @@ with no Liquers equivalent is a `PyObjectValue` inside `ExtValue::Foreign`.
 | `float` | `F64`, non-finite values included |
 | `str` | `Text` |
 | `bytes`, `bytearray` | `Bytes` |
-| `lq.Query`, `lq.Key`, `lq.Recipe`, `lq.MetadataRecord`, `lq.CommandMetadata` | `Query`, `Key`, `Recipe`, `Metadata`, `CommandMetadata` |
+| `lq.Query`, `lq.Key`, `lq.Recipe`, `lq.MetadataRecord`, `lq.CommandMetadata`, `lq.Pipeline` | `Query`, `Key`, `Recipe`, `Metadata`, `CommandMetadata`, `Pipeline` |
 | `list`, `tuple` | `Array`, if every item converts structurally |
 | `dict` | `Object`, if every key is a `str` and every value converts structurally |
 | `polars.DataFrame` (recognised by type name) | `ExtValue::PolarsDataFrame`, copied through Parquet |
@@ -313,12 +326,18 @@ through to the last row and is kept whole.
 
 **Liquers to Python** (`value_to_py`): the simple variants map back as above (`I32` and `I64` to
 `int`, `Array` to `list`, `Object` to `dict`, `Metadata` to `lq.MetadataRecord`, `AssetInfo` to a
-`list` of `lq.AssetInfo`). A `PyObjectValue` returns the retained object itself, so identity is
+`list` of `lq.AssetInfo`, `Pipeline` to `lq.Pipeline`). A `PyObjectValue` returns the retained object itself, so identity is
 kept; a foreign value of another runtime raises `ConversionError` naming that runtime. A DataFrame
 is rebuilt with `polars.read_parquet` and an image with `PIL.Image.open`, raising
 `ConversionError` when the library is missing. A record view becomes `lq.RecordView` (or, with
 exactly one row and one field, that cell's scalar) and a record source `lq.RecordSource` (§11).
 Every other extended variant (UI values) raises `ConversionError` with its type identifier.
+
+**When a state converts.** `lq.State` holds the Liquers state and converts its value on the first
+read of `State.value`, once (the result is kept, so identity holds between reads); a value that
+cannot be converted raises there, not at `evaluate_state`. `record_view()` and `data_node()` read
+the Liquers value without converting it, so a polars frame can be read cell by cell with polars
+never imported.
 
 **The opaque type.** `PyObjectValue` has the type identifier `py.Object` and the `type_name`
 `module.QualName` of the object's class. It holds a `Py<PyAny>`, which is `Send + Sync`; dropping
@@ -430,7 +449,7 @@ coroutine that ignores cancellation, or a thread still blocked after that, is le
 `RuntimeWarning`. An `atexit` hook stops a pool still running when the interpreter exits, and a pool
 dropped without either is stopped on a thread of its own.
 
-**Interpreter exit.** Running servers stop first (§14), from whichever exit hook runs first.
+**Interpreter exit.** Running servers stop first (§17), from whichever exit hook runs first.
 Every time a liquers-owned thread (a runtime blocking thread, a loop thread)
 attaches to the interpreter, the attach is counted, and a Python command call also records its
 asset (`liquers-py/src/exit.rs`). An `atexit` hook registered at import runs after every pool's
@@ -792,7 +811,177 @@ same change.
 generated; values are `Any`, so a checker cannot follow a value through a query; generating the
 declarations from the PyO3 signatures can be revisited when PyO3's own stub generation matures.
 
-## 14. Web server
+## 14. Data nodes
+
+A data node is Liquers' read-only, field-by-field view of a value (`liquers_core::data_node`):
+templates walk one, and Python reads one with `lq.DataNode`. liquers-py provides both directions.
+
+**Python data read by Liquers.** A retained Python object (`py.Object`, §5) answers
+`Value::data_node` with a `PyNode` (`data_node.rs`) over the live object, so a template renders a
+`dict` holding a `datetime` without the dict ever being converted. `node_of` classifies, in order:
+
+| Python | Node |
+|---|---|
+| `None`, `bool`, `int` (in `i64`), `float`, `str` | the scalar; a scalar subclass (`IntEnum`) reads as its base |
+| `int` outside `i64` | `Opaque`; `to_json` raises the conversion's `ConversionError` |
+| `bytes`, `bytearray`, `memoryview` | `Opaque` |
+| `lq.Query`, `lq.Key`, `lq.RecordView` | their Liquers value's own node |
+| exact `dict` | a map of its `str` keys (other keys are skipped) |
+| exact `list`, `tuple` | a list |
+| a class with `__liquers_data__ = True` | `keys` + `__getitem__` → map; `__len__` + `__getitem__` → list; `__index__` → integer; `__float__` → float; none → `Opaque` |
+| a class with a `__liquers_data__` method | the method's result, called once per node, classified as above (a further `__liquers_data__` method on the result is not called; a result whose class sets `__liquers_data__ = True` still reads through the protocols) |
+| anything else, container subclasses included (`OrderedDict`) | `Opaque` |
+
+The opt-in is read from the type, so an instance attribute or `__getattr__` never runs; only code
+a class opted in runs. A raise inside an opted-in protocol makes that node `Opaque` (a raise in `keys()` gives no keys),
+since a lookup has no error channel; `KeyError` / `IndexError` mean missing. Every lookup takes the GIL again
+through `attach_off_worker`. `to_json` walks once with an identity set and raises
+`ConversionError` for a cycle, a non-`str` key (named), an out-of-range `int`, a non-finite
+`float` or an `Opaque` member.
+
+**Liquers data read by Python.** `lq.DataNode` is a view: a root and a path, resolved on each
+read, so a live Python object is seen as it is now. Members: `kind` (`lq.NodeKind`), `scalar`,
+`node[key]` / `node[i]` (`KeyError` / `IndexError`), `get(key, default=None)`, `keys()`,
+`len(node)`, iteration (child views of a list, keys of a map), `bool(node)`, `to_json()`, and the
+awaitable `get_async(key)` (`None` when missing), `scalar_async()`, `len_async()`,
+`to_json_async()`. There is no `keys_async`: core's `AsyncDataNode` has none.
+
+| Made by | Root | Reads |
+|---|---|---|
+| `lq.data_node(x)`, `State.data_node()` | `x` through `node_of`, or the state's Liquers value | sync |
+| `context.data_node(state)` | the state read through the running command's context (`ContextHost::node_of`) | a folder or record source with `_async`; `GeneralError` once the command returned |
+| `env.data_node(state)` | the state read at the top level | a folder or record source with `_async`, each read one closure asset (`ASSETS.md` §Closure assets); `GeneralError` after `shutdown()` |
+
+A value needing a context is one `liquers_lib::template::host::context_node_kind` names: a directory
+listing (`-R-dir/…`, a map) or a record source (a list). Its sync members raise `NotSupportedError`
+naming the `_async` form; its `kind` is known without a read. Anything else is a plain node, read
+sync whichever way it was made.
+
+**Async reads.** A `Node` or `Command` read is a lookup future on the liquers-py runtime
+(`aio::awaitable`). An `Env` read is a run (`closure.rs` `awaitable_run`): spawned so it always
+ends, cancelled on `shutdown()` (the awaitable raises `CancelledError`), and cancelled when the
+awaiting task is cancelled — the asset is private to the call, so nobody else waits for it. A
+shared asset the read was waiting for (a file it reads) is not cancelled (§7).
+
+**Open problems.** `ASYNC-DATA-NODE-HAS-NO-KEYS`. A 10 000-entry `dict` rendered with a section
+takes about 0.2 s in a debug build, one GIL hold per lookup.
+
+## 15. Templates
+
+The `ns-template` commands are in the built-in set (`builtins.rs`). On top of them, `template.rs`
+adds programmatic rendering on two receivers with one signature, and `declared.rs` template
+commands.
+
+**Calls.** `render(template, state=None, data=None, *, errors="strict", cwd=None, html=False,
+full=False)` and `expand(template, data=None, …)` on `Environment` and on `Context`, each with an
+`_async` form; `validate_template(text)` on both.
+
+| Argument | Meaning |
+|---|---|
+| `template` | a `str` is the text; an `lq.Query` is a link; an `lq.Key` is the link `-R/<key>`. Anything else: `TypeError` |
+| `state` (`render`) | the bottom frame (`{{.}}`, `_meta`): an `lq.State` as it is, any other value converted (refused by `conversion="strict"`: `TypeError`) |
+| `data` | read in place (§14), must read as a map (`TypeError` otherwise); `render` puts it above `state` as names, `expand` makes it the context |
+| `errors` | `ErrorMode::parse`: `strict`, `expand`, `expand_html`, `expand_md`, `silent`; another word raises `GeneralError` |
+| `cwd` | an `lq.Key` relative keys resolve against (queries, partials, the link); `None` is the root |
+| `html` | escape substituted text. A call never infers it; a command does, from its result's extension |
+| `full` | return an `lq.RenderResult` (`text`, `warnings`) instead of the text |
+
+A top-level call runs `render_top_level`: a closure asset titled `template render`
+(`ASSETS.md` §Closure assets), so its tags are dependencies of an asset and recovered errors are
+warnings in that asset's log as well as in the result. Text that does not parse raises before the
+asset exists. The sync wait is `closure.rs` `wait_for_run`: the run is a task of its own; Ctrl-C or
+`shutdown()` cancels the asset and waits up to `STOP_GRACE` for the run to settle, without checking
+signals again, then raises `KeyboardInterrupt` or `CancelledError`. The async form is
+`awaitable_run` (§14); cancelling the awaiting task cancels the render. A render cancelled before
+it started raises `CancelledError`. Inside a command, the call runs `render_in_context` with the
+command's own context, so its tags are the command's dependencies; it waits like `evaluate`, and
+the sync form raises in an `async def` command.
+
+**Template commands.** `template_command(name, template, *, namespace="", label=None, doc=None,
+filename=None)` declares an alias of `template/render` whose head is the link `template` (a query
+`str`, an `lq.Query`, or an `lq.Key`; never text), with the target's remaining arguments `data`,
+`errors` and `cwd` (default `-R-key/.`). It is kept in the handle's declarations (`declared`) and
+applied at every build after the Python commands, so a rebuild keeps it. The last registration
+under a key wins, Python or declared, and the decorator warns `replaces a declared command`;
+`unregister` removes one. `declare` first builds a trial registry and runs its validation, so a
+declaration that would not build raises and changes nothing (about 20 ms per call in a debug build).
+`CommandMetadata.definition` reads it back: `kind` (`registered`, `alias`, `pipeline`),
+`alias_of`, `head_parameters` (a link as an `lq.Query`), `pipeline`.
+
+**Default links.** `lq.link(query)` as a parameter default declares a default link, the value of
+`query` when the argument is not written: `cwd: lq.Key = lq.link("-R-key/.")`. The decorator keeps
+the `lq.Link` in the declaration document, and `py_to_json` writes it as `{"Query": …}`, which the
+declaration pipeline reads as `CommandParameterValue::Query`. A string default stays a value.
+
+**Open problems.** A command made by the older `pycall` route reports `kind == "alias"` with a
+target that is not registered (`PY-ADD-PYTHON-COMMAND-STILL-DECLARES-PYCALL-ALIASES`); a declared
+command has no realm, as decorated ones have none (`PY-COMMAND-DECORATOR-CANNOT-SET-REALM`);
+`validate_template` may report a command quoted inside a `q` instruction
+(`TEMPLATE-DIAGNOSTICS-CHECK-COMMANDS-A-Q-QUOTES`).
+
+## 16. Pipelines
+
+`pipeline.rs` exposes `liquers_core::pipeline` (`PIPELINES.md`): the structured form of a query.
+
+**`lq.Pipeline`.** Frozen, compared by value. `Pipeline(data)` takes a `list` or `tuple` of
+elements, a `dict` with `elements` (the JSON form), or an `lq.Pipeline`; a `str` or anything else
+raises `TypeError` (a query is `Pipeline.from_query(q)`). An element is query text or a dict in the
+JSON form. `to_json()` / `from_json(text)`, `to_list()` (the JSON form as Python data, which
+`Pipeline(...)` reads back), `elements_count`, and `to_query(env)`,
+which needs an environment's commands and raises `ParameterError` naming the rule
+(`PIPELINES.md` §Representability: `P1`, `S7`, …) for a pipeline no query expresses.
+`from_query(q)` then `to_query(env)` gives the canonical query: a namespace moves to the front
+(`hello/ns-template/render` becomes `ns-template/hello/render`), and the canonical form is stable.
+
+**JSON slots.** Every Python value written into a pipeline (an argument, a parameter, a `value`
+element) goes through `json_slot`: `None`, `bool`, `int` within `i64`, `float`, `str`, lists,
+tuples and `str`-keyed dicts; an `lq.Pipeline` inside is its JSON form. NaN, `inf` and `-inf` are
+written `"NaN"`, `"inf"`, `"-inf"`, as the core serializer writes them. Anything else, a container
+that contains itself, or an `int` beyond `i64` raises `ConversionError` naming the path
+(`$[0].parameters[0]` for a list body, `$.elements[0]…` for a dict).
+
+**Evaluation.** `Environment.evaluate`, `evaluate_state` and their `_async` forms take a pipeline
+(an `lq.Pipeline`, a `list`, a `tuple`, a `dict`) as well as a query (`to_evaluable`). A pipeline runs as a
+pipeline-only recipe (`Recipe { pipeline: Some(p), .. }`) through `AssetManager::apply_queued`,
+taking a job-queue slot as `evaluate` does; its value and errors are those of its query. Its asset
+is private to the call, so the sync wait (`closure.rs` `wait_for_asset`) cancels it on Ctrl-C or
+`shutdown()` before raising; cancelling an awaiting task ends only the wait, as for a query.
+`get_asset` and `get_asset_async` raise `TypeError` for a pipeline. `Context.evaluate` and
+`evaluate_async` take one too: a pipeline a query expresses (`to_query_with` the environment's
+commands) evaluates as that query, so the dependency and the cache are the query's; any other runs
+through `Context::apply_ad_hoc`, whose dependencies become the command's. Because `apply_ad_hoc`
+checks only a recipe's query (`CONTEXT-APPLY-AD-HOC-SKIPS-RELATIVE-PIPELINE-KEYS`), liquers-py first
+refuses a relative resource or key (`./`, `../`) with `NotSupportedError`, as a relative query is
+refused. At the top level a relative key resolves against the working directory set by a `cwd`
+element, as in the query.
+
+**Editors.** `env.pipeline_editor(pipeline=None)` and `env.query_editor(query=None)` wrap the core
+`PipelineEditor` and `QueryEditor`, checked against a snapshot of the environment's commands taken
+when the editor is made (a command registered later is unknown to it). Every edit returns the
+editor: `push`, `insert`, `replace`, `remove`, `move_to`, `set_realm`, `set_filename`,
+`resource(key, read="asset")`, `default_ns`; `action(name, ns=None)` and `edit_action(at)` return
+an `lq.ActionEditor` (`ns`, `set`, `placeholder`, `link`, `pipeline`, `state`, `push`, `unset`,
+`rename`; `metadata`, `argument_info`, `index`). The inspectors are `command_metadata(at)`,
+`argument_info(at, arg)`, `unset_arguments(at)`, `validate()` and the `pipeline` property;
+`QueryEditor.query()` gives the query. The classes are frozen with an interior mutex: each call
+converts its arguments first, then locks (`lock_py_attached`), edits a clone and keeps it only if
+every step succeeded, so a refused edit, including the second step of `action(name, ns=…)`, leaves
+the editor as it was. An `ActionEditor` raises `ParameterError` once its step may have moved: after an `insert`, `replace`, `remove` or `move_to` on its editor (appending keeps it valid).
+
+**Pipeline commands.** `env.pipeline_command(name, body, *, arguments=(), namespace="",
+label=None, doc=None, filename=None)` declares `DeclaredCommand::Pipeline` (`declared.rs`), applied
+at every build through `CommandRegistry::register_pipeline`, like a template command (§15): it
+survives rebuilds, the last registration under a key wins, and a body that does not plan raises and
+changes nothing. `arguments` name the placeholders in order: a `str` is an argument of any type with
+no default, an `lq.ArgumentInfo` is taken as it is (its types are not checked against the
+placeholders' uses: `PIPELINE-COMMAND-OPERAND-TYPES-UNCHECKED`). `CommandDefinition.pipeline` reads
+the body back as an `lq.Pipeline`; so do `Recipe.pipeline` and a pipeline `ArgumentInfo.default`.
+
+**Open problems.** A query reading a relative key with no working directory fails on
+`./recipes.yaml`, while the same pipeline resolves the key against the root
+(`TOP-LEVEL-RELATIVE-RESOURCE-QUERY-LOOKS-UP-A-RELATIVE-RECIPES-KEY`).
+
+## 17. Web server
 
 `env.serve(*, host=None, port=None, prefix=None, apis=None, read_only=None, web=None,
 background=True)` serves the environment with liquers-axum's standard server
@@ -839,7 +1028,13 @@ authentication, TLS, and a web folder answered by recipes (`WEB-FOLDER-SERVES-ST
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-11-09 | §3: `config=` is a configuration document (file, YAML text, dict), with the `python` section and `command_registry`; keywords override the file, and `job_capacity=` replaces `assets.job_capacity` instead of conflicting; `serve`/`servers` methods; shutdown stops the servers first. §1, §2, §7: `Server`, `liquers-axum`, servers stop first at exit. §14 Web server. | `design/configuration-document/`, `design/liquers-py-web-server/` |
+| 2026-11-09 | §3: `config=` is a configuration document (file, YAML text, dict), with the `python` section and `command_registry`; keywords override the file, and `job_capacity=` replaces `assets.job_capacity` instead of conflicting; `serve`/`servers` methods; shutdown stops the servers first. §1, §2, §7: `Server`, `liquers-axum`, servers stop first at exit. §17 Web server. | `design/configuration-document/`, `design/liquers-py-web-server/` |
+| 2026-11-06 | §16: an `ActionEditor` is stale after any edit that can move its step, not only its removal. | PR #263 review |
+| 2026-11-05 | §16: `evaluate` takes a tuple too; `to_list()` is the JSON form; a JSON-slot error path starts at `$`. | phase-5, `design/liquers-py-pipelines/` |
+| 2026-11-05 | §14: a `__liquers_data__` method's result still reads through the protocols when its class opts in; a raise in `keys()` gives no keys. | phase-5, `design/liquers-py-data-nodes/` |
+| 2026-11-04 | §16 Pipelines (`lq.Pipeline`, JSON slots, evaluation at the top level and in a command, the editors, pipeline commands); §2, §3 and §5 list the new names and the `Pipeline` conversion. | `design/liquers-py-pipelines/` |
+| 2026-11-04 | §15 Templates (the calls on both receivers, the top-level closure asset and its waits, template commands as declarations, `lq.link`, `CommandDefinition` accessors); §2, §3 and §4 list the new names. | `design/liquers-py-templates/` |
+| 2026-11-04 | §14 Data nodes (Python data read in place, `lq.DataNode` views and their roots, async reads); §5 `State.value` converts on first access; §2 and §3 list the new names. | `design/liquers-py-data-nodes/` |
 | 2026-11-02 | §8: the generated API reference exists (pdoc, published on the documentation site); the limitation is lifted. | design `py-api-reference` |
 | 2026-11-01 | §11 Records (classes, crossing, building with `fields=`, Arrow/pandas/polars routes, buffers, where a source reads, traversal and its blocking-call messages), §12 Packaging (version, wheels, extras and `require`'s import-first rule, native requirements, the release pipeline and its approval), §13 Type declarations; §1, §2, §5 and §8 updated: records cross to Python, type stubs exist and release wheels are built. | `design/liquers-py-records/`, `design/liquers-py-package/`, `design/liquers-py-stubs/` (phase-5) |
 | 2026-11-01 | §9 Stores and §10 Recipe providers written in Python (registration, protocol, threads, `lq.Store`, `env.recipes`); §1-§3 and §8 updated; the Python recipe provider limitation is lifted. | `design/liquers-py-store/`, `design/liquers-py-recipes/` (phase-5) |
