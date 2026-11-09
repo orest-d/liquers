@@ -17,7 +17,8 @@ merged: 2026-11-06
 
 The server that `liquers-py-web-server` (milestone M7 of the liquers-py plan) starts, and that any
 other host can start: the standard APIs, static content from the store's `web` folder, an index page,
-and a graceful shutdown. Full form (`L`). Lands first, in its own PR.
+and a graceful shutdown. Full form (`L`). Lands in commit group A of PR #264,
+before `liquers-py-web-server` (group B); splittable into its own PR.
 
 Phase 1 written on 2026-11-06, after Orest named static content and `/index.html` as the server's
 two needs, and reviewed twice (conformity and records; codebase and soundness); findings applied.
@@ -28,6 +29,10 @@ Phase 2 approved 2026-11-09 (Orest: "proceed"). Phase 3 written the same day and
 
 Pre-approved after Phase 3 on 2026-11-09 (Orest: "proceed all"). Phase 4
 written the same day.
+
+Pre-implementation stop (2026-11-09): implementation waits for Orest's answer on
+`configuration-document` Decision 2 (the keyword rule), the only open item of the three designs'
+decision logs. Phase 4 reviewed twice (consistency; codebase and soundness); findings applied.
 
 ## Phases
 

@@ -110,8 +110,9 @@ store API is left out. Commands, ExtValue variants: none.
   re-exports them. `Cargo.toml`: `hyper-util` (`server-auto`, `server-graceful`, `tokio`), `hyper`,
   `tokio-util` (`rt`), `arc-swap`; all in the lock file.
 - `assets/websocket.rs`: the writer channel (line 797) carries `enum Outgoing { Notify(…),
-  Close(CloseFrame) }`. `handle_socket` (line 788) reads `Option<Extension<ServerStop>>` (token and
-  tracker), holds `tracker.token()` for its life, and on cancel sends `Close(1001)`, drops the
+  Close(CloseFrame) }`. The four handlers (lines 842–877) take an
+  `Option<Extension<ServerStop>>` (token and tracker) and pass it through `upgrade` (line 830) into
+  `handle_socket` (line 788), which holds `tracker.token()` for its life, and on cancel sends `Close(1001)`, drops the
   sender and awaits the writer for up to 1 s instead of aborting it (line 827). The subscription
   tasks (line 636) are aborted as on disconnect. Without a server nothing changes.
 - `axum_integration.rs`: none; `build_or_500` (line 15) is already `pub(crate)`, and the

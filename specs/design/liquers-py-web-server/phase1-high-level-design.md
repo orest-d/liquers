@@ -12,7 +12,9 @@ the store's `web` folder and an index page, as LiQuer's server had. Milestone M7
 
 ## Design Readiness
 
-- **Readiness:** `ready` (Phase 2 approved 2026-11-09): Phase 1 written and reviewed twice; Orest decided questions 3
+- **Readiness:** `ready` (Phase 2 approved 2026-11-09; Phase 3 approved and Phase 4, implementation and Phase 5
+  pre-approved the same day, "proceed all"; implementation waits at the pre-implementation stop for
+  `configuration-document` Decision 2): Phase 1 written and reviewed twice; Orest decided questions 3
   and 5 and added static content and the index page on 2026-11-06 (Decisions 1-3); approved
   2026-11-07 ("proceed").
 - **Automatic fixing:** `not-eligible`: an `L` feature with new public Python API and a new
@@ -186,7 +188,7 @@ and exit stop servers. Bindings: `Environment.serve`, `lq.serve`, `lq.Server`.
 
 ## Crate Placement
 
-`liquers-axum`: `axum-server-assembly` (question 6), its own PR first. `liquers-py`: `liquers-axum` as a
+`liquers-axum`: `axum-server-assembly` (question 6), landing before it in PR #264 (commit group A). `liquers-py`: `liquers-axum` as a
 dependency (it depends on core and store only, so the flow holds; liquers-py's own `tokio` gains
 `net`), a new `src/server.rs`, the Python surface in `_env.py`, the stubs and `__init__.py`.
 

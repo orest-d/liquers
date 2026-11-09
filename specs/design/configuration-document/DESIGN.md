@@ -18,12 +18,16 @@ Split on 2026-11-07 out of [`liquers-py-web-server`](../liquers-py-web-server/DE
 whose size it doubled, after Orest asked for "a single configuration file (yaml or json) that would
 configure all aspects - server, store, environment, recipe providers, command metadata registry (a
 separate file)", assembled "from specific config structs" (that design's Decision 4). Converted from the compact form to the full form
-on 2026-11-09, at Phase 3, when its examples outgrew the compact page budget. Required by `liquers-py-web-server` and `axum-server-assembly`; lands first, with or before
-`axum-server-assembly`. Phases 1 and 2 written together, since the owner set the direction,
+on 2026-11-09, at Phase 3, when its examples outgrew the compact page budget. Required by `liquers-py-web-server` and `axum-server-assembly`; lands in commit group A of PR #264 with
+`axum-server-assembly` (its `PyConfig` in group B). Phases 1 and 2 written together, since the owner set the direction,
 reviewed once by an independent reviewer before the split, and approved 2026-11-09 ("proceed"). Phase 3 reviewed twice; findings applied.
 
 Pre-approved after Phase 3 on 2026-11-09 (Orest: "proceed all"). Phase 4
 written the same day.
+
+Pre-implementation stop (2026-11-09): implementation waits for Orest's answer on
+`configuration-document` Decision 2 (the keyword rule), the only open item of the three designs'
+decision logs. Phase 4 reviewed twice (consistency; codebase and soundness); findings applied.
 
 ## Phases
 
@@ -31,3 +35,4 @@ written the same day.
 - [Phase 2](./phase2-architecture.md)
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
+- [Phase 5](./phase5-documentation.md)

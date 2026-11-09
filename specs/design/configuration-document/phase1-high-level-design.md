@@ -12,10 +12,12 @@ error for a section nobody took, lets one file set up a whole application (Orest
 
 ## Design Readiness
 
-- **Readiness:** `ready` for Phase 3: Phases 1 and 2 approved 2026-11-09 ("proceed"); Decision 2
-  waits for Orest's explicit confirmation at the Phase 3 gate.
+- **Readiness:** `ready`: Phases 1 and 2 approved 2026-11-09 ("proceed"); Phase 3 approved and
+  Phase 4, implementation and Phase 5 pre-approved the same day ("proceed all"). Phase 4 is
+  written; implementation waits at the pre-implementation stop for Orest's explicit answer on
+  Decision 2.
 - **Automatic fixing:** `not-eligible`: new public API in core and liquers-py.
-- **Leading issue:** `HOSTS-READ-CONFIGURATION-DOCUMENTS-DIFFERENTLY` (P3 M).
+- **Leading issue:** `HOSTS-READ-CONFIGURATION-DOCUMENTS-DIFFERENTLY` (P3 L).
 - **Decisions:**
   1. Orest, 2026-11-07: "I only ask for a field in config saying which file to load as a CMR."
      `command_registry` names a file in the `CommandMetadataRegistry` format
@@ -24,7 +26,7 @@ error for a section nobody took, lets one file set up a whole application (Orest
      code registers) is used. What a CMR file can express is the existing format's business.
   2. Inferred, not yet confirmed: Orest's generic "proceed" at the Phase 2 gate (2026-11-09) did
      not address former question 2 specifically; its recommendation is taken provisionally and is
-     asked again at the Phase 3 gate. An explicit keyword argument overrides the file, and the file
+     asked again before implementation. An explicit keyword argument overrides the file, and the file
      overrides the built-in default; `job_capacity=` that differs from `assets.job_capacity`
      overrides it instead of raising (a change to `liquers-py-async`'s rule).
   3. Orest, 2026-11-07: Phase 3 shows use without a server, the server configured in code, a
@@ -114,6 +116,6 @@ reads its section), `liquers-py` (`PyConfig`).
 
 - `axum-server-assembly`, `liquers-py-web-server`: **required-by**.
 - `liquers-py-async` (complete): **changes** its `job_capacity` conflict rule (Decision 2).
-- Landing order: the core `ConfigDocument` with `axum-server-assembly` (which owns
-  `ServerConfig::from_document`) in one PR; `PyConfig` with `liquers-py-web-server` (which owns
-  `serve`) in the next.
+- Landing order: one PR (#264), in two commit groups: group A, the core `ConfigDocument` with
+  `axum-server-assembly` (which owns `ServerConfig::from_document`); then group B, `PyConfig` with
+  `liquers-py-web-server` (which owns `serve`). Group A can be split into its own PR if wanted.

@@ -13,7 +13,9 @@ links") and is the prerequisite of [`liquers-py-web-server`](../liquers-py-web-s
 
 ## Design Readiness
 
-- **Readiness:** `ready` (Phase 2 approved 2026-11-09): Phase 1 written and reviewed twice; Orest decided questions 2
+- **Readiness:** `ready` (Phase 2 approved 2026-11-09; Phase 3 approved and Phase 4, implementation and Phase 5
+  pre-approved the same day, "proceed all"; implementation waits at the pre-implementation stop for
+  `configuration-document` Decision 2): Phase 1 written and reviewed twice; Orest decided questions 2
   and 3 on 2026-11-06 (Decisions 1 and 2); approved 2026-11-07 ("proceed"). Phase 2 (2026-11-07) adds: the `EnvSource` (see Non-goals), a
   server that keeps running when its handle is dropped (question 7), and `Cache-Control: no-cache`.
 - **Automatic fixing:** `not-eligible`: new public API of `liquers-axum`, complexity `L`.
@@ -88,7 +90,8 @@ links") and is the prerequisite of [`liquers-py-web-server`](../liquers-py-web-s
      explicitly and shows the read-only `web` mount (Decision 3); a later version may make `web`
      read-only by default.
   7. **Proposed resolution: shutdown in two stages.** The server owns its accept loop
-     (`hyper-util`'s connection builder and graceful watcher, connections in a `JoinSet`): on
+     (`hyper-util`'s connection builder and graceful watcher, connections in a `JoinSet`, WebSocket
+     sessions in a `TaskTracker`): on
      `shutdown(deadline)` it stops accepting, lets in-flight requests finish, signals WebSocket
      tasks through a cancellation token so they send a Close frame, and aborts what is left at the
      deadline; the port is free when `shutdown` returns. Aborting a request does not cancel an
@@ -167,8 +170,8 @@ read from the store. Configuration: a `server` section.
 
 ## Crate Placement
 
-`liquers-axum` only (core and store dependencies, plus `hyper-util` and `tokio-util`, already in the
-lock file): new `server` and `web` modules; `assets/websocket.rs` takes the cancellation token;
+`liquers-axum` only (core and store dependencies, plus `hyper-util`, `hyper`, `tokio-util` and
+`arc-swap`, already in the lock file): new `server` and `web` modules; `assets/websocket.rs` takes the cancellation token;
 `examples/basic_server.rs` moves onto the builder.
 
 ## Documentation Intent

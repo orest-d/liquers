@@ -16,8 +16,8 @@ created: 2026-11-06
 
 The `WEBSERV` feature for liquers-py: milestone M7 of the liquers-py plan, together with
 [`liquers-py-ui`](../liquers-py-ui/DESIGN.md) and [`liquers-py-ui-window`](../liquers-py-ui-window/DESIGN.md). Full form (`L`). Requires the `liquers-axum` server of [`axum-server-assembly`](../axum-server-assembly/DESIGN.md)
-(standard APIs, web folder, index page, graceful shutdown; Phase 1 question 6), its own PR first.
-Based on `main` at `bd36cf1`; M6 (PRs #257, #259–#263) has since merged.
+(standard APIs, web folder, index page, graceful shutdown; Phase 1 question 6), which lands before it
+in commit group A of PR #264; this design is group B. Based on the branch at `92b123d` (M6 merged).
 
 Phase 1 written and reviewed twice on 2026-11-06 (conformity and records; codebase and soundness); findings applied.
 
@@ -27,6 +27,10 @@ Phase 2 approved 2026-11-09 (Orest: "proceed"). Phase 3 written the same day and
 
 Pre-approved after Phase 3 on 2026-11-09 (Orest: "proceed all"). Phase 4
 written the same day.
+
+Pre-implementation stop (2026-11-09): implementation waits for Orest's answer on
+`configuration-document` Decision 2 (the keyword rule), the only open item of the three designs'
+decision logs. Phase 4 reviewed twice (consistency; codebase and soundness); findings applied.
 
 ## Phases
 
