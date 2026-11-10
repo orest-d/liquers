@@ -153,6 +153,7 @@ DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED,issue,Directory list
 DOC-03-ENTRY-POINT-TABLE-SAYS-APPLY-SCHEDULES,issue,DOC-03's entry-point table says apply schedules its asset and takes no payload,closed,local,,ready,eligible,P3,S,docs;core/assets,,,,doc-03-apply-entry-points,,2026-10-20,specs/issues/DOC-03-ENTRY-POINT-TABLE-SAYS-APPLY-SCHEDULES.md
 DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS,issue,"Three documents teach AsyncStoreWrapper, which no longer exists in the code",closed,local,,ready,,P2,S,docs;core/store,,,,async-store-wrapper-docs,,2026-09-02,specs/issues/DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS.md
 DOCS-BUILD-MATRIX-CONFIGURATION-COUNT-STALE,issue,CLAUDE.md states the build matrix has 11 configurations; it runs 20,closed,local,,,,P3,S,docs;build,,,,documentation-currentness-small-fixes,,2026-09-03,specs/issues/DOCS-BUILD-MATRIX-CONFIGURATION-COUNT-STALE.md
+DOCS-CHECK-FLAGS-A-CODE-SPAN-AS-A-MYST-ROLE,issue,liquers-docs reports a code span ending in a brace as a MyST role,draft,local,,,,P3,S,docs,,,,,,2026-11-09,specs/issues/DOCS-CHECK-FLAGS-A-CODE-SPAN-AS-A-MYST-ROLE.md
 DOCS-DEAD-LINKS-OUTSIDE-README,issue,Relative links outside README are never validated,closed,local,,covered,not-eligible,P3,S,docs,,,,docs-current-link-validation,,2026-08-08,specs/issues/DOCS-DEAD-LINKS-OUTSIDE-README.md
 DOCS-INDEX-EMITS-MACHINE-LOCAL-PATHS,issue,The generated index.md emits design phase links in filesystem order,closed,local,,ready,eligible,P2,S,docs;build,,,,docs-index-phase-link-targets,,2026-09-04,specs/issues/DOCS-INDEX-EMITS-MACHINE-LOCAL-PATHS.md
 DOCS-INDEX-GENERATION-DIFFERS-BY-HOST,issue,Documentation index generation differs by host filesystem ordering,closed,local,,,,P2,S,docs;build,,,,,,2026-09-04,specs/issues/DOCS-INDEX-GENERATION-DIFFERS-BY-HOST.md
@@ -245,6 +246,7 @@ MARKDOWN-TABLE-CANNOT-DISTINGUISH-NULL-FROM-EMPTY-TEXT,issue,"A Markdown table r
 MCP-SERVER-APPLIES-NO-ACCESS-POLICY,feature,"The MCP server limits its query tool by a command allow-list, not by an access policy",draft,local,,,,P3,M,mcp,,,,,,2026-10-20,specs/issues/MCP-SERVER-APPLIES-NO-ACCESS-POLICY.md
 MEDIA-TYPES-MISSING-FOR-TABULAR-FORMATS,issue,The extension-to-media-type table lacks or mislabels the common tabular formats,closed,local,,,,P3,S,core/value;axum,,,,axum-assets-endpoints,,2026-09-24,specs/issues/MEDIA-TYPES-MISSING-FOR-TABULAR-FORMATS.md
 MEMORY-STORE-METADATA-ONLY-ENTRY-READS-AS-EMPTY-BYTES,issue,"AsyncMemoryStore answers a metadata-only entry with empty bytes, indistinguishable from empty content",closed,local,,ready,,P2,S,core/store,,,,memory-store-metadata-only-entry,,2026-10-02,specs/issues/MEMORY-STORE-METADATA-ONLY-ENTRY-READS-AS-EMPTY-BYTES.md
+MEMORY-STORE-RAW-WRITE-IS-NOT-SEARCHED,issue,A file written with Store.set into a memory store is listed but its content is not searched,draft,local,,,,P3,S,core/store,,,,,,2026-11-09,specs/issues/MEMORY-STORE-RAW-WRITE-IS-NOT-SEARCHED.md
 MEMORYSTORE-MAKEDIR-SUCCEEDS-WITHOUT-CREATING-A-DIRECTORY,issue,MemoryStore::makedir succeeds without creating a directory,rejected,local,,,,P0,S,core/store,,,,,,2026-09-02,specs/issues/MEMORYSTORE-MAKEDIR-SUCCEEDS-WITHOUT-CREATING-A-DIRECTORY.md
 METADATA-LACKS-SERIALIZE-DESERIALIZE-AND-PARTIALEQ,issue,"Metadata lacks Serialize, Deserialize and PartialEq",closed,local,,ready,,P2,S,core/value,,,,metadata-serde-partialeq,,2026-09-26,specs/issues/METADATA-LACKS-SERIALIZE-DESERIALIZE-AND-PARTIALEQ.md
 METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED,issue,A value stored as metadata only is reloaded through the corrupted-data path,closed,local,,ready,eligible,P3,S,core/assets,,,,metadata-only-entry-reload,,2026-09-24,specs/issues/METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED.md
@@ -330,6 +332,8 @@ PY-RECIPE-PROVIDER-NOT-CONFIGURABLE,feature,A Python environment cannot configur
 PY-RECORD-SOURCES-CANNOT-BE-TRAVERSED-FROM-PYTHON,feature,"A record source cannot be walked chunk by chunk from Python, and record columns cannot be read in place",closed,local,,ready,not-eligible,P2,L,py;records,,,,liquers-py-records,,2026-11-01,specs/issues/PY-RECORD-SOURCES-CANNOT-BE-TRAVERSED-FROM-PYTHON.md
 PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON,feature,A record view or source evaluated from Python raises ConversionError instead of reaching Python as a table,closed,local,,ready,not-eligible,P3,M,py;records,,,,liquers-py-records,,2026-10-20,specs/issues/PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON.md
 PY-REPRS-SHOW-RUST-DEBUG-FORMAT,issue,"Most Python classes' repr is Rust debug output, and no repr convention exists",draft,local,,needs-decision,not-eligible,P3,M,py,,,,py-python-style-reprs,,2026-10-19,specs/issues/PY-REPRS-SHOW-RUST-DEBUG-FORMAT.md
+PY-SHUTDOWN-AFTER-EVALUATE-LOSES-THE-STORE-WRITE,issue,shutdown right after an evaluation loses the store write of a keyed result,draft,local,,,,P2,M,py,,,,,,2026-11-09,specs/issues/PY-SHUTDOWN-AFTER-EVALUATE-LOSES-THE-STORE-WRITE.md
+PY-STORE-SET-OF-BYTES-IGNORES-THE-KEY-EXTENSION,issue,Environment.store_set of bytes records the format b whatever the key's extension,draft,local,,,,P3,S,py,,,,,,2026-11-09,specs/issues/PY-STORE-SET-OF-BYTES-IGNORES-THE-KEY-EXTENSION.md
 PY-STRUCTURES-ARE-OPAQUE-TO-DATA-NODE-READERS,feature,A Python dict that structural conversion refuses is opaque to templates and other data-node readers,closed,local,,ready,not-eligible,P2,L,py;lib/value,,,,liquers-py-data-nodes,,2026-11-04,specs/issues/PY-STRUCTURES-ARE-OPAQUE-TO-DATA-NODE-READERS.md
 PY-TESTS-NOT-RUN-IN-CI,issue,"No CI workflow runs the liquers-py test suite, on any Python interpreter",closed,local,,ready,not-eligible,P2,M,py;build,,,,language-binding-tests-in-ci,,2026-10-26,specs/issues/PY-TESTS-NOT-RUN-IN-CI.md
 PY-VALUE-ENUM-OVERSIZED,issue,liquers-py's own Value enum is over 700 bytes because large variants are stored inline,closed,local,,ready,not-eligible,P3,M,py,,,,liquers-py,,2026-10-12,specs/issues/PY-VALUE-ENUM-OVERSIZED.md
@@ -999,7 +1003,7 @@ WORKSPACE-RUSTFMT-CHECK,design,The workspace is rustfmt-clean and CI keeps it so
 WP2-TERMINAL-OUTCOME,design,Asset terminal outcome contract,complete,local,,,,,,core/assets,,7,,wp2-terminal-outcome,,2026-03-02,specs/design/wp2-terminal-outcome/DESIGN.md
 AGENT_MEMORY_SERVICE,reference,Agent Memory Service,current,local,,,,,,lib/commands;mcp,,,,,2026-11-01,,specs/reference/AGENT_MEMORY_SERVICE.md
 API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,,,docs,,,,,2026-11-02,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
-DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
+DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,overdue,local,,,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
 DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,,core/query,,,,,2026-11-04,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
 DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,,core/assets,,,,,2026-10-27,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
 DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,,core/context;core/plan,,,,,2026-10-22,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
@@ -1046,7 +1050,7 @@ JAVASCRIPT_GUIDE,guide,Using Liquers from JavaScript in the browser,current,loca
 LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store;core/value;lib/commands,,,,,2026-11-04,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 PIPELINE_GUIDE,guide,Pipeline Guide,current,local,,,,,,core/commands;core/plan;core/query;core/validate,,,,,2026-11-04,,specs/guides/PIPELINE_GUIDE.md
 PROJECT_SITE_GUIDE,guide,Project Site Guide,current,local,,,,,,docs;build,,,,,2026-11-09,,specs/guides/PROJECT_SITE_GUIDE.md
-PYTHON_GUIDE,guide,Using Liquers from Python,current,local,,,,,,py,,,,,2026-11-05,,specs/guides/PYTHON_GUIDE.md
+PYTHON_GUIDE,guide,Using Liquers from Python,current,local,,,,,,py,,,,,2026-11-09,,specs/guides/PYTHON_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,,core/query,,,,,2026-11-04,,specs/guides/QUERY_ESCAPING_GUIDE.md
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,,records;lib/value,,,,,2026-10-30,,specs/guides/RECORD_STREAM_GUIDE.md
 SEARCH_GUIDE,guide,Search Guide,current,local,,,,,,lib/commands;records,,,,,2026-10-17,,specs/guides/SEARCH_GUIDE.md
@@ -1059,26 +1063,26 @@ TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,,core/va
 UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,,build;core/assets,,,,,2026-10-20,,specs/guides/UNITTEST_GUIDE.md
 USER_DOCS_EDITING_GUIDE,guide,User Documentation Editing Guide,current,local,,,,,,docs,,,,,2026-11-09,,specs/guides/USER_DOCS_EDITING_GUIDE.md
 WEB_API_GUIDE,guide,Web API Guide,current,local,,,,,,axum;web,,,,,2026-10-16,,specs/guides/WEB_API_GUIDE.md
-python/01-introduction,chapter,Introduction,outline,local,,,,,,docs,,,,,,,docs/guides/python/01-introduction.md
-python/02-installing,chapter,Installing and setting up,outline,local,,,,,,docs,,,,,,,docs/guides/python/02-installing.md
-python/03-queries,chapter,Queries,outline,local,,,,,,docs,,,,,,,docs/guides/python/03-queries.md
-python/04-values,chapter,"Values, state and metadata",outline,local,,,,,,docs,,,,,,,docs/guides/python/04-values.md
-python/05-commands,chapter,Commands,outline,local,,,,,,docs,,,,,,,docs/guides/python/05-commands.md
-python/06-stores,chapter,Stores,outline,local,,,,,,docs,,,,,,,docs/guides/python/06-stores.md
-python/07-assets,chapter,"Recipes, assets and caching",outline,local,,,,,,docs,,,,,,,docs/guides/python/07-assets.md
-python/08-environment,chapter,The environment,outline,local,,,,,,docs,,,,,,,docs/guides/python/08-environment.md
-python/09-data,chapter,Working with data,outline,local,,,,,,docs,,,,,,,docs/guides/python/09-data.md
-python/10-templates,chapter,Templates,outline,local,,,,,,docs,,,,,,,docs/guides/python/10-templates.md
-python/11-ui,chapter,User interfaces,outline,local,,,,,,docs,,,,,,,docs/guides/python/11-ui.md
-python/12-serving,chapter,Serving and embedding,outline,local,,,,,,docs,,,,,,,docs/guides/python/12-serving.md
-python/13-search,chapter,Search and agent memory,outline,local,,,,,,docs,,,,,,,docs/guides/python/13-search.md
-python/14-testing,chapter,Testing,outline,local,,,,,,docs,,,,,,,docs/guides/python/14-testing.md
-python/15-troubleshooting,chapter,Troubleshooting,outline,local,,,,,,docs,,,,,,,docs/guides/python/15-troubleshooting.md
-python/a-query-syntax,chapter,Query syntax,outline,local,,,,,,docs,,,,,,,docs/guides/python/a-query-syntax.md
-python/b-command-library,chapter,Command library,outline,local,,,,,,docs,,,,,,,docs/guides/python/b-command-library.md
-python/c-glossary,chapter,Glossary,outline,local,,,,,,docs,,,,,,,docs/guides/python/c-glossary.md
-python/d-sister-guides,chapter,Sister guides,outline,local,,,,,,docs,,,,,,,docs/guides/python/d-sister-guides.md
-python/index,chapter,Preface,outline,local,,,,,,docs,,,,,,,docs/guides/python/index.md
+python/01-introduction,chapter,Introduction,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/python/01-introduction.md
+python/02-installing,chapter,Installing and setting up,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/python/02-installing.md
+python/03-queries,chapter,Queries,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/03-queries.md
+python/04-values,chapter,"Values, state and metadata",ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/04-values.md
+python/05-commands,chapter,Commands,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/05-commands.md
+python/06-stores,chapter,Stores,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/06-stores.md
+python/07-assets,chapter,"Recipes, assets and caching",ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/07-assets.md
+python/08-environment,chapter,The environment,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/08-environment.md
+python/09-data,chapter,Working with data,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/09-data.md
+python/10-templates,chapter,Templates,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/10-templates.md
+python/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/11-ui.md
+python/12-serving,chapter,Serving and embedding,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/12-serving.md
+python/13-search,chapter,Search and agent memory,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/13-search.md
+python/14-testing,chapter,Testing,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/14-testing.md
+python/15-troubleshooting,chapter,Troubleshooting,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/15-troubleshooting.md
+python/a-query-syntax,chapter,Query syntax,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/a-query-syntax.md
+python/b-command-library,chapter,Command library,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/b-command-library.md
+python/c-glossary,chapter,Glossary,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/c-glossary.md
+python/d-sister-guides,chapter,Sister guides,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/d-sister-guides.md
+python/index,chapter,Preface,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/index.md
 rust/01-introduction,chapter,Introduction,outline,local,,,,,,docs,,,,,,,docs/guides/rust/01-introduction.md
 rust/02-installing,chapter,Installing and setting up,outline,local,,,,,,docs,,,,,,,docs/guides/rust/02-installing.md
 rust/03-queries,chapter,Queries,outline,local,,,,,,docs,,,,,,,docs/guides/rust/03-queries.md

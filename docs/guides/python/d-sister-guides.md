@@ -1,14 +1,20 @@
 ---
 title: Sister guides
-status: outline
+status: ready
 sources: []
-reviewed:
+reviewed: 2026-11-09
 ---
 # D. Sister guides
 
 PURPOSE: The reader can find the same topic in the other two guides.
 
-TBD: Chapter map: one row per chapter: what the other two guides say there, with links.
+The three guides have the same chapters with the same numbers. This table takes you from a
+chapter of this guide to the same topic in *Liquers for Rust* and *Liquers for the Web*.
+
+Read the Rust guide when you want to know how the library commands and the server work, or to
+write commands in Rust. Read the Web guide to run queries in a browser or to call a server from
+JavaScript. A few topics exist in only some of the guides: user interfaces (chapter 11) are
+covered by the Rust and Web guides, and the HTTP server (chapter 12) by the Rust guide.
 
 | Chapter | Liquers for Rust | Liquers for the Web |
 |---|---|---|

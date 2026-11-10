@@ -194,7 +194,8 @@ Python symbols for the loading interpreter to supply, so a test binary built wit
 
 Python test modules are named for the feature they test, `test_<FEATURE>_<topic>.py`
 (`specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §3). The one exception is `test_GUIDE_examples.py`,
-which runs every example in `specs/guides/PYTHON_GUIDE.md`.
+which runs every example in `specs/guides/PYTHON_GUIDE.md` and every complete example (a block that
+imports `liquers`) of the user guide in `docs/guides/python/`.
 
 ## Releasing
 
