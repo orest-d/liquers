@@ -3,7 +3,7 @@ title: Python Integration
 kind: reference
 audience: both
 area: [py, core/value, core/error, lib/value, core/store, store/config, core/assets]
-reviewed: 2026-11-09
+reviewed: 2026-11-10
 ---
 # Python Integration
 
@@ -1019,7 +1019,9 @@ the handle does not stop the server.
 `env.shutdown()` stops them first, with 5 s each. Every server is also in a process list: the
 `atexit` hook `serve` registers (and the module's exit hook, and the loop pool's) stops them with
 1 s each before commands are cancelled. `serve` on a shut environment raises, as every method that
-uses the environment does after `shutdown()` (§3).
+uses the environment does after `shutdown()` (§3); so does a server still binding when
+`env.shutdown()` runs (`serve_async`, or `serve` on another thread), which is stopped again rather
+than left listening.
 
 **Not offered.** Python request handlers or middleware (`PY-WEB-SERVER-CANNOT-TAKE-PYTHON-HANDLERS`),
 authentication, TLS, and a web folder answered by recipes (`WEB-FOLDER-SERVES-STORED-FILES-ONLY`).
@@ -1028,6 +1030,7 @@ authentication, TLS, and a web folder answered by recipes (`WEB-FOLDER-SERVES-ST
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-10 | §17 Lifetime: a server still binding when `env.shutdown()` runs is stopped and raises (a review of PR #264 found it could stay listening). | `liquers-py/src/environment.rs` test `a_server_bound_after_shutdown_is_stopped` |
 | 2026-11-09 | §3: `config=` is a configuration document (file, YAML text, dict), with the `python` section and `command_registry`; keywords override the file, and `job_capacity=` replaces `assets.job_capacity` instead of conflicting; `serve`/`servers` methods; shutdown stops the servers first. §1, §2, §7: `Server`, `liquers-axum`, servers stop first at exit. §17 Web server. | phase-5, `design/configuration-document/`, `design/liquers-py-web-server/` |
 | 2026-11-06 | §16: an `ActionEditor` is stale after any edit that can move its step, not only its removal. | PR #263 review |
 | 2026-11-05 | §16: `evaluate` takes a tuple too; `to_list()` is the JSON form; a JSON-slot error path starts at `$`. | phase-5, `design/liquers-py-pipelines/` |

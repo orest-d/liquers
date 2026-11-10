@@ -3,7 +3,7 @@ title: Liquers Web API Specification
 kind: reference
 audience: internal
 area: [axum, web]
-reviewed: 2026-11-09
+reviewed: 2026-11-10
 ---
 # Liquers Web API Specification
 
@@ -653,7 +653,8 @@ fails the request is answered 503 with the §3.2 body.
 
 `LiquersServer::shutdown(deadline)` stops in two stages. The listener is closed at once, so new
 connections are refused; requests in flight, and WebSocket sessions, get up to `deadline` to finish
-and are then cut off. Each WebSocket receives `Close(1001, "server shutting down")` first. When
+and are then cut off. Each WebSocket receives `Close(1001, "server shutting down")` first, and its
+session ends within 1 s of the stop even when it is waiting on a client that stopped reading. When
 `shutdown` returns, the port is free. A second call does nothing, `is_running()` turns false, and
 `stopped()` resolves for every waiter. Dropping a `LiquersServer` does not stop it; `stop_token()`
 returns a token that stops it when cancelled. Handlers reach the stop through the request extension
@@ -808,6 +809,7 @@ Not available at HEAD; listed so that no reader mistakes them for features:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-10 | §8.2: a WebSocket session ends within 1 s of the stop even when it waits on a client that stopped reading (a review of PR #264 found it could outlive the shutdown). | `liquers-axum/tests/server_shutdown.rs` |
 | 2026-11-09 | §8 rewritten: §8.1 server assembly (`ServerConfig`, the `server` section and its defaults, `LiquersServerBuilder`, `EnvSource`, 503 when the source fails), §8.2 the two-stage stop with the WebSocket Close, §8.3 the web folder, §8.4 the index redirect, §8.5 composing routers by hand; §9 the security-sensitive settings `host`, `read_only`, `web` and the read-only web mount. | phase-5, `design/axum-server-assembly/` |
 | 2026-10-27 | §9: a mount is protected by the store configuration's `read_only` (or `ReadOnlyStore`), with writes answered 501 `NotSupported`, and when reads may still write (a store without data-only access, a pipeline assembled in code without its own `read_only`); the stale reference to the closed `STORE-NO-READ-ONLY-ADAPTER` is removed. | `design/web-api-spec-read-only-mount/` |
 | 2026-10-27 | Recipes API `resolve`: the returned plan is the server build's inspection format, not a stable schema. | `design/plan-serialization-internal-contract/` |

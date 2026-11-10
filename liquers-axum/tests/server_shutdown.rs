@@ -157,3 +157,42 @@ async fn websocket_gets_close_frame() {
     tokio::time::timeout(Duration::from_secs(5), stopping).await.unwrap().unwrap();
     assert!(start.elapsed() < Duration::from_secs(3));
 }
+
+/// A client that floods pings and never reads fills the session's outgoing queue, so the session
+/// waits inside a reply; the stop must still end it, not leave it running after `shutdown`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn websocket_blocked_on_a_client_that_stopped_reading_still_ends() {
+    use futures::SinkExt;
+    let envref = env_with_gate(gate());
+    let unserved = Arc::strong_count(&envref.0);
+    let server = serve(envref.clone()).await;
+    let url = format!("ws://{}/liquer/api/assets/ws/q", server.local_addr());
+    let (socket, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+    let (mut sink, stream) = socket.split();
+    // Feed pings until the server stops taking them: its replies have filled the socket and the
+    // outgoing queue, so it is blocked inside `reply`, not waiting on the next message.
+    let start = Instant::now();
+    loop {
+        assert!(start.elapsed() < Duration::from_secs(60), "the server never stopped reading");
+        for _ in 0..1000 {
+            sink.feed(Message::Text(r#"{"action":"ping"}"#.into())).await.unwrap();
+        }
+        match tokio::time::timeout(Duration::from_millis(500), sink.flush()).await {
+            Ok(flushed) => flushed.unwrap(),
+            Err(_) => break,
+        }
+    }
+    let stopped = Instant::now();
+    tokio::time::timeout(Duration::from_secs(5), server.shutdown(Duration::from_millis(500)))
+        .await
+        .expect("shutdown returns");
+    assert!(stopped.elapsed() < Duration::from_secs(4));
+    // The client still reads nothing: the session must have ended anyway, releasing the
+    // environment it held (a live session would hold it until the client read again).
+    let start = Instant::now();
+    while Arc::strong_count(&envref.0) > unserved {
+        assert!(start.elapsed() < Duration::from_secs(5), "the session outlived the server's shutdown");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    drop(stream);
+}

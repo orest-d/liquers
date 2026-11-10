@@ -155,7 +155,7 @@ pub struct EnvCell {
     /// `shutdown`.
     current: RwLock<Option<EnvRef<PyEnvironment>>>,
     /// The servers started from this environment; stopped ones are pruned on each access.
-    servers: Mutex<Vec<Arc<ServerSlot>>>,
+    servers: Mutex<ServerList>,
     pub conversion: ConversionMode,
     pub pickle: bool,
     /// Fired by `shutdown()`; every wait started from this handle watches it.
@@ -192,7 +192,7 @@ impl EnvCell {
             }),
             config,
             current: RwLock::new(None),
-            servers: Mutex::new(Vec::new()),
+            servers: Mutex::new(ServerList::default()),
             conversion,
             pickle,
             shut: Arc::new(Shut::default()),
@@ -251,18 +251,24 @@ impl EnvCell {
         drop(previous);
     }
 
-    /// Records a server started from this environment.
-    pub(crate) fn add_server(&self, slot: Arc<ServerSlot>) {
+    /// Records a server started from this environment, or refuses it once `shutdown()` has
+    /// taken the list: a server bound while the environment was shutting down is the caller's to
+    /// stop, since `shutdown()` no longer sees it.
+    pub(crate) fn add_server(&self, slot: Arc<ServerSlot>) -> Result<(), Error> {
         let mut servers = lock_servers(&self.servers);
-        servers.retain(|s| s.server.is_running());
-        servers.push(slot);
+        if servers.closed {
+            return Err(shut_down_error());
+        }
+        servers.slots.retain(|s| s.server.is_running());
+        servers.slots.push(slot);
+        Ok(())
     }
 
     /// The running servers started from this environment.
     pub(crate) fn running_servers(&self) -> Vec<Arc<ServerSlot>> {
         let mut servers = lock_servers(&self.servers);
-        servers.retain(|s| s.server.is_running());
-        servers.clone()
+        servers.slots.retain(|s| s.server.is_running());
+        servers.slots.clone()
     }
 
     /// Marks the environment for a rebuild after a declaration changed.
@@ -497,8 +503,13 @@ impl EnvCell {
     /// still running, since a stopped asset manager does not cancel running assets.
     pub fn shutdown(&self, py: Python<'_>) -> Result<(), Error> {
         // The servers first, while the environment still answers: their requests in flight may
-        // finish (up to the deadline) before the waits are cancelled.
-        let servers = std::mem::take(&mut *lock_servers(&self.servers));
+        // finish (up to the deadline) before the waits are cancelled. Closing the list under its
+        // lock makes a server still binding (`serve_async`, another thread) stop itself instead.
+        let servers = {
+            let mut list = lock_servers(&self.servers);
+            list.closed = true;
+            std::mem::take(&mut list.slots)
+        };
         if !servers.is_empty() {
             py.detach(|| {
                 for slot in &servers {
@@ -598,7 +609,14 @@ fn retire(cell: &EnvCell, declarations: &mut Declarations) -> Result<(), Error> 
     Ok(())
 }
 
-fn lock_servers(servers: &Mutex<Vec<Arc<ServerSlot>>>) -> MutexGuard<'_, Vec<Arc<ServerSlot>>> {
+/// An environment's servers, and whether `shutdown()` has closed the list to new ones.
+#[derive(Default)]
+struct ServerList {
+    closed: bool,
+    slots: Vec<Arc<ServerSlot>>,
+}
+
+fn lock_servers(servers: &Mutex<ServerList>) -> MutexGuard<'_, ServerList> {
     match servers.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
@@ -1831,6 +1849,25 @@ mod tests {
             let second = cell.envref(py)?;
             assert!(Arc::ptr_eq(&first.get_async_store(), &second.get_async_store()));
             assert_eq!(cell.lock(py)?.retired.len(), 1);
+            Ok(())
+        })
+    }
+
+    /// A server that finishes binding after `shutdown()` took the server list (`serve_async`, or
+    /// `serve` on another thread) is refused and stopped, so no listener outlives the environment.
+    #[test]
+    fn a_server_bound_after_shutdown_is_stopped() -> Result<(), Error> {
+        attached(|py| {
+            let cell = Arc::new(new_cell()?);
+            cell.envref(py)?;
+            cell.shutdown(py)?;
+            let config = liquers_axum::ServerConfig { port: 0, ..liquers_axum::ServerConfig::default() };
+            let started = py.detach(|| runtime()?.block_on(crate::server::start(cell.clone(), config)));
+            match started {
+                Ok(slot) => panic!("a server started on a shut environment: {}", slot.server.local_addr()),
+                Err(e) => assert!(e.to_string().contains("shut down"), "{e}"),
+            }
+            assert!(cell.running_servers().is_empty());
             Ok(())
         })
     }

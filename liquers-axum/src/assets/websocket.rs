@@ -28,7 +28,8 @@
 //!
 //! Under a running [`LiquersServer`](crate::server::LiquersServer) each session also carries a
 //! [`ServerStop`]: the server waits for it while stopping, and the session answers the stop with
-//! `Close(1001 Going Away)`. Served by a host's own loop, a session runs until its client goes.
+//! `Close(1001 Going Away)`, even while it waits on a client that stopped reading. Served by a
+//! host's own loop, a session runs until its client goes.
 //!
 //! # Main components
 //!
@@ -100,6 +101,7 @@ use tokio::{
 };
 
 use crate::server::ServerStop;
+use tokio_util::sync::CancellationToken;
 
 use crate::api_core::{
     error::error_to_detail,
@@ -849,7 +851,9 @@ impl<E: Environment> Session<E> {
 ///
 /// Under a [`ServerStop`] (a session of a running `LiquersServer`) the session is tracked for its
 /// life, and when the server stops it sends `Close(1001 Going Away)` and ends, waiting up to 1 s
-/// for the frame to be written. Without one (a router served by the host's own loop) it runs
+/// for the frame to be written. The stop interrupts whatever the session is doing, including a
+/// reply waiting for room in the outgoing queue, so a client that stops reading cannot keep it
+/// alive past the server's deadline. Without one (a router served by the host's own loop) it runs
 /// until the client goes.
 async fn handle_socket<E: Environment>(
     socket: WebSocket,
@@ -873,35 +877,44 @@ async fn handle_socket<E: Environment>(
         subscriptions: HashMap::new(),
         by_address: HashMap::new(),
     };
-    if let Some(address) = initial {
-        session.subscribe(address, None, None).await;
-    }
     let mut stopping = false;
-    loop {
-        let incoming = match &stop_token {
-            Some(token) => tokio::select! {
-                incoming = stream.next() => incoming,
-                _ = token.cancelled() => {
-                    stopping = true;
-                    break;
-                }
-            },
-            None => stream.next().await,
+    if let Some(address) = initial {
+        let subscribed = session.subscribe(address, None, None);
+        stopping = until_stopped(stop_token.as_ref(), subscribed).await.is_none();
+    }
+    while !stopping {
+        let Some(incoming) = until_stopped(stop_token.as_ref(), stream.next()).await else {
+            stopping = true;
+            break;
         };
         let Some(incoming) = incoming else { break };
-        match incoming {
-            Ok(Message::Text(text)) => session.handle_text(text.as_str()).await,
-            Ok(Message::Binary(_)) => {
-                session
-                    .reply(parameter_error(
-                        "binary messages are not supported; send JSON text".to_string(),
-                    ))
-                    .await
+        // Handling a message can wait on the outgoing queue (a client that stops reading fills
+        // it), so it is raced against the stop too: a stopping server never waits on a client.
+        let handled = async {
+            match incoming {
+                Ok(Message::Text(text)) => {
+                    session.handle_text(text.as_str()).await;
+                    true
+                }
+                Ok(Message::Binary(_)) => {
+                    session
+                        .reply(parameter_error(
+                            "binary messages are not supported; send JSON text".to_string(),
+                        ))
+                        .await;
+                    true
+                }
+                Ok(Message::Ping(_)) | Ok(Message::Pong(_)) => true,
+                Ok(Message::Close(_)) => false,
+                // A protocol error, or a message over `max_message_size`: the connection is
+                // unusable.
+                Err(_) => false,
             }
-            Ok(Message::Ping(_)) | Ok(Message::Pong(_)) => {}
-            Ok(Message::Close(_)) => break,
-            // A protocol error, or a message over `max_message_size`: the connection is unusable.
-            Err(_) => break,
+        };
+        match until_stopped(stop_token.as_ref(), handled).await {
+            Some(true) => {}
+            Some(false) => break,
+            None => stopping = true,
         }
     }
     session.unsubscribe_all();
@@ -916,6 +929,18 @@ async fn handle_socket<E: Environment>(
         }
     } else {
         writer.abort();
+    }
+}
+
+/// Runs `work` to completion, or until `stop` is cancelled (`None`). Without a stop token the
+/// work always completes.
+async fn until_stopped<T>(stop: Option<&CancellationToken>, work: impl std::future::Future<Output = T>) -> Option<T> {
+    match stop {
+        Some(token) => tokio::select! {
+            output = work => Some(output),
+            _ = token.cancelled() => None,
+        },
+        None => Some(work.await),
     }
 }
 

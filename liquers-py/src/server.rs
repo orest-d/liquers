@@ -121,17 +121,21 @@ fn servers() -> std::sync::MutexGuard<'static, Vec<Weak<ServerSlot>>> {
 }
 
 /// Binds a server for `cell` and records it. Async: runs on the process runtime.
+///
+/// If the environment was shut down while the server was binding, the server is stopped again
+/// and the call fails with the shut-down error, so no listener outlives its environment.
 pub(crate) async fn start(cell: Arc<EnvCell>, config: ServerConfig) -> Result<Arc<ServerSlot>, Error> {
     let server = LiquersServerBuilder::<PyEnvironment>::from_config(config)
         .bind(CellSource::new(cell.clone()))
         .await?;
     let slot = Arc::new(ServerSlot { server });
-    {
-        let mut all = servers();
-        all.retain(|weak| weak.upgrade().is_some_and(|s| s.server.is_running()));
-        all.push(Arc::downgrade(&slot));
+    if let Err(e) = cell.add_server(slot.clone()) {
+        slot.server.shutdown(Duration::ZERO).await;
+        return Err(e);
     }
-    cell.add_server(slot.clone());
+    let mut all = servers();
+    all.retain(|weak| weak.upgrade().is_some_and(|s| s.server.is_running()));
+    all.push(Arc::downgrade(&slot));
     Ok(slot)
 }
 
