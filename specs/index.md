@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 221
+Total rows: 223
 - P2: 63
-- P3: 158
+- P3: 160
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -225,6 +225,7 @@ Total rows: 221
 | [`CROSS-REALM-TRANSFER-NOT-PLANNED`](issues/CROSS-REALM-TRANSFER-NOT-PLANNED.md) | feature | A value crossing a realm boundary is not checked or converted at planning time | draft | phase2-blocked | not-eligible | P3 | L | core/plan;core/value | [phase1](design/cross-realm-transfer-planning/phase1-high-level-design.md)  [phase2](design/cross-realm-transfer-planning/phase2-architecture.md)  | 2026-10-20 |
 | [`REGISTERED-ASSET-CANNOT-BE-PROTECTED-FROM-UNREGISTRATION`](issues/REGISTERED-ASSET-CANNOT-BE-PROTECTED-FROM-UNREGISTRATION.md) | feature | A registered asset cannot be protected from unregistration, so asset users cannot rely on converging on one asset | draft | phase2-blocked | not-eligible | P3 | L | core/assets | [phase1](design/registered-asset-protection/phase1-high-level-design.md)  [phase2](design/registered-asset-protection/phase2-architecture.md)  | 2026-10-20 |
 | [`AGENT-MEMORY-HAS-NO-INDEXES-OR-CONTEXT-PACKS`](issues/AGENT-MEMORY-HAS-NO-INDEXES-OR-CONTEXT-PACKS.md) | feature | Agent memory derives nothing from its documents — no rendered templates, index assets or context packs | draft |  |  | P3 | L | lib/commands;docs | [phase1](design/agent-memory-derived/phase1-high-level-design.md)  [phase2](design/agent-memory-derived/phase2-architecture.md)  [phase3](design/agent-memory-derived/phase3-examples.md)  [phase4](design/agent-memory-derived/phase4-implementation.md)  [phase5](design/agent-memory-derived/phase5-documentation.md)  | 2026-10-21 |
+| [`AXUM-CANNOT-SERVE-A-LIQUERS-UI`](issues/AXUM-CANNOT-SERVE-A-LIQUERS-UI.md) | feature | A Liquers UI cannot be served or server-rendered by liquers-axum | draft |  |  | P3 | L | axum;lib/ui |  | 2026-11-10 |
 | [`COMMAND-REGISTRY-NOT-ORGANIZED-BY-REALM`](issues/COMMAND-REGISTRY-NOT-ORGANIZED-BY-REALM.md) | issue | The command metadata registry is a flat list, so a realm cannot have its own default namespaces | draft |  |  | P3 | L | core/commands;core/plan |  | 2026-11-01 |
 | [`MODULE-DOCS-DO-NOT-FOLLOW-THE-API-DOC-RULES`](issues/MODULE-DOCS-DO-NOT-FOLLOW-THE-API-DOC-RULES.md) | issue | Existing module docs lack purpose, usage, related concepts and examples | draft |  |  | P3 | L | docs;core/commands;core/value;lib/commands;axum;py |  | 2026-11-01 |
 | [`NO-SOURCE-CODE-AND-API-DOC-NAVIGATION`](issues/NO-SOURCE-CODE-AND-API-DOC-NAVIGATION.md) | feature | Source code and API documentation cannot be navigated or extracted | draft |  |  | P3 | L | lib/commands |  | 2026-10-11 |
@@ -235,3 +236,4 @@ Total rows: 221
 | [`CORE-MULTI-REALM-INTERPRETER`](issues/CORE-MULTI-REALM-INTERPRETER.md) | issue | The interpreter supports a single realm | accepted | phase2-blocked | not-eligible | P3 | XL | core/plan;core/commands | [phase1](design/multi-realm-dispatch/phase1-high-level-design.md)  [phase2](design/multi-realm-dispatch/phase2-architecture.md)  | 2026-08-08 |
 | [`CORE-TOKIO-REMOVAL`](issues/CORE-TOKIO-REMOVAL.md) | issue | Core still depends on tokio primitives on wasm | accepted | phase2-blocked | not-eligible | P3 | XL | core/assets | [phase1](design/executor-neutral-core/phase1-high-level-design.md)  [phase2](design/executor-neutral-core/phase2-architecture.md)  | 2026-08-08 |
 | [`NO-WRITE-PATH-FROM-RECORDS-INTO-A-RELATIONAL-DATABASE`](issues/NO-WRITE-PATH-FROM-RECORDS-INTO-A-RELATIONAL-DATABASE.md) | feature | Records cannot be written into a relational database (no INSERT, UPDATE, DELETE or transactions) | draft | phase2-blocked | not-eligible | P3 | XL | records;lib/commands;store/backends | [phase1](design/relational-database-writes/phase1-high-level-design.md)  [phase2](design/relational-database-writes/phase2-architecture.md)  | 2026-10-21 |
+| [`WEB-UI-CANNOT-BE-DRIVEN-BY-A-REMOTE-ENGINE`](issues/WEB-UI-CANNOT-BE-DRIVEN-BY-A-REMOTE-ENGINE.md) | feature | A browser UI cannot be driven by an engine running in another process | draft |  |  | P3 | XL | lib/ui;axum |  | 2026-11-10 |
