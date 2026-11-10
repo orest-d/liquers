@@ -1102,43 +1102,43 @@ python/b-command-library,chapter,Command library,ready,local,,,,,,docs,,,,,2026-
 python/c-glossary,chapter,Glossary,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/c-glossary.md
 python/d-sister-guides,chapter,Sister guides,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/d-sister-guides.md
 python/index,chapter,Preface,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/index.md
-rust/01-introduction,chapter,Introduction,outline,local,,,,,,docs,,,,,,,docs/guides/rust/01-introduction.md
-rust/02-installing,chapter,Installing and setting up,outline,local,,,,,,docs,,,,,,,docs/guides/rust/02-installing.md
-rust/03-queries,chapter,Queries,outline,local,,,,,,docs,,,,,,,docs/guides/rust/03-queries.md
-rust/04-values,chapter,"Values, state and metadata",outline,local,,,,,,docs,,,,,,,docs/guides/rust/04-values.md
-rust/05-commands,chapter,Commands,outline,local,,,,,,docs,,,,,,,docs/guides/rust/05-commands.md
-rust/06-stores,chapter,Stores,outline,local,,,,,,docs,,,,,,,docs/guides/rust/06-stores.md
-rust/07-assets,chapter,"Recipes, assets and caching",outline,local,,,,,,docs,,,,,,,docs/guides/rust/07-assets.md
-rust/08-environment,chapter,The environment,draft,local,,,,,,docs,,,,,,,docs/guides/rust/08-environment.md
-rust/09-data,chapter,Working with data,outline,local,,,,,,docs,,,,,,,docs/guides/rust/09-data.md
-rust/10-templates,chapter,Templates,outline,local,,,,,,docs,,,,,,,docs/guides/rust/10-templates.md
-rust/11-ui,chapter,User interfaces,outline,local,,,,,,docs,,,,,,,docs/guides/rust/11-ui.md
-rust/12-serving,chapter,Serving and embedding,draft,local,,,,,,docs,,,,,,,docs/guides/rust/12-serving.md
-rust/13-search,chapter,Search and agent memory,outline,local,,,,,,docs,,,,,,,docs/guides/rust/13-search.md
-rust/14-testing,chapter,Testing,outline,local,,,,,,docs,,,,,,,docs/guides/rust/14-testing.md
-rust/15-troubleshooting,chapter,Troubleshooting,outline,local,,,,,,docs,,,,,,,docs/guides/rust/15-troubleshooting.md
-rust/a-query-syntax,chapter,Query syntax,outline,local,,,,,,docs,,,,,,,docs/guides/rust/a-query-syntax.md
-rust/b-command-library,chapter,Command library,outline,local,,,,,,docs,,,,,,,docs/guides/rust/b-command-library.md
-rust/c-glossary,chapter,Glossary,outline,local,,,,,,docs,,,,,,,docs/guides/rust/c-glossary.md
-rust/d-sister-guides,chapter,Sister guides,outline,local,,,,,,docs,,,,,,,docs/guides/rust/d-sister-guides.md
-rust/index,chapter,Preface,outline,local,,,,,,docs,,,,,,,docs/guides/rust/index.md
-web/01-introduction,chapter,Introduction,outline,local,,,,,,docs,,,,,,,docs/guides/web/01-introduction.md
-web/02-installing,chapter,Installing and setting up,outline,local,,,,,,docs,,,,,,,docs/guides/web/02-installing.md
-web/03-queries,chapter,Queries,outline,local,,,,,,docs,,,,,,,docs/guides/web/03-queries.md
-web/04-values,chapter,"Values, state and metadata",outline,local,,,,,,docs,,,,,,,docs/guides/web/04-values.md
-web/05-commands,chapter,Commands,outline,local,,,,,,docs,,,,,,,docs/guides/web/05-commands.md
-web/06-stores,chapter,Stores,outline,local,,,,,,docs,,,,,,,docs/guides/web/06-stores.md
-web/07-assets,chapter,"Recipes, assets and caching",outline,local,,,,,,docs,,,,,,,docs/guides/web/07-assets.md
-web/08-environment,chapter,The environment,outline,local,,,,,,docs,,,,,,,docs/guides/web/08-environment.md
-web/09-data,chapter,Working with data,outline,local,,,,,,docs,,,,,,,docs/guides/web/09-data.md
-web/10-templates,chapter,Templates,outline,local,,,,,,docs,,,,,,,docs/guides/web/10-templates.md
-web/11-ui,chapter,User interfaces,outline,local,,,,,,docs,,,,,,,docs/guides/web/11-ui.md
-web/12-serving,chapter,Serving and embedding,draft,local,,,,,,docs,,,,,,,docs/guides/web/12-serving.md
-web/13-search,chapter,Search and agent memory,outline,local,,,,,,docs,,,,,,,docs/guides/web/13-search.md
-web/14-testing,chapter,Testing,outline,local,,,,,,docs,,,,,,,docs/guides/web/14-testing.md
-web/15-troubleshooting,chapter,Troubleshooting,outline,local,,,,,,docs,,,,,,,docs/guides/web/15-troubleshooting.md
-web/a-query-syntax,chapter,Query syntax,outline,local,,,,,,docs,,,,,,,docs/guides/web/a-query-syntax.md
-web/b-command-library,chapter,Command library,outline,local,,,,,,docs,,,,,,,docs/guides/web/b-command-library.md
-web/c-glossary,chapter,Glossary,outline,local,,,,,,docs,,,,,,,docs/guides/web/c-glossary.md
-web/d-sister-guides,chapter,Sister guides,outline,local,,,,,,docs,,,,,,,docs/guides/web/d-sister-guides.md
-web/index,chapter,Preface,outline,local,,,,,,docs,,,,,,,docs/guides/web/index.md
+rust/01-introduction,chapter,Introduction,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/01-introduction.md
+rust/02-installing,chapter,Installing and setting up,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/02-installing.md
+rust/03-queries,chapter,Queries,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/03-queries.md
+rust/04-values,chapter,"Values, state and metadata",ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/04-values.md
+rust/05-commands,chapter,Commands,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/05-commands.md
+rust/06-stores,chapter,Stores,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/06-stores.md
+rust/07-assets,chapter,"Recipes, assets and caching",ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/07-assets.md
+rust/08-environment,chapter,The environment,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/08-environment.md
+rust/09-data,chapter,Working with data,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/09-data.md
+rust/10-templates,chapter,Templates,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/10-templates.md
+rust/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/11-ui.md
+rust/12-serving,chapter,Serving and embedding,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/12-serving.md
+rust/13-search,chapter,Search and agent memory,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/13-search.md
+rust/14-testing,chapter,Testing,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/14-testing.md
+rust/15-troubleshooting,chapter,Troubleshooting,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/15-troubleshooting.md
+rust/a-query-syntax,chapter,Query syntax,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/a-query-syntax.md
+rust/b-command-library,chapter,Command library,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/b-command-library.md
+rust/c-glossary,chapter,Glossary,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/c-glossary.md
+rust/d-sister-guides,chapter,Sister guides,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/d-sister-guides.md
+rust/index,chapter,Preface,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/index.md
+web/01-introduction,chapter,Introduction,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/01-introduction.md
+web/02-installing,chapter,Installing and setting up,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/02-installing.md
+web/03-queries,chapter,Queries,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/03-queries.md
+web/04-values,chapter,"Values, state and metadata",ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/04-values.md
+web/05-commands,chapter,Commands,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/05-commands.md
+web/06-stores,chapter,Stores,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/06-stores.md
+web/07-assets,chapter,"Recipes, assets and caching",ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/07-assets.md
+web/08-environment,chapter,The environment,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/08-environment.md
+web/09-data,chapter,Working with data,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/09-data.md
+web/10-templates,chapter,Templates,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/10-templates.md
+web/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/11-ui.md
+web/12-serving,chapter,Serving and embedding,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/12-serving.md
+web/13-search,chapter,Search and agent memory,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/13-search.md
+web/14-testing,chapter,Testing,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/14-testing.md
+web/15-troubleshooting,chapter,Troubleshooting,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/15-troubleshooting.md
+web/a-query-syntax,chapter,Query syntax,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/a-query-syntax.md
+web/b-command-library,chapter,Command library,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/b-command-library.md
+web/c-glossary,chapter,Glossary,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/c-glossary.md
+web/d-sister-guides,chapter,Sister guides,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/d-sister-guides.md
+web/index,chapter,Preface,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/index.md
