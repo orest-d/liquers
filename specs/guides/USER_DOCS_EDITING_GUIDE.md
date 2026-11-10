@@ -3,7 +3,7 @@ title: User Documentation Editing Guide
 kind: guide
 audience: internal
 area: [docs]
-reviewed: 2026-11-09
+reviewed: 2026-11-10
 ---
 # User Documentation Editing Guide
 
@@ -85,6 +85,17 @@ reference to "5.2" means the same section in every guide.
   In the Python guide, every ` ```python ` block that imports `liquers` is run by
   `liquers-py/tests/test_GUIDE_examples.py`, alone, in a new interpreter (under pytest when it
   defines `test_` functions); a fragment that cannot run does not import `liquers` and says why.
+  In the Rust guide, every ` ```rust ` block is a contiguous run of lines of
+  `liquers-lib/tests/user_guide_GUIDE.rs` or `liquers-axum/tests/user_guide_GUIDE.rs`
+  (indentation, blank lines and `// --- name` marker lines aside), which
+  `liquers-docs/tests/rust_guide_examples.rs` enforces: change the test file and the chapter
+  together. A block that only shows a shape starts with a `// Sketch` comment and is exempt.
+  In the Web guide, every ` ```js ` block is run under Node by
+  `liquers-web/tests/guide/run-guide-examples.mjs` (`liquers-web/scripts/test-guide-examples.sh
+  --features records`), each in a fresh instance of the module. A block starts with the import of
+  the module from the project site (`PROJECT_SITE_GUIDE.md` §3.5), which the runner replaces; a
+  block that needs a page or a server is preceded by `<!-- example: not run — reason -->`, and one
+  that needs the record library by `<!-- example: needs records -->`.
   Queries are checked with `liquers-validate` before they go in (`CLAUDE.md`, *Validating
   queries*).
 - **Terms.** The words of appendix C, used the same way in all three guides. Introduce a term in
@@ -208,6 +219,7 @@ artifact of its `docs-site` run.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-10 | §3: how the examples of the Rust guide (slices of two test files, `// Sketch`) and of the Web guide (run under Node, the two markers) are tested. | writing the Rust and Web guides |
 | 2026-11-09 | §3: the Python guide's examples are run by `test_GUIDE_examples.py`. §5: showing a tag instead of expanding it (set-delimiter tags). | writing the Python guide |
 | 2026-11-09 | §1: `docs/site/`, the landing page (maintained under [`PROJECT_SITE_GUIDE.md`](PROJECT_SITE_GUIDE.md)); the home page is published as `overview.html`. | PR #266 |
 | 2026-11-02 | §8: the API references the build adds, their tools, and the home page's link per crate. | `design/user-documentation-guides` (phase-4 addendum) |

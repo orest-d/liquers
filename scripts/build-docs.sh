@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # Builds the documentation site: the landing page (docs/site/), the three user guides (HTML with
-# and without search, EPUB, PDF), the home page (overview.html) and the API references (every
-# Rust crate, Python, JavaScript), assembled into one folder ready for GitHub Pages.
+# and without search, EPUB, PDF), the home page (overview.html), the API references (every
+# Rust crate, Python, JavaScript) and the browser module itself (pkg/liquers-web/, which the
+# examples of the Web guide import), assembled into one folder ready for GitHub Pages.
 #
 #   bash scripts/build-docs.sh [--release] [--out DIR] [--skip-api] [--skip-pdf] [--latex]
 #                              [--verify | --verify-only]
 #
 #   --release   release build: only `ready` chapters, writer notes removed; every tool is required
 #   --out DIR   the site folder (default target/docs-site)
-#   --skip-api  do not build the API references (the slowest step)
+#   --skip-api  do not build the API references or the browser module (the slowest step)
 #   --skip-pdf  do not build PDFs
 #   --latex     build PDFs through LaTeX (xelatex) instead of Typst
 #   --verify    check the assembled site has every expected file, then exit non-zero if not
@@ -17,7 +18,8 @@
 # Steps: liquers-docs writes the build tree (target/docs-build); mdBook renders each book twice
 # (search on, and search off for the offline zip); Pandoc renders EPUB and PDF; cargo doc renders
 # the Rust API of every crate (liquers-web for wasm32), scripts/build-liquers-py-docs.sh the
-# Python API (pdoc) and scripts/build-liquers-web-docs.sh the JavaScript API (TypeDoc). A missing
+# Python API (pdoc) and scripts/build-liquers-web-docs.sh the JavaScript API (TypeDoc); the
+# optimized `records` build of liquers-web that TypeDoc reads is copied to pkg/liquers-web/. A missing
 # tool (mdbook, pandoc, typst, python3, npx, wasm-bindgen, the wasm32 target) skips its step with
 # a notice, except under --release. Generated output is never committed: it exists only in --out.
 # See specs/guides/USER_DOCS_EDITING_GUIDE.md and specs/guides/GITHUB_ACTIONS_GUIDE.md.
@@ -42,7 +44,7 @@ while [ $# -gt 0 ]; do
         --latex) PDF_ENGINE=xelatex ;;
         --verify) VERIFY=1 ;;
         --verify-only) VERIFY=1; VERIFY_ONLY=1 ;;
-        -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
         *) echo "build-docs.sh: unknown option $1" >&2; exit 2 ;;
     esac
     shift
@@ -157,9 +159,19 @@ if [ "$SKIP_API" = 0 ]; then
     if have python3; then
         bash "$ROOT/scripts/build-liquers-py-docs.sh" --out "$OUT/api/python"
     fi
-    echo "== JavaScript API (TypeDoc)" >&2
+    echo "== JavaScript API (TypeDoc) and the browser module" >&2
     if have npx && have wasm-bindgen; then
-        bash "$ROOT/scripts/build-liquers-web-docs.sh" --features records --out "$OUT/api/js"
+        bash "$ROOT/scripts/build-liquers-web-docs.sh" --release --features records --out "$OUT/api/js"
+        # The module TypeDoc just read, published as it is: the examples of the Web guide import
+        # pkg/liquers-web/liquers_web.js from the site (docs/guides/web/02-installing.md). It
+        # loads liquers_web_bg.wasm and snippets/ from its own folder, so they travel together.
+        dist="$ROOT/liquers-web/examples-web/quickstart/dist"
+        mkdir -p "$OUT/pkg/liquers-web"
+        cp "$dist/liquers_web.js" "$dist/liquers_web_bg.wasm" "$dist/liquers_web.d.ts" \
+            "$OUT/pkg/liquers-web/"
+        if [ -d "$dist/snippets" ]; then
+            cp -r "$dist/snippets" "$OUT/pkg/liquers-web/"
+        fi
     fi
 fi
 
@@ -205,6 +217,16 @@ if [ "$VERIFY" = 1 ]; then
         while read -r target; do
             expect "$target"
         done < <(grep -o '](api/[^)#]*' "$ROOT/docs/index.md" | sed 's/^](//')
+        # The browser module the Web guide's examples import, published beside its reference.
+        expect pkg/liquers-web/liquers_web.js
+        expect pkg/liquers-web/liquers_web_bg.wasm
+        # Whatever the module imports from its own folder (snippets/ in a records build).
+        if [ -f "$OUT/pkg/liquers-web/liquers_web.js" ]; then
+            while read -r target; do
+                expect "pkg/liquers-web/$target"
+            done < <(grep -o "^import .* from ['\"]\./[^'\"]*" "$OUT/pkg/liquers-web/liquers_web.js" \
+                | sed "s/^.*from ['\"]\.\///")
+        fi
     fi
     # Every page the landing page links to, "coming soon" cards included, so removing a card's
     # data-soon never exposes a broken link. Links into api/ only when the API was built.

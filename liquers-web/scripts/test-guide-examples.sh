@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Runs the examples of specs/guides/JAVASCRIPT_GUIDE.md under Node (`DOCS03`).
+# Runs the examples of specs/guides/JAVASCRIPT_GUIDE.md (`DOCS03`) and of the user guide
+# docs/guides/web/ under Node. Pass `--features records` to run the record examples too; without
+# it they are skipped.
 #
 # Builds liquers-web for wasm32, generates the `--target web` module a page imports, and runs
 # tests/guide/run-guide-examples.mjs over it. Needs the wasm32 target, a `wasm-bindgen` CLI whose
