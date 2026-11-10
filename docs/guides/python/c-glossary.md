@@ -1,6 +1,6 @@
 ---
 title: Glossary
-status: draft
+status: ready
 sources: [reference/PROJECT_OVERVIEW.md, reference/PIPELINES.md, guides/PYTHON_GUIDE.md]
 reviewed: 2026-11-09
 ---

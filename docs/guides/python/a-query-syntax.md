@@ -1,6 +1,6 @@
 ---
 title: Query syntax
-status: draft
+status: ready
 sources: [reference/PROJECT_OVERVIEW.md, reference/RECIPES_AND_PLANS.md, guides/QUERY_ESCAPING_GUIDE.md, reference/PIPELINES.md]
 reviewed: 2026-11-09
 ---
@@ -28,4 +28,4 @@ one of:
 `lq.Pipeline(steps)` wraps such a list, `lq.Pipeline.from_query(text)` makes one from a query,
 and `pipeline.to_query(env)` turns it back when every argument can be written as text.
 
-TBD: Realms: the name in a transform segment's header (`-<realm>/…`) selects the realm in which the commands are looked up. Describe once the Python decorators can set a realm.
+EDITOR: still to be written: realms. the name in a transform segment's header (`-<realm>/…`) selects the realm in which the commands are looked up. Describe once the Python decorators can set a realm.

@@ -1,6 +1,6 @@
 ---
 title: Values, state and metadata
-status: draft
+status: ready
 sources: [reference/VALUE_TYPE_SYSTEM.md, guides/PYTHON_GUIDE.md, reference/PYTHON_INTEGRATION.md]
 reviewed: 2026-11-09
 ---

@@ -1,6 +1,6 @@
 ---
 title: Introduction
-status: draft
+status: ready
 sources: [reference/VISION.md, reference/PROJECT_OVERVIEW.md, guides/PYTHON_GUIDE.md]
 reviewed: 2026-11-10
 ---

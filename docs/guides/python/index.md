@@ -1,6 +1,6 @@
 ---
 title: Preface
-status: draft
+status: ready
 sources: [reference/VISION.md, reference/POSITIONING.md]
 reviewed: 2026-11-09
 ---

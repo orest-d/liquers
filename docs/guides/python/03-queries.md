@@ -1,6 +1,6 @@
 ---
 title: Queries
-status: draft
+status: ready
 sources: [reference/PROJECT_OVERVIEW.md, guides/QUERY_ESCAPING_GUIDE.md, guides/PYTHON_GUIDE.md, reference/PIPELINES.md, guides/PIPELINE_GUIDE.md]
 reviewed: 2026-11-09
 ---

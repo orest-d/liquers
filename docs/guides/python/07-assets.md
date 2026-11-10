@@ -1,6 +1,6 @@
 ---
 title: Recipes, assets and caching
-status: draft
+status: ready
 sources: [reference/ASSETS.md, reference/ASSET_LIFECYCLE.md, reference/RECIPES_AND_PLANS.md, guides/DEPENDENCY_CONSISTENCY_GUIDE.md, reference/ENVIRONMENT_CONFIG.md, guides/PYTHON_GUIDE.md]
 reviewed: 2026-11-09
 ---

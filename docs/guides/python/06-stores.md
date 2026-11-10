@@ -1,6 +1,6 @@
 ---
 title: Stores
-status: draft
+status: ready
 sources: [reference/STORE_SEMANTICS.md, guides/STORE_CONFIG_GUIDE.md, guides/PYTHON_GUIDE.md, reference/ENVIRONMENT_CONFIG.md]
 reviewed: 2026-11-09
 ---

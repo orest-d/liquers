@@ -1,6 +1,6 @@
 ---
 title: The environment
-status: draft
+status: ready
 sources: [reference/ENVIRONMENT_CONFIG.md, guides/PYTHON_GUIDE.md, reference/PYTHON_INTEGRATION.md]
 reviewed: 2026-11-09
 ---

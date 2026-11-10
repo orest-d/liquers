@@ -1,6 +1,6 @@
 ---
 title: Installing and setting up
-status: draft
+status: ready
 sources: [guides/PYTHON_GUIDE.md, reference/PYTHON_INTEGRATION.md]
 reviewed: 2026-11-10
 ---
@@ -13,7 +13,10 @@ convention under the short name `lq`.
 
 ## 2.1 Installing the package
 
-CHECK: no release is on PyPI yet. Until the first release (`liquers-py-v0.1.0`), `pip install liquers-py` does not work, and section 2.3 is the only way to install. Remove this note when the first release is published.
+Liquers is not on PyPI yet. Until the first release, install it from source, as section 2.3
+describes. From the first release on, this installs it:
+
+EDITOR: remove the paragraph above when the first release (`liquers-py-v0.1.0`) is published.
 
 ```bash
 pip install liquers-py

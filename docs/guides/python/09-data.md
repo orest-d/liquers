@@ -1,6 +1,6 @@
 ---
 title: Working with data
-status: draft
+status: ready
 sources: [reference/POLARS_COMMAND_LIBRARY.md, guides/RECORD_STREAM_GUIDE.md, guides/PYTHON_GUIDE.md, reference/PYTHON_INTEGRATION.md]
 reviewed: 2026-11-09
 ---

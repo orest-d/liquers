@@ -1,6 +1,6 @@
 ---
 title: Search and agent memory
-status: draft
+status: ready
 sources: [guides/SEARCH_GUIDE.md, reference/AGENT_MEMORY_SERVICE.md, reference/VISION.md]
 reviewed: 2026-11-09
 ---
@@ -154,5 +154,5 @@ which is safe but rigid, or by running code it writes, which is flexible but har
 Queries sit in between. An agent can combine commands freely, and yet each query can be checked
 before it runs, is cached, and leaves a record of what it read and produced.
 
-TBD: A worked example of a memory used from Python (a schema, `ns-mem/new`, `ns-mem/search`), and how to start `liquers-agent`. Needs a decision on how the agent binary is distributed to Python users.
+EDITOR: still to be written: a worked example of a memory used from Python (a schema, `ns-mem/new`, `ns-mem/search`), and how to start `liquers-agent`. Needs a decision on how the agent binary is distributed to Python users.
 SOURCE: reference/AGENT_MEMORY_SERVICE.md

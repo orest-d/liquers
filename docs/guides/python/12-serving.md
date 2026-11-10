@@ -1,6 +1,6 @@
 ---
 title: Serving and embedding
-status: draft
+status: ready
 sources: [guides/WEB_API_GUIDE.md, guides/PYTHON_GUIDE.md, reference/PYTHON_INTEGRATION.md]
 reviewed: 2026-11-09
 ---

@@ -1,6 +1,6 @@
 ---
 title: Command library
-status: draft
+status: ready
 sources: [command_registry.yaml]
 reviewed: 2026-11-09
 ---

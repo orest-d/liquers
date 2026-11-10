@@ -1063,26 +1063,26 @@ TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,,core/va
 UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,,build;core/assets,,,,,2026-10-20,,specs/guides/UNITTEST_GUIDE.md
 USER_DOCS_EDITING_GUIDE,guide,User Documentation Editing Guide,current,local,,,,,,docs,,,,,2026-11-09,,specs/guides/USER_DOCS_EDITING_GUIDE.md
 WEB_API_GUIDE,guide,Web API Guide,current,local,,,,,,axum;web,,,,,2026-10-16,,specs/guides/WEB_API_GUIDE.md
-python/01-introduction,chapter,Introduction,draft,local,,,,,,docs,,,,,2026-11-10,,docs/guides/python/01-introduction.md
-python/02-installing,chapter,Installing and setting up,draft,local,,,,,,docs,,,,,2026-11-10,,docs/guides/python/02-installing.md
-python/03-queries,chapter,Queries,draft,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/03-queries.md
-python/04-values,chapter,"Values, state and metadata",draft,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/04-values.md
-python/05-commands,chapter,Commands,draft,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/05-commands.md
-python/06-stores,chapter,Stores,draft,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/06-stores.md
-python/07-assets,chapter,"Recipes, assets and caching",draft,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/07-assets.md
-python/08-environment,chapter,The environment,draft,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/08-environment.md
-python/09-data,chapter,Working with data,draft,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/09-data.md
-python/10-templates,chapter,Templates,draft,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/10-templates.md
-python/11-ui,chapter,User interfaces,draft,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/11-ui.md
-python/12-serving,chapter,Serving and embedding,draft,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/12-serving.md
-python/13-search,chapter,Search and agent memory,draft,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/13-search.md
-python/14-testing,chapter,Testing,draft,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/14-testing.md
-python/15-troubleshooting,chapter,Troubleshooting,draft,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/15-troubleshooting.md
-python/a-query-syntax,chapter,Query syntax,draft,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/a-query-syntax.md
-python/b-command-library,chapter,Command library,draft,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/b-command-library.md
-python/c-glossary,chapter,Glossary,draft,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/c-glossary.md
-python/d-sister-guides,chapter,Sister guides,draft,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/d-sister-guides.md
-python/index,chapter,Preface,draft,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/index.md
+python/01-introduction,chapter,Introduction,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/python/01-introduction.md
+python/02-installing,chapter,Installing and setting up,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/python/02-installing.md
+python/03-queries,chapter,Queries,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/03-queries.md
+python/04-values,chapter,"Values, state and metadata",ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/04-values.md
+python/05-commands,chapter,Commands,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/05-commands.md
+python/06-stores,chapter,Stores,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/06-stores.md
+python/07-assets,chapter,"Recipes, assets and caching",ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/07-assets.md
+python/08-environment,chapter,The environment,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/08-environment.md
+python/09-data,chapter,Working with data,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/09-data.md
+python/10-templates,chapter,Templates,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/10-templates.md
+python/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/11-ui.md
+python/12-serving,chapter,Serving and embedding,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/12-serving.md
+python/13-search,chapter,Search and agent memory,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/13-search.md
+python/14-testing,chapter,Testing,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/14-testing.md
+python/15-troubleshooting,chapter,Troubleshooting,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/15-troubleshooting.md
+python/a-query-syntax,chapter,Query syntax,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/a-query-syntax.md
+python/b-command-library,chapter,Command library,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/b-command-library.md
+python/c-glossary,chapter,Glossary,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/c-glossary.md
+python/d-sister-guides,chapter,Sister guides,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/d-sister-guides.md
+python/index,chapter,Preface,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/index.md
 rust/01-introduction,chapter,Introduction,outline,local,,,,,,docs,,,,,,,docs/guides/rust/01-introduction.md
 rust/02-installing,chapter,Installing and setting up,outline,local,,,,,,docs,,,,,,,docs/guides/rust/02-installing.md
 rust/03-queries,chapter,Queries,outline,local,,,,,,docs,,,,,,,docs/guides/rust/03-queries.md
