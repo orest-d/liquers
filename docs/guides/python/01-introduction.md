@@ -2,7 +2,7 @@
 title: Introduction
 status: draft
 sources: [reference/VISION.md, reference/PROJECT_OVERVIEW.md, guides/PYTHON_GUIDE.md]
-reviewed: 2026-11-09
+reviewed: 2026-11-10
 ---
 # 1. Introduction
 
@@ -108,7 +108,9 @@ env.shutdown()
 ```
 
 The query reads the file, turns it into a table with `to_record`, and keeps the rows where
-`region` equals `EU`. The three commands come from the library; `ns-rec` selects the group of
+`region` equals `EU`. Such a table is called a *record view*, or *records* for short. Records are
+Liquers' own table type: they need no other Python package, and they convert to and from pandas,
+Polars and pyarrow when you want to continue there (chapter 9). The three commands come from the library; `ns-rec` selects the group of
 commands they belong to. No Python function was written for this example.
 
 It also introduced the *environment*. An environment holds a store and a set of commands, and
@@ -225,7 +227,8 @@ query a server serves and a web page shows.
 | Assets | Evaluate a query, track its status, cache its value, keep it fresh | [7](07-assets.md) |
 | Recipes | Give the result of a query a key, so it reads like a file | [7](07-assets.md) |
 | The environment | Holds the store and the commands that queries run in | [8](08-environment.md) |
-| Command libraries | Tables, data frames, images: steps you do not have to write | [9](09-data.md) |
+| Records | Tables with named, typed columns, built into Liquers: read from CSV and other formats, filtered and sorted by library commands, read in chunks when they are large, and handed to pandas, Polars or pyarrow | [9](09-data.md) |
+| Other command libraries | Polars data frames and images: more steps you do not have to write | [9](09-data.md) |
 | Templates | Put the values of queries into text | [10](10-templates.md) |
 | The web API | Serves every query at a URL | [12](12-serving.md) |
 | Search and agent memory | Find documents and rows; give agents queries as tools | [13](13-search.md) |

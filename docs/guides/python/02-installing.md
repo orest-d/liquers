@@ -2,7 +2,7 @@
 title: Installing and setting up
 status: draft
 sources: [guides/PYTHON_GUIDE.md, reference/PYTHON_INTEGRATION.md]
-reviewed: 2026-11-09
+reviewed: 2026-11-10
 ---
 # 2. Installing and setting up
 
@@ -79,23 +79,69 @@ extras install nothing there. polars has no wheel for free-threaded Python: on s
 interpreter leave out `polars` and `all`, and name the other extras
 (`'liquers-py[images,arrow,pandas]'`).
 
-## 2.3 Building from source
+## 2.3 Installing from source
 
-To use the current state of the repository, or to install before the first release, build the
-package with [maturin](https://www.maturin.rs). You need a Rust toolchain (1.95 or newer) and a
-C compiler.
+Install from the source code when you want the current state of the repository, when no release
+has been published yet, or when there is no ready-made package for your interpreter or platform.
+The package is built with [maturin](https://www.maturin.rs), the build tool for Python
+extensions written in Rust.
+
+**What you need first**
+
+- Python 3.10 or newer, with `venv` and `pip`.
+- A Rust toolchain, version 1.95 or newer. Install it with [rustup](https://rustup.rs); if you
+  already have one, `rustup update stable` brings it up to date. `rustc --version` shows the
+  version.
+- A C compiler, which some of the Rust dependencies need:
+  - Linux: `gcc` or `clang`, from the `build-essential` package on Debian and Ubuntu;
+  - macOS: the Xcode command line tools (`xcode-select --install`);
+  - Windows: the Visual Studio Build Tools with "Desktop development with C++". On Windows for
+    arm64 also install LLVM, which provides `clang` (`winget install LLVM.LLVM`).
+- `git`, to get the source.
+
+**Build and install**
 
 ```bash
 git clone https://github.com/orest-d/liquers.git
 cd liquers
 python -m venv .venv
-. .venv/bin/activate
+. .venv/bin/activate                    # on Windows: .venv\Scripts\activate
 pip install maturin
 maturin develop --release -m liquers-py/Cargo.toml
 ```
 
-`maturin develop` compiles the extension and installs `liquers` into the active virtual
-environment. The first build takes a while; later ones only compile what changed.
+`maturin develop` compiles the extension and installs the package `liquers` into the active
+virtual environment. The first build compiles all of Liquers and takes several minutes. Later
+builds only compile what has changed. Without `--release` the build is quicker and the package
+slower, which is fine for trying things out.
+
+**Check the result**
+
+```bash
+python -c "import liquers as lq; print(lq.__version__)"
+```
+
+**Optional packages.** A source build installs Liquers only. Add the packages of section 2.2
+with pip as you need them:
+
+```bash
+pip install polars pillow pyarrow pandas
+```
+
+**Updating.** Get the new source and build again, in the same virtual environment:
+
+```bash
+git pull
+maturin develop --release -m liquers-py/Cargo.toml
+```
+
+**A package file to install elsewhere.** To install on another machine of the same kind, or
+into several environments, build a wheel once and install the file with pip:
+
+```bash
+maturin build --release -m liquers-py/Cargo.toml
+pip install target/wheels/liquers_py-*.whl
+```
 
 ## 2.4 What is in the package
 

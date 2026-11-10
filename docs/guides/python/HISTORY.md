@@ -26,3 +26,5 @@ have a row here (`specs/guides/USER_DOCS_EDITING_GUIDE.md`, maintenance).
 | 2026-11-09 | b-command-library.md | introduction added; the table stays generated |
 | 2026-11-09 | c-glossary.md | the Python names of the terms and the terms this guide adds |
 | 2026-11-09 | d-sister-guides.md | introduction to the chapter map |
+| 2026-11-10 | 01-introduction.md | records named in 1.4 and given a row of their own in 1.9 |
+| 2026-11-10 | 02-installing.md | 2.3 Installing from source: prerequisites per system, checking, optional packages, updating, building a wheel |
