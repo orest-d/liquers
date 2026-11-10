@@ -259,6 +259,8 @@ on wasm.
 - **Execution context for JavaScript commands** — built → [`design/js-command-context/`](design/js-command-context/)
 - **Typed list values for `lui/children`** — built → [`design/value-list-support/`](design/value-list-support/)
 - **egui asset-manager adapter** — planned → [`issues/EGUI-ASSET-MANAGER-INTEGRATION.md`](issues/EGUI-ASSET-MANAGER-INTEGRATION.md)
+- **Native UI driver and egui window (`NativeDriver`, `spawn_headless`, `run_window`)** — designing → [`design/egui-native-app/`](design/egui-native-app/)
+- **Liquers UI from Python (the model, and an egui window)** — designing → [`design/liquers-py-ui/`](design/liquers-py-ui/), [`design/liquers-py-ui-window/`](design/liquers-py-ui-window/)
 
 `design/ui-events/` built the interaction half of the browser backend — `webui-fixes` did the
 rendering half: backend-neutral `UIEvent`s delivered through `update()`, declared in `data-lq-*`
@@ -324,7 +326,9 @@ question are both measure-first items.
 ## Open issues attached to live design work
 
 <!-- BEGIN generated: issues -->
-*None.*
+| Issue | Pri | Cx | Design |
+|---|---|---|---|
+| [`EGUI-HAS-NO-REUSABLE-NATIVE-APP`](issues/EGUI-HAS-NO-REUSABLE-NATIVE-APP.md) | P1 | M | `egui-native-app` |
 <!-- END generated: issues -->
 
 ## Not yet placed
@@ -456,8 +460,6 @@ deliberately folded behind a broader line.
 - design `lib-integration-test-feature-gates`
 - design `lib-polars-ethnum-rust-1-98`
 - design `library-no-panic-lint`
-- design `liquers-py-ui-window`
-- design `liquers-py-ui`
 - design `liquers-web-records-bridge`
 - design `listdir-keys-deep-child-check`
 - design `macro-argument-hints-and-query-literals`

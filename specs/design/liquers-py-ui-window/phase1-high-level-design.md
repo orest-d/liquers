@@ -9,7 +9,8 @@ modes, for `VISION.md`'s UI roadmap item 1, the desktop egui application. Milest
 
 ## Design Readiness
 
-- **Readiness:** `needs-decision`: Phase 1 written and reviewed twice; question 1 is the owner's.
+- **Readiness:** `needs-decision`: Phase 1 approved 2026-11-07. Phase 2 takes question 1 as "yes"
+  (the owner's wish and the measured +8 MB), which the owner confirms at the Phase 2 gate.
 - **Automatic fixing:** `not-eligible`: an `L` feature that changes what every wheel contains.
 - **Leading issue:** question 1, whether the published wheels carry egui. Source issue
   `PY-CANNOT-OPEN-A-LIQUERS-UI-WINDOW` (P3 L, filed with this design).
@@ -18,15 +19,16 @@ modes, for `VISION.md`'s UI roadmap item 1, the desktop egui application. Milest
   frame loop (`EGUI-HAS-NO-REUSABLE-NATIVE-APP`, filed with this design). Python adds the main-thread
   rule, the GIL and Ctrl-C.
 - **Open questions:**
-  1. **Open design (blocking): egui in the wheels.** Recommended: every published wheel includes the
-     egui backend, so `pip install liquers-py` can open a window. **Measured 2026-11-06** (Linux
+  1. **Open design (blocking): egui in the wheels.** Recommended, and assumed by Phase 2 pending the
+     owner's confirmation at its gate: every published wheel includes the egui backend, so `pip install liquers-py` can open a window. **Measured 2026-11-06** (Linux
      x86_64, `--profile wheel --features abi3`, with a probe that links `eframe::run_native`,
      `render_element` and the egui commands): the library grows from 85.3 MB to 104.4 MB
      (+19.2 MB, +22%), and its deflate-compressed size, which approximates the wheel, from 29.6 MB
      to 37.7 MB (+8.0 MB, +27%); the build takes 13m40s instead of 12m41s on four cores. `ldd`
      lists no new library (only libc, libm, libgcc_s in both), so X11, Wayland and GL are loaded
-     at run time. Phase 2 still imports the egui wheel on a machine without display libraries and
-     runs `auditwheel show`, on the other platforms too. Owner's wish (2026-11-06): web UI, egui
+     at run time. Deferred to Phase 4: importing the egui wheel on a machine without display
+     libraries and `auditwheel show`, on the other platforms too; if either fails, the wheels
+     drop egui and the AC-6 source-build path is the fallback. Owner's wish (2026-11-06): web UI, egui
      and ratatui in the standard wheels unless that costs too much space. Alternative: wheels without egui, a
      source build with a `gui` feature, and `ui.run()` raising a typed error otherwise (AC-6). A
      separate `liquers-py-gui` package is not possible: a second native module links its own copy
@@ -93,8 +95,8 @@ closed. The query validates against the registry.
 - **AC-5** GUI with a background server
   WHEN `env.serve(background=True)` runs while `ui.run()` shows a query
   THEN both answer from the same environment, and a result computed by one is reused by the other
-- **AC-6** A build without egui says so (only if question 1 chooses that build)
-  WHEN `ui.run()` is called in a build without the egui backend
+- **AC-6** A build without egui says so
+  WHEN `ui.run()` is called in a source build without the `gui` feature
   THEN it raises `lq.LiquersError` naming the missing feature
 
 Non-goals: a window on a background thread; egui in the browser; the model itself (`liquers-py-ui`).
@@ -126,8 +128,13 @@ release workflow (`.github/workflows/liquers-py-release.yml`) if the wheels chan
 - `EGUI-HAS-NO-REUSABLE-NATIVE-APP`: **requires** (question 2). Its change site,
   `ui_query_console_app.rs`, is also edited by `command-parameter-editor` and
   `query-editor-live-validation` (in review): **overlap**.
-- `liquers-py-web-server`: **requires**, for AC-5 only.
+- `liquers-py-web-server` (complete): **requires**, for AC-5 only.
 - `liquers-py-package` (complete): **changes** its wheel contents if question 1 includes egui.
+
+## Scope Changes
+
+- 2026-11-10 (Phase 2): `UI.window_open` added; `run` borrows the model's driver from its
+  background task and hands it back when the window closes (`DriverSlot::Lent`).
 
 ## References
 

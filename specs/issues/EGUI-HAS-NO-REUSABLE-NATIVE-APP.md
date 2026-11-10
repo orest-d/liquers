@@ -3,10 +3,10 @@ id: EGUI-HAS-NO-REUSABLE-NATIVE-APP
 kind: feature
 title: liquers-lib has no reusable native egui application; every desktop app re-implements the frame loop
 status: draft
-priority: P2
+priority: P1
 complexity: M
 area: [lib/egui, lib/ui]
-design:
+design: egui-native-app
 created: 2026-11-06
 github:
 ---

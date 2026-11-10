@@ -12,8 +12,9 @@ this mirrors. Milestone M7.
 
 ## Design Readiness
 
-- **Readiness:** `needs-decision`: Phase 1 written and reviewed twice; the questions below wait for
-  the Phase 1 gate, none blocking.
+- **Readiness:** `needs-decision` until the Phase 2 gate, and reassessed at the Phase 4 review.
+  Phase 1 approved 2026-11-07; Phase 2 answers question 3 (callbacks are delivered by the thread
+  that waits; no delivery thread).
 - **Automatic fixing:** `not-eligible`: an `L` feature that changes `PyEnvironment`'s type.
 - **Leading issue:** question 1, the payload change. Source issue `PY-CANNOT-USE-A-LIQUERS-UI`
   (P3 L, filed with this design).
@@ -116,7 +117,8 @@ Value types: `lq.UIElement`. Bindings: `Environment.ui`, `lq.UI`, `lq.UISubscrip
 ## Crate Placement
 
 `liquers-py` only: `environment.rs` (payload), `builtins.rs` (`lui`), `value.rs` (`UIElement`),
-`context.rs` (`element`), a new `src/ui.rs`; the stubs and `__init__.py`. No `liquers-lib` change.
+`context.rs` (`element`), `exit.rs` (the exit hook), `lib.rs`, a new `src/ui.rs`; the stubs and
+`__init__.py`. The driver is a `liquers-lib` change in its own design (Scope Changes).
 
 ## Documentation Intent
 
@@ -128,10 +130,11 @@ Value types: `lq.UIElement`. Bindings: `Environment.ui`, `lq.UI`, `lq.UISubscrip
 - Documents to update: user guide chapter `docs/guides/python/11-ui.md` ("Not available from
   Python"), which `chapters-for` does not list; the others it lists.
 - API docs: the module docs of the new `liquers-py/src/ui.rs`, and of `liquers-py/src/environment.rs`,
-  `builtins.rs`, `value.rs` and `context.rs`; docstrings on every new Python name.
+  `builtins.rs`, `value.rs`, `context.rs`, `exit.rs` and `lib.rs`; docstrings on every new Python name.
 
 ## Design Dependencies
 
+- `egui-native-app`: **requires** (lands first): the background driver (scope change below).
 - `liquers-py-ui-window`: **required-by**.
 - `language-late-registration-without-rebuild`, `post-init-command-registration` (in review):
   **overlap** AC-9.
@@ -139,6 +142,12 @@ Value types: `lq.UIElement`. Bindings: `Environment.ui`, `lq.UI`, `lq.UISubscrip
   (in review): **overlap**; they change `PyEnvironment` or `liquers-py/src/value.rs` too.
 - `ui-asset-snapshot-boundary` (in review): **overlaps** the widgets' own asset fetching.
 - M6 (PRs #257, #259–#263): built after it merges; the closure asset is generic over the payload.
+
+## Scope Changes
+
+- 2026-11-10 (Phase 2): the driver that ticks the model is liquers-lib's `NativeDriver` and
+  `spawn_headless` from `egui-native-app`, shared with the window, instead of a liquers-py loop.
+  Crate placement gains that liquers-lib change, in its own PR.
 
 ## References
 

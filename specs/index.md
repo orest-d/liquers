@@ -8,12 +8,14 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 232
-- P2: 65
-- P3: 167
+Total rows: 233
+- P1: 1
+- P2: 64
+- P3: 168
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
+| [`EGUI-HAS-NO-REUSABLE-NATIVE-APP`](issues/EGUI-HAS-NO-REUSABLE-NATIVE-APP.md) | feature | liquers-lib has no reusable native egui application; every desktop app re-implements the frame loop | draft |  |  | P1 | M | lib/egui;lib/ui | [design](design/egui-native-app/DESIGN.md) | 2026-11-06 |
 | [`YAML-SCHEMA-FILE-CANNOT-BE-LINKED-AS-SCHEMA-TEXT`](issues/YAML-SCHEMA-FILE-CANNOT-BE-LINKED-AS-SCHEMA-TEXT.md) | issue | A plain .yaml schema file cannot be linked into to_record's schema argument | draft | needs-decision | not-eligible | P2 | S | records;lib/value | [design](design/schema-argument-structured-link/DESIGN.md) | 2026-10-20 |
 | [`UPSTREAM-COMMAND-VOLATILITY-INVISIBLE-TO-DEPENDENCY-WALK`](issues/UPSTREAM-COMMAND-VOLATILITY-INVISIBLE-TO-DEPENDENCY-WALK.md) | issue | A recipe preview misses volatility its upstream inherits from a volatile command | draft |  |  | P2 | S | core/plan |  | 2026-11-03 |
 | [`WEB-COMMAND-LOOKUP-IGNORES-NAMESPACE`](issues/WEB-COMMAND-LOOKUP-IGNORES-NAMESPACE.md) | issue | describeCommand and unregisterCommand take a bare name, so namespaced commands cannot be addressed | draft |  |  | P2 | S | web |  | 2026-10-26 |
@@ -40,7 +42,6 @@ Total rows: 232
 | [`STORE-WRITE-HAS-NO-PRECONDITION`](issues/STORE-WRITE-HAS-NO-PRECONDITION.md) | issue | A store write has no precondition, so concurrent writers clobber silently | draft | needs-decision | not-eligible | P2 | M | core/store | [design](design/store-conditional-write/DESIGN.md) | 2026-09-15 |
 | [`VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER`](issues/VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER.md) | feature | Value serialization has no incremental writer | draft | needs-decision | not-eligible | P2 | M | core/value | [design](design/value-serialization-writer/DESIGN.md) | 2026-09-17 |
 | [`AGENT-WORKBENCH-SURFACE`](issues/AGENT-WORKBENCH-SURFACE.md) | feature | Agents get only memory tools — no general surface to evaluate, validate, inspect or propose | draft |  |  | P2 | M | mcp;core/validate;docs |  | 2026-10-15 |
-| [`EGUI-HAS-NO-REUSABLE-NATIVE-APP`](issues/EGUI-HAS-NO-REUSABLE-NATIVE-APP.md) | feature | liquers-lib has no reusable native egui application; every desktop app re-implements the frame loop | draft |  |  | P2 | M | lib/egui;lib/ui |  | 2026-11-06 |
 | [`EXPRESSION-DEPENDENCY-RECORD-IS-LOST-ON-RELOAD`](issues/EXPRESSION-DEPENDENCY-RECORD-IS-LOST-ON-RELOAD.md) | issue | A keyed asset that read a key only through a non-keyed expression is not expired by that key after a reload | draft |  |  | P2 | M | core/assets |  | 2026-10-20 |
 | [`MANIFEST-TEMPLATE-BATCH-ONLY-AT-THE-END-OF-THE-QUERY`](issues/MANIFEST-TEMPLATE-BATCH-ONLY-AT-THE-END-OF-THE-QUERY.md) | feature | A records manifest template can put the batch offset and size only at the end of its query | draft |  |  | P2 | M | records;core/plan |  | 2026-11-02 |
 | [`PY-SHUTDOWN-AFTER-EVALUATE-LOSES-THE-STORE-WRITE`](issues/PY-SHUTDOWN-AFTER-EVALUATE-LOSES-THE-STORE-WRITE.md) | issue | shutdown right after an evaluation loses the store write of a keyed result | draft |  |  | P2 | M | py |  | 2026-11-09 |
@@ -71,7 +72,7 @@ Total rows: 232
 | [`RING-NEEDS-CLANG-ON-WINDOWS-ARM64`](issues/RING-NEEDS-CLANG-ON-WINDOWS-ARM64.md) | issue | Default builds and cargo doc fail on Windows ARM64 without clang, because Polars and OpenDAL pull in ring | draft |  |  | P2 | L | build;store/backends;lib/polars |  | 2026-11-04 |
 | [`SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED`](issues/SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED.md) | issue | No guideline or user documentation says which Liquers settings are security-sensitive | draft |  |  | P2 | L | docs;axum;py;web |  | 2026-11-06 |
 | [`WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS`](issues/WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS.md) | feature | The web API cannot run a pipeline or recipe document, nor serve recipes as typed endpoints | draft |  |  | P2 | L | axum;core/assets;core/context;mcp |  | 2026-11-01 |
-| [`WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS`](issues/WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS.md) | issue | The browser UI stops updating while any of its queries awaits a Promise | draft |  |  | P2 | L | lib/ui;core/assets;web |  | 2026-10-30 |
+| [`WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS`](issues/WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS.md) | issue | A Liquers UI stops updating while any of its queries awaits | draft |  |  | P2 | L | lib/ui;lib/egui;core/assets;web;py |  | 2026-10-30 |
 | [`EXTERNAL-INDEX-HAS-NO-RECONCILIATION-CONTRACT`](issues/EXTERNAL-INDEX-HAS-NO-RECONCILIATION-CONTRACT.md) | feature | An external index, vector store or SQL mirror cannot be kept in sync with a record source | draft | needs-decision | not-eligible | P2 | XL | records;core/assets;lib/commands | [phase1](design/external-index-reconciliation/phase1-high-level-design.md)  [phase2](design/external-index-reconciliation/phase2-architecture.md)  [phase3](design/external-index-reconciliation/phase3-examples.md)  [phase4](design/external-index-reconciliation/phase4-implementation.md)  | 2026-10-21 |
 | [`NO-REMOTE-STORE-OR-ASSET-MANAGER`](issues/NO-REMOTE-STORE-OR-ASSET-MANAGER.md) | feature | A client environment cannot use a server's store or asset manager as its own | draft | needs-decision | not-eligible | P2 | XL | axum;web;core/assets;core/store | [phase1](design/remote-store-and-asset-manager/phase1-high-level-design.md)  [phase2](design/remote-store-and-asset-manager/phase2-architecture.md)  [phase3](design/remote-store-and-asset-manager/phase3-examples.md)  [phase4](design/remote-store-and-asset-manager/phase4-implementation.md)  | 2026-09-27 |
 | [`VALUE-TYPE-DEFINITION-MACRO`](issues/VALUE-TYPE-DEFINITION-MACRO.md) | feature | Value types and their registry entries are hand-written instead of generated | draft | needs-decision | not-eligible | P2 | XL | macro;lib/value;core/value | [phase1](design/value-type-definition-macro/phase1-high-level-design.md)  [phase2](design/value-type-definition-macro/phase2-architecture.md)  [phase3](design/value-type-definition-macro/phase3-examples.md)  [phase4](design/value-type-definition-macro/phase4-implementation.md)  | 2026-08-18 |
@@ -109,6 +110,7 @@ Total rows: 232
 | [`DOCS-CHECK-FLAGS-A-CODE-SPAN-AS-A-MYST-ROLE`](issues/DOCS-CHECK-FLAGS-A-CODE-SPAN-AS-A-MYST-ROLE.md) | issue | liquers-docs reports a code span ending in a brace as a MyST role | draft |  |  | P3 | S | docs |  | 2026-11-09 |
 | [`DRAFT-MARKERS-LOOK-ALIKE`](issues/DRAFT-MARKERS-LOOK-ALIKE.md) | issue | Draft builds show every editorial marker the same way | draft |  |  | P3 | S | docs |  | 2026-11-01 |
 | [`DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE`](issues/DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE.md) | issue | Removing a computed value with a stored record leaves an empty data file at its key | draft |  |  | P3 | S | core/assets;core/store |  | 2026-10-27 |
+| [`EGUI-EXAMPLES-HAND-WRITE-THE-FRAME-LOOP`](issues/EGUI-EXAMPLES-HAND-WRITE-THE-FRAME-LOOP.md) | issue | Six egui examples keep their own runtime, runner loop and repaint policy instead of the native driver | draft |  |  | P3 | S | lib/egui |  | 2026-11-10 |
 | [`GUIDE-SECTION-ANCHORS-DIFFER-BETWEEN-RENDERERS`](issues/GUIDE-SECTION-ANCHORS-DIFFER-BETWEEN-RENDERERS.md) | issue | Section links between chapters break in the EPUB and PDF | draft |  |  | P3 | S | docs |  | 2026-11-01 |
 | [`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`](issues/LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT.md) | issue | Language exception class and stack are lost in transport | accepted |  |  | P3 | S | web |  | 2026-08-08 |
 | [`LANGUAGE-GUIDE-PIPELINE-COVERAGE-INCOMPLETE`](issues/LANGUAGE-GUIDE-PIPELINE-COVERAGE-INCOMPLETE.md) | issue | The Language Integration Guide's PIPELINE feature is missing from the profiles, the value bridge and the reference tests | draft |  |  | P3 | S | docs |  | 2026-11-04 |

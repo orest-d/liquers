@@ -1,11 +1,11 @@
 ---
 id: WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS
 kind: issue
-title: The browser UI stops updating while any of its queries awaits a Promise
+title: A Liquers UI stops updating while any of its queries awaits
 status: draft
 priority: P2
 complexity: L
-area: [lib/ui, core/assets, web]
+area: [lib/ui, lib/egui, core/assets, web, py]
 design:
 created: 2026-10-30
 github:
@@ -27,6 +27,15 @@ A browser UI built on liquers-web (`web-ui-use`) shows no progress for slow quer
 clicks and other UI messages until the slow query finishes. Status events still arrive in order, so
 the problem is the display, not correctness. Workaround: keep slow work out of queries a UI
 evaluates.
+
+### Native hosts too
+
+Natively the asset manager runs pending nodes on its job queue, but `SubmitQuery` (a control's
+query action, a root query) still goes through `evaluate_immediately` and `poll_state().await` in
+`AppRunner::process_messages`. The egui examples tick the runner on the window's thread, so a slow
+action freezes their window until it finishes, and the native driver of
+`specs/design/egui-native-app/` inherits this, as do liquers-py's background model and window
+(`liquers-py-ui`, `liquers-py-ui-window`). Added 2026-11-10 while writing their Phase 2.
 
 ## Expected behaviour
 
