@@ -1003,7 +1003,7 @@ WORKSPACE-RUSTFMT-CHECK,design,The workspace is rustfmt-clean and CI keeps it so
 WP2-TERMINAL-OUTCOME,design,Asset terminal outcome contract,complete,local,,,,,,core/assets,,7,,wp2-terminal-outcome,,2026-03-02,specs/design/wp2-terminal-outcome/DESIGN.md
 AGENT_MEMORY_SERVICE,reference,Agent Memory Service,current,local,,,,,,lib/commands;mcp,,,,,2026-11-01,,specs/reference/AGENT_MEMORY_SERVICE.md
 API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,,,docs,,,,,2026-11-02,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
-DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
+DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,overdue,local,,,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
 DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,,core/query,,,,,2026-11-04,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
 DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,,core/assets,,,,,2026-10-27,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
 DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,,core/context;core/plan,,,,,2026-10-22,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
@@ -1063,8 +1063,8 @@ TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,,core/va
 UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,,build;core/assets,,,,,2026-10-20,,specs/guides/UNITTEST_GUIDE.md
 USER_DOCS_EDITING_GUIDE,guide,User Documentation Editing Guide,current,local,,,,,,docs,,,,,2026-11-09,,specs/guides/USER_DOCS_EDITING_GUIDE.md
 WEB_API_GUIDE,guide,Web API Guide,current,local,,,,,,axum;web,,,,,2026-10-16,,specs/guides/WEB_API_GUIDE.md
-python/01-introduction,chapter,Introduction,draft,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/01-introduction.md
-python/02-installing,chapter,Installing and setting up,draft,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/02-installing.md
+python/01-introduction,chapter,Introduction,draft,local,,,,,,docs,,,,,2026-11-10,,docs/guides/python/01-introduction.md
+python/02-installing,chapter,Installing and setting up,draft,local,,,,,,docs,,,,,2026-11-10,,docs/guides/python/02-installing.md
 python/03-queries,chapter,Queries,draft,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/03-queries.md
 python/04-values,chapter,"Values, state and metadata",draft,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/04-values.md
 python/05-commands,chapter,Commands,draft,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/05-commands.md
