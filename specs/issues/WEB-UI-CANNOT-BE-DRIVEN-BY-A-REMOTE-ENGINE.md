@@ -47,6 +47,27 @@ protocol driven by `Invalidation`, and a transport trait with WebSocket and Taur
 implementations. Native rendering is already available: `render_web` and `render_app_ssr` compile
 off wasm. A design folder is needed (complexity XL).
 
+### Sketch from the follow-up discussion (2026-11-10)
+
+Not a decision, recorded so a design does not start from zero.
+
+- No element overrides `show_in_web`; every element renders through `render_web`, so the whole
+  tree is renderable natively today.
+- `apply_invalidation` (`ui/web/app.rs`) mixes two things: deciding what to replace/insert/remove
+  from `Invalidation` + `AppState`, and touching the DOM. Splitting out a pure planner that emits
+  DOM operations (`Replace{handle, html}`, `Insert{parent, handle, index, html}`,
+  `Remove{handle}`, `All{html}`) would serve both the wasm driver and a remote client.
+- `AppMessage` has no serde form; `UIEvent` fields are `Value`s but are text in practice.
+  `AppMessage::Serialize` / `Deserialize { path }` touch the filesystem and must not be reachable
+  from the wire.
+- The parts reusable by both transports: wire types, a native `UiSession` (AppState + AppRunner +
+  environment, factored out of `spawn_driver_loop`, woken by messages instead of a 16 ms poll), the
+  patch planner, a dependency-free JavaScript client (delegated listeners, `keys.rs` routing,
+  focus capture/restore, patch application, resync on sequence gap), and the SSR first paint.
+  Only the transport adapter differs: an axum WebSocket route, or Tauri `invoke` + `Channel`.
+- Suggested order: axum with one local session first (testable with the repository's existing
+  Playwright setup, no webview toolchain), then a Tauri adapter, then multi-session hardening.
+
 ## Discovery
 
 Same research thread as `AXUM-CANNOT-SERVE-A-LIQUERS-UI` (2026-11-10), reading the browser driver
