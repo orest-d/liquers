@@ -82,6 +82,9 @@ reference to "5.2" means the same section in every guide.
   levels below the title.
 - **Code.** Every code block names its language (` ```rust `, ` ```python `, ` ```js `,
   ` ```text ` for queries). An example is complete enough to run, or says what it leaves out.
+  In the Python guide, every ` ```python ` block that imports `liquers` is run by
+  `liquers-py/tests/test_GUIDE_examples.py`, alone, in a new interpreter (under pytest when it
+  defines `test_` functions); a fragment that cannot run does not import `liquers` and says why.
   Queries are checked with `liquers-validate` before they go in (`CLAUDE.md`, *Validating
   queries*).
 - **Terms.** The words of appendix C, used the same way in all three guides. Introduce a term in
@@ -143,6 +146,21 @@ The rules an included section must meet, checked on every build:
 An include is a recorded dependency of the chapter, so it is listed in the chapter's `sources:`
 too. Use `{{$ }}` only, never `{{$$ }}`: the build has no payload.
 
+**Showing a tag instead of expanding it.** A chapter is expanded whole, code blocks included, so a
+`{{name}}` in an example would be replaced (by nothing, when there is no such data). Where a
+chapter or fragment shows template tags, switch the delimiters around that part with Mustache's
+set-delimiter tags, each on a line of its own, and switch back afterwards:
+
+```markdown
+{{=<% %>=}}
+…text and code blocks with literal {{tags}}…
+<%={{ }}=%>
+```
+
+A partial does not inherit the delimiters of the chapter that includes it, and does not pass its
+own on, so a fragment switches for itself (`_shared/templates.md`) and so does the chapter
+(`python/10-templates.md`). An include between the two lines would have to be written `<%> … %>`.
+
 ## 6. Tool-neutral chapters
 
 Chapters are CommonMark with tables and footnotes, plus Liquers templates. Nothing that only one
@@ -190,6 +208,7 @@ artifact of its `docs-site` run.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-09 | §3: the Python guide's examples are run by `test_GUIDE_examples.py`. §5: showing a tag instead of expanding it (set-delimiter tags). | writing the Python guide |
 | 2026-11-09 | §1: `docs/site/`, the landing page (maintained under [`PROJECT_SITE_GUIDE.md`](PROJECT_SITE_GUIDE.md)); the home page is published as `overview.html`. | PR #266 |
 | 2026-11-02 | §8: the API references the build adds, their tools, and the home page's link per crate. | `design/user-documentation-guides` (phase-4 addendum) |
 | 2026-11-01 | Created: layout, chapter format, style, markers, includes, tool-neutral rule, maintenance, building. | `design/user-documentation-guides` (phase-5) |

@@ -1,12 +1,14 @@
 ---
 title: Query syntax
 status: outline
-sources: [reference/PROJECT_OVERVIEW.md, guides/QUERY_ESCAPING_GUIDE.md, reference/PIPELINES.md]
+sources: [reference/PROJECT_OVERVIEW.md, reference/RECIPES_AND_PLANS.md, guides/QUERY_ESCAPING_GUIDE.md, reference/PIPELINES.md]
 reviewed:
 ---
 # A. Query syntax
 
 PURPOSE: A reference for the query notation, the same in every guide.
+
+{{> ../_shared/query-syntax.md}}
 
 TBD: The syntax table: segments, headers, actions, arguments and escapes in one table.
 SOURCE: reference/PROJECT_OVERVIEW.md
