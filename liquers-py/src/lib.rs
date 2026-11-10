@@ -46,6 +46,7 @@ pub mod context;
 pub mod asset;
 pub mod builtins;
 pub mod command;
+pub mod config;
 pub mod dependencies;
 pub mod environment;
 pub mod error;
@@ -65,6 +66,7 @@ pub mod template;
 pub mod pipeline;
 pub mod records;
 pub mod runtime;
+pub mod server;
 pub mod store;
 pub mod value;
 
@@ -142,6 +144,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_class::<crate::environment::Environment>()?;
     m.add_class::<crate::environment::Issue>()?;
+    m.add_class::<crate::server::Server>()?;
     m.add_class::<crate::context::Context>()?;
     m.add_class::<crate::asset::State>()?;
     m.add_class::<crate::asset::AssetRef>()?;

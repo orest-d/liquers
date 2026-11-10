@@ -3,7 +3,7 @@ title: Web API Guide
 kind: guide
 audience: both
 area: [axum, web]
-reviewed: 2026-10-16
+reviewed: 2026-11-09
 ---
 # Using the Liquers web API
 
@@ -34,6 +34,17 @@ A=$B/api/assets                          # the Assets API
 
 A real deployment chooses its own base paths and commands; see
 [§8 of the specification](../reference/WEB_API_SPECIFICATION.md#8-assembling-a-server).
+
+A server started from a configuration document (`LiquersServerBuilder::from_config` in Rust,
+`env.serve()` in Python) mounts every API under one prefix, `/liquer` by default, on
+`127.0.0.1:8080`, so the same examples work with `B=http://127.0.0.1:8080/liquer`. Such a server
+also serves the store folder `web/` at `$B/web/` and redirects `/` there:
+
+```bash
+curl -s -X PUT --data-binary '<h1>Hello</h1>' $B/api/store/data/web/index.html
+curl -si http://127.0.0.1:8080/        # 307, location: /liquer/web/
+curl -s $B/web/                        # <h1>Hello</h1>, text/html with an ETag
+```
 
 ## 2. How the API is organized
 
@@ -567,6 +578,9 @@ JobFinished              status=Ready managed=False
 
 - There is no authentication or access control in the server; put it in front of the routers, or
   build them `read_only()`. See [§9 of the specification](../reference/WEB_API_SPECIFICATION.md#9-access-control).
+  A server from a configuration document listens on `127.0.0.1` and accepts writes by default;
+  `host`, `read_only` and `web` are the settings to check before exposing it, and pages in the web
+  folder should come from a read-only mount.
 - The Query API's timeout ends the request, not the need for the value: submit long work through
   the Assets API — or, when it carries argument overrides, follow it with a WebSocket `subscribe`
   with `arguments`, since a submitted unmanaged evaluation cannot be polled.
@@ -582,6 +596,7 @@ JobFinished              status=Ready managed=False
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-09 | §1: a server from a configuration document (one prefix, `127.0.0.1:8080`, the web folder and the index redirect); §9: its security-sensitive settings. | phase-5, `design/axum-server-assembly/` |
 | 2026-10-16 | Error examples: the not-registered message now names the command keys tried. | `design/store-adapters/` phase-5 review |
 | 2026-10-12 | §4 naming arguments: argument overrides from the query string and a JSON body, `_link_`, the managed/unmanaged distinction, errors and type warnings; §5 submitting what cannot be polled (unmanaged assets: no result, still useful for side effects); §8 subscribe with `arguments`, `Subscribed`, `subscription_id`, `cancel`; `?format=` → `?_entry_format=`. Examples run against `examples/assets_recipes_basic.rs`. | phase-5, `design/axum-query-named-arguments/` |
 | 2026-10-09 | `q/cancel` is best-effort (a completed command stays `Ready`), the cause in `error_data`; the cancel-ends-`Ready` known gap removed. | phase-5 (`design/asset-cancellation-outcome/`) |

@@ -29,3 +29,5 @@ have a row here (`specs/guides/USER_DOCS_EDITING_GUIDE.md`, maintenance).
 | 2026-11-10 | 01-introduction.md | records named in 1.4 and given a row of their own in 1.9 |
 | 2026-11-10 | 02-installing.md | 2.3 Installing from source: prerequisites per system, checking, optional packages, updating, building a wheel |
 | 2026-11-10 | all chapters | promoted from `draft` to `ready` so that release builds publish the guide; the open `CHECK:` (chapter 2) became reader text, the two `TBD:` notes (chapter 13, appendix A) became `EDITOR:` notes |
+| 2026-11-10 | 08-environment.md | merged with the M7 server work: `config=` takes a `pathlib.Path`; keywords override the configuration; the `command_registry`, `python` and `server` sections; unknown sections are errors; command metadata from a file; examples run |
+| 2026-11-10 | 12-serving.md | merged with the M7 server work: new 12.3 Serving an environment (`env.serve`, foreground, asyncio, settings with the shared `_shared/serving.md`, stopping); 12.4-12.6 renumbered; a Rust server cannot run Python commands, a served environment can; examples run |

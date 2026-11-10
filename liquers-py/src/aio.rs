@@ -33,6 +33,7 @@
 //!
 //! - Every `_async` method (`environment.rs`, `context.rs`, `asset.rs`, `store.rs`,
 //!   `data_node.rs`), and `command.rs` for `async def` commands.
+//! - `Server.shutdown` refuses a loop thread; `Server.shutdown_async` (`server.rs`).
 //!
 //! # Related concepts
 //!
@@ -539,6 +540,8 @@ struct StopAtExit {
 #[pymethods]
 impl StopAtExit {
     fn __call__(&self, py: Python<'_>) -> PyResult<()> {
+        // Servers stop before the loops their requests' async commands run on.
+        crate::server::stop_all(py, crate::server::EXIT_DEADLINE);
         match self.pool.upgrade() {
             Some(pool) => pool.stop(py),
             None => Ok(()),

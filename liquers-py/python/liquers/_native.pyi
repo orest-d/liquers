@@ -26,6 +26,7 @@ from liquers import Expires as Expires
 from liquers import FieldSchema as FieldSchema
 from liquers import FieldType as FieldType
 from liquers import Issue as Issue
+from liquers import Server as Server
 from liquers import Key as Key
 from liquers import KeyRole as KeyRole
 from liquers import LogEntry as LogEntry

@@ -14,6 +14,9 @@
 //! runs last-in first-out). It refuses new command calls, requests cancellation of the running
 //! ones, and waits up to [`EXIT_GRACE`] for every tracked attach to end. A command that ignores
 //! cancellation for longer is left running with a `RuntimeWarning`, as the loop pool does.
+//!
+//! Running HTTP servers (`env.serve()`) stop before any of that, from whichever exit hook runs
+//! first: the one `serve` registers, this module's, or a loop pool's.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Condvar, Mutex, MutexGuard};
@@ -118,6 +121,8 @@ pub(crate) fn exiting() -> bool {
 /// The module's `atexit` hook: cancels the running Python commands and waits for them.
 #[pyfunction]
 pub(crate) fn at_exit(py: Python<'_>) -> PyResult<()> {
+    // Servers first, so no request starts a command once the cancellation below begins.
+    crate::server::stop_all(py, crate::server::EXIT_DEADLINE);
     EXITING.store(true, Ordering::SeqCst);
     let assets: Vec<CoreAssetRef<PyEnvironment>> =
         in_flight().iter().filter_map(|(_, asset)| asset.clone()).collect();
