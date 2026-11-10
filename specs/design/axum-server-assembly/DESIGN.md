@@ -3,8 +3,8 @@ id: AXUM-SERVER-ASSEMBLY
 kind: design
 title: "A liquers-axum server: standard APIs, a web folder from the store, an index page and graceful shutdown"
 workflow: liquers-project
-status: in_review
-phase: documentation
+gh_pr: [264]
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [axum]
@@ -34,7 +34,7 @@ Pre-implementation stop (2026-11-09): the only open item of the three designs' d
 `configuration-document` Decision 2 (the keyword rule), was answered the same day ("Keyword wins
 everywhere"); implementation proceeds. Phase 4 reviewed twice (consistency; codebase and soundness); findings applied.
 
-Implemented 2026-11-09 on PR #264 (group A: core and liquers-axum; group B: liquers-py) and validated; Phase 5 written the same day. Results go to Orest before `status: complete`.
+Implemented 2026-11-09 on PR #264 (group A: core and liquers-axum; group B: liquers-py) and validated; Phase 5 written the same day, and approved 2026-11-10 (Orest: "proceed"): `status: complete`.
 
 ## Phases
 
