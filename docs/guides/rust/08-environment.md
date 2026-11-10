@@ -92,7 +92,10 @@ the sections of the parts you use, such as the `server` section of the web serve
 # liquers.yaml
 store:
   stores:
-    - {type: filesystem, prefix: data, config: {path: ${LIQUERS_DATA}}}
+    - type: filesystem
+      prefix: data
+      config:
+        path: ${LIQUERS_DATA}
 recipes: default
 assets:
   job_capacity: 8

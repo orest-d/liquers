@@ -151,6 +151,24 @@ pub fn register_library(cr: &mut CommandRegistry<CommandEnvironment>) -> Result<
     liquers_lib::register_search_commands!(cr)?; // ns-search
     liquers_lib::register_template_commands!(cr)?; // ns-template
     Ok(())
+}
+
+/// A builder that reads and writes `store` and has the library's commands registered.
+/// Register your own commands on it, then call `build()`.
+pub fn library_builder(
+    store: Arc<dyn AsyncStore>,
+) -> Result<EnvironmentBuilder<Value, (), LibKind>, Error> {
+    let mut builder = default_environment_builder::<Value, ()>().with_async_store(store);
+    register_library(&mut builder.command_registry)?;
+    Ok(builder)
+}
+
+/// The same, built: ready to evaluate queries.
+pub fn library_environment(
+    store: Arc<dyn AsyncStore>,
+) -> Result<EnvRef<CommandEnvironment>, Error> {
+    library_builder(store)?.build()
+}
 ```
 
 Three things in it deserve a word now; chapter 8 explains the rest.
@@ -162,6 +180,8 @@ Three things in it deserve a word now; chapter 8 explains the rest.
   alias must be in scope wherever you register a command.
 - Each `register_…_commands!` macro registers one group of the library and exists only when its
   feature is on. Leave out the lines you do not need.
+- `library_builder` gives a builder on which you register your own commands, and
+  `library_environment` gives the finished environment. Almost every example calls one of them.
 
 ## 2.5 The prelude file
 
