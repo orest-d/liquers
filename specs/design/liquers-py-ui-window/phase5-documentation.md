@@ -2,54 +2,79 @@
 
 ## Completion Preconditions
 
-- [ ] Implementation is finished and validated
-- [ ] All user comments are answered or incorporated
-- [ ] All review comments are answered or incorporated
-- [ ] Documentation is consistent with the implemented and tested behavior
-- [ ] Documentation is included in the implementation PR when practical
+- [x] Implementation is finished and validated
+- [x] All user comments are answered or incorporated
+- [x] All review comments are answered or incorporated
+- [x] Documentation is consistent with the implemented and tested behavior
+- [x] Documentation is included in the implementation PR when practical (PR #268)
 
 ## Implementation Summary
 
-<About one page; never more than three pages for this whole document. State what was implemented
-and whether it conforms to the request and approved design. Identify anything omitted or added and
-explain why. Link to reference/guide documents for detail.>
+Built as approved, as the third commit group of PR #268:
+
+- `liquers-py` has a default feature `gui` (`liquers-lib/egui`), so every wheel opens windows.
+  **The owner has not yet confirmed this default** (Phase 1 question 1, decision log); dropping
+  `gui` from `default` is the one-line alternative, after which `run` raises (AC-6).
+- `UI.run(title, size)` borrows the model's driver, shows `liquers_lib::egui::app::run_window` on
+  the main thread with the GIL released, delivers callbacks and checks signals between frames, and
+  gives the driver back; `UI.close()` from any thread; `UI.window_open`.
+- `tests/test_UIUSE_window.py` (marked `gui`, skipped without a display) and a CI run of the
+  whole liquers-py loop under `xvfb-run`.
+
+Changed from Phase 2: the `gui` tests skip without a display instead of being deselected, and
+`close()` is kept until the first frame (Phase 3). From the code review: taking the driver from
+the background task no longer checks signals, since an interrupted stop dropped the driver and
+left the model stuck; a Ctrl-C meanwhile stays pending and the first frame raises it. The runtime
+is fetched before any window state is set, and a failed restart disposes the model instead of
+leaving it stuck.
 
 ## Documentation Delivered
 
 ### New Reference Documents
-<Paths and purposes, or `None` with rationale>
+None: `PYTHON_INTEGRATION.md` §18 "The window" and §12 "The window".
 
 ### New Guide Documents
-<Paths and purposes, or `None` with rationale>
+None: `PYTHON_GUIDE.md` §6 "Opening a window".
 
 ### Existing Documents Reviewed or Updated
-<Authoritative `affects_docs` set, review result, and History/reviewed updates>
+Each with a History row and `reviewed: 2026-11-11`: `PYTHON_INTEGRATION.md` (§1, §12, §18),
+`PYTHON_GUIDE.md` (§1, §6), `UI_INTERFACE_FSD.md` (Hosts), `GITHUB_ACTIONS_GUIDE.md`
+(`liquers-py-tests.yml` under a virtual display), `LANGUAGE-INTEGRATION_GUIDE.md` §6,
+`liquers-py/README.md` (wheels carry egui; `UIUSE01`, `08`), `specs/README.md`.
 
 ### Module Docs
-<Each module doc the design created or changed, reviewed against `API_DOCUMENTATION_GUIDE.md` §3,
-and the output of `scripts/check_api_docs.py` for those files; or `None`>
+`liquers-py/src/ui.rs` names the window in its main components; `check_api_docs.py`: 0 warnings.
 
 ### User-Guide Chapters
-<Output of `docs_index.py chapters-for`, and for each chapter: reviewed, fixed, or marked `CHECK:`
-with an issue; or `None`>
+`docs/guides/python/11-ui.md` §11.4 Opening a window; `02-installing.md` (the window in every
+package, a build without it, a virtual display); `15-troubleshooting.md`. The window example does
+not run in the tests (it waits for its reader) and says so.
 
 ### Links and Capability Map
-<Links added, updated, or replaced in `specs/README.md` and other documentation>
+`specs/README.md`: "Liquers UI from Python (the model, and an egui window)" is built.
 
 ## Issues Filed
 
-<New issue IDs and one-line explanations, including intentionally omitted design scope; or `None`>
+- `PY-UI-CHANGE-DOES-NOT-WAKE-AN-OPEN-WINDOW` (P3 S): a `show` from another thread waits for the
+  window's next poll (up to 100 ms). Not eligible for a fix in this PR (it needs a repaint handle
+  from liquers-lib); filed with the expected behaviour.
+
+`PY-CANNOT-OPEN-A-LIQUERS-UI-WINDOW` is closed with a resolution note.
 
 ## Important Learning
 
-<Meaning and importance of the work, connections to existing functionality, repeatable guidance,
-corrections, and unexpected learning. Keep details in reference/guide documents and link them here.>
+- Ctrl-C needs no handler: the frame hook's `py.check_signals()` at most every 100 ms is enough, as
+  `_thread.interrupt_main()` shows in the tests.
+- A blocking wait that checks signals must not own anything it would drop when interrupted; the
+  driver's stop is the case here.
+- The window costs about 8 MB per wheel and loads its system libraries only when a window opens.
 
 ## Conformance and Remaining Work
-
-<Compare requested, approved, and implemented scope explicitly. State whether anything remains. Every
-deferred remainder must have an issue rather than a partial design status.>
+Built as approved; the wheel default awaits the owner's confirmation. Phase 1 deferred two wheel
+checks: the import without display libraries is shown locally (`ldd`, the suite with no display);
+the five-platform wheels run in `liquers-py-release.yml`, triggered by hand on the branch.
 
 ## Validation
-
-<Documentation checks run and outcomes.>
+Window tests under `xvfb-run` (10 passed, five runs in a row); `cargo test -p liquers-py
+--no-default-features --features debug-handles --lib` (the no-`gui` test); `xvfb-run -a bash
+scripts/test-liquers-py.sh`; the PR's workflows.

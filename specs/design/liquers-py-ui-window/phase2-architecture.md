@@ -4,7 +4,7 @@
 
 Every standard wheel carries the egui backend: liquers-py gains a default feature `gui`
 (`liquers-lib/egui`). `UI.run()` takes the model's driver from its background task, opens
-`liquers_lib::egui::run_window` (from [`egui-native-app`](../egui-native-app/DESIGN.md)) on the main
+`liquers_lib::egui::app::run_window` (from [`egui-native-app`](../egui-native-app/DESIGN.md)) on the main
 thread with the GIL released, and hands the driver back to a new background task when the window
 closes. Between frames a hook re-attaches the GIL to deliver the model's queued status events and to
 check signals. `UI.close()` works from any thread through a `WindowCloser`.

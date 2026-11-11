@@ -3,7 +3,7 @@ title: Using Liquers from Python
 kind: guide
 audience: user
 area: [py]
-reviewed: 2026-11-09
+reviewed: 2026-11-11
 ---
 # Using Liquers from Python
 
@@ -38,6 +38,9 @@ Wheels are built for CPython 3.14 and later (the regular and the free-threaded b
 x86_64 and aarch64, macOS arm64, and Windows x86_64 and arm64. On any other interpreter or platform
 (CPython 3.10-3.13, PyPy, macOS x86_64, musllinux) pip builds from the source distribution, which
 needs a Rust toolchain (1.95 or newer) and a C compiler and takes several minutes.
+Every wheel can open the Liquers desktop window (`ui.run()`, §6), which adds about 8 MB; it needs
+no display to import. A source build without it: `maturin develop --release --no-default-features
+--features extension-module -m liquers-py/Cargo.toml`.
 
 The optional Python packages are *extras*: `polars` (DataFrames), `images` (pillow), `arrow`
 (pyarrow) and `pandas` (pyarrow and pandas), or `all`. `lq.require("arrow")` checks for one and
@@ -69,6 +72,7 @@ traceback is readable.
 | `liquers._errors` | `LiquersError` and its subclasses, one per `ErrorType`. |
 | `liquers._records` | The pyarrow, pandas and polars side of the record classes. |
 | `liquers._extras` | `require()` and the table of extras. |
+| `liquers._ui` | The coroutine behind `UI.wait_idle_async`. |
 
 The public names, by purpose:
 
@@ -89,6 +93,7 @@ The public names, by purpose:
 | Stores | `Store` (`env.store`, `Store.from_object`), `StoreArgumentInfo` |
 | Configuration checks | `Issue` (from `Environment.validate()`) |
 | Serving over HTTP | `Environment.serve` / `serve_async`, `serve`, `serve_async`, `Server` |
+| User interface | `Environment.ui`, `ui`, `UI`, `UIElement`, `UIElementInfo`, `UIStatusEvent`, `UISubscription`, `Context.element` |
 
 `lq.Error` is a plain data object describing a Liquers error. It is not an exception; what is raised
 is a `LiquersError`.
@@ -707,6 +712,69 @@ can change the store; `read_only=True` turns them off. A page in the web folder 
 browser with the server's address, so serve pages from a read-only store mount, or set
 `read_only=True`, or `web=False`.
 
+### Showing a Liquers UI
+
+`env.ui()` gives a Liquers UI model: the elements the egui desktop app and the browser show (an
+asset view, the query console, a `ui_spec` dashboard), held by your environment. It runs with or
+without a window; elements evaluate in the background.
+
+```python
+import liquers as lq
+
+env = lq.Environment()
+
+@env.command
+def report() -> str:
+    return "rows: 3"
+
+with env.ui() as ui:                                   # disposed at the end of the block
+    seen = []
+    with ui.on("status", lambda e: seen.append(str(e.status))):
+        handle = ui.show("report")                     # a new element; returns its handle
+        assert ui.wait_idle(timeout=10)                # delivers the status callbacks here
+    assert seen == ["Processing", "Ready"]
+    [info] = ui.elements()
+    assert (info.handle, info.type_name) == (handle, "AssetViewElement")
+    assert ui.asset(handle).get() == "rows: 3"
+env.shutdown()
+```
+
+`show(query, handle)` gives an existing element a new query; `submit(query, handle)` runs a query
+as that element's control would, and the command sees the element as `context.element`
+(`None` outside a UI). A failing query does not raise: its element shows the error and the status
+event carries it (`event.error`). An unparsable query raises `lq.ParseError` at once.
+
+Callbacks run only on a thread that asks for them: in `wait_idle`, in `await
+ui.wait_idle_async()` (on the event loop's thread), in `ui.process_events()`, or in the window.
+A callback may call `show` or `submit`; one that raises is reported through
+`sys.unraisablehook`. A query a command evaluates for a UI must not wait for that UI: `wait_idle`
+inside it raises instead of waiting forever.
+
+**Opening a window.** `ui.run()` shows the model in the Liquers desktop window and returns when the
+window is closed. Call it on the main thread; it blocks there, while commands keep running on other
+threads:
+
+```python
+# needs a display: not run by the tests
+import liquers as lq
+
+env = lq.Environment()
+
+@env.command
+def report() -> str:
+    return "rows: 3"
+
+ui = env.ui()
+ui.show("hello/q/ns-lui/query_console")   # the query console; type `report` into it
+ui.run(title="Reports", size=(900, 700))
+```
+
+While the window shows, status callbacks run on the main thread between frames. Ctrl-C closes it
+and raises `KeyboardInterrupt`. `ui.close()` closes it from any thread, and `ui.window_open` says
+whether it shows. After it closes the model goes on, and `run()` can open it again. A server
+started with `env.serve()` before `run()` serves the same environment beside the window, so a
+result computed for one is reused by the other.
+
 ### Named results: recipes
 
 A *recipe* gives a query's result a key in the store, so `-R/data/triple.txt` computes it when no
@@ -1305,11 +1373,14 @@ What you will notice; the complete list, with the tracking issues, is
 - Wheels exist for CPython 3.14 and later on five platforms; elsewhere pip builds from source.
 - The server cannot take Python request handlers or middleware, has no authentication or TLS, and
   its web folder serves stored files only.
+- UI elements cannot be written in Python. A slow action submitted to a UI holds up the model's
+  other work, and freezes an open window, until it ends.
 
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-11 | §6 "Showing a Liquers UI": the model, status callbacks, opening a window. §1: the wheels open windows; a build without. §2: the UI names. §10: UI limits. | phase-5, `design/liquers-py-ui/`, `design/liquers-py-ui-window/` |
 | 2026-11-09 | §4: `config=` takes a file (`pathlib.Path`), YAML text or a dict; the `python` section; keywords override the file; unknown sections and server/python keys are refused; the command metadata file. §6: serving over HTTP, with its security settings. §10: the server's limits. | phase-5, `design/configuration-document/`, `design/liquers-py-web-server/` |
 | 2026-11-09 | History: removed merge-conflict markers left between the rows of 2026-11-04 and 2026-11-05. The user guide *Liquers for Python* (`docs/guides/python/`) is now written from this guide, and `test_GUIDE_examples.py` runs its examples too. | Python user guide |
 | 2026-11-04 | §6 Pipelines: `evaluate` of a pipeline, `lq.Pipeline` and `to_query`, the editors, `pipeline_command`; §2 the new names. | `design/liquers-py-pipelines/` |

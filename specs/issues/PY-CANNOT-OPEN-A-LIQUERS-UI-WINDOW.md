@@ -2,7 +2,7 @@
 id: PY-CANNOT-OPEN-A-LIQUERS-UI-WINDOW
 kind: feature
 title: Python cannot open the Liquers desktop UI in a window
-status: draft
+status: closed
 priority: P3
 complexity: L
 area: [py, lib/egui, build]
@@ -10,6 +10,13 @@ design: liquers-py-ui-window
 created: 2026-11-06
 github:
 ---
+
+## Resolution
+
+Fixed by `specs/design/liquers-py-ui-window/`. `UI.run()` opens the egui window on the main
+thread, `UI.close()` closes it from any thread, Ctrl-C closes it and raises `KeyboardInterrupt`;
+every wheel carries egui (feature `gui`, on by default), pending the owner's confirmation of that
+default. Evidence: `liquers-py/tests/test_UIUSE_window.py` under `xvfb-run`, in CI too.
 
 ## Problem
 

@@ -171,7 +171,7 @@ DRAFT-MARKERS-LOOK-ALIKE,issue,Draft builds show every editorial marker the same
 DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE,issue,Removing a computed value with a stored record leaves an empty data file at its key,draft,local,,,,P3,S,core/assets;core/store,,,,,,2026-10-27,specs/issues/DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE.md
 EGUI-ASSET-MANAGER-INTEGRATION,feature,No stable adapter between egui widgets and the asset manager,accepted,local,,needs-decision,not-eligible,P2,M,lib/egui,,,,ui-asset-snapshot-boundary,,2026-08-08,specs/issues/EGUI-ASSET-MANAGER-INTEGRATION.md
 EGUI-EXAMPLES-HAND-WRITE-THE-FRAME-LOOP,issue,"Six egui examples keep their own runtime, runner loop and repaint policy instead of the native driver",draft,local,,,,P3,S,lib/egui,,,,,,2026-11-10,specs/issues/EGUI-EXAMPLES-HAND-WRITE-THE-FRAME-LOOP.md
-EGUI-HAS-NO-REUSABLE-NATIVE-APP,feature,liquers-lib has no reusable native egui application; every desktop app re-implements the frame loop,draft,local,,,,P1,M,lib/egui;lib/ui,,,,egui-native-app,,2026-11-06,specs/issues/EGUI-HAS-NO-REUSABLE-NATIVE-APP.md
+EGUI-HAS-NO-REUSABLE-NATIVE-APP,feature,liquers-lib has no reusable native egui application; every desktop app re-implements the frame loop,closed,local,,ready,not-eligible,P1,L,lib/egui;lib/ui,,,,egui-native-app,,2026-11-06,specs/issues/EGUI-HAS-NO-REUSABLE-NATIVE-APP.md
 ENUM-ALTERNATIVES-HAVE-NO-LABEL,issue,An enum alternative has an alias and a value but no label or description,draft,local,,needs-decision,not-eligible,P3,M,core/commands;macro,,,,enum-alternative-labels,,2026-10-20,specs/issues/ENUM-ALTERNATIVES-HAVE-NO-LABEL.md
 ENVIRONMENT-MANAGER-REFERENCE-CYCLE,issue,"Environment and asset manager hold each other with strong Arcs, so every environment leaks",closed,local,,ready,not-eligible,P2,M,core/assets;core/context,,,,environment-manager-reference-cycle,,2026-08-27,specs/issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md
 ENVIRONMENT-ORDERLY-SHUTDOWN,feature,An environment cannot be shut down in an orderly way,draft,local,,needs-decision,not-eligible,P3,M,core/context;core/assets,,,,environment-orderly-shutdown,,2026-10-12,specs/issues/ENVIRONMENT-ORDERLY-SHUTDOWN.md
@@ -318,10 +318,10 @@ PY-ADD-PYTHON-COMMAND-ALIASES-AN-UNREGISTERED-COMMAND,issue,liquers-py's add_pyt
 PY-ADD-PYTHON-COMMAND-STILL-DECLARES-PYCALL-ALIASES,issue,CommandMetadataRegistry.add_python_command is still public and declares aliases of a pycall command that does not exist,draft,local,,,,P3,S,py,,,,,,2026-10-27,specs/issues/PY-ADD-PYTHON-COMMAND-STILL-DECLARES-PYCALL-ALIASES.md
 PY-API-REFERENCE-NOT-GENERATED,feature,The Python package has no generated API reference,closed,local,,ready,not-eligible,P2,S,py;docs,,,,py-api-reference,,2026-10-19,specs/issues/PY-API-REFERENCE-NOT-GENERATED.md
 PY-ASYNC-EVALUATION-NOT-SUPPORTED,feature,liquers-py has no awaitable evaluation and cannot register async def commands,closed,local,,ready,not-eligible,P3,L,py,,,,liquers-py-async,,2026-10-20,specs/issues/PY-ASYNC-EVALUATION-NOT-SUPPORTED.md
-PY-CANNOT-OPEN-A-LIQUERS-UI-WINDOW,feature,Python cannot open the Liquers desktop UI in a window,draft,local,,needs-decision,not-eligible,P3,L,py;lib/egui;build,,,,liquers-py-ui-window,,2026-11-06,specs/issues/PY-CANNOT-OPEN-A-LIQUERS-UI-WINDOW.md
+PY-CANNOT-OPEN-A-LIQUERS-UI-WINDOW,feature,Python cannot open the Liquers desktop UI in a window,closed,local,,needs-decision,not-eligible,P3,L,py;lib/egui;build,,,,liquers-py-ui-window,,2026-11-06,specs/issues/PY-CANNOT-OPEN-A-LIQUERS-UI-WINDOW.md
 PY-CANNOT-RENDER-TEMPLATES,feature,Python cannot declare template commands or render a template from a script or a command,closed,local,,ready,not-eligible,P2,L,py;lib/commands,,,,liquers-py-templates,,2026-11-04,specs/issues/PY-CANNOT-RENDER-TEMPLATES.md
 PY-CANNOT-START-A-WEB-SERVER,feature,Python cannot serve its environment over the Liquers HTTP API,closed,local,,ready,not-eligible,P2,L,py;axum,,,,liquers-py-web-server,,2026-11-06,specs/issues/PY-CANNOT-START-A-WEB-SERVER.md
-PY-CANNOT-USE-A-LIQUERS-UI,feature,"Python cannot hold, drive or observe a Liquers UI model on its environment",draft,local,,needs-decision,not-eligible,P3,L,py;lib/ui,,,,liquers-py-ui,,2026-11-06,specs/issues/PY-CANNOT-USE-A-LIQUERS-UI.md
+PY-CANNOT-USE-A-LIQUERS-UI,feature,"Python cannot hold, drive or observe a Liquers UI model on its environment",closed,local,,ready,not-eligible,P3,L,py;lib/ui,,,,liquers-py-ui,,2026-11-06,specs/issues/PY-CANNOT-USE-A-LIQUERS-UI.md
 PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA,feature,Python command decorators cannot declare per-argument metadata,draft,local,,needs-decision,not-eligible,P3,S,py,,,,py-command-decorator-declaration-keywords,,2026-10-18,specs/issues/PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA.md
 PY-COMMAND-DECORATOR-CANNOT-SET-REALM,feature,Python command decorators cannot place a command in a realm,draft,local,,needs-decision,not-eligible,P3,S,py,,,,py-command-decorator-declaration-keywords,,2026-10-18,specs/issues/PY-COMMAND-DECORATOR-CANNOT-SET-REALM.md
 PY-ENCODED-REPRS-QUOTE-THE-DEBUG-STRING,issue,"The reprs of Key, Expires and ExpirationTime put Rust debug text inside Python quotes",closed,local,,ready,eligible,P3,S,py,,,,py-encoded-reprs,,2026-10-27,specs/issues/PY-ENCODED-REPRS-QUOTE-THE-DEBUG-STRING.md
@@ -351,6 +351,7 @@ PY-SHUTDOWN-AFTER-EVALUATE-LOSES-THE-STORE-WRITE,issue,shutdown right after an e
 PY-STORE-SET-OF-BYTES-IGNORES-THE-KEY-EXTENSION,issue,Environment.store_set of bytes records the format b whatever the key's extension,draft,local,,,,P3,S,py,,,,,,2026-11-09,specs/issues/PY-STORE-SET-OF-BYTES-IGNORES-THE-KEY-EXTENSION.md
 PY-STRUCTURES-ARE-OPAQUE-TO-DATA-NODE-READERS,feature,A Python dict that structural conversion refuses is opaque to templates and other data-node readers,closed,local,,ready,not-eligible,P2,L,py;lib/value,,,,liquers-py-data-nodes,,2026-11-04,specs/issues/PY-STRUCTURES-ARE-OPAQUE-TO-DATA-NODE-READERS.md
 PY-TESTS-NOT-RUN-IN-CI,issue,"No CI workflow runs the liquers-py test suite, on any Python interpreter",closed,local,,ready,not-eligible,P2,M,py;build,,,,language-binding-tests-in-ci,,2026-10-26,specs/issues/PY-TESTS-NOT-RUN-IN-CI.md
+PY-UI-CHANGE-DOES-NOT-WAKE-AN-OPEN-WINDOW,issue,A change made from Python while a window shows waits for the window's next poll,draft,local,,,,P3,S,py;lib/egui,,,,,,2026-11-11,specs/issues/PY-UI-CHANGE-DOES-NOT-WAKE-AN-OPEN-WINDOW.md
 PY-VALUE-ENUM-OVERSIZED,issue,liquers-py's own Value enum is over 700 bytes because large variants are stored inline,closed,local,,ready,not-eligible,P3,M,py,,,,liquers-py,,2026-10-12,specs/issues/PY-VALUE-ENUM-OVERSIZED.md
 PY-VALUE-SERIALIZER-IS-A-STUB,issue,liquers-py's value serializer writes almost nothing and reads nothing back,closed,local,,ready,not-eligible,P2,M,py;core/value,,,,liquers-py,,2026-08-26,specs/issues/PY-VALUE-SERIALIZER-IS-A-STUB.md
 PY-VALUE-TYPE-DESCRIPTIONS-MISSING,issue,"liquers-py's Value describes no types, so its registry would refuse every write",closed,local,,,,P2,M,py;core/value,,,,foreign-value-type-registration,,2026-08-26,specs/issues/PY-VALUE-TYPE-DESCRIPTIONS-MISSING.md
@@ -708,7 +709,7 @@ DOCS-LINK-CHECK-CODE-SPANS,design,The docs dead-link check ignores code spans an
 DOCS-TOOLING-TESTS-IN-CI,design,The docs workflow runs the documentation tooling's unit tests,complete,local,,ready,eligible,P3,S,docs;build,,186,,docs-tooling-tests-in-ci,,2026-10-26,specs/design/docs-tooling-tests-in-ci/DESIGN.md
 DOCS-CURRENTNESS-SMALL-FIXES,design,Keep small current documentation claims and rustdoc links accurate,complete,local,,,,,,docs;build;core/plan;core/store;core/value,,,,documentation-currentness-small-fixes,,2026-09-04,specs/design/documentation-currentness-small-fixes/DESIGN.md
 DOCUMENTATION-SITE-TOOL,design,"A documentation tool builds the user documentation site with rustdoc, Liquers queries and Mustache",superseded,local,,,,P2,L,docs;build;lib/commands,233,,,documentation-site-tool,,2026-11-01,specs/design/documentation-site-tool/DESIGN.md
-EGUI-NATIVE-APP,design,A reusable native UI driver and egui window in liquers-lib,in_review,local,architecture,,,P1,M,lib/egui;lib/ui,,,,egui-native-app,,2026-11-10,specs/design/egui-native-app/DESIGN.md
+EGUI-NATIVE-APP,design,A reusable native UI driver and egui window in liquers-lib,in_review,local,documentation,ready,not-eligible,P1,L,lib/egui;lib/ui,,,,egui-native-app,,2026-11-10,specs/design/egui-native-app/DESIGN.md
 ENUM-ALTERNATIVE-LABELS,design,An enum alternative carries an optional label and description,in_review,local,implementation,needs-decision,not-eligible,P3,M,core/commands;macro,,,,enum-alternative-labels,,2026-10-26,specs/design/enum-alternative-labels/DESIGN.md
 ENVIRONMENT-BUILDER,design,Environment builder,complete,local,,,,,,core/assets;core/context,,44;53,,environment-builder,,2026-08-27,specs/design/environment-builder/DESIGN.md
 ENVIRONMENT-MANAGER-REFERENCE-CYCLE-DESIGN,design,Environment teardown without reference cycles,complete,local,,ready,not-eligible,P2,M,core/assets;core/context,,176,,environment-manager-reference-cycle,,2026-10-12,specs/design/environment-manager-reference-cycle/DESIGN.md
@@ -785,8 +786,8 @@ LIQUERS-PY-RECORDS,design,"Record views and sources in liquers-py: wrappers, chu
 LIQUERS-PY-STORE,design,"Stores written in Python, and configured store routers in liquers-py",complete,local,,ready,not-eligible,P3,L,py;core/store;store/config,,,,liquers-py-store,,2026-10-31,specs/design/liquers-py-store/DESIGN.md
 LIQUERS-PY-STUBS,design,"Type declarations for the liquers Python package, checked against the runtime",complete,local,,ready,not-eligible,P2,L,py,,,,liquers-py-stubs,,2026-11-01,specs/design/liquers-py-stubs/DESIGN.md
 LIQUERS-PY-TEMPLATES,design,Templates in liquers-py: template commands and rendering from scripts and commands,complete,local,,ready,not-eligible,P2,L,py;lib/commands,,,,liquers-py-templates,,2026-11-04,specs/design/liquers-py-templates/DESIGN.md
-LIQUERS-PY-UI-WINDOW,design,Liquers UI window from liquers-py: open the egui desktop UI over a Python environment,in_review,local,architecture,needs-decision,not-eligible,P3,L,py;lib/egui;build,,,,liquers-py-ui-window,,2026-11-06,specs/design/liquers-py-ui-window/DESIGN.md
-LIQUERS-PY-UI,design,"Liquers UI model in liquers-py: show, drive and observe UI elements",in_review,local,architecture,needs-decision,not-eligible,P3,L,py;lib/ui,,,,liquers-py-ui,,2026-11-06,specs/design/liquers-py-ui/DESIGN.md
+LIQUERS-PY-UI-WINDOW,design,Liquers UI window from liquers-py: open the egui desktop UI over a Python environment,in_review,local,documentation,needs-decision,not-eligible,P3,L,py;lib/egui;build,,,,liquers-py-ui-window,,2026-11-06,specs/design/liquers-py-ui-window/DESIGN.md
+LIQUERS-PY-UI,design,"Liquers UI model in liquers-py: show, drive and observe UI elements",in_review,local,documentation,ready,not-eligible,P3,L,py;lib/ui,,,,liquers-py-ui,,2026-11-06,specs/design/liquers-py-ui/DESIGN.md
 LIQUERS-PY-WEB-SERVER,design,Web server in liquers-py: serve an environment over the Liquers HTTP API,complete,local,,ready,not-eligible,P2,L,py;axum;core/context,,264,,liquers-py-web-server,,2026-11-06,specs/design/liquers-py-web-server/DESIGN.md
 LIQUERS-PY,design,Python integration of Liquers (liquers-py),complete,local,,ready,not-eligible,P2,M,py,,150;163,,liquers-py,,2026-10-17,specs/design/liquers-py/DESIGN.md
 LIQUERS-WEB-RECORDS-BRIDGE,design,"Complete the liquers-web records bridge — sources, streaming and the way back",complete,local,,ready,not-eligible,P2,L,web;records,,157,,liquers-web-records-bridge,,2026-10-17,specs/design/liquers-web-records-bridge/DESIGN.md
@@ -1050,12 +1051,12 @@ ENVIRONMENT_CONFIG,reference,Environment Configuration,current,local,,,,,,core/c
 IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,current,local,,,,,,lib/image,,,,,2026-11-03,,specs/reference/IMAGE_COMMAND_LIBRARY.md
 JAVASCRIPT_INTEGRATION,reference,JavaScript Integration,current,local,,,,,,web;core/value;core/error;core/store;lib/value,,,,,2026-11-04,,specs/reference/JAVASCRIPT_INTEGRATION.md
 MARKDOWN,reference,Markdown Navigation,current,local,,,,,,lib/commands;records,,,,,2026-11-01,,specs/reference/MARKDOWN.md
-PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,,core/context;core/commands,,,,,2026-10-17,,specs/reference/PAYLOAD_GUIDE.md
+PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,,core/context;core/commands,,,,,2026-11-11,,specs/reference/PAYLOAD_GUIDE.md
 PIPELINES,reference,Pipelines,current,local,,,,,,core/commands;core/plan;core/query;core/validate,,,,,2026-11-04,,specs/reference/PIPELINES.md
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,,lib/polars,,,,,2026-11-03,,specs/reference/POLARS_COMMAND_LIBRARY.md
 POSITIONING,reference,Positioning and Marketing Plan (draft),current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/POSITIONING.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-11-04,,specs/reference/PROJECT_OVERVIEW.md
-PYTHON_INTEGRATION,reference,Python Integration,current,local,,,,,,py;core/value;core/error;lib/value;core/store;store/config;core/assets,,,,,2026-11-10,,specs/reference/PYTHON_INTEGRATION.md
+PYTHON_INTEGRATION,reference,Python Integration,current,local,,,,,,py;core/value;core/error;lib/value;core/store;store/config;core/assets;lib/ui;lib/egui,,,,,2026-11-11,,specs/reference/PYTHON_INTEGRATION.md
 REALMS,reference,Realms,current,local,,,,,,core/plan;core/commands;store/config,,,,,2026-11-04,,specs/reference/REALMS.md
 RECIPES_AND_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/query;core/assets;core/context,,,,,2026-11-04,,specs/reference/RECIPES_AND_PLANS.md
 RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-11-03,,specs/reference/RECORD_STREAMS.md
@@ -1064,7 +1065,7 @@ SEARCH,reference,Search,current,local,,,,,,records;lib/commands,,,,,2026-10-17,,
 STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,,store/config,,,,,2026-11-01,,specs/reference/STORE_CONFIG_FSD.md
 STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-27,,specs/reference/STORE_SEMANTICS.md
 TEMPLATE_LANGUAGE,reference,Template Language,current,local,,,,,,core/query;lib/commands,,,,,2026-11-04,,specs/reference/TEMPLATE_LANGUAGE.md
-UI_INTERFACE_FSD,reference,UI Interface Specification,current,local,,,,,,lib/ui,,,,,2026-10-30,,specs/reference/UI_INTERFACE_FSD.md
+UI_INTERFACE_FSD,reference,UI Interface Specification,current,local,,,,,,lib/ui,,,,,2026-11-11,,specs/reference/UI_INTERFACE_FSD.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-11-04,,specs/reference/VALUE_TYPE_SYSTEM.md
 VISION,reference,Liquers Vision and Strategy,current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/VISION.md
 WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,,axum;web,,,,,2026-11-10,,specs/reference/WEB_API_SPECIFICATION.md
@@ -1077,12 +1078,12 @@ COMMAND_DESIGN_GUIDE,guide,Command Design Guide,current,local,,,,,,core/commands
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,core/commands;macro,,,,,2026-11-04,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 DEPENDENCY_CONSISTENCY_GUIDE,guide,Dependency Consistency Guide,current,local,,,,,,core/assets,,,,,2026-10-08,,specs/guides/DEPENDENCY_CONSISTENCY_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,,core/context;core/assets;core/store,,,,,2026-11-09,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
-GITHUB_ACTIONS_GUIDE,guide,GitHub Actions Guide,current,local,,,,,,build;docs,,,,,2026-11-10,,specs/guides/GITHUB_ACTIONS_GUIDE.md
+GITHUB_ACTIONS_GUIDE,guide,GitHub Actions Guide,current,local,,,,,,build;docs,,,,,2026-11-11,,specs/guides/GITHUB_ACTIONS_GUIDE.md
 JAVASCRIPT_GUIDE,guide,Using Liquers from JavaScript in the browser,current,local,,,,,,web,,,,,2026-11-04,,specs/guides/JAVASCRIPT_GUIDE.md
-LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store;core/value;lib/commands,,,,,2026-11-09,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
+LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store;core/value;lib/commands,,,,,2026-11-11,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 PIPELINE_GUIDE,guide,Pipeline Guide,current,local,,,,,,core/commands;core/plan;core/query;core/validate,,,,,2026-11-04,,specs/guides/PIPELINE_GUIDE.md
 PROJECT_SITE_GUIDE,guide,Project Site Guide,current,local,,,,,,docs;build,,,,,2026-11-10,,specs/guides/PROJECT_SITE_GUIDE.md
-PYTHON_GUIDE,guide,Using Liquers from Python,current,local,,,,,,py,,,,,2026-11-09,,specs/guides/PYTHON_GUIDE.md
+PYTHON_GUIDE,guide,Using Liquers from Python,current,local,,,,,,py,,,,,2026-11-11,,specs/guides/PYTHON_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,,core/query,,,,,2026-11-04,,specs/guides/QUERY_ESCAPING_GUIDE.md
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,,records;lib/value,,,,,2026-10-30,,specs/guides/RECORD_STREAM_GUIDE.md
 SEARCH_GUIDE,guide,Search Guide,current,local,,,,,,lib/commands;records,,,,,2026-10-17,,specs/guides/SEARCH_GUIDE.md
@@ -1095,8 +1096,8 @@ TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,,core/va
 UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,,build;core/assets,,,,,2026-10-20,,specs/guides/UNITTEST_GUIDE.md
 USER_DOCS_EDITING_GUIDE,guide,User Documentation Editing Guide,current,local,,,,,,docs,,,,,2026-11-10,,specs/guides/USER_DOCS_EDITING_GUIDE.md
 WEB_API_GUIDE,guide,Web API Guide,current,local,,,,,,axum;web,,,,,2026-11-09,,specs/guides/WEB_API_GUIDE.md
-python/01-introduction,chapter,Introduction,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/python/01-introduction.md
-python/02-installing,chapter,Installing and setting up,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/python/02-installing.md
+python/01-introduction,chapter,Introduction,ready,local,,,,,,docs,,,,,2026-11-11,,docs/guides/python/01-introduction.md
+python/02-installing,chapter,Installing and setting up,ready,local,,,,,,docs,,,,,2026-11-11,,docs/guides/python/02-installing.md
 python/03-queries,chapter,Queries,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/03-queries.md
 python/04-values,chapter,"Values, state and metadata",ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/04-values.md
 python/05-commands,chapter,Commands,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/05-commands.md
@@ -1105,15 +1106,15 @@ python/07-assets,chapter,"Recipes, assets and caching",ready,local,,,,,,docs,,,,
 python/08-environment,chapter,The environment,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/python/08-environment.md
 python/09-data,chapter,Working with data,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/09-data.md
 python/10-templates,chapter,Templates,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/10-templates.md
-python/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/11-ui.md
+python/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-11,,docs/guides/python/11-ui.md
 python/12-serving,chapter,Serving and embedding,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/python/12-serving.md
 python/13-search,chapter,Search and agent memory,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/13-search.md
 python/14-testing,chapter,Testing,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/14-testing.md
-python/15-troubleshooting,chapter,Troubleshooting,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/15-troubleshooting.md
+python/15-troubleshooting,chapter,Troubleshooting,ready,local,,,,,,docs,,,,,2026-11-11,,docs/guides/python/15-troubleshooting.md
 python/a-query-syntax,chapter,Query syntax,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/a-query-syntax.md
 python/b-command-library,chapter,Command library,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/b-command-library.md
 python/c-glossary,chapter,Glossary,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/c-glossary.md
-python/d-sister-guides,chapter,Sister guides,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/d-sister-guides.md
+python/d-sister-guides,chapter,Sister guides,ready,local,,,,,,docs,,,,,2026-11-11,,docs/guides/python/d-sister-guides.md
 python/index,chapter,Preface,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/index.md
 rust/01-introduction,chapter,Introduction,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/01-introduction.md
 rust/02-installing,chapter,Installing and setting up,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/02-installing.md
@@ -1125,7 +1126,7 @@ rust/07-assets,chapter,"Recipes, assets and caching",ready,local,,,,,,docs,,,,,2
 rust/08-environment,chapter,The environment,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/08-environment.md
 rust/09-data,chapter,Working with data,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/09-data.md
 rust/10-templates,chapter,Templates,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/10-templates.md
-rust/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/11-ui.md
+rust/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-11,,docs/guides/rust/11-ui.md
 rust/12-serving,chapter,Serving and embedding,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/12-serving.md
 rust/13-search,chapter,Search and agent memory,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/13-search.md
 rust/14-testing,chapter,Testing,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/14-testing.md
@@ -1133,7 +1134,7 @@ rust/15-troubleshooting,chapter,Troubleshooting,ready,local,,,,,,docs,,,,,2026-1
 rust/a-query-syntax,chapter,Query syntax,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/a-query-syntax.md
 rust/b-command-library,chapter,Command library,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/b-command-library.md
 rust/c-glossary,chapter,Glossary,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/c-glossary.md
-rust/d-sister-guides,chapter,Sister guides,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/d-sister-guides.md
+rust/d-sister-guides,chapter,Sister guides,ready,local,,,,,,docs,,,,,2026-11-11,,docs/guides/rust/d-sister-guides.md
 rust/index,chapter,Preface,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/index.md
 web/01-introduction,chapter,Introduction,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/01-introduction.md
 web/02-installing,chapter,Installing and setting up,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/02-installing.md

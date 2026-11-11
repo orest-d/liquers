@@ -28,3 +28,5 @@ have a row here (`specs/guides/USER_DOCS_EDITING_GUIDE.md`, maintenance).
 | 2026-11-10 | c-glossary.md | the terms in Rust and the terms this guide adds; `ready` |
 | 2026-11-10 | d-sister-guides.md | introduction written; `ready` |
 | 2026-11-10 | (all) | every `rust` block is a slice of `liquers-lib/tests/user_guide_GUIDE.rs` or `liquers-axum/tests/user_guide_GUIDE.rs`, checked by `liquers-docs/tests/rust_guide_examples.rs` |
+| 2026-11-11 | 11-ui.md | 11.3 rewritten for the reusable window: `NativeDriver`, `run_window` on the main thread, closing, the frame hook, the headless driver |
+| 2026-11-11 | d-sister-guides.md | the Python guide's chapter 11 now covers user interfaces |

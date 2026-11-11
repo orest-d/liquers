@@ -259,8 +259,8 @@ on wasm.
 - **Execution context for JavaScript commands** — built → [`design/js-command-context/`](design/js-command-context/)
 - **Typed list values for `lui/children`** — built → [`design/value-list-support/`](design/value-list-support/)
 - **egui asset-manager adapter** — planned → [`issues/EGUI-ASSET-MANAGER-INTEGRATION.md`](issues/EGUI-ASSET-MANAGER-INTEGRATION.md)
-- **Native UI driver and egui window (`NativeDriver`, `spawn_headless`, `run_window`)** — designing → [`design/egui-native-app/`](design/egui-native-app/)
-- **Liquers UI from Python (the model, and an egui window)** — designing → [`design/liquers-py-ui/`](design/liquers-py-ui/), [`design/liquers-py-ui-window/`](design/liquers-py-ui-window/)
+- **Native UI driver and egui window (`NativeDriver`, `spawn_headless`, `run_window`)** — built → [`design/egui-native-app/`](design/egui-native-app/)
+- **Liquers UI from Python (the model, and an egui window)** — built → [`design/liquers-py-ui/`](design/liquers-py-ui/), [`design/liquers-py-ui-window/`](design/liquers-py-ui-window/)
 
 `design/ui-events/` built the interaction half of the browser backend — `webui-fixes` did the
 rendering half: backend-neutral `UIEvent`s delivered through `update()`, declared in `data-lq-*`
@@ -326,9 +326,7 @@ question are both measure-first items.
 ## Open issues attached to live design work
 
 <!-- BEGIN generated: issues -->
-| Issue | Pri | Cx | Design |
-|---|---|---|---|
-| [`EGUI-HAS-NO-REUSABLE-NATIVE-APP`](issues/EGUI-HAS-NO-REUSABLE-NATIVE-APP.md) | P1 | M | `egui-native-app` |
+*None.*
 <!-- END generated: issues -->
 
 ## Not yet placed
@@ -658,7 +656,6 @@ deliberately folded behind a broader line.
 - feature `DEPENDENCY-ANALYSIS-REWALKS-UPSTREAM-PER-EVALUATION`
 - feature `DEPENDENCY-ANALYSIS-SUMMARIES-NOT-REUSED-ACROSS-EVALUATIONS`
 - feature `DOCS-SITE-HAS-NO-PER-RELEASE-VERSIONS`
-- feature `EGUI-HAS-NO-REUSABLE-NATIVE-APP`
 - feature `ENVIRONMENT-ORDERLY-SHUTDOWN`
 - feature `EXTENDED-SCALARS-NOT-MAPPED-BY-LANGUAGE-BRIDGES`
 - feature `EXTERNAL-INDEX-HAS-NO-RECONCILIATION-CONTRACT`
@@ -680,8 +677,6 @@ deliberately folded behind a broader line.
 - feature `NO-SQL-ENGINE-IN-WASM-BUILDS`
 - feature `NO-TEMPLATE-EDITOR-UI`
 - feature `NO-WRITE-PATH-FROM-RECORDS-INTO-A-RELATIONAL-DATABASE`
-- feature `PY-CANNOT-OPEN-A-LIQUERS-UI-WINDOW`
-- feature `PY-CANNOT-USE-A-LIQUERS-UI`
 - feature `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`
 - feature `PY-COMMAND-DECORATOR-CANNOT-SET-REALM`
 - feature `PY-WEB-SERVER-CANNOT-TAKE-PYTHON-HANDLERS`
