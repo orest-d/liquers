@@ -12,7 +12,8 @@
   to the root of the site, over the index.html of the mdBook home book (whose page is overview.html).
 
   A link that is not published yet carries data-soon: it shows a "coming soon" badge and cannot be
-  clicked. Remove the attribute once the target is live; the href is already the real path.
+  clicked. Remove the attribute once the target is live; the href is already the real path. Every
+  card is live at present; the attribute is for the next one that is added ahead of its target.
 -->
 <style>
 :root {
@@ -215,11 +216,11 @@ footer a:hover { color: var(--text); }
             <span class="lang"><b>Py</b>Liquers for Python</span>
             <p>The <code>liquers</code> package, for data work and Python services.</p>
           </a>
-          <a class="card" data-soon href="guides/rust/index.html">
+          <a class="card" href="guides/rust/index.html">
             <span class="lang"><b>Rs</b>Liquers for Rust</span>
             <p>Building on the crates: commands, value types, stores and servers.</p>
           </a>
-          <a class="card" data-soon href="guides/web/index.html">
+          <a class="card" href="guides/web/index.html">
             <span class="lang"><b>JS</b>Liquers for the Web</span>
             <p>Liquers running in a browser page, compiled to WebAssembly.</p>
           </a>
@@ -229,15 +230,15 @@ footer a:hover { color: var(--text); }
       <div class="group" id="api">
         <h3>API reference</h3>
         <div class="cards">
-          <a class="card" data-soon href="api/python/liquers.html">
+          <a class="card" href="api/python/liquers.html">
             <span class="lang"><b>Py</b>Python API</span>
             <p>The <code>liquers</code> package.</p>
           </a>
-          <a class="card" data-soon href="overview.html#api-reference">
+          <a class="card" href="overview.html#api-reference">
             <span class="lang"><b>Rs</b>Rust API</span>
             <p>Every crate, from <code>liquers-core</code> to <code>liquers-lib</code>.</p>
           </a>
-          <a class="card" data-soon href="api/js/index.html">
+          <a class="card" href="api/js/index.html">
             <span class="lang"><b>JS</b>JavaScript API</span>
             <p>The <code>liquers-web</code> module.</p>
           </a>
