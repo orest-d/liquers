@@ -1,7 +1,9 @@
 name: liquers-web-tests
 
 # Runs liquers-web's conformance suites under Node (wasm-bindgen-test-runner), with and without the
-# `records` feature. The browser and Playwright loops are not run here.
+# `records` feature, and the JavaScript examples of specs/guides/JAVASCRIPT_GUIDE.md and of the
+# user guide docs/guides/web/ against a `records` build. The browser and Playwright loops are not
+# run here.
 # Design: specs/design/language-binding-tests-in-ci/.
 
 on:
@@ -18,6 +20,9 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.cargo/**'
+      # the guides whose JavaScript examples the last step runs
+      - 'docs/guides/web/**'
+      - 'specs/guides/JAVASCRIPT_GUIDE.md'
       - '.github/workflows/liquers-web-tests.yml'
   push:
     branches: [main]
@@ -33,6 +38,9 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.cargo/**'
+      # the guides whose JavaScript examples the last step runs
+      - 'docs/guides/web/**'
+      - 'specs/guides/JAVASCRIPT_GUIDE.md'
       - '.github/workflows/liquers-web-tests.yml'
   workflow_dispatch:
 
@@ -67,4 +75,6 @@ jobs:
           cargo install wasm-bindgen-cli --version "$ver" --locked
       - run: cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles
       - run: cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles,records
+      - name: Run the guides' JavaScript examples
+        run: ./liquers-web/scripts/test-guide-examples.sh --features records
       - run: df -h /
