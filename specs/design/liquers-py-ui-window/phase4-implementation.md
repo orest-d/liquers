@@ -12,7 +12,7 @@ tests and the CI job, then the wheel checks deferred by Phase 1, then documents.
 - [x] Step 2: `run`, `close` and `window_open` (8465894)
 - [x] Step 3: the window tests and the no-`gui` test (8465894)
 - [x] Step 4: the CI job under a virtual display (8465894)
-- [ ] Step 5: the wheel checks (local half done: `ldd` lists only libc, libm, libgcc_s; the suite runs with no display. The PR's wheel workflows remain)
+- [x] Step 5: the wheel checks (2b55bc4: the Windows allow-list names the window's DLLs; release run 43092722770, fifteen wheels built, checked and tested)
 - [x] Step 6: documents and module docs (the docs commit of PR #268)
 
 ## Implementation Steps

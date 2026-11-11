@@ -71,10 +71,16 @@ not run in the tests (it waits for its reader) and says so.
 
 ## Conformance and Remaining Work
 Built as approved; the wheel default awaits the owner's confirmation. Phase 1 deferred two wheel
-checks: the import without display libraries is shown locally (`ldd`, the suite with no display);
-the five-platform wheels run in `liquers-py-release.yml`, triggered by hand on the branch.
+checks, both done. The import without display libraries is shown locally (`ldd` lists only libc,
+libm and libgcc_s; the suite runs with no display). A manual run of `liquers-py-release.yml` on the
+branch (run 43092722770, publishing nothing) built all fifteen wheels on five platforms, passed
+`check-wheel.py` on each and tested each in a fresh venv. It first failed on Windows: the window
+links nine system DLLs (`dwmapi`, `dxgi`, `gdi32`, `imm32`, `opengl32`, `setupapi`, `shlwapi`,
+`uiautomationcore`, `uxtheme`), which `liquers-py/packaging/allowed-libraries.toml` now names
+(2b55bc4); all are part of every Windows desktop install. A second attempt was needed only because
+GitHub's artifact upload failed on the first.
 
 ## Validation
 Window tests under `xvfb-run` (10 passed, five runs in a row); `cargo test -p liquers-py
 --no-default-features --features debug-handles --lib` (the no-`gui` test); `xvfb-run -a bash
-scripts/test-liquers-py.sh`; the PR's workflows.
+scripts/test-liquers-py.sh`; the PR's workflows, and the release run above.
