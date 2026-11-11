@@ -18,7 +18,8 @@
 //!
 //! - [`Context`] (`lq.Context`): `evaluate` / `evaluate_async` (queries and pipelines), `render`,
 //!   `expand`, their `_async` forms, `validate_template`, `data_node`, logging (`info`,
-//!   `warning`, `error`) and `is_cancelled`.
+//!   `warning`, `error`), `is_cancelled`, and `element`, the UI element whose action runs the
+//!   command (`ui.rs`).
 //!
 //! # Where it is used
 //!
@@ -385,6 +386,16 @@ impl Context {
     fn is_cancelled(&self, py: Python<'_>) -> PyResult<bool> {
         self.get()
             .map(|context| context.is_cancelled())
+            .map_err(|e| error_to_pyerr(py, &e))
+    }
+
+    /// The handle of the UI element whose action runs this command (`ui.submit(query, handle)`
+    /// or a control's action), or `None` outside a UI action.
+    #[getter]
+    fn element(&self, py: Python<'_>) -> PyResult<Option<u64>> {
+        use liquers_lib::ui::UIPayload;
+        self.get()
+            .map(|context| context.get_payload_clone().and_then(|p| p.handle()).map(|h| h.0))
             .map_err(|e| error_to_pyerr(py, &e))
     }
 }

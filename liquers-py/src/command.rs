@@ -249,6 +249,8 @@ async fn call_py_command(
     joined(
         tokio::task::spawn_blocking(move || {
             let asset = context.get_asset_ref();
+            // A UI action's command: `wait_idle` on that UI here would wait for itself.
+            let _action = crate::ui::ActionMark::enter(&context);
             crate::exit::command_call(asset, |py| {
                 call_with_gil(py, &callable, &state, &arguments, context)
             })
