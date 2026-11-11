@@ -62,6 +62,11 @@ __all__ = [
     "Environment",
     "Issue",
     "Server",
+    "UI",
+    "UIElement",
+    "UIElementInfo",
+    "UIStatusEvent",
+    "UISubscription",
     "Context",
     "State",
     "NodeKind",
@@ -93,6 +98,7 @@ __all__ = [
     "evaluate",
     "evaluate_async",
     "serve",
+    "ui",
     "serve_async",
     "command",
     "first_command",
@@ -1150,6 +1156,10 @@ class UI:
     def wait_idle_async(self, timeout: float | None = ...) -> Coroutine[Any, Any, bool]: ...
     def process_events(self) -> int: ...
     def asset(self, handle: int) -> AssetRef: ...
+    def run(self, title: str = ..., size: tuple[float, float] = ...) -> None: ...
+    def close(self) -> None: ...
+    @property
+    def window_open(self) -> bool: ...
     def dispose(self) -> None: ...
     @property
     def disposed(self) -> bool: ...
