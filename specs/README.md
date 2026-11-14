@@ -504,6 +504,7 @@ deliberately folded behind a broader line.
 - design `py-docstrings`
 - design `py-metadata-fields-as-properties`
 - design `py-metadata-typed-errors`
+- design `py-package-submodules`
 - design `py-pypy-ci-job`
 - design `py-query-segment-registration`
 - design `pyo3-python-3-13-support`
