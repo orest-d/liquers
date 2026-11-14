@@ -47,6 +47,17 @@ libraries = [
     "pdh.dll",
     "netapi32.dll",
     "dbghelp.dll",
+    # The egui window (feature `gui`): winit, wgpu and the accessibility layer. All are part of
+    # every Windows desktop install.
+    "dwmapi.dll",
+    "dxgi.dll",
+    "gdi32.dll",
+    "imm32.dll",
+    "opengl32.dll",
+    "setupapi.dll",
+    "shlwapi.dll",
+    "uiautomationcore.dll",
+    "uxtheme.dll",
     "api-ms-win-*",
     "vcruntime140.dll",
     "vcruntime140_1.dll",

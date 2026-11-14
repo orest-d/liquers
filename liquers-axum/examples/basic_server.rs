@@ -1,11 +1,11 @@
 /// Basic liquers-axum example server
 ///
 /// This example demonstrates how to:
-/// - Create a SimpleEnvironment with a file-based store
+/// - Create an environment with a file-based store
 /// - Optionally audit the store on start (`LIQUERS_STARTUP_AUDIT=1`)
-/// - Build Query API and Store API routers
-/// - Compose them into a single Axum application
-/// - Run the server on localhost:3000
+/// - Serve it with `LiquersServerBuilder`: every standard API under `/liquer`, the store's `web/`
+///   folder at `/liquer/web/`, and `/` redirecting there
+/// - Stop gracefully on Ctrl-C (requests get 5 s to finish)
 ///
 /// Usage:
 ///   cargo run -p liquers-axum --example basic_server
@@ -16,7 +16,9 @@
 ///   curl http://localhost:3000/liquer/api/store/keys
 use std::sync::Arc;
 
-use liquers_axum::{QueryApiBuilder, StoreApiBuilder};
+use std::time::Duration;
+
+use liquers_axum::{LiquersServerBuilder, ServerConfig};
 use liquers_core::store::AsyncFileStore;
 use liquers_core::{
     assets::{AssetManager, AuditMode},
@@ -95,32 +97,23 @@ async fn main() {
         }
     }
 
-    // Build Query API router (GET/POST /q/{*query})
-    let query_router = QueryApiBuilder::new("/liquer/q").build();
+    // Every standard API under /liquer, the web folder and the index redirect. Port 3000 on this
+    // machine only; `host: "0.0.0.0"` would expose it to the network (there is no authentication).
+    let config = ServerConfig {
+        port: 3000,
+        ..ServerConfig::default()
+    };
+    let server = LiquersServerBuilder::from_config(config)
+        .bind(env_ref)
+        .await
+        .expect("Failed to bind the server");
 
-    // Build Store API router with all endpoints
-    let store_router = StoreApiBuilder::new("/liquer/api/store")
-        .with_destructive_gets() // Enable GET-based destructive operations for demo
-        .build();
-
-    // Compose routers into main application
-    let app = axum::Router::new()
-        .route("/", axum::routing::get(|| async { 
-            "Liquers API Server\n\nEndpoints:\n  GET  /liquer/q/{*query} - Execute query\n  POST /liquer/q/{*query} - Execute query with JSON body\n  /liquer/api/store/* - Store API endpoints\n" 
-        }))
-        .merge(query_router)
-        .merge(store_router)
-        .with_state(env_ref);
-
-    // Bind and serve
-    let addr = "0.0.0.0:3000";
-    println!("Server listening on http://{}", addr);
+    println!("Server listening on http://{}", server.local_addr());
     println!("\nExample requests:");
     println!("  curl http://localhost:3000/liquer/q/text-Hello");
     println!("  curl http://localhost:3000/liquer/api/store/keys");
-    println!("  curl -X PUT -d 'test data' http://localhost:3000/liquer/api/store/data/test.txt");
-    println!("\nPress Ctrl+C to stop\n");
 
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    tokio::signal::ctrl_c().await.ok();
+    println!("Stopping...");
+    server.shutdown(Duration::from_secs(5)).await;
 }

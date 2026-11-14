@@ -2,7 +2,7 @@
 title: Installing and setting up
 status: ready
 sources: [guides/PYTHON_GUIDE.md, reference/PYTHON_INTEGRATION.md]
-reviewed: 2026-11-10
+reviewed: 2026-11-11
 ---
 # 2. Installing and setting up
 
@@ -46,6 +46,9 @@ On any other combination, such as CPython 3.10 to 3.13, PyPy, macOS on Intel or 
 builds the package from its source. That needs a Rust toolchain (version 1.95 or newer; install
 it from <https://rustup.rs>) and a C compiler, and it takes several minutes. If you would rather
 have pip fail than build, add `--only-binary :all:`.
+
+Every package can open the Liquers desktop window (chapter 11). The window code makes the package
+about 8 MB larger. It needs no display until a window opens, so the package also works on a server.
 
 ## 2.2 Optional packages
 
@@ -145,6 +148,17 @@ into several environments, build a wheel once and install the file with pip:
 maturin build --release -m liquers-py/Cargo.toml
 pip install target/wheels/liquers_py-*.whl
 ```
+
+**Without the window.** To build a smaller package with no desktop window, leave out its `gui`
+feature; `ui.run()` then says that the build has no window support:
+
+```bash
+maturin develop --release -m liquers-py/Cargo.toml --no-default-features --features extension-module
+```
+
+On Linux, a window needs a display (X11 or Wayland). Over SSH, in a container or in CI, run the
+program under a virtual display such as `xvfb-run`, which on Debian and Ubuntu also needs the
+`libxkbcommon-x11-0` package, and `mesa-vulkan-drivers` when there is no graphics card.
 
 ## 2.4 What is in the package
 

@@ -3,7 +3,7 @@ title: Using Liquers from Python
 kind: guide
 audience: user
 area: [py]
-reviewed: 2026-11-09
+reviewed: 2026-11-14
 ---
 # Using Liquers from Python
 
@@ -38,6 +38,9 @@ Wheels are built for CPython 3.14 and later (the regular and the free-threaded b
 x86_64 and aarch64, macOS arm64, and Windows x86_64 and arm64. On any other interpreter or platform
 (CPython 3.10-3.13, PyPy, macOS x86_64, musllinux) pip builds from the source distribution, which
 needs a Rust toolchain (1.95 or newer) and a C compiler and takes several minutes.
+Every wheel can open the Liquers desktop window (`ui.run()`, §6), which adds about 8 MB; it needs
+no display to import. A source build without it: `maturin develop --release --no-default-features
+--features extension-module -m liquers-py/Cargo.toml`.
 
 The optional Python packages are *extras*: `polars` (DataFrames), `images` (pillow), `arrow`
 (pyarrow) and `pandas` (pyarrow and pandas), or `all`. `lq.require("arrow")` checks for one and
@@ -64,11 +67,12 @@ traceback is readable.
 |---|---|
 | `liquers` | The public names, all re-exported here. |
 | `liquers._native` | The Rust extension: every class below except the exception classes, and `parse`, `parse_key`, `build_plan`. |
-| `liquers._env` | `default_environment()` and `evaluate()`. |
+| `liquers._env` | `default_environment()`, `evaluate()`, `serve()` and `serve_async()`. |
 | `liquers._commands` | The `command` and `first_command` decorators. |
 | `liquers._errors` | `LiquersError` and its subclasses, one per `ErrorType`. |
 | `liquers._records` | The pyarrow, pandas and polars side of the record classes. |
 | `liquers._extras` | `require()` and the table of extras. |
+| `liquers._ui` | The coroutine behind `UI.wait_idle_async`. |
 
 The public names, by purpose:
 
@@ -88,6 +92,8 @@ The public names, by purpose:
 | Plans and recipes | `build_plan`, `Plan`, `Step`, `Recipe`, `RecipeList`, `RecipeProviders` (`env.recipes`) |
 | Stores | `Store` (`env.store`, `Store.from_object`), `StoreArgumentInfo` |
 | Configuration checks | `Issue` (from `Environment.validate()`) |
+| Serving over HTTP | `Environment.serve` / `serve_async`, `serve`, `serve_async`, `Server` |
+| User interface | `Environment.ui`, `ui`, `UI`, `UIElement`, `UIElementInfo`, `UIStatusEvent`, `UISubscription`, `Context.element` |
 
 `lq.Error` is a plain data object describing a Liquers error. It is not an exception; what is raised
 is a `LiquersError`.
@@ -141,20 +147,23 @@ The prefix stays in the path: under this configuration the key `data/note.txt` i
 
 | Argument | Default | Meaning |
 |---|---|---|
-| `config` | none | The environment configuration, as a `dict` or a YAML string: `store` (where data lives), `assets` (asset manager options). The format is [`reference/ENVIRONMENT_CONFIG.md`](../reference/ENVIRONMENT_CONFIG.md). With no `store`, the store is in memory. `recipes` (where recipes come from) is described under "Named results: recipes". |
+| `config` | none | The configuration: a file (`pathlib.Path`), YAML text, or a `dict`. It holds `store` (where data lives), `assets` (asset manager options), `recipes` (where recipes come from, under "Named results: recipes"), `command_registry`, `server` (§6, "Serving over HTTP") and `python` (below). The environment part's format is [`reference/ENVIRONMENT_CONFIG.md`](../reference/ENVIRONMENT_CONFIG.md). With no `store`, the store is in memory. |
 | `conversion` | `"permissive"` | What happens to a Python object with no Liquers equivalent: `"permissive"` keeps it as an opaque object, `"strict"` refuses it with `ConversionError` (§7). |
 | `pickle` | `False` | Whether opaque objects can be written to the store, as pickle. Leave it off unless you trust everything the store holds: reading pickle runs code. |
+| `async_loops` | `1` | The event loops `async def` commands run on (§5, "Async commands"). |
+| `job_capacity` | the asset manager's | How many commands run at once (§6, "Awaiting a query"). |
 
-A configuration is usually kept in a file. YAML may refer to environment variables as
-`${NAME}`:
+A configuration is usually kept in a file. Pass it as a `pathlib.Path`; the extension says how it
+is read (`.yaml`, `.yml` or `.json`). YAML may refer to environment variables as `${NAME}`:
 
 ```python
 import os
+import pathlib
 import tempfile
 import liquers as lq
 
 os.environ["LIQUERS_DATA"] = tempfile.mkdtemp()
-config_text = """
+pathlib.Path("liquers.yaml").write_text("""
 store:
   stores:
     - type: filesystem
@@ -163,15 +172,55 @@ store:
         path: ${LIQUERS_DATA}
 assets:
   job_capacity: 2
-"""
-# In practice: config_text = pathlib.Path("liquers.yaml").read_text()
-env = lq.Environment(config=config_text)
+python:
+  pickle: false
+""")
+env = lq.Environment(config=pathlib.Path("liquers.yaml"))
 env.store_set("data/note.txt", "kept")
 env.shutdown()
 ```
 
-`config` must be the text, not a path. Malformed YAML raises `ParseError`; keys Liquers does not
-know are ignored, so check the spelling of a setting that seems to have no effect.
+A `str` is YAML *text*, not a file name: `lq.Environment(config="liquers.yaml")` raises
+`ConfigurationError` and tells you to pass `pathlib.Path`. Malformed YAML raises `ParseError`. A
+section Liquers does not know, such as a misspelled `sever:`, raises `ConfigurationError` naming
+it and listing the known ones, and so does an unknown key inside `server` or `python`; inside
+`store`, `recipes` and `assets` an unknown key is still ignored.
+
+**The `python` section** holds this package's own settings: `conversion`, `pickle` and
+`async_loops`, the keywords above. **A keyword overrides the file**: `lq.Environment(config=path,
+pickle=False)` uses everything from the file except `pickle`, and `job_capacity=` replaces the
+file's `assets.job_capacity`. So one file can serve several deployments that differ in a setting or
+two.
+
+**Command metadata from a file.** `command_registry: commands.yaml` names a command metadata
+file, in the format `export-command-registry` writes: labels, documentation and argument hints for
+the commands your code registers. A relative name is found next to the configuration file. It is
+read when the environment is made, so a missing file raises there:
+
+```python
+import pathlib
+import liquers as lq
+
+pathlib.Path("commands.yaml").write_text("""
+commands:
+  - name: greet
+    label: Greet someone
+    doc: Returns a greeting for a name.
+    module: python
+    state_argument: null
+    arguments:
+      - {name: name, label: Name, default: !Value world, argument_type: string, gui_info: !TextField 20}
+""")
+pathlib.Path("app.yaml").write_text("command_registry: commands.yaml\n")
+env = lq.Environment(config=pathlib.Path("app.yaml"))
+
+@env.first_command
+def greet(name: str = "world") -> str:
+    return f"Hello, {name}!"
+
+assert env.command_metadata("greet").label == "Greet someone"
+env.shutdown()
+```
 
 **Lifecycle.** An environment is built on first use, from the commands registered on it, and keeps
 running until `shutdown()`. `shutdown()` is idempotent; afterwards every use raises `GeneralError`
@@ -622,6 +671,110 @@ threads, and async commands on different loops, really run in parallel. Two rule
 - Do not change one `lq.Query`, `lq.Key` or `lq.Metadata` object from two threads at once: the
   second change raises `RuntimeError`. The handles (`Environment`, `AssetRef`, `State`, `Context`)
   are read-only and safe to share.
+
+### Serving over HTTP
+
+`env.serve()` makes the environment answer other programs over HTTP, with the standard Liquers
+server: queries at `{url}/liquer/q/…`, the store, assets and recipes under `{url}/liquer/api/…`,
+and the store folder `web/` at `{url}/liquer/web/`. It returns once the server listens; the
+server runs in the background until it is stopped.
+
+```python
+import urllib.request
+import liquers as lq
+
+env = lq.Environment()
+
+@env.first_command
+def greet(name: str = "world") -> str:
+    return f"Hello, {name}!"
+
+with env.serve(port=0) as server:        # port 0: any free port; server.port says which
+    with urllib.request.urlopen(f"{server.url}/liquer/q/greet-Ann") as response:
+        assert response.read() == b"Hello, Ann!"
+env.shutdown()
+```
+
+The settings are the configuration's `server` section, and each keyword of `serve` overrides one:
+`host` (default `127.0.0.1`, this machine only), `port` (8080), `prefix` (`/liquer`), `apis`
+(`["query", "store", "assets", "recipes"]`), `read_only` (`False`) and `web` (`True`; a folder
+name serves that store folder; `False` turns it off). A command registered after `serve` is served
+at once.
+
+The server stops when you call `server.shutdown()` (requests in flight get 5 seconds), at the end
+of its `with` block, at `env.shutdown()`, or when Python exits; dropping the `Server` object does
+not stop it. `env.serve(background=False)` serves until Ctrl-C, and `await env.serve_async()`
+serves until its task is cancelled. `lq.serve()` serves the default environment.
+
+**Before anyone else can connect,** check three settings: the server has no users or passwords.
+`host="0.0.0.0"` makes it reachable from the network. Writes are enabled by default, so any client
+can change the store; `read_only=True` turns them off. A page in the web folder runs in a visitor's
+browser with the server's address, so serve pages from a read-only store mount, or set
+`read_only=True`, or `web=False`.
+
+### Showing a Liquers UI
+
+`env.ui()` gives a Liquers UI model: the elements the egui desktop app and the browser show (an
+asset view, the query console, a `ui_spec` dashboard), held by your environment. It runs with or
+without a window; elements evaluate in the background.
+
+```python
+import liquers as lq
+
+env = lq.Environment()
+
+@env.command
+def report() -> str:
+    return "rows: 3"
+
+with env.ui() as ui:                                   # disposed at the end of the block
+    seen = []
+    with ui.on("status", lambda e: seen.append(str(e.status))):
+        handle = ui.show("report")                     # a new element; returns its handle
+        assert ui.wait_idle(timeout=10)                # delivers the status callbacks here
+    assert seen == ["Processing", "Ready"]
+    [info] = ui.elements()
+    assert (info.handle, info.type_name) == (handle, "AssetViewElement")
+    assert ui.asset(handle).get() == "rows: 3"
+env.shutdown()
+```
+
+`show(query, handle)` gives an existing element a new query; `submit(query, handle)` runs a query
+as that element's control would, and the command sees the element as `context.element`
+(`None` outside a UI). A failing query does not raise: its element shows the error and the status
+event carries it (`event.error`). An unparsable query raises `lq.ParseError` at once.
+
+Callbacks run only on a thread that asks for them: in `wait_idle`, in `await
+ui.wait_idle_async()` (on the event loop's thread), in `ui.process_events()`, or in the window.
+A callback may call `show` or `submit`; one that raises is reported through
+`sys.unraisablehook`. A query a command evaluates for a UI must not wait for that UI: `wait_idle`
+or `await ui.wait_idle_async()` inside any command, `async def` ones too, raises instead of waiting
+forever.
+
+**Opening a window.** `ui.run()` shows the model in the Liquers desktop window and returns when the
+window is closed. Call it on the main thread; it blocks there, while commands keep running on other
+threads:
+
+```python
+# needs a display: not run by the tests
+import liquers as lq
+
+env = lq.Environment()
+
+@env.command
+def report() -> str:
+    return "rows: 3"
+
+ui = env.ui()
+ui.show("hello/q/ns-lui/query_console")   # the query console; type `report` into it
+ui.run(title="Reports", size=(900, 700))
+```
+
+While the window shows, status callbacks run on the main thread between frames. Ctrl-C closes it
+and raises `KeyboardInterrupt`. `ui.close()` closes it from any thread, and `ui.window_open` says
+whether it shows. After it closes the model goes on, and `run()` can open it again. A server
+started with `env.serve()` before `run()` serves the same environment beside the window, so a
+result computed for one is reused by the other.
 
 ### Named results: recipes
 
@@ -1219,11 +1372,18 @@ What you will notice; the complete list, with the tracking issues, is
 - A record view or source cannot be implemented in Python, and moving a table to or from pyarrow,
   pandas or polars copies it.
 - Wheels exist for CPython 3.14 and later on five platforms; elsewhere pip builds from source.
+- The server cannot take Python request handlers or middleware, has no authentication or TLS, and
+  its web folder serves stored files only.
+- UI elements cannot be written in Python. A slow action submitted to a UI holds up the model's
+  other work, and freezes an open window, until it ends.
 
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-14 | §6 "Showing a Liquers UI": `wait_idle_async` inside a command, `async def` ones included, raises too. | `liquers-py/tests/test_UIUSE_model.py` |
+| 2026-11-11 | §6 "Showing a Liquers UI": the model, status callbacks, opening a window. §1: the wheels open windows; a build without. §2: the UI names. §10: UI limits. | phase-5, `design/liquers-py-ui/`, `design/liquers-py-ui-window/` |
+| 2026-11-09 | §4: `config=` takes a file (`pathlib.Path`), YAML text or a dict; the `python` section; keywords override the file; unknown sections and server/python keys are refused; the command metadata file. §6: serving over HTTP, with its security settings. §10: the server's limits. | phase-5, `design/configuration-document/`, `design/liquers-py-web-server/` |
 | 2026-11-09 | History: removed merge-conflict markers left between the rows of 2026-11-04 and 2026-11-05. The user guide *Liquers for Python* (`docs/guides/python/`) is now written from this guide, and `test_GUIDE_examples.py` runs its examples too. | Python user guide |
 | 2026-11-04 | §6 Pipelines: `evaluate` of a pipeline, `lq.Pipeline` and `to_query`, the editors, `pipeline_command`; §2 the new names. | `design/liquers-py-pipelines/` |
 | 2026-11-04 | §6 Templates: `render`, `expand`, `validate_template`, `template_command`, `lq.link`; §2 the new names. | `design/liquers-py-templates/` |

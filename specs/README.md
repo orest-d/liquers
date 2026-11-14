@@ -163,7 +163,7 @@ expansion time rather than at runtime. That is the cheapest item here.
   [`reference/PROJECT_OVERVIEW.md`](reference/PROJECT_OVERVIEW.md) §5, conformance in the
   store section of [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md)
 - **Store factories: defining, contributing and overriding store types** — documented → [`guides/STORE_FACTORY_GUIDE.md`](guides/STORE_FACTORY_GUIDE.md) *(design in [`design/store-factories-in-core/`](design/store-factories-in-core/))*
-- **Configuring an environment and its store from one document** — documented → [`reference/ENVIRONMENT_CONFIG.md`](reference/ENVIRONMENT_CONFIG.md)
+- **Configuring an environment and its store from one document** — documented → [`reference/ENVIRONMENT_CONFIG.md`](reference/ENVIRONMENT_CONFIG.md) *(one document for every part of a host — environment, `command_registry:`, `server:`, language sections — read by `ConfigDocument`: §The configuration document; design in [`design/configuration-document/`](design/configuration-document/))*
 - **Configuring a store from a URI** — designing → [`design/store-config-uri/`](design/store-config-uri/)
 - **Store adapters and configurable metadata handling (read-only mounts, metadata layouts, handlers such as front-matter, write strategies)** — documented → [`reference/STORE_SEMANTICS.md`](reference/STORE_SEMANTICS.md), [`reference/STORE_CONFIG_FSD.md`](reference/STORE_CONFIG_FSD.md); how to configure and extend: [`guides/STORE_CONFIG_GUIDE.md`](guides/STORE_CONFIG_GUIDE.md) *(design in [`design/store-adapters/`](design/store-adapters/); central and database storage models, key-scoped handlers and language-defined handlers are not built yet: see its Phase 5)*
 - **Type-enforced key absoluteness** — planned → [`issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md`](issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md)
@@ -259,6 +259,8 @@ on wasm.
 - **Execution context for JavaScript commands** — built → [`design/js-command-context/`](design/js-command-context/)
 - **Typed list values for `lui/children`** — built → [`design/value-list-support/`](design/value-list-support/)
 - **egui asset-manager adapter** — planned → [`issues/EGUI-ASSET-MANAGER-INTEGRATION.md`](issues/EGUI-ASSET-MANAGER-INTEGRATION.md)
+- **Native UI driver and egui window (`NativeDriver`, `spawn_headless`, `run_window`)** — built → [`design/egui-native-app/`](design/egui-native-app/)
+- **Liquers UI from Python (the model, and an egui window)** — built → [`design/liquers-py-ui/`](design/liquers-py-ui/), [`design/liquers-py-ui-window/`](design/liquers-py-ui-window/)
 
 `design/ui-events/` built the interaction half of the browser backend — `webui-fixes` did the
 rendering half: backend-neutral `UIEvent`s delivered through `update()`, declared in `data-lq-*`
@@ -272,6 +274,7 @@ drop, focus, pointer) are `issues/UI-EVENTS-HAVE-NO-POINTER-DRAG-OR-CHANGE-KINDS
 - **Assets HTTP and WebSocket API (`q/`, `key/`, `admin/`, `ws/q`, `ws/key`)** — built → [`design/axum-assets-endpoints/`](design/axum-assets-endpoints/)
 - **Language integration** — documented → [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md) (§DOCS: the documents an integration owes its users) *(liquers-web claims corrected: [`design/language-guide-web-claims/`](design/language-guide-web-claims/))*
 - **Assets and recipes HTTP API** — built → [`design/axum-assets-recipes-api/`](design/axum-assets-recipes-api/)
+- **A liquers-axum server (standard APIs, a web folder from the store, an index redirect, graceful shutdown; `server:` settings)** — built → [`reference/WEB_API_SPECIFICATION.md`](reference/WEB_API_SPECIFICATION.md) §8 Assembling a server, [`guides/WEB_API_GUIDE.md`](guides/WEB_API_GUIDE.md), `liquers-axum/README.md` *(design in [`design/axum-server-assembly/`](design/axum-server-assembly/); security of the settings: [`issues/SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED.md`](issues/SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED.md))*
 - **Web API library** — built → [`design/web-api-library/`](design/web-api-library/)
 - **Browser and JavaScript integration** — built → [`guides/JAVASCRIPT_GUIDE.md`](guides/JAVASCRIPT_GUIDE.md) (using it), [`reference/JAVASCRIPT_INTEGRATION.md`](reference/JAVASCRIPT_INTEGRATION.md) (its contract); conformance matrix in `liquers-web/README.md`; design [`design/liquers-web/`](design/liquers-web/) *(docs brought up to date: [`design/web-docs-stale-limitations/`](design/web-docs-stale-limitations/); a thrown-back `LiquersError` keeps its context: [`design/web-thrown-back-error-context/`](design/web-thrown-back-error-context/))*
 - **Async evaluation on wasm** — built → [`design/async-wasm-refactor/`](design/async-wasm-refactor/)
@@ -281,6 +284,7 @@ drop, focus, pointer) are `issues/UI-EVENTS-HAVE-NO-POINTER-DRAG-OR-CHANGE-KINDS
 - **Python records, type declarations and release wheels (M5: `lq.RecordView` / `RecordSource`, `.pyi` checked by stubtest, wheels from GitHub Actions)** — built (first PyPI release pending, `PY-NO-PUBLISHED-WHEELS`) → [`reference/PYTHON_INTEGRATION.md`](reference/PYTHON_INTEGRATION.md) §11 Records, §12 Packaging and §13 Type declarations, [`guides/PYTHON_GUIDE.md`](guides/PYTHON_GUIDE.md) §1 Installing, §7 Records and §9 Type checking, [`reference/RECORD_STREAMS.md`](reference/RECORD_STREAMS.md) §Arrow IPC (`liquers.origins`) and `read_chunk`; release workflow `.github/workflows/liquers-py-release.yml`; designs [`design/liquers-py-records/`](design/liquers-py-records/), [`design/liquers-py-stubs/`](design/liquers-py-stubs/), [`design/liquers-py-package/`](design/liquers-py-package/)
 - **Language-binding tests in CI (liquers-py on 3.10, 3.14, 3.14t; liquers-web under Node)** — built → `.github/workflows/liquers-py-tests.yml`, `.github/workflows/liquers-web-tests.yml`; [`reference/PYTHON_INTEGRATION.md`](reference/PYTHON_INTEGRATION.md) §8; design [`design/language-binding-tests-in-ci/`](design/language-binding-tests-in-ci/)
 - **Python pipelines, templates and data nodes (M6: evaluate, convert, edit and register pipelines; `env.render` / `expand`, template commands; `dict`s read in place as data nodes)** — built → [`reference/PYTHON_INTEGRATION.md`](reference/PYTHON_INTEGRATION.md) §14 Data nodes, §15 Templates, §16 Pipelines; [`guides/PYTHON_GUIDE.md`](guides/PYTHON_GUIDE.md) §6-§7 *(designs [`design/liquers-py-data-nodes/`](design/liquers-py-data-nodes/), [`design/liquers-py-templates/`](design/liquers-py-templates/), [`design/liquers-py-pipelines/`](design/liquers-py-pipelines/); core prerequisites [`design/ad-hoc-closure-asset/`](design/ad-hoc-closure-asset/) → [`reference/ASSETS.md`](reference/ASSETS.md) §Closure assets, [`design/template-render-in-env/`](design/template-render-in-env/) → [`guides/TEMPLATE_GUIDE.md`](guides/TEMPLATE_GUIDE.md), [`design/foreign-value-data-node/`](design/foreign-value-data-node/))*
+- **Python web server (M7 WEBSERV: `env.serve`, `serve_async`, `lq.Server`, served from a config file or keywords)** — built → [`reference/PYTHON_INTEGRATION.md`](reference/PYTHON_INTEGRATION.md) §3 and §17 Web server, [`guides/PYTHON_GUIDE.md`](guides/PYTHON_GUIDE.md) §Serving over HTTP *(design in [`design/liquers-py-web-server/`](design/liquers-py-web-server/))*
 - **`repr` of `Key`, `Expires` and `ExpirationTime` evaluates back (`Key('data/a.txt')`)** — built → `liquers-py/src/query.rs` `quoted`; design [`design/py-encoded-reprs/`](design/py-encoded-reprs/) *(`Query` and the other classes: [`design/py-python-style-reprs/`](design/py-python-style-reprs/))*
 - **Executor-agnostic core** — planned → [`issues/CORE-TOKIO-REMOVAL.md`](issues/CORE-TOKIO-REMOVAL.md)
 - **Browser stores (localStorage, fetch, JS, routing)** — built → [`design/liquers-web-store/`](design/liquers-web-store/) *(conformance gaps closed: [`design/web-store-conformance-tests/`](design/web-store-conformance-tests/))*
@@ -643,6 +647,7 @@ deliberately folded behind a broader line.
 - feature `ASSET-REGISTRATION-OWNERSHIP-CONTRACT`
 - feature `ASSETS-API-ADMIN-OPERATIONS`
 - feature `AXUM-CANNOT-SERVE-A-LIQUERS-UI`
+- feature `AXUM-SERVER-SENDS-NO-CORS-HEADERS`
 - feature `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS`
 - feature `COMMAND-ENUM-ALTERNATIVES-CANNOT-BE-COMPUTED`
 - feature `COMMAND-INPUT-OUTPUT-TYPES-ARE-UNDECLARED`
@@ -656,6 +661,7 @@ deliberately folded behind a broader line.
 - feature `EXTENDED-SCALARS-NOT-MAPPED-BY-LANGUAGE-BRIDGES`
 - feature `EXTERNAL-INDEX-HAS-NO-RECONCILIATION-CONTRACT`
 - feature `HTTP-ACCEPT-HEADER-NOT-NEGOTIATED`
+- feature `INDEX-PAGE-IS-A-FIXED-REDIRECT`
 - feature `ISSUE-REPORT-PLAN-AND-METADATA-LOGGING`
 - feature `LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`
 - feature `LANGUAGE-STORE-TYPE-NOT-DEFINABLE`
@@ -674,6 +680,7 @@ deliberately folded behind a broader line.
 - feature `NO-WRITE-PATH-FROM-RECORDS-INTO-A-RELATIONAL-DATABASE`
 - feature `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`
 - feature `PY-COMMAND-DECORATOR-CANNOT-SET-REALM`
+- feature `PY-WEB-SERVER-CANNOT-TAKE-PYTHON-HANDLERS`
 - feature `QUERY-BUILDER-NOT-IN-BINDINGS`
 - feature `QUERY-CANNOT-CHOOSE-A-DATA-FORMAT`
 - feature `QUERY-CANNOT-MARK-CACHED-INTERMEDIATES`
@@ -711,7 +718,10 @@ deliberately folded behind a broader line.
 - feature `VALUE-TYPE-DEFINITION-MACRO`
 - feature `WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS`
 - feature `WEB-API-REFERENCE-NOT-GENERATED`
+- feature `WEB-EVALUATE-CANNOT-RETURN-THE-SERIALIZED-RESULT`
+- feature `WEB-FOLDER-SERVES-STORED-FILES-ONLY`
 - feature `WEB-HAS-NO-READ-WRITE-REMOTE-STORE`
+- feature `WEB-MODULE-HAS-NO-VERSIONED-CDN-ADDRESS`
 - feature `WEB-PAGE-CANNOT-PASS-A-PIPELINE-VALUE`
 - feature `WEB-PIPELINE-EDITOR-HAS-NO-DEFINITION-MODE`
 - feature `WEB-QUERY-EDITOR-NOT-LIVE`

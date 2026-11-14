@@ -40,7 +40,10 @@
 //!   pipelines (`pipeline_command`, `pipeline_editor`, `query_editor`), data nodes, shutdown.
 //! - [`to_evaluable`], [`evaluate_evaluable`], [`pipeline_recipe`]: what `evaluate` takes, and how
 //!   a pipeline runs (a pipeline-only recipe through `apply_queued`).
-//! - [`EnvCell`]: the retained declarations, the lazy build and the rebuild.
+//! - [`EnvCell`]: the retained declarations, the lazy build and the rebuild, and the current
+//!   build the servers read.
+//! - [`crate::config::PyConfig`]: what `config=` and the keywords resolve to; `serve` starts a
+//!   server over the environment (`server.rs`).
 //! - [`block_on`]: the sliced, GIL-free wait every blocking call uses.
 //!
 //! # Where it is used
@@ -48,11 +51,13 @@
 //! - Every Python entry point that needs an environment: `lq.Environment`, the default
 //!   environment of `python/liquers/_env.py`, and the factories of `store/` and
 //!   `recipe_provider.rs`.
+//! - [`crate::server::CellSource`], which answers HTTP requests from the current build.
 //!
 //! # Related concepts
 //!
 //! - `command.rs` and `declared.rs`: the commands the declarations hold.
 //! - `template.rs`, `closure.rs`: the top-level render and its wait.
+//! - [`crate::config`] parses the configuration document; this module applies it.
 //! - `specs/reference/PYTHON_INTEGRATION.md` §3.
 //!
 //! # Examples
@@ -68,7 +73,7 @@
 //! Executed in `liquers-py/tests/test_ENVIRON_*.py` and `test_TEMPLATE_*.py`.
 
 use std::num::NonZeroUsize;
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, RwLock};
 
 use pyo3::sync::MutexExt;
 use std::time::Duration;
@@ -77,7 +82,6 @@ use liquers_core::command_metadata::{CommandKey, CommandMetadata};
 use liquers_core::commands::CommandRegistry;
 use liquers_core::context::EnvRef;
 use liquers_core::environment_builder::EnvironmentBuilder;
-use liquers_core::environment_config::EnvironmentConfig;
 use liquers_core::error::Error;
 use liquers_core::issue_report::{Issue as CoreIssue, IssueReport, IssueSeverity};
 use liquers_core::metadata::{Metadata, MetadataRecord};
@@ -89,11 +93,14 @@ use liquers_core::query::Key;
 use liquers_core::type_system::TypeRegistry;
 use liquers_core::value::{DefaultValueSerializer, ValueInterface};
 use liquers_lib::environment::{default_environment_builder, DefaultEnvironment, LibKind};
+use liquers_lib::ui::SimpleUIPayload;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString};
 
 use crate::aio::{awaitable, check_blocking_call, refuse_shutdown_on_loop, shut_down_while_waiting, LazyLoopPool, Shut, ToPy};
 use crate::command::{register_py_command, PyCommandSpec, Replaced};
+use crate::config::PyConfig;
+use crate::server::{ServerSlot, SHUTDOWN_DEADLINE};
 use crate::store::factory::{PyStoreFactory, PyStoreType};
 use crate::recipe_provider::{PyRecipeProviderFactory, PyRecipeProviderType};
 use liquers_core::store_factory::{ChainedStoreFactory, StoreFactory, StoreTypeInfo};
@@ -103,9 +110,9 @@ use crate::records::Scope;
 use crate::value::{py_to_value, py_type_info, value_to_py, ConversionMode, Value};
 
 /// The environment every Python handle builds.
-pub type PyEnvironment = DefaultEnvironment<Value>;
+pub type PyEnvironment = DefaultEnvironment<Value, SimpleUIPayload>;
 
-type PyBuilder = EnvironmentBuilder<Value, (), LibKind>;
+type PyBuilder = EnvironmentBuilder<Value, SimpleUIPayload, LibKind>;
 
 /// Where a handle's environment is in its life.
 enum EnvState {
@@ -141,7 +148,17 @@ struct Declarations {
 /// The shared state behind an `lq.Environment`.
 pub struct EnvCell {
     declarations: Mutex<Declarations>,
-    config: EnvironmentConfig,
+    /// The whole configuration document, parsed at construction, so an unknown section or key
+    /// fails at `lq.Environment` (`crate::config`).
+    pub config: PyConfig,
+    /// The built environment, readable without the GIL (a server reads it per request). Written
+    /// only while the declarations lock is held: set by `envref`, cleared by `retire` and
+    /// `shutdown`.
+    current: RwLock<Option<EnvRef<PyEnvironment>>>,
+    /// The servers started from this environment; stopped ones are pruned on each access.
+    servers: Mutex<ServerList>,
+    /// The UI models made by `ui()`, disposed by `shutdown()` after the servers.
+    uis: Mutex<crate::ui::UiList>,
     pub conversion: ConversionMode,
     pub pickle: bool,
     /// Fired by `shutdown()`; every wait started from this handle watches it.
@@ -151,12 +168,19 @@ pub struct EnvCell {
 }
 
 impl EnvCell {
+    /// A handle on `config`. The command metadata registry file it names is read here, so a
+    /// missing or unparsable file raises at `lq.Environment`; its commands are applied to every
+    /// build as `import_metadata`'s are.
     pub fn new(
-        config: EnvironmentConfig,
+        config: PyConfig,
         conversion: ConversionMode,
         pickle: bool,
         async_loops: NonZeroUsize,
     ) -> Result<Self, Error> {
+        let imported = match &config.command_registry {
+            Some(path) => read_command_registry(path)?,
+            None => Vec::new(),
+        };
         Ok(EnvCell {
             declarations: Mutex::new(Declarations {
                 state: EnvState::Pending,
@@ -165,11 +189,14 @@ impl EnvCell {
                 specs: Vec::new(),
                 unregistered: Vec::new(),
                 declared: Vec::new(),
-                imported: Vec::new(),
+                imported,
                 store_types: Vec::new(),
                 recipe_types: Vec::new(),
             }),
             config,
+            current: RwLock::new(None),
+            servers: Mutex::new(ServerList::default()),
+            uis: Mutex::new(crate::ui::UiList::default()),
             conversion,
             pickle,
             shut: Arc::new(Shut::default()),
@@ -206,24 +233,71 @@ impl EnvCell {
             declarations.store = Some(envref.get_async_store());
         }
         declarations.state = EnvState::Built(envref.clone());
+        self.set_current(Some(envref.clone()));
         Ok(envref)
+    }
+
+    /// The built environment without taking the GIL or the declarations lock: `None` before the
+    /// first build, after a registration retired it, and after `shutdown()`.
+    pub fn current_without_gil(&self) -> Result<Option<EnvRef<PyEnvironment>>, Error> {
+        match self.current.read() {
+            Ok(current) => Ok(current.clone()),
+            Err(_) => Err(Error::unexpected_error("environment current-build lock poisoned".to_string())),
+        }
+    }
+
+    fn set_current(&self, envref: Option<EnvRef<PyEnvironment>>) {
+        // Dropped after the write guard: the old build's last reference may run long drops.
+        let previous = match self.current.write() {
+            Ok(mut current) => std::mem::replace(&mut *current, envref),
+            Err(poisoned) => std::mem::replace(&mut *poisoned.into_inner(), envref),
+        };
+        drop(previous);
+    }
+
+    /// Records a server started from this environment, or refuses it once `shutdown()` has
+    /// taken the list: a server bound while the environment was shutting down is the caller's to
+    /// stop, since `shutdown()` no longer sees it.
+    pub(crate) fn add_server(&self, slot: Arc<ServerSlot>) -> Result<(), Error> {
+        let mut servers = lock_servers(&self.servers);
+        if servers.closed {
+            return Err(shut_down_error());
+        }
+        servers.slots.retain(|s| s.server.is_running());
+        servers.slots.push(slot);
+        Ok(())
+    }
+
+    /// Records a UI model made from this environment, or refuses it after `shutdown()`.
+    pub(crate) fn add_ui(&self, model: std::sync::Weak<crate::ui::UiModel>) -> Result<(), Error> {
+        match self.uis.lock() {
+            Ok(mut uis) => uis.add(model),
+            Err(poisoned) => poisoned.into_inner().add(model),
+        }
+    }
+
+    /// The running servers started from this environment.
+    pub(crate) fn running_servers(&self) -> Vec<Arc<ServerSlot>> {
+        let mut servers = lock_servers(&self.servers);
+        servers.slots.retain(|s| s.server.is_running());
+        servers.slots.clone()
     }
 
     /// Marks the environment for a rebuild after a declaration changed.
     ///
     /// Fails after `shutdown()`, so a registration on a shut environment is not silently dropped.
     pub fn invalidate(&self, py: Python<'_>) -> Result<(), Error> {
-        retire(&mut *self.lock(py)?)
+        retire(self, &mut *self.lock(py)?)
     }
 
     /// The builder with every declaration applied, but no store yet.
     fn configured_builder(&self, declarations: &Declarations) -> Result<(PyBuilder, IssueReport), Error> {
         let mut types = TypeRegistry::from_value_type::<Value>();
         types.register(py_type_info(self.pickle))?;
-        let mut builder = default_environment_builder::<Value, ()>()
+        let mut builder = default_environment_builder::<Value, SimpleUIPayload>()
             .with_type_registry(types)
-            .with_asset_manager_options(self.config.assets.clone())
-            .with_recipes(self.config.recipes.clone())
+            .with_asset_manager_options(self.config.environment.assets.clone())
+            .with_recipes(self.config.environment.recipes.clone())
             .with_recipe_provider_factory(Box::new(PyRecipeProviderFactory {
                 types: declarations.recipe_types.clone(),
                 loops: self.loops.clone(),
@@ -231,7 +305,7 @@ impl EnvCell {
             }));
         // Fields are applied one by one rather than through `with_config`, so a new field of
         // `EnvironmentConfig` has to be listed here too.
-        if let Some(namespaces) = &self.config.default_namespaces {
+        if let Some(namespaces) = &self.config.environment.default_namespaces {
             builder = builder.with_default_namespaces(namespaces.clone());
         }
         crate::builtins::register(&mut builder.command_registry)?;
@@ -256,10 +330,13 @@ impl EnvCell {
         }
         builder = match &declarations.store {
             Some(store) => builder.with_async_store(store.clone()),
-            None if self.config.store.stores.is_empty() => {
+            None if self.config.environment.store.stores.is_empty() => {
                 builder.with_async_store(Arc::new(AsyncMemoryStore::new(&Key::new())))
             }
-            None => builder.with_store_config(self.config.store.clone(), Box::new(self.store_factory(declarations))),
+            None => builder.with_store_config(
+                self.config.environment.store.clone(),
+                Box::new(self.store_factory(declarations)),
+            ),
         };
         // The asset manager spawns its workers on the ambient runtime.
         let _guard = runtime()?.enter();
@@ -305,7 +382,7 @@ impl EnvCell {
             )));
         }
         declarations.store_types.push(Arc::new(store_type));
-        retire(&mut declarations)
+        retire(self, &mut declarations)
     }
 
     /// Registers a Python recipe provider type; refused when the name is one of the kind's entry
@@ -325,7 +402,7 @@ impl EnvCell {
             )));
         }
         declarations.recipe_types.push(Arc::new(provider_type));
-        retire(&mut declarations)
+        retire(self, &mut declarations)
     }
 
     /// Every issue a build would meet, without building.
@@ -357,7 +434,7 @@ impl EnvCell {
         declarations.declared.retain(|d| d.key() != &spec.key);
         declarations.unregistered.retain(|k| k != &spec.key);
         declarations.specs.push(spec);
-        retire(&mut declarations)?;
+        retire(self, &mut declarations)?;
         Ok(replaced)
     }
 
@@ -381,7 +458,7 @@ impl EnvCell {
             false
         };
         if removed {
-            retire(&mut declarations)?;
+            retire(self, &mut declarations)?;
         }
         Ok(removed)
     }
@@ -421,7 +498,7 @@ impl EnvCell {
         }
         take_specs(&mut declarations.specs, &key, &mut removed);
         declarations.unregistered.retain(|k| k != &key);
-        retire(&mut declarations)?;
+        retire(self, &mut declarations)?;
         Ok(replaced)
     }
 
@@ -429,7 +506,7 @@ impl EnvCell {
         let mut declarations = self.lock(py)?;
         refuse_if_shut(&declarations)?;
         declarations.imported.extend(commands);
-        retire(&mut declarations)
+        retire(self, &mut declarations)
     }
 
     /// Stops the current and every retired asset manager, then the loop pool. Idempotent.
@@ -437,10 +514,36 @@ impl EnvCell {
     /// The asset managers stop taking work first; stopping the pool then cancels the coroutines
     /// still running, since a stopped asset manager does not cancel running assets.
     pub fn shutdown(&self, py: Python<'_>) -> Result<(), Error> {
+        // The servers first, while the environment still answers: their requests in flight may
+        // finish (up to the deadline) before the waits are cancelled. Closing the list under its
+        // lock makes a server still binding (`serve_async`, another thread) stop itself instead.
+        let servers = {
+            let mut list = lock_servers(&self.servers);
+            list.closed = true;
+            std::mem::take(&mut list.slots)
+        };
+        if !servers.is_empty() {
+            py.detach(|| {
+                for slot in &servers {
+                    slot.stop_blocking(SHUTDOWN_DEADLINE);
+                }
+            });
+        }
+        drop(servers);
+        // Then the UI models: their tasks stop before the asset managers they evaluate with.
+        let uis = match self.uis.lock() {
+            Ok(mut uis) => uis.close(),
+            Err(poisoned) => poisoned.into_inner().close(),
+        };
+        for model in &uis {
+            model.dispose(py);
+        }
+        drop(uis);
         self.shut.fire();
         let specs: Vec<PyCommandSpec>;
         let mut declarations = self.lock(py)?;
         let previous = std::mem::replace(&mut declarations.state, EnvState::Shut);
+        self.set_current(None);
         let mut envrefs = std::mem::take(&mut declarations.retired);
         match previous {
             EnvState::Built(envref) => envrefs.push(envref),
@@ -515,14 +618,46 @@ fn refuse_if_shut(declarations: &Declarations) -> Result<(), Error> {
     }
 }
 
-/// Marks the environment for a rebuild, keeping the built one on the retired list.
-fn retire(declarations: &mut Declarations) -> Result<(), Error> {
+/// Marks the environment for a rebuild, keeping the built one on the retired list. Called with
+/// the declarations lock held, so `current` is cleared in step with the state.
+fn retire(cell: &EnvCell, declarations: &mut Declarations) -> Result<(), Error> {
     refuse_if_shut(declarations)?;
     match std::mem::replace(&mut declarations.state, EnvState::Pending) {
         EnvState::Built(envref) => declarations.retired.push(envref),
         EnvState::Pending | EnvState::Shut => {}
     }
+    cell.set_current(None);
     Ok(())
+}
+
+/// An environment's servers, and whether `shutdown()` has closed the list to new ones.
+#[derive(Default)]
+struct ServerList {
+    closed: bool,
+    slots: Vec<Arc<ServerSlot>>,
+}
+
+fn lock_servers(servers: &Mutex<ServerList>) -> MutexGuard<'_, ServerList> {
+    match servers.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+/// The commands of a command metadata registry file (`specs/command_registry.yaml`'s format;
+/// only `commands` is read), as `import_metadata` takes them.
+fn read_command_registry(path: &std::path::Path) -> Result<Vec<CommandMetadata>, Error> {
+    let text = std::fs::read_to_string(path).map_err(|e| {
+        Error::general_error(format!("cannot read the command registry file {}: {e}", path.display()))
+    })?;
+    serde_yaml::from_str::<ImportedMetadata>(&text)
+        .map(|imported| imported.commands)
+        .map_err(|e| {
+            Error::configuration_error(format!(
+                "the command registry file {} is not a command metadata registry: {e}",
+                path.display()
+            ))
+        })
 }
 
 /// The keys of the built-in commands, computed once.
@@ -573,22 +708,6 @@ fn apply_imported(
 #[serde(default)]
 struct ImportedMetadata {
     commands: Vec<CommandMetadata>,
-}
-
-fn parse_config(py: Python<'_>, config: &Bound<'_, PyAny>) -> Result<EnvironmentConfig, Error> {
-    if let Ok(text) = config.cast::<PyString>() {
-        return EnvironmentConfig::from_yaml(&text.to_string());
-    }
-    let json = py
-        .import("json")
-        .and_then(|json| json.call_method1("dumps", (config,)))
-        .and_then(|dumped| dumped.extract::<String>().map_err(PyErr::from))
-        .map_err(|e| {
-            Error::configuration_error(format!(
-                "config must be a dict or a YAML string: {e}"
-            ))
-        })?;
-    EnvironmentConfig::from_json(&json)
 }
 
 fn bound_decorator(
@@ -820,7 +939,75 @@ pub fn block_on<T: Send>(
     }
 }
 
+/// The keywords of `serve` that override the configuration's `server:` section.
+struct ServeOverrides {
+    host: Option<String>,
+    port: Option<u16>,
+    prefix: Option<String>,
+    apis: Option<Vec<String>>,
+    read_only: Option<bool>,
+    web: Option<liquers_axum::WebSetting>,
+}
+
+/// `web=` as a setting: a bool turns the web folder on or off, a str names its store folder.
+fn web_setting(py: Python<'_>, web: Option<&Bound<'_, PyAny>>) -> PyResult<Option<liquers_axum::WebSetting>> {
+    let web = match web {
+        None => return Ok(None),
+        Some(web) if web.is_none() => return Ok(None),
+        Some(web) => web,
+    };
+    if let Ok(enabled) = web.cast::<pyo3::types::PyBool>() {
+        return Ok(Some(liquers_axum::WebSetting::Enabled(enabled.is_true())));
+    }
+    if let Ok(root) = web.cast::<PyString>() {
+        return Ok(Some(liquers_axum::WebSetting::Root(root.to_string())));
+    }
+    Err(error_to_pyerr(
+        py,
+        &Error::configuration_error("web must be True, False or a store folder (a str)".to_string()),
+    ))
+}
+
 impl Environment {
+    /// The configuration's `server:` section with `serve`'s keywords applied, checked; builds the
+    /// environment first, so a broken configuration (or a shut environment) raises here.
+    fn server_config(&self, py: Python<'_>, overrides: ServeOverrides) -> PyResult<liquers_axum::ServerConfig> {
+        let result = (|| -> Result<_, Error> {
+            self.cell.envref(py)?;
+            let mut config = self.cell.config.server.clone();
+            if let Some(host) = overrides.host {
+                config.host = host;
+            }
+            if let Some(port) = overrides.port {
+                config.port = port;
+            }
+            if let Some(prefix) = overrides.prefix {
+                config.prefix = prefix;
+            }
+            if let Some(apis) = overrides.apis {
+                config.apis = apis
+                    .iter()
+                    .map(|name| {
+                        serde_json::from_value::<liquers_axum::Api>(serde_json::Value::String(name.clone())).map_err(|_| {
+                            Error::configuration_error(format!(
+                                "unknown API '{name}' (known: query, store, assets, recipes)"
+                            ))
+                        })
+                    })
+                    .collect::<Result<_, _>>()?;
+            }
+            if let Some(read_only) = overrides.read_only {
+                config.read_only = read_only;
+            }
+            if let Some(web) = overrides.web {
+                config.web = web;
+            }
+            config.validate()?;
+            Ok(config)
+        })();
+        result.map_err(|e| error_to_pyerr(py, &e))
+    }
+
     /// A top-level render: a closure asset, waited on with the GIL released.
     fn render_top(
         &self,
@@ -1137,28 +1324,25 @@ impl Environment {
     }
 
     #[new]
-    #[pyo3(signature = (*, config=None, conversion="permissive", pickle=false, async_loops=1, job_capacity=None))]
+    #[pyo3(signature = (*, config=None, conversion=None, pickle=None, async_loops=None, job_capacity=None))]
     fn new(
         py: Python<'_>,
         config: Option<&Bound<'_, PyAny>>,
-        conversion: &str,
-        pickle: bool,
-        async_loops: i64,
+        conversion: Option<&str>,
+        pickle: Option<bool>,
+        async_loops: Option<i64>,
         job_capacity: Option<i64>,
     ) -> PyResult<Self> {
+        // A keyword wins over the file's `python:` / `assets:` setting, which wins over the
+        // built-in default (`configuration-document` Decision 2).
         let built = (|| {
-            let mut config = match config {
-                Some(config) => parse_config(py, config)?,
-                None => EnvironmentConfig::default(),
+            let mut config = PyConfig::from_python(py, config)?;
+            let async_loops = match async_loops {
+                Some(loops) => usize::try_from(loops).ok().and_then(NonZeroUsize::new).ok_or_else(|| {
+                    Error::configuration_error(format!("async_loops must be at least 1, not {loops}"))
+                })?,
+                None => config.python.async_loops.unwrap_or(NonZeroUsize::MIN),
             };
-            let async_loops = usize::try_from(async_loops)
-                .ok()
-                .and_then(NonZeroUsize::new)
-                .ok_or_else(|| {
-                    Error::configuration_error(format!(
-                        "async_loops must be at least 1, not {async_loops}"
-                    ))
-                })?;
             if let Some(capacity) = job_capacity {
                 let capacity = usize::try_from(capacity)
                     .ok()
@@ -1168,16 +1352,17 @@ impl Environment {
                             "job_capacity must be at least 1, not {capacity}"
                         ))
                     })?;
-                match config.assets.job_capacity {
-                    Some(configured) if configured != capacity => {
-                        return Err(Error::configuration_error(format!(
-                            "job_capacity={capacity} conflicts with the configured assets.job_capacity of {configured}"
-                        )))
-                    }
-                    Some(_) | None => config.assets.job_capacity = Some(capacity),
-                }
+                config.environment.assets.job_capacity = Some(capacity);
             }
-            EnvCell::new(config, ConversionMode::parse(conversion)?, pickle, async_loops)
+            let conversion = match conversion {
+                Some(conversion) => ConversionMode::parse(conversion)?,
+                None => match &config.python.conversion {
+                    Some(conversion) => ConversionMode::parse(conversion)?,
+                    None => ConversionMode::Permissive,
+                },
+            };
+            let pickle = pickle.or(config.python.pickle).unwrap_or(false);
+            EnvCell::new(config, conversion, pickle, async_loops)
         })();
         match built {
             Ok(cell) => Ok(Environment {
@@ -1185,6 +1370,115 @@ impl Environment {
             }),
             Err(e) => Err(error_to_pyerr(py, &e)),
         }
+    }
+
+    /// A new Liquers UI model on this environment (`lq.UI`): show queries as elements, submit
+    /// actions, follow statuses. Each call makes a separate model; its elements evaluate in the
+    /// background until `dispose()` or `shutdown()`. See `PYTHON_GUIDE.md` "Show a Liquers UI".
+    fn ui(&self, py: Python<'_>) -> PyResult<crate::ui::UI> {
+        crate::ui::UI::new(py, &self.cell)
+    }
+
+    /// Serves this environment over the Liquers HTTP API and returns the running `lq.Server`.
+    ///
+    /// Settings come from the configuration's `server:` section; each keyword given overrides it
+    /// (`host`, `port`, `prefix`, `apis` — a list of `"query"`, `"store"`, `"assets"`,
+    /// `"recipes"` —, `read_only`, and `web`: `True`, `False` or a store folder). The defaults
+    /// serve every API under `/liquer` on `127.0.0.1:8080`, with writes enabled and the store's
+    /// `web/` folder at `/liquer/web/`. Binds before returning (`port=0` picks a free port). With
+    /// `background=False` it serves until the server is stopped or Ctrl-C, which stops it and
+    /// raises `KeyboardInterrupt`.
+    #[pyo3(signature = (*, host=None, port=None, prefix=None, apis=None, read_only=None, web=None, background=true))]
+    #[allow(clippy::too_many_arguments)]
+    fn serve(
+        &self,
+        py: Python<'_>,
+        host: Option<String>,
+        port: Option<u16>,
+        prefix: Option<String>,
+        apis: Option<Vec<String>>,
+        read_only: Option<bool>,
+        web: Option<&Bound<'_, PyAny>>,
+        background: bool,
+    ) -> PyResult<crate::server::Server> {
+        if !background {
+            check_blocking_call(py, "serve")?;
+        }
+        let overrides = ServeOverrides { host, port, prefix, apis, read_only, web: web_setting(py, web)? };
+        let config = self.server_config(py, overrides)?;
+        crate::server::register_exit_hook(py)?;
+        let cell = self.cell.clone();
+        let slot = block_on(py, &self.cell.shut, crate::server::start(cell, config))
+            .map_err(|e| e.into_pyerr(py))?;
+        let handle = crate::server::Server { slot: slot.clone() };
+        if background {
+            return Ok(handle);
+        }
+        let waited = block_on(py, &self.cell.shut, async {
+            slot.server.stopped().await;
+            Ok(())
+        });
+        match waited {
+            Ok(()) => Ok(handle),
+            Err(failure) => {
+                let slot = slot.clone();
+                py.detach(move || slot.stop_blocking(SHUTDOWN_DEADLINE));
+                match failure {
+                    // Stopped by `env.shutdown()` while serving: a normal end.
+                    PyFailure::Liquers(_) if self.cell.shut.is_set() => Ok(handle),
+                    PyFailure::Liquers(_) | PyFailure::Python(_) => Err(failure.into_pyerr(py)),
+                }
+            }
+        }
+    }
+
+    /// Awaitable `serve`, a coroutine: binds, then serves until the awaiting task is cancelled
+    /// (which stops the server gracefully) or the server is stopped.
+    /// `asyncio.create_task(env.serve_async())` runs it beside other work. The settings are
+    /// checked when it is called, and binding starts then too. Takes `serve`'s keywords except
+    /// `background`.
+    #[pyo3(signature = (*, host=None, port=None, prefix=None, apis=None, read_only=None, web=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn serve_async<'py>(
+        &self,
+        py: Python<'py>,
+        host: Option<String>,
+        port: Option<u16>,
+        prefix: Option<String>,
+        apis: Option<Vec<String>>,
+        read_only: Option<bool>,
+        web: Option<&Bound<'py, PyAny>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let overrides = ServeOverrides { host, port, prefix, apis, read_only, web: web_setting(py, web)? };
+        let config = self.server_config(py, overrides)?;
+        crate::server::register_exit_hook(py)?;
+        crate::runtime::runtime().map_err(|e| error_to_pyerr(py, &e))?;
+        let locals = pyo3_async_runtimes::tokio::get_current_locals(py)?;
+        let cell = self.cell.clone();
+        let future = pyo3_async_runtimes::tokio::future_into_py_with_locals(py, locals, async move {
+            let slot = match crate::server::start(cell, config).await {
+                Ok(slot) => slot,
+                Err(e) => return Err(crate::exit::attach_tracked(|py| error_to_pyerr(py, &e))),
+            };
+            // Dropped when asyncio cancels the task (the future is dropped then) or when the
+            // server stopped by itself: either way the stop token is cancelled.
+            let _stop = crate::server::StopOnDrop(slot.server.stop_token());
+            slot.server.stopped().await;
+            Ok(())
+        })?;
+        // A coroutine rather than the bare future, so `asyncio.create_task` accepts it; cancelling
+        // the task cancels the awaited future, which drops the server task above.
+        py.import("liquers._env")?.getattr("_awaiting")?.call1((future,))
+    }
+
+    /// The running servers started from this environment.
+    #[getter]
+    fn servers(&self) -> Vec<crate::server::Server> {
+        self.cell
+            .running_servers()
+            .into_iter()
+            .map(|slot| crate::server::Server { slot })
+            .collect()
     }
 
     /// Evaluates a query and returns its value as a Python object.
@@ -1543,7 +1837,7 @@ mod tests {
     }
 
     fn new_cell() -> Result<EnvCell, Error> {
-        EnvCell::new(EnvironmentConfig::default(), ConversionMode::Permissive, false, NonZeroUsize::MIN)
+        EnvCell::new(PyConfig::default(), ConversionMode::Permissive, false, NonZeroUsize::MIN)
     }
 
     #[test]
@@ -1583,6 +1877,25 @@ mod tests {
             let second = cell.envref(py)?;
             assert!(Arc::ptr_eq(&first.get_async_store(), &second.get_async_store()));
             assert_eq!(cell.lock(py)?.retired.len(), 1);
+            Ok(())
+        })
+    }
+
+    /// A server that finishes binding after `shutdown()` took the server list (`serve_async`, or
+    /// `serve` on another thread) is refused and stopped, so no listener outlives the environment.
+    #[test]
+    fn a_server_bound_after_shutdown_is_stopped() -> Result<(), Error> {
+        attached(|py| {
+            let cell = Arc::new(new_cell()?);
+            cell.envref(py)?;
+            cell.shutdown(py)?;
+            let config = liquers_axum::ServerConfig { port: 0, ..liquers_axum::ServerConfig::default() };
+            let started = py.detach(|| runtime()?.block_on(crate::server::start(cell.clone(), config)));
+            match started {
+                Ok(slot) => panic!("a server started on a shut environment: {}", slot.server.local_addr()),
+                Err(e) => assert!(e.to_string().contains("shut down"), "{e}"),
+            }
+            assert!(cell.running_servers().is_empty());
             Ok(())
         })
     }

@@ -5,6 +5,8 @@ Production-ready HTTP REST API library for Liquers, built with Axum.
 ## Features
 
 - **Composable API Builders**: Generic over `Environment<E>` for maximum flexibility
+- **One standard server**: `LiquersServerBuilder` mounts every API, the web folder (`{prefix}/web/`) and the index redirect, from the `server` section of a configuration document
+- **Graceful shutdown**: stop accepting, let requests finish up to a deadline, close WebSockets with 1001
 - **Query Execution API**: GET/POST `/q/{*query}` endpoints with 30-second timeout
 - **Complete Store API**: Data, metadata, directory operations, unified entries, and upload
 - **Multi-Format Support**: CBOR, bincode, and JSON serialization for atomic data+metadata operations
@@ -14,35 +16,42 @@ Production-ready HTTP REST API library for Liquers, built with Axum.
 
 ## Quick Start
 
+The standard server, all four APIs plus the web folder under `/liquer`, with a two-stage
+graceful shutdown:
+
 ```rust
-use liquers_axum::{QueryApiBuilder, StoreApiBuilder};
-use liquers_core::{
-    context::{Environment, SimpleEnvironment},
-    query::Key,
-    store::AsyncFileStore,
-    value::Value,
-};
+use std::time::Duration;
+use liquers_axum::{LiquersServerBuilder, ServerConfig};
+use liquers_core::{context::{Environment, SimpleEnvironment}, query::Key,
+                   store::AsyncFileStore, value::Value};
 
 #[tokio::main]
-async fn main() {
-    // Create environment with file-based storage
+async fn main() -> Result<(), liquers_core::error::Error> {
     let mut env = SimpleEnvironment::<Value>::new();
     env.with_async_store(Box::new(AsyncFileStore::new(".", &Key::new())));
-    let env_ref = env.to_ref();
-
-    // Build API routers
-    let query_router = QueryApiBuilder::new("/liquer/q").build();
-    let store_router = StoreApiBuilder::new("/liquer/api/store").build();
-
-    // Compose and serve
-    let app = axum::Router::new()
-        .merge(query_router)
-        .merge(store_router)
-        .with_state(env_ref);
-
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    let config = ServerConfig { port: 3000, ..Default::default() };   // 127.0.0.1, /liquer
+    let server = LiquersServerBuilder::from_config(config).bind(env.to_ref()).await?;
+    eprintln!("listening on http://{}", server.local_addr());
+    let _ = tokio::signal::ctrl_c().await;
+    server.shutdown(Duration::from_secs(5)).await;                    // the port is free again
+    Ok(())
 }
+```
+
+`ServerConfig` is the `server` section of a configuration document
+(`ServerConfig::from_document`): `host`, `port`, `prefix`, `apis`, `read_only`, `web`. The server
+has no authentication; `host`, `read_only` and `web` are security-sensitive (see the
+specification's §8 and §9).
+
+To compose the routers yourself, merge the builders and supply the environment as state:
+
+```rust
+let app = axum::Router::new()
+    .merge(QueryApiBuilder::new("/liquer/q").build())
+    .merge(StoreApiBuilder::new("/liquer/api/store").build())
+    .with_state(env.to_ref());
+let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;
+axum::serve(listener, app).await?;
 ```
 
 ## API Endpoints

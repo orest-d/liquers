@@ -1,14 +1,22 @@
 ---
 title: Sister guides
-status: outline
+status: ready
 sources: []
-reviewed:
+reviewed: 2026-11-10
 ---
 # D. Sister guides
 
 PURPOSE: The reader can find the same topic in the other two guides.
 
-TBD: Chapter map: one row per chapter: what the other two guides say there, with links.
+The three guides have the same chapters with the same numbers. This table takes you from a
+chapter of this guide to the same topic in *Liquers for Rust* and *Liquers for Python*.
+
+Read the Rust guide for how things work underneath: it is the guide of the implementation, and
+it goes furthest on stores, the environment, the server and the user-interface framework. Read
+the Python guide to see the same toolkit with the whole command library, Polars and search
+included, and to start a server that your page can call. The topics a browser does not have are
+there in full: chapter 9 on Polars and images, chapter 12 on running a server, chapter 13 on
+search and the agent memory.
 
 | Chapter | Liquers for Rust | Liquers for Python |
 |---|---|---|

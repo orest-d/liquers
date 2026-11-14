@@ -25,6 +25,46 @@
 //! cancelled; a managed one is addressed by its query or key as before. The id is acknowledged
 //! at once in a `Subscribed` message (echoing the subscribe's optional `request_id`), before any
 //! notification. `arguments` absent or `{}` is an ordinary subscription.
+//!
+//! Under a running [`LiquersServer`](crate::server::LiquersServer) each session also carries a
+//! [`ServerStop`]: the server waits for it while stopping, and the session answers the stop with
+//! `Close(1001 Going Away)`, even while it waits on a client that stopped reading. Served by a
+//! host's own loop, a session runs until its client goes.
+//!
+//! # Main components
+//!
+//! - [`ws_query_handler`], [`ws_query_path_handler`]: the `{ws}/q` endpoints.
+//! - [`ws_key_handler`], [`ws_key_path_handler`]: the `{ws}/key` endpoints.
+//! - [`WebSocketLimits`]: the largest client message and the subscriptions per connection.
+//!
+//! # Where it is used
+//!
+//! - [`AssetsApiBuilder::build`](crate::AssetsApiBuilder::build) mounts the four handlers.
+//! - `tests/assets_websocket.rs` and `tests/argument_overrides_ws.rs`.
+//! - `tests/server_shutdown.rs` (`websocket_gets_close_frame`).
+//!
+//! # Related concepts
+//!
+//! - The REST `q/info` and `key/info` routes answer once; a subscription follows the asset.
+//! - `AssetManager` notifications are the source; this module only forwards them.
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_axum::AssetsApiBuilder;
+//! use liquers_core::{context::{Environment, SimpleEnvironment}, value::Value};
+//!
+//! # let runtime = tokio::runtime::Runtime::new().unwrap();
+//! # let _inside = runtime.enter();   // an environment starts its manager on a runtime
+//! let envref = SimpleEnvironment::<Value>::new().to_ref();
+//! // `/api/assets/ws/q` and `/api/assets/ws/key` are among the routes.
+//! let app: axum::Router = AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets")
+//!     .build()
+//!     .with_state(envref);
+//! # drop(app);
+//! ```
+//!
+//! More: `tests/assets_websocket.rs` (AWS01–AWS14b).
 
 use std::collections::HashMap;
 use std::sync::{
@@ -34,7 +74,7 @@ use std::sync::{
 
 use axum::{
     extract::{
-        ws::{Message, WebSocket, WebSocketUpgrade},
+        ws::{close_code, CloseFrame, Message, WebSocket, WebSocketUpgrade},
         Path, State,
     },
     response::Response,
@@ -54,7 +94,14 @@ use liquers_core::{
     state::State as AssetState,
 };
 use serde::{Deserialize, Serialize};
-use tokio::{sync::mpsc, task::JoinHandle};
+use std::time::Duration;
+use tokio::{
+    sync::{mpsc, oneshot},
+    task::JoinHandle,
+};
+
+use crate::server::ServerStop;
+use tokio_util::sync::CancellationToken;
 
 use crate::api_core::{
     error::error_to_detail,
@@ -503,21 +550,37 @@ async fn subscription_task<E: Environment>(
     }
 }
 
-/// Own the socket's sink and write every queued message to it.
+/// Own the socket's sink and write every queued message to it. A frame on `close` (a server
+/// stopping) is sent as the last message.
 async fn writer_task(
     mut sink: SplitSink<WebSocket, Message>,
     mut rx: mpsc::Receiver<NotificationMessage>,
+    mut close: oneshot::Receiver<CloseFrame>,
 ) {
-    while let Some(message) = rx.recv().await {
-        let text = match serde_json::to_string(&message) {
-            Ok(text) => text,
-            Err(e) => {
-                eprintln!("WebSocket: cannot serialize a notification: {e}");
-                continue;
+    let mut close_open = true;
+    loop {
+        tokio::select! {
+            biased;
+            frame = &mut close, if close_open => match frame {
+                Ok(frame) => {
+                    let _ = sink.send(Message::Close(Some(frame))).await;
+                    break;
+                }
+                Err(_) => close_open = false,
+            },
+            message = rx.recv() => {
+                let Some(message) = message else { break };
+                let text = match serde_json::to_string(&message) {
+                    Ok(text) => text,
+                    Err(e) => {
+                        eprintln!("WebSocket: cannot serialize a notification: {e}");
+                        continue;
+                    }
+                };
+                if sink.send(Message::Text(text.into())).await.is_err() {
+                    break;
+                }
             }
-        };
-        if sink.send(Message::Text(text.into())).await.is_err() {
-            break;
         }
     }
     let _ = sink.close().await;
@@ -785,16 +848,27 @@ impl<E: Environment> Session<E> {
 
 /// Serve one connection until the client disconnects. Disconnecting aborts every subscription
 /// task; it does not cancel the evaluations, which other clients may share.
+///
+/// Under a [`ServerStop`] (a session of a running `LiquersServer`) the session is tracked for its
+/// life, and when the server stops it sends `Close(1001 Going Away)` and ends, waiting up to 1 s
+/// for the frame to be written. The stop interrupts whatever the session is doing, including a
+/// reply waiting for room in the outgoing queue, so a client that stops reading cannot keep it
+/// alive past the server's deadline. Without one (a router served by the host's own loop) it runs
+/// until the client goes.
 async fn handle_socket<E: Environment>(
     socket: WebSocket,
     env: EnvRef<E>,
     family: Family,
     limits: WebSocketLimits,
     initial: Option<String>,
+    stop: Option<ServerStop>,
 ) {
+    let _tracked = stop.as_ref().map(|stop| stop.tracker().token());
+    let stop_token = stop.as_ref().map(|stop| stop.token().clone());
     let (sink, mut stream) = socket.split();
     let (tx, rx) = mpsc::channel(OUTGOING_QUEUE);
-    let writer = tokio::spawn(writer_task(sink, rx));
+    let (close_tx, close_rx) = oneshot::channel();
+    let mut writer = tokio::spawn(writer_task(sink, rx, close_rx));
     let mut session = Session {
         env,
         family,
@@ -803,28 +877,71 @@ async fn handle_socket<E: Environment>(
         subscriptions: HashMap::new(),
         by_address: HashMap::new(),
     };
+    let mut stopping = false;
     if let Some(address) = initial {
-        session.subscribe(address, None, None).await;
+        let subscribed = session.subscribe(address, None, None);
+        stopping = until_stopped(stop_token.as_ref(), subscribed).await.is_none();
     }
-    while let Some(incoming) = stream.next().await {
-        match incoming {
-            Ok(Message::Text(text)) => session.handle_text(text.as_str()).await,
-            Ok(Message::Binary(_)) => {
-                session
-                    .reply(parameter_error(
-                        "binary messages are not supported; send JSON text".to_string(),
-                    ))
-                    .await
+    while !stopping {
+        let Some(incoming) = until_stopped(stop_token.as_ref(), stream.next()).await else {
+            stopping = true;
+            break;
+        };
+        let Some(incoming) = incoming else { break };
+        // Handling a message can wait on the outgoing queue (a client that stops reading fills
+        // it), so it is raced against the stop too: a stopping server never waits on a client.
+        let handled = async {
+            match incoming {
+                Ok(Message::Text(text)) => {
+                    session.handle_text(text.as_str()).await;
+                    true
+                }
+                Ok(Message::Binary(_)) => {
+                    session
+                        .reply(parameter_error(
+                            "binary messages are not supported; send JSON text".to_string(),
+                        ))
+                        .await;
+                    true
+                }
+                Ok(Message::Ping(_)) | Ok(Message::Pong(_)) => true,
+                Ok(Message::Close(_)) => false,
+                // A protocol error, or a message over `max_message_size`: the connection is
+                // unusable.
+                Err(_) => false,
             }
-            Ok(Message::Ping(_)) | Ok(Message::Pong(_)) => {}
-            Ok(Message::Close(_)) => break,
-            // A protocol error, or a message over `max_message_size`: the connection is unusable.
-            Err(_) => break,
+        };
+        match until_stopped(stop_token.as_ref(), handled).await {
+            Some(true) => {}
+            Some(false) => break,
+            None => stopping = true,
         }
     }
     session.unsubscribe_all();
     drop(session);
-    writer.abort();
+    if stopping {
+        let _ = close_tx.send(CloseFrame {
+            code: close_code::AWAY,
+            reason: "server shutting down".into(),
+        });
+        if tokio::time::timeout(Duration::from_secs(1), &mut writer).await.is_err() {
+            writer.abort();
+        }
+    } else {
+        writer.abort();
+    }
+}
+
+/// Runs `work` to completion, or until `stop` is cancelled (`None`). Without a stop token the
+/// work always completes.
+async fn until_stopped<T>(stop: Option<&CancellationToken>, work: impl std::future::Future<Output = T>) -> Option<T> {
+    match stop {
+        Some(token) => tokio::select! {
+            output = work => Some(output),
+            _ = token.cancelled() => None,
+        },
+        None => Some(work.await),
+    }
 }
 
 fn upgrade<E: Environment>(
@@ -833,9 +950,11 @@ fn upgrade<E: Environment>(
     family: Family,
     limits: WebSocketLimits,
     initial: Option<String>,
+    stop: Option<Extension<ServerStop>>,
 ) -> Response {
+    let stop = stop.map(|Extension(stop)| stop);
     ws.max_message_size(limits.max_message_size)
-        .on_upgrade(move |socket| handle_socket(socket, env, family, limits, initial))
+        .on_upgrade(move |socket| handle_socket(socket, env, family, limits, initial, stop))
 }
 
 /// `GET {ws}/q` — query subscriptions.
@@ -843,8 +962,9 @@ pub async fn ws_query_handler<E: Environment>(
     ws: WebSocketUpgrade,
     State(env): State<EnvRef<E>>,
     Extension(limits): Extension<WebSocketLimits>,
+    stop: Option<Extension<ServerStop>>,
 ) -> Response {
-    upgrade(ws, env, Family::Query, limits, None)
+    upgrade(ws, env, Family::Query, limits, None, stop)
 }
 
 /// `GET {ws}/q/{*query}` — query subscriptions, subscribing to the path on connect.
@@ -853,8 +973,9 @@ pub async fn ws_query_path_handler<E: Environment>(
     Path(query): Path<String>,
     State(env): State<EnvRef<E>>,
     Extension(limits): Extension<WebSocketLimits>,
+    stop: Option<Extension<ServerStop>>,
 ) -> Response {
-    upgrade(ws, env, Family::Query, limits, Some(query))
+    upgrade(ws, env, Family::Query, limits, Some(query), stop)
 }
 
 /// `GET {ws}/key` — key subscriptions.
@@ -862,8 +983,9 @@ pub async fn ws_key_handler<E: Environment>(
     ws: WebSocketUpgrade,
     State(env): State<EnvRef<E>>,
     Extension(limits): Extension<WebSocketLimits>,
+    stop: Option<Extension<ServerStop>>,
 ) -> Response {
-    upgrade(ws, env, Family::Key, limits, None)
+    upgrade(ws, env, Family::Key, limits, None, stop)
 }
 
 /// `GET {ws}/key/{*key}` — key subscriptions, subscribing to the path on connect.
@@ -872,8 +994,9 @@ pub async fn ws_key_path_handler<E: Environment>(
     Path(key): Path<String>,
     State(env): State<EnvRef<E>>,
     Extension(limits): Extension<WebSocketLimits>,
+    stop: Option<Extension<ServerStop>>,
 ) -> Response {
-    upgrade(ws, env, Family::Key, limits, Some(key))
+    upgrade(ws, env, Family::Key, limits, Some(key), stop)
 }
 
 #[cfg(test)]

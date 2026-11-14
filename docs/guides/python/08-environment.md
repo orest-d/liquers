@@ -2,7 +2,7 @@
 title: The environment
 status: ready
 sources: [reference/ENVIRONMENT_CONFIG.md, guides/PYTHON_GUIDE.md, reference/PYTHON_INTEGRATION.md]
-reviewed: 2026-11-09
+reviewed: 2026-11-10
 ---
 # 8. The environment
 
@@ -48,7 +48,7 @@ its own `evaluate`. Nothing is shared between two environments.
 
 | Argument | Default | Meaning |
 |---|---|---|
-| `config` | none | the configuration, as a `dict` or as YAML text (section 8.3) |
+| `config` | none | the configuration: a file as a `pathlib.Path`, a `dict`, or YAML text (section 8.3) |
 | `conversion` | `"permissive"` | what happens to a Python object Liquers has no type for: `"permissive"` keeps it as an opaque object, `"strict"` refuses it (chapter 4) |
 | `pickle` | `False` | whether opaque objects may be written to the store with `pickle`; only for stores you trust |
 | `job_capacity` | 4 | how many commands run at the same time (section 8.6) |
@@ -67,10 +67,27 @@ assert env.evaluate("hello") == "hello"
 env.shutdown()
 ```
 
+The keywords `conversion`, `pickle`, `job_capacity` and `async_loops` can also be set in the
+configuration. A keyword you give wins over the configuration, and the configuration wins over
+the default, so one configuration file can serve a laptop and a server that differ in a setting
+or two:
+
+```python
+import liquers as lq
+
+config = {"assets": {"job_capacity": 8}, "python": {"pickle": False}}
+env = lq.Environment(config=config, job_capacity=2)   # 2 commands at a time, not 8
+env.shutdown()
+```
+
+In the same way, a keyword of `env.serve()` overrides the configuration's `server` section
+(chapter 12).
+
 ## 8.3 The configuration
 
-The configuration describes the services of the environment. It has three sections, and each
-can be left out:
+One configuration describes the whole environment: where data lives, where recipes come from,
+how results are kept, the command metadata, the web server and this package's own settings. Each
+section can be left out:
 
 ```yaml
 store:                      # where data lives (chapter 6)
@@ -88,6 +105,11 @@ assets:                     # how results are evaluated and kept (chapter 7)
   job_capacity: 8
   dependency_audit: on_load
 default_namespaces: [pl]    # namespaces searched without an `ns-` in the query
+command_registry: commands.yaml   # descriptions of your commands (below)
+python:                     # this package's settings
+  pickle: false
+server:                     # the web server (chapter 12)
+  port: 8000
 ```
 
 | Section | Left out, it means |
@@ -96,6 +118,31 @@ default_namespaces: [pl]    # namespaces searched without an `ns-` in the query
 | `recipes` | `recipes.yaml` files and table manifests |
 | `assets` | the defaults of chapter 7 |
 | `default_namespaces` | only commands without a namespace are found without `ns-` |
+| `command_registry` | no command metadata file |
+| `python` | `conversion`, `pickle` and `async_loops` at the defaults of section 8.2; leave `pickle` off unless you trust everything the store holds, because reading pickle runs code |
+| `server` | the server defaults of chapter 12 |
+
+Keep the configuration in a file and pass it as a `pathlib.Path`: YAML (`.yaml`, `.yml`) or JSON
+(`.json`). A `str` is always YAML text, never a file name, so
+`lq.Environment(config="liquers.yaml")` raises and tells you to use `pathlib.Path`. An empty file,
+`{}` and no `config` at all are the same: every default.
+
+```python
+import pathlib, tempfile
+import liquers as lq
+
+folder = pathlib.Path(tempfile.mkdtemp())
+(folder / "liquers.yaml").write_text("assets:\n  job_capacity: 2\nserver:\n  port: 0\n")
+env = lq.Environment(config=folder / "liquers.yaml")
+env.shutdown()
+```
+
+A section Liquers does not know is an error that names it and lists the known ones, so a typo
+such as `sever:` never goes unnoticed. The same holds for a misspelled key inside `python` and
+`server`. A relative file name in the configuration, such as `command_registry`, is found next to
+the file; store paths are relative to the working directory. A YAML value can name an
+environment variable, as the store path above does with `LIQUERS_DATA`; the variable is read when
+the store is built, and an unset one is an error.
 
 `default_namespaces` saves typing when most of your queries use one library. With `[pl]`, the
 query `-R/data/sales.csv/-/from_csv/head-2` finds `from_csv` and `head` in the namespace `pl`.
@@ -104,6 +151,29 @@ recipes and in anything you share.
 
 The configuration contains no commands. Commands are code, and are registered with the
 decorators.
+
+### Command metadata from a file
+
+A *command metadata file* describes commands your code registers: their labels, documentation,
+argument names and hints for user interfaces. It never registers a command; it only describes
+the ones you register. Name it in the configuration with `command_registry`:
+
+```yaml
+# commands.yaml
+commands:
+  - name: greet
+    label: Greet someone
+    doc: Returns a greeting for a name.
+    module: python
+    state_argument: null
+    arguments:
+      - {name: name, label: Name, default: !Value world, argument_type: string, gui_info: !TextField 20}
+```
+
+After `@env.first_command def greet(...)`, `env.command_metadata("greet").label` is
+`"Greet someone"`. The file is read when the environment is created, so a missing or malformed
+file raises at once, naming it. An entry naming a command nobody registered is reported by
+`env.validate()` and fails the next build.
 
 ## 8.4 The life of an environment
 

@@ -1,14 +1,22 @@
 ---
 title: Sister guides
-status: outline
+status: ready
 sources: []
-reviewed:
+reviewed: 2026-11-11
 ---
 # D. Sister guides
 
 PURPOSE: The reader can find the same topic in the other two guides.
 
-TBD: Chapter map: one row per chapter: what the other two guides say there, with links.
+The three guides have the same chapters with the same numbers. This table takes you from a
+chapter of this guide to the same topic in *Liquers for Python* and *Liquers for the Web*.
+
+Read the Python guide to use Liquers from notebooks and scripts, or to see how a language is
+bound to the crates this guide describes. Read the Web guide to run queries in a browser, with
+commands written in JavaScript, or to call a server from a page. This guide goes furthest on the
+parts that only exist in Rust: writing value types and stores, the builder, the server and the
+user interface framework. Chapter 11 of the Python guide shows the same elements held from
+Python and opened in a window.
 
 | Chapter | Liquers for Python | Liquers for the Web |
 |---|---|---|

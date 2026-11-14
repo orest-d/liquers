@@ -1,10 +1,10 @@
-"""The process-wide default environment, used by ``lq.evaluate`` and the bare decorators."""
+"""The process-wide default environment, used by ``lq.evaluate``, ``lq.serve``, ``lq.ui`` and the bare decorators."""
 
 import threading
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Coroutine
 from typing import Any
 
-from liquers._native import Environment
+from liquers._native import UI, Environment, Server
 
 _DEFAULT: Environment | None = None
 _LOCK = threading.Lock()
@@ -27,3 +27,23 @@ def evaluate(query: Any) -> Any:
 def evaluate_async(query: Any) -> Awaitable[Any]:
     """Awaitable ``evaluate`` in the default environment: ``await lq.evaluate_async(query)``."""
     return default_environment().evaluate_async(query)
+
+
+def serve(**settings: Any) -> Server:
+    """Serves the default environment over HTTP: ``lq.serve(port=0)``; see ``Environment.serve``."""
+    return default_environment().serve(**settings)
+
+
+def ui() -> UI:
+    """A new UI model on the default environment; see ``Environment.ui``."""
+    return default_environment().ui()
+
+
+def serve_async(**settings: Any) -> Coroutine[Any, Any, None]:
+    """Awaitable ``serve`` of the default environment; see ``Environment.serve_async``."""
+    return default_environment().serve_async(**settings)
+
+
+async def _awaiting(awaitable: Awaitable[None]) -> None:
+    """Awaits ``awaitable``: wraps a native future as a coroutine (``Environment.serve_async``)."""
+    await awaitable

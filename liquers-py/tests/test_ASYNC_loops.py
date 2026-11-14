@@ -49,7 +49,8 @@ def test_ASYNC_blocking_call_on_pool_loop_raises(env):
         {"async_loops": 0},
         {"async_loops": -1},
         {"job_capacity": 0},
-        {"job_capacity": 2, "config": {"assets": {"job_capacity": 3}}},
+        # A job_capacity differing from the configuration's no longer raises: the keyword wins
+        # (configuration-document Decision 2; test_CONFIG_keywords_override_the_file).
     ],
 )
 def test_ASYNC_invalid_pool_and_capacity_rejected(keywords):

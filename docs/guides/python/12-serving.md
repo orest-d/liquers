@@ -2,16 +2,17 @@
 title: Serving and embedding
 status: ready
 sources: [guides/WEB_API_GUIDE.md, guides/PYTHON_GUIDE.md, reference/PYTHON_INTEGRATION.md]
-reviewed: 2026-11-09
+reviewed: 2026-11-10
 ---
 # 12. Serving and embedding
 
 PURPOSE: The reader can use Liquers inside a Python application or service, call a Liquers server from Python, and share results between the two.
 
 There are two ways to connect Liquers with the rest of your software. You can *embed* it: your
-Python program creates an environment and evaluates queries itself. Or you can *call a server*:
-a separate Liquers server evaluates queries, and your program asks it over HTTP. They combine
-well, because both read the same queries and can share one store.
+Python program creates an environment and evaluates queries itself. Or you can *serve* it: a
+Liquers server evaluates queries, and other programs ask it over HTTP. Your program can start that
+server for its own environment, Python commands included, or call a server running elsewhere.
+They combine well, because both read the same queries and can share one store.
 
 ## 12.1 Embedding in a script or a notebook
 
@@ -73,14 +74,106 @@ server. Think about who may send queries before you do that: a query can call an
 command and read any key of the store. Parsing and planning check that a query is well formed.
 They do not check that the caller is allowed to ask for it.
 
-## 12.3 A Liquers server
+## 12.3 Serving an environment
 
-Liquers has a ready-made HTTP server. It is a Rust program, built from the same core as the
-Python package, and it is described in
-[chapter 12 of *Liquers for Rust*](../rust/12-serving.md). From the outside, it offers four
+An environment can answer other programs over HTTP: a browser, `curl`, a service written in
+another language. `env.serve()` starts the standard Liquers server for it. The server runs beside
+your Python code, so a notebook or a script keeps working while it serves.
+
+### Starting a server
+
+```python
+env = lq.Environment()
+
+@env.first_command
+def greet(name: str = "world") -> str:
+    return f"Hello, {name}!"
+
+server = env.serve()            # http://127.0.0.1:8080
+```
+
+Open `http://127.0.0.1:8080/liquer/q/greet-Ann` in a browser and it answers `Hello, Ann!`.
+`serve` returns once the server listens; the server then runs in the background until you stop it.
+A command you register after `serve` is served at once.
+
+`server` is an `lq.Server`: `server.address` and `server.port` say where it listens,
+`server.url` is its base address, and `server.running` says whether it still runs. With `port=0`
+the server picks a free port, and `server.port` reports the one it got, which suits tests. As a
+`with` block, the server stops at the block's end:
+
+```python
+import urllib.request
+import liquers as lq
+
+env = lq.Environment()
+
+@env.first_command
+def greet(name: str = "world") -> str:
+    return f"Hello, {name}!"
+
+with env.serve(port=0) as server:
+    answer = urllib.request.urlopen(f"{server.url}/liquer/q/greet-Ann").read()
+    assert answer == b"Hello, Ann!"
+assert not server.running
+env.shutdown()
+```
+
+The module-level `lq.serve()` serves the default environment, the one `@lq.command` registers in.
+
+### Serving in the foreground
+
+A script whose only job is to serve passes `background=False`. `serve` then runs until you press
+Ctrl-C, which stops the server and raises `KeyboardInterrupt`:
+
+```python
+env.serve(port=8000, background=False)
+```
+
+### Serving from asyncio
+
+`await env.serve_async()` serves until the task awaiting it is cancelled, which stops the server
+gracefully. To serve beside other work, run it as a task:
+
+```python
+task = asyncio.create_task(env.serve_async(port=0))
+...
+task.cancel()
+```
+
+### Settings
+
+The server's settings come from the `server` section of the environment's configuration file
+([8. The environment](08-environment.md)), and each keyword of `serve` overrides one of them:
+`host`, `port`, `prefix`, `apis`, `read_only` and `web`.
+
+```python
+env = lq.Environment(config=pathlib.Path("liquers.yaml"))
+server = env.serve(port=9000)   # the file's settings, except the port
+```
+
+{{> ../_shared/serving.md}}
+
+A wrong setting raises `lq.ConfigurationError` from `serve`, naming it; a port in use raises too.
+
+### Stopping a server
+
+`server.shutdown()` stops the server in two steps. It stops accepting connections at once, gives
+requests already running up to `timeout` seconds to finish (5 by default), and cuts off the rest.
+A client following an asset over the WebSocket receives a close message first. When `shutdown`
+returns, the port is free. `await server.shutdown_async()` is the same for asyncio code, and a
+second call does nothing.
+
+Dropping the `Server` object does not stop the server. It stops when you call `shutdown`, when
+you leave its `with` block, when `env.shutdown()` stops the environment (which stops its servers
+first), or when Python exits. `env.servers` lists the environment's running servers.
+
+## 12.4 What a server offers
+
+The server `env.serve()` starts is the standard Liquers server, the same one a Rust program runs
+([chapter 12 of *Liquers for Rust*](../rust/12-serving.md)). From the outside, it offers four
 interfaces:
 
-| Interface | Path in the example server | What it does |
+| Interface | Path with the default prefix | What it does |
 |---|---|---|
 | Query API | `/liquer/q/<query>` | evaluates a query and returns the value |
 | Store API | `/liquer/api/store/…` | reads and writes files as they are stored |
@@ -90,7 +183,7 @@ interfaces:
 A query goes into the URL as it is. This is the reason queries are written with URL-safe
 characters only.
 
-## 12.4 Calling a server from Python
+## 12.5 Calling a server from Python
 
 Any HTTP client will do. With the standard library:
 
@@ -131,7 +224,7 @@ longer computations, submit the query through the Assets API and ask for its sta
 Build the query with a query editor or `lq.ActionRequest.from_arguments` (chapter 3) and use
 `query.encode()` in the URL. An encoded query needs no further URL quoting.
 
-## 12.5 Sharing a store
+## 12.6 Sharing a store
 
 A server and a Python program can be pointed at the same storage: the same folder, or the same
 bucket. Each side then reads what the other has written, as files with their metadata.
@@ -140,8 +233,8 @@ bucket. Each side then reads what the other has written, as files with their met
   stored file, although the server has no Python commands.
 - A file the server's users upload can be the input of your queries.
 
-This is the practical way to publish the results of Python commands today. The server cannot
-run a Python function, but it can serve what the function produced.
+A server written in Rust cannot run your Python functions, but it can serve what they produced.
+To serve the Python commands themselves, serve their environment (12.3).
 
 Each process keeps its own view of what it has read. A running process does not see at once
 that another process has changed a file; it notices when it next reads the file and finds the

@@ -15,7 +15,7 @@ default = ["egui", "image-support", "polars", "records", "records-ipc", "records
 cli = ["dep:clap"]
 image-support = ["imageproc"]
 # egui reference backend (optional so a webui-only build compiles no egui)
-egui = ["dep:egui", "dep:eframe", "dep:egui_plot", "dep:egui_extras", "dep:egui_commonmark"]
+egui = ["dep:egui", "dep:eframe", "dep:egui_plot", "dep:egui_extras", "dep:egui_commonmark", "dep:libc"]
 # web backend (SSR strings on all targets; DOM on wasm)
 webui = ["dep:web-sys", "dep:wasm-bindgen", "dep:js-sys", "dep:wasm-bindgen-futures", "dep:pulldown-cmark", "dep:console_error_panic_hook", "dep:gloo-timers"]
 # Polars DataFrame value type + command library. Kept optional because polars
@@ -84,8 +84,14 @@ web-sys = { version = "0.3", optional = true, features = [
 
 tokio = { version = "1.53.1", features = ["sync", "rt", "macros", "time"] }
 
+# The egui window's main-thread check (`egui::app`), before winit is reached.
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
+libc = { version = "0.2", optional = true }
+
 [dev-dependencies]
 liquers-store = { path = "../liquers-store" }
+# `#[tokio::main]` in the user-guide examples (tests/user_guide_GUIDE.rs).
+tokio = { version = "1.53.1", features = ["rt-multi-thread"] }
 opendal = { version = "0.55", features = ["services-fs"] }
 
 # Exports the registered command metadata as JSON/YAML for `liquers-validate`.
@@ -94,6 +100,13 @@ opendal = { version = "0.55", features = ["services-fs"] }
 name = "export-command-registry"
 path = "src/bin/export_command_registry.rs"
 required-features = ["cli"]
+
+# Opens real egui windows: its own `main` (no libtest harness), because winit needs the main
+# thread. Skips itself without a display; run it with `xvfb-run` (egui-native-app Phase 3).
+[[test]]
+name = "egui_window"
+harness = false
+required-features = ["egui"]
 
 # egui-based examples: only build when the `egui` feature is enabled, so a
 # webui-only / no-default-features build skips them instead of failing.

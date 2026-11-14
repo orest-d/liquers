@@ -3,7 +3,7 @@ title: Project Site Guide
 kind: guide
 audience: internal
 area: [docs, build]
-reviewed: 2026-11-09
+reviewed: 2026-11-10
 ---
 # Project Site Guide
 
@@ -30,6 +30,7 @@ GitHub Pages deployment; nothing generated is ever written into `docs/`.
 | `api/rust/<crate>/` | the Rust API of every workspace crate | the crates' rustdoc | `cargo doc` |
 | `api/python/liquers.html` | the Python API | `liquers-py` | pdoc, `scripts/build-liquers-py-docs.sh` |
 | `api/js/` | the JavaScript API | `liquers-web` | TypeDoc, `scripts/build-liquers-web-docs.sh` |
+| `pkg/liquers-web/` | the browser module itself: `liquers_web.js`, `liquers_web_bg.wasm`, `snippets/`, `liquers_web.d.ts` | `liquers-web` | the optimized `records` build TypeDoc reads, copied by `build-docs.sh` (§3.5) |
 
 Two layers of navigation, deliberately different:
 
@@ -127,6 +128,10 @@ turned on as soon as the target is ready, with no risk of a dead link.
 Turn a card on when its target is worth reading, not merely when it exists: a guide when its first
 chapters are `ready`, an API reference when its module docs meet `API_DOCUMENTATION_GUIDE.md`.
 
+All cards are on since 2026-11-10: the three guides are `ready` and the three API references are
+built by every deployment. `data-soon` remains in the CSS for the next card added ahead of its
+target.
+
 ### 3.4 What else is kept in step
 
 | When this changes | Update | Checked by |
@@ -136,6 +141,7 @@ chapters are `ready`, an API reference when its module docs meet `API_DOCUMENTAT
 | The project's purpose or messaging | the tagline and points of the landing page | review against `VISION.md` |
 | A tool version (mdBook, Pandoc, Typst, TypeDoc) | the workflow's `env:` | the PR's `docs-site` run |
 | The site's layout | §1 of this guide and `GITHUB_ACTIONS_GUIDE.md` §2 | `docs_index.py --check` (History, `reviewed:`) |
+| The address of the published browser module | every `import` line of `docs/guides/web/`, and the `importLine` pattern of `liquers-web/tests/guide/run-guide-examples.mjs` | `liquers-web/scripts/test-guide-examples.sh` (an example whose import the runner does not recognise fails) |
 
 The chapters and their review cycle are `USER_DOCS_EDITING_GUIDE.md` §7; module docs are
 `API_DOCUMENTATION_GUIDE.md` §10.
@@ -177,8 +183,37 @@ building into `v<version>/` folders and keeping the older ones across deployment
 artifact deployment does not do (each deployment replaces the whole site). That needs a design
 before it is built: [`../issues/DOCS-SITE-HAS-NO-PER-RELEASE-VERSIONS.md`](../issues/DOCS-SITE-HAS-NO-PER-RELEASE-VERSIONS.md).
 
+### 3.5 The published browser module
+
+The site also hosts the browser module, so that the examples of *Liquers for the Web* run in any
+page without a build:
+
+```text
+https://orest-d.github.io/liquers/pkg/liquers-web/liquers_web.js
+```
+
+`build-docs.sh` copies it from the quick-start page's `dist/`, where
+`build-liquers-web-docs.sh --release --features records` has just built it for TypeDoc, so the
+module and its API reference always describe the same build. `liquers_web.js` loads
+`liquers_web_bg.wasm` and its `snippets/` folder from its own location; `--verify` checks that the
+module, the WebAssembly and every file the module imports are there. `--skip-api` skips the module
+with the references.
+
+What to know when maintaining it:
+
+- **It is unversioned.** Every deployment replaces it with the build of the latest `main`. The Web
+  guide says so and tells readers to copy the files for anything they publish (its section 2.3).
+- **It is large**: about 20 MB of WebAssembly (about 5 MB compressed) in a `records` release build.
+  GitHub Pages serves it as `application/wasm` with `Access-Control-Allow-Origin: *`, which is what
+  lets a page on another site import it.
+- **It is an interim home.** The goal is a versioned address on a CDN, which needs an npm package
+  first: [`../issues/WEB-MODULE-HAS-NO-VERSIONED-CDN-ADDRESS.md`](../issues/WEB-MODULE-HAS-NO-VERSIONED-CDN-ADDRESS.md).
+  When that exists, change the import lines of the Web guide, the runner's pattern (§3.4) and the
+  guide's section 2.3, and keep `pkg/liquers-web/` until old links have had time to move.
+
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-10 | §1, §3.5: the site publishes the browser module at `pkg/liquers-web/`. §3.3: every card is on. §3.4: the module's address is kept in step with the Web guide's examples. | writing the Rust and Web guides |
 | 2026-11-09 | Created: the site's parts, deployment and its one-time setup, local builds, the landing page and its "coming soon" cards, extending the site. | landing page PR #266 |

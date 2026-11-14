@@ -3,11 +3,14 @@
 # TypeScript declarations wasm-bindgen writes (liquers_web.d.ts, which carries the Rust doc
 # comments as JSDoc).
 #
-#   bash scripts/build-liquers-web-docs.sh [--out DIR] [--features LIST]
+#   bash scripts/build-liquers-web-docs.sh [--out DIR] [--features LIST] [--release]
 #
 #   --out DIR        where to write the reference (default target/liquers-web-docs)
 #   --features LIST  cargo features of the build documented (default none; `records` adds the
 #                    record classes)
+#   --release        build the module optimized. The declarations are the same either way; the
+#                    documentation site asks for it because it also publishes the module this
+#                    script leaves in the quick-start page's dist/ (scripts/build-docs.sh)
 #
 # Needs the wasm32-unknown-unknown target, a wasm-bindgen CLI of the version Cargo.lock resolves,
 # and Node (npx). It builds the quick-start page (liquers-web/examples-web/quickstart/build.sh),
@@ -23,11 +26,13 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # runs from the work directory below (WEB-DOCS-SCRIPT-RELATIVE-OUT-PATH-LANDS-IN-WORK-DIR).
 out="$repo_root/target/liquers-web-docs"
 features=()
+release=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --out) out="$(mkdir -p "$2" && cd "$2" && pwd)"; shift ;;
         --features) features=(--features "$2"); shift ;;
-        -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
+        --release) release=(--release) ;;
+        -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
         *) echo "build-liquers-web-docs.sh: unknown option $1" >&2; exit 2 ;;
     esac
     shift
@@ -39,7 +44,7 @@ TYPESCRIPT_VERSION="${TYPESCRIPT_VERSION:-5.9.3}"
 quickstart="$repo_root/liquers-web/examples-web/quickstart"
 
 echo "==> building liquers-web for wasm32" >&2
-"$quickstart/build.sh" "${features[@]}" >&2
+"$quickstart/build.sh" "${release[@]}" "${features[@]}" >&2
 dts="$quickstart/dist/liquers_web.d.ts"
 [ -f "$dts" ] || { echo "build-liquers-web-docs.sh: no $dts" >&2; exit 1; }
 
