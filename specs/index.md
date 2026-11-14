@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 243
+Total rows: 245
 - P2: 68
-- P3: 175
+- P3: 177
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -202,6 +202,7 @@ Total rows: 243
 | [`MCP-SERVER-APPLIES-NO-ACCESS-POLICY`](issues/MCP-SERVER-APPLIES-NO-ACCESS-POLICY.md) | feature | The MCP server limits its query tool by a command allow-list, not by an access policy | draft |  |  | P3 | M | mcp |  | 2026-10-20 |
 | [`PLAN-BUILDER-DUPLICATES-PIPELINE-PLANNING`](issues/PLAN-BUILDER-DUPLICATES-PIPELINE-PLANNING.md) | issue | Two plan builders plan the same queries once pipelines land | draft |  |  | P3 | M | core/plan | [notation](design/composite-command-definition/notation-and-integration.md)  [phase1](design/composite-command-definition/phase1-high-level-design.md)  [phase2](design/composite-command-definition/phase2-architecture.md)  [phase3](design/composite-command-definition/phase3-examples.md)  [phase4](design/composite-command-definition/phase4-implementation.md)  [phase5](design/composite-command-definition/phase5-documentation.md)  [pipeline](design/composite-command-definition/pipeline-and-plan.md)  [pipeline](design/composite-command-definition/pipeline-structure-and-sources.md)  [recipe](design/composite-command-definition/recipe-and-pipeline-structures.md)  | 2026-11-03 |
 | [`PY-API-IS-ONE-FLAT-MODULE`](issues/PY-API-IS-ONE-FLAT-MODULE.md) | feature | The Python API is one flat module with no submodules, unlike the Rust crates | draft |  |  | P3 | M | py | [design](design/py-package-submodules/DESIGN.md) | 2026-11-14 |
+| [`PY-CANNOT-INSPECT-THE-DEPENDENCY-MANAGER`](issues/PY-CANNOT-INSPECT-THE-DEPENDENCY-MANAGER.md) | feature | Python cannot inspect the dependency manager | draft |  |  | P3 | M | py |  | 2026-11-14 |
 | [`PY-EXIT-WITH-UNCANCELLABLE-COMMAND-CRASHES-BEFORE-3-14`](issues/PY-EXIT-WITH-UNCANCELLABLE-COMMAND-CRASHES-BEFORE-3-14.md) | issue | Exiting Python while a command ignores cancellation can still abort the process before CPython 3.14 | draft |  |  | P3 | M | py |  | 2026-10-31 |
 | [`TEMPLATE-ERROR-AT-QUERY-LEVEL-LOSES-THE-TEMPLATE-POSITION`](issues/TEMPLATE-ERROR-AT-QUERY-LEVEL-LOSES-THE-TEMPLATE-POSITION.md) | issue | A template error raised through a query reports the position in the query, not in the template | draft |  |  | P3 | M | lib/commands |  | 2026-11-10 |
 | [`TEMPLATE-HAS-NO-MDBOOK-INCLUDE-SYNTAX`](issues/TEMPLATE-HAS-NO-MDBOOK-INCLUDE-SYNTAX.md) | feature | Liquers templates cannot read mdBook's {{#include}} syntax | draft |  |  | P3 | M | lib/commands;docs |  | 2026-11-01 |
@@ -257,3 +258,4 @@ Total rows: 243
 | [`CORE-MULTI-REALM-INTERPRETER`](issues/CORE-MULTI-REALM-INTERPRETER.md) | issue | The interpreter supports a single realm | accepted | phase2-blocked | not-eligible | P3 | XL | core/plan;core/commands | [phase1](design/multi-realm-dispatch/phase1-high-level-design.md)  [phase2](design/multi-realm-dispatch/phase2-architecture.md)  | 2026-08-08 |
 | [`CORE-TOKIO-REMOVAL`](issues/CORE-TOKIO-REMOVAL.md) | issue | Core still depends on tokio primitives on wasm | accepted | phase2-blocked | not-eligible | P3 | XL | core/assets | [phase1](design/executor-neutral-core/phase1-high-level-design.md)  [phase2](design/executor-neutral-core/phase2-architecture.md)  | 2026-08-08 |
 | [`NO-WRITE-PATH-FROM-RECORDS-INTO-A-RELATIONAL-DATABASE`](issues/NO-WRITE-PATH-FROM-RECORDS-INTO-A-RELATIONAL-DATABASE.md) | feature | Records cannot be written into a relational database (no INSERT, UPDATE, DELETE or transactions) | draft | phase2-blocked | not-eligible | P3 | XL | records;lib/commands;store/backends | [phase1](design/relational-database-writes/phase1-high-level-design.md)  [phase2](design/relational-database-writes/phase2-architecture.md)  | 2026-10-21 |
+| [`PY-HAS-NO-PURE-PYTHON-FALLBACK`](issues/PY-HAS-NO-PURE-PYTHON-FALLBACK.md) | feature | liquers has no pure-Python fallback when the native extension is unavailable | draft |  |  | P3 | XL | py |  | 2026-11-14 |

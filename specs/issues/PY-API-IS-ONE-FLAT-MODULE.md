@@ -30,14 +30,10 @@ beyond the comment groups in `__init__.py`.
 
 ## Expected behaviour
 
-Public submodules roughly mirroring the Rust modules (`liquers.query`, `liquers.commands`,
-`liquers.metadata`, `liquers.plan`, `liquers.recipes`, `liquers.store`, `liquers.environment`,
-`liquers.assets`, `liquers.errors`, `liquers.records`, `liquers.templates`, `liquers.pipelines`,
-`liquers.data_nodes`, `liquers.ui_model` or similar, `liquers.server`), each a thin Python module
-re-exporting from `liquers._native`, with each class's `__module__` naming its submodule. Every
-top-level `liquers.X` name stays as the same object, permanently. Two submodule names must not
-reuse a top-level function name (`liquers.ui()` and `liquers.data_node()` exist), because
-importing a submodule rebinds that attribute of the package.
+Public submodules named after the Rust modules (`liquers.query`, `liquers.commands`,
+`liquers.metadata`, `liquers.dependencies`, `liquers.plan`, `liquers.environment`, `liquers.ui`, …)
+over a private native module `_liquers`, each class reporting its submodule. The module map and the
+treatment of top-level names are in design `py-package-submodules`.
 
 ## Discovery
 
