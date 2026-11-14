@@ -4,7 +4,7 @@ kind: feature
 title: The Python API is one flat module with no submodules, unlike the Rust crates
 status: draft
 priority: P3
-complexity: M
+complexity: L
 area: [py]
 design: py-package-submodules
 created: 2026-11-14
