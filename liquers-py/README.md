@@ -155,8 +155,15 @@ reached its end of life in October 2025, so the floor is 3.10 (decided 2026-10-3
 `pyproject.toml` declares `requires-python = ">=3.10,<3.16"` to match CPython. That field cannot
 state a narrower range per implementation, so PyPy 3.10 is inside it but fails the build.
 
-No environment override is needed for any supported version, including the cloud dev
-environment's CPython 3.13.
+No environment override is needed when a supported interpreter is directly discoverable,
+including the cloud dev environment's CPython 3.13. On Windows, the Microsoft Store execution
+alias can shadow an installed interpreter. If `python` says it is not installed but `py -3` works,
+restart the terminal or editor after installation; for the current PowerShell session, select the
+real executable explicitly before running Cargo:
+
+```powershell
+$env:PYO3_PYTHON = py -3 -c "import sys; print(sys.executable)"
+```
 
 **Free-threaded CPython (3.14t)** is supported: the extension declares that it does not need the
 GIL, so importing `liquers` leaves it off, and the whole suite passes on 3.14t as well as on 3.13
