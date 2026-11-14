@@ -3,7 +3,7 @@ title: Using Liquers from Python
 kind: guide
 audience: user
 area: [py]
-reviewed: 2026-11-11
+reviewed: 2026-11-14
 ---
 # Using Liquers from Python
 
@@ -748,7 +748,8 @@ Callbacks run only on a thread that asks for them: in `wait_idle`, in `await
 ui.wait_idle_async()` (on the event loop's thread), in `ui.process_events()`, or in the window.
 A callback may call `show` or `submit`; one that raises is reported through
 `sys.unraisablehook`. A query a command evaluates for a UI must not wait for that UI: `wait_idle`
-inside it raises instead of waiting forever.
+or `await ui.wait_idle_async()` inside any command, `async def` ones too, raises instead of waiting
+forever.
 
 **Opening a window.** `ui.run()` shows the model in the Liquers desktop window and returns when the
 window is closed. Call it on the main thread; it blocks there, while commands keep running on other
@@ -1380,6 +1381,7 @@ What you will notice; the complete list, with the tracking issues, is
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-14 | §6 "Showing a Liquers UI": `wait_idle_async` inside a command, `async def` ones included, raises too. | `liquers-py/tests/test_UIUSE_model.py` |
 | 2026-11-11 | §6 "Showing a Liquers UI": the model, status callbacks, opening a window. §1: the wheels open windows; a build without. §2: the UI names. §10: UI limits. | phase-5, `design/liquers-py-ui/`, `design/liquers-py-ui-window/` |
 | 2026-11-09 | §4: `config=` takes a file (`pathlib.Path`), YAML text or a dict; the `python` section; keywords override the file; unknown sections and server/python keys are refused; the command metadata file. §6: serving over HTTP, with its security settings. §10: the server's limits. | phase-5, `design/configuration-document/`, `design/liquers-py-web-server/` |
 | 2026-11-09 | History: removed merge-conflict markers left between the rows of 2026-11-04 and 2026-11-05. The user guide *Liquers for Python* (`docs/guides/python/`) is now written from this guide, and `test_GUIDE_examples.py` runs its examples too. | Python user guide |

@@ -1056,7 +1056,7 @@ PIPELINES,reference,Pipelines,current,local,,,,,,core/commands;core/plan;core/qu
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,,lib/polars,,,,,2026-11-03,,specs/reference/POLARS_COMMAND_LIBRARY.md
 POSITIONING,reference,Positioning and Marketing Plan (draft),current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/POSITIONING.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-11-04,,specs/reference/PROJECT_OVERVIEW.md
-PYTHON_INTEGRATION,reference,Python Integration,current,local,,,,,,py;core/value;core/error;lib/value;core/store;store/config;core/assets;lib/ui;lib/egui,,,,,2026-11-11,,specs/reference/PYTHON_INTEGRATION.md
+PYTHON_INTEGRATION,reference,Python Integration,current,local,,,,,,py;core/value;core/error;lib/value;core/store;store/config;core/assets;lib/ui;lib/egui,,,,,2026-11-14,,specs/reference/PYTHON_INTEGRATION.md
 REALMS,reference,Realms,current,local,,,,,,core/plan;core/commands;store/config,,,,,2026-11-04,,specs/reference/REALMS.md
 RECIPES_AND_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/query;core/assets;core/context,,,,,2026-11-04,,specs/reference/RECIPES_AND_PLANS.md
 RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-11-03,,specs/reference/RECORD_STREAMS.md
@@ -1083,7 +1083,7 @@ JAVASCRIPT_GUIDE,guide,Using Liquers from JavaScript in the browser,current,loca
 LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store;core/value;lib/commands,,,,,2026-11-11,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 PIPELINE_GUIDE,guide,Pipeline Guide,current,local,,,,,,core/commands;core/plan;core/query;core/validate,,,,,2026-11-04,,specs/guides/PIPELINE_GUIDE.md
 PROJECT_SITE_GUIDE,guide,Project Site Guide,current,local,,,,,,docs;build,,,,,2026-11-10,,specs/guides/PROJECT_SITE_GUIDE.md
-PYTHON_GUIDE,guide,Using Liquers from Python,current,local,,,,,,py,,,,,2026-11-11,,specs/guides/PYTHON_GUIDE.md
+PYTHON_GUIDE,guide,Using Liquers from Python,current,local,,,,,,py,,,,,2026-11-14,,specs/guides/PYTHON_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,,core/query,,,,,2026-11-04,,specs/guides/QUERY_ESCAPING_GUIDE.md
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,,records;lib/value,,,,,2026-10-30,,specs/guides/RECORD_STREAM_GUIDE.md
 SEARCH_GUIDE,guide,Search Guide,current,local,,,,,,lib/commands;records,,,,,2026-10-17,,specs/guides/SEARCH_GUIDE.md
@@ -1106,7 +1106,7 @@ python/07-assets,chapter,"Recipes, assets and caching",ready,local,,,,,,docs,,,,
 python/08-environment,chapter,The environment,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/python/08-environment.md
 python/09-data,chapter,Working with data,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/09-data.md
 python/10-templates,chapter,Templates,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/10-templates.md
-python/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-11,,docs/guides/python/11-ui.md
+python/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/python/11-ui.md
 python/12-serving,chapter,Serving and embedding,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/python/12-serving.md
 python/13-search,chapter,Search and agent memory,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/13-search.md
 python/14-testing,chapter,Testing,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/14-testing.md

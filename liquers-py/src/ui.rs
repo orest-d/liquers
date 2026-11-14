@@ -195,6 +195,15 @@ impl Drop for ActionMark {
     }
 }
 
+/// The error of a `wait_idle` or `wait_idle_async` inside any Python command.
+fn waiting_inside_a_command() -> Error {
+    Error::general_error(
+        "wait_idle cannot be called from inside a command: a UI showing the command's query \
+         would wait for the command to finish"
+            .to_string(),
+    )
+}
+
 struct Delivering(usize);
 
 impl Delivering {
@@ -482,11 +491,7 @@ impl UiModel {
             ));
         }
         if IN_ACTION.with(|marks| !marks.borrow().is_empty()) {
-            return Err(Error::general_error(
-                "wait_idle cannot be called from inside a command: a UI showing the command's \
-                 query would wait for the command to finish"
-                    .to_string(),
-            ));
+            return Err(waiting_inside_a_command());
         }
         Ok(())
     }
@@ -892,7 +897,13 @@ impl UI {
     fn wait_idle_async<'py>(slf: &Bound<'py, Self>, timeout: Option<f64>) -> PyResult<Bound<'py, PyAny>> {
         let py = slf.py();
         slf.get().model.refuse_unreturnable_wait().map_err(|e| error_to_pyerr(py, &e))?;
-        py.import("liquers._ui")?.call_method1("wait_idle_async", (slf, timeout))
+        let ui = py.import("liquers._ui")?;
+        // An `async def` command's mark is a context variable, not `IN_ACTION`: its coroutine runs
+        // on a pool loop, outside the thread that started it (`command.rs` `mark_as_command`).
+        if ui.getattr("_IN_COMMAND")?.call_method0("get")?.is_truthy()? {
+            return Err(error_to_pyerr(py, &waiting_inside_a_command()));
+        }
+        ui.call_method1("wait_idle_async", (slf, timeout))
     }
 
     /// Delivers the queued status events now and returns how many; 0 while a window shows.

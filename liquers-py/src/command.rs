@@ -319,9 +319,20 @@ fn start_coroutine(
         return Err(Error::cancelled("the command was cancelled before it started".to_string()));
     }
     let scheduled = callable.object.bind(py).call1(args).and_then(|coroutine| {
+        let coroutine = mark_as_command(py, coroutine)?;
         schedule_coroutine(py, coroutine, pool.pick().event_loop(py), pending, done_tx)
     });
     scheduled.map_err(|e| pyerr_to_error(py, &e))
+}
+
+/// Wraps a command's coroutine so it runs with `liquers._ui._IN_COMMAND` set: a `wait_idle_async`
+/// inside it is refused, as `ActionMark` refuses `wait_idle` in a synchronous command. Anything
+/// else is returned unchanged, for `schedule_coroutine` to refuse.
+fn mark_as_command<'py>(py: Python<'py>, coroutine: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+    if !crate::pycall::is_coroutine(py, &coroutine)? {
+        return Ok(coroutine);
+    }
+    py.import("liquers._ui")?.call_method1("_run_as_command", (coroutine,))
 }
 
 /// The coroutine's result, once its future is done; the context is invalidated here.

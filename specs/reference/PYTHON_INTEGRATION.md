@@ -3,7 +3,7 @@ title: Python Integration
 kind: reference
 audience: both
 area: [py, core/value, core/error, lib/value, core/store, store/config, core/assets, lib/ui, lib/egui]
-reviewed: 2026-11-11
+reviewed: 2026-11-14
 ---
 # Python Integration
 
@@ -43,7 +43,7 @@ The package's own modules:
 | `_factories.py` | `_declare`: a store or recipe provider factory's declaration from its signature (§9, §10). |
 | `_records.py` | The pyarrow side of the record classes: IPC bytes to and from Arrow, normalization, pandas and polars (§11). |
 | `_extras.py` | `require()` and the table of extras (§12). |
-| `_ui.py` | `wait_idle_async`, the coroutine behind `UI.wait_idle_async` (§18). |
+| `_ui.py` | `wait_idle_async`, the coroutine behind `UI.wait_idle_async`, and the in-command mark of `async def` commands (§18). |
 | `__init__.pyi`, `_native.pyi`, `py.typed` | The type declarations (§13). A class added to `src/lib.rs` is declared here too. |
 
 Cargo features: `extension-module` (default) leaves the Python symbols to the loading interpreter,
@@ -1079,8 +1079,10 @@ hook delivers: `wait_idle` elsewhere waits without delivering and `process_event
 **Idle.** The model is idle when a tick has settled (no message waiting, no node pending, no
 evaluation in flight) after the last `show` or `submit`. `wait_idle` waits with the GIL released,
 waking every 100 ms to deliver and check signals (Ctrl-C raises `KeyboardInterrupt`). It raises
-`GeneralError` where it could never return: on the window's thread while `run` blocks, and inside a
-Python command run by this model's own action.
+`GeneralError` where it could never return: on the window's thread while `run` blocks, and inside
+any Python command, since the model may be waiting for that very command. `wait_idle_async` is
+refused in the same places, an `async def` command included: its coroutine runs marked by the
+`liquers._ui._IN_COMMAND` context variable, as a synchronous command's thread is marked.
 
 **Values.** A UI element value crosses as an `lq.UIElement` (`type_name`, `title`), holding the
 same `Arc`, so a command may return one and `show` displays it. It has no data format: `store_set`
@@ -1107,6 +1109,7 @@ keeps it alive until `dispose()`.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-14 | §18 Idle: `wait_idle` and `wait_idle_async` are refused inside any Python command, `async def` ones included (a Codex review of PR #268 found an async command's `wait_idle_async` deadlocked). §1: `_ui.py` holds the mark. | `liquers-py/tests/test_UIUSE_model.py` `test_UIUSE_wait_idle_async_inside_an_async_command_raises` |
 | 2026-11-11 | §18 User interface: `env.ui()`, `lq.UI`, status events and who delivers them, the window (`run`, `close`), lifetime. §3: the UI payload and the `lui` built-ins; `Context.element`. §1: `_ui.py`, the `gui` feature. §2: the UI classes. §7: UI models are disposed at exit after the servers. §8: UI limitations. §12: the wheels carry egui, and the Windows allow-list names the window's system DLLs. | `design/liquers-py-ui/`, `design/liquers-py-ui-window/` |
 | 2026-11-10 | §17 Lifetime: a server still binding when `env.shutdown()` runs is stopped and raises (a review of PR #264 found it could stay listening). | `liquers-py/src/environment.rs` test `a_server_bound_after_shutdown_is_stopped` |
 | 2026-11-09 | §3: `config=` is a configuration document (file, YAML text, dict), with the `python` section and `command_registry`; keywords override the file, and `job_capacity=` replaces `assets.job_capacity` instead of conflicting; `serve`/`servers` methods; shutdown stops the servers first. §1, §2, §7: `Server`, `liquers-axum`, servers stop first at exit. §17 Web server. | phase-5, `design/configuration-document/`, `design/liquers-py-web-server/` |

@@ -359,6 +359,31 @@ def test_UIUSE_wait_idle_inside_an_elements_command_raises(env, ui):
     assert ui.asset(handle).get() == "x"
 
 
+def test_UIUSE_wait_idle_async_inside_an_async_command_raises(env, ui):
+    errors = []
+
+    @env.command
+    async def awaits_too() -> str:
+        try:
+            await ui.wait_idle_async(timeout=None)
+        except lq.LiquersError as error:
+            errors.append(str(error))
+        return "x"
+
+    handle = ui.show("awaits_too")
+    assert ui.wait_idle(timeout=10)
+    assert len(errors) == 1 and "inside a command" in errors[0]
+    assert ui.asset(handle).get() == "x"
+
+
+def test_UIUSE_wait_idle_async_outside_a_command_is_not_marked(ui):
+    async def main():
+        ui.show("report")
+        return await ui.wait_idle_async(timeout=10)
+
+    assert asyncio.run(main())
+
+
 def test_UIUSE05_on_after_dispose_raises(env):
     ui = env.ui()
     ui.dispose()
