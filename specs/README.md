@@ -504,6 +504,7 @@ deliberately folded behind a broader line.
 - design `py-docstrings`
 - design `py-metadata-fields-as-properties`
 - design `py-metadata-typed-errors`
+- design `py-package-submodules`
 - design `py-pypy-ci-job`
 - design `py-query-segment-registration`
 - design `pyo3-python-3-13-support`
@@ -677,6 +678,7 @@ deliberately folded behind a broader line.
 - feature `NO-SQL-ENGINE-IN-WASM-BUILDS`
 - feature `NO-TEMPLATE-EDITOR-UI`
 - feature `NO-WRITE-PATH-FROM-RECORDS-INTO-A-RELATIONAL-DATABASE`
+- feature `PY-API-IS-ONE-FLAT-MODULE`
 - feature `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`
 - feature `PY-COMMAND-DECORATOR-CANNOT-SET-REALM`
 - feature `PY-WEB-SERVER-CANNOT-TAKE-PYTHON-HANDLERS`
