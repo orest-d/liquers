@@ -608,6 +608,7 @@ deliberately folded behind a broader line.
 - design `ui-asset-snapshot-boundary`
 - design `ui-display-conversion`
 - design `ui-query-console-error-highlight`
+- design `ui-split-elements`
 - design `uncached-write-back-rechecks-dependency-versions`
 - design `unkeyed-asset-derived-version`
 - design `unmanaged-asset-registry`
@@ -646,6 +647,7 @@ deliberately folded behind a broader line.
 - feature `ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE`
 - feature `ASSET-REGISTRATION-OWNERSHIP-CONTRACT`
 - feature `ASSETS-API-ADMIN-OPERATIONS`
+- feature `AXUM-CANNOT-SERVE-A-LIQUERS-UI`
 - feature `AXUM-SERVER-SENDS-NO-CORS-HEADERS`
 - feature `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS`
 - feature `COMMAND-ENUM-ALTERNATIVES-CANNOT-BE-COMPUTED`
@@ -724,6 +726,7 @@ deliberately folded behind a broader line.
 - feature `WEB-PAGE-CANNOT-PASS-A-PIPELINE-VALUE`
 - feature `WEB-PIPELINE-EDITOR-HAS-NO-DEFINITION-MODE`
 - feature `WEB-QUERY-EDITOR-NOT-LIVE`
+- feature `WEB-UI-CANNOT-BE-DRIVEN-BY-A-REMOTE-ENGINE`
 <!-- END generated: unplaced -->
 
 ## Guides
