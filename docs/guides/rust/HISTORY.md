@@ -42,3 +42,4 @@ have a row here (`specs/guides/USER_DOCS_EDITING_GUIDE.md`, maintenance).
 | 2026-11-14 | c-glossary.md | adds chunk, manifest, query editor, record, record source, record stream, schema |
 | 2026-11-14 | d-sister-guides.md | chapter 13 is *Records*; adds appendix E |
 | 2026-11-14 | e-web-api.md | new appendix: the web API reference, from the shared fragment `_shared/web-api.md` (written from `reference/WEB_API_SPECIFICATION.md`, example answers taken from a running server); `ready` |
+| 2026-11-14 | 11-ui.md | restructured to go from a first application to the details: 11.1 is a complete window (or page) built from a UI spec, followed by what the user interface is and is not, from the shared fragment `_shared/ui-idea.md` |

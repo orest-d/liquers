@@ -148,7 +148,7 @@ list in one place.
 - The class and the stack of an exception thrown by a command are part of the error's `message`,
   not fields of their own.
 - A slow query freezes a mounted user interface, and elements defined in JavaScript show in the
-  browser only (section 11.6).
+  browser only (section 11.7).
 - No store for IndexedDB, and none that reads and writes a Liquers server (section 6.3).
 - No npm package and no versioned address on a CDN (section 2.3).
 - The interfaces can still change between releases: Liquers is at version 0.1.

@@ -254,5 +254,5 @@ fit:
 - **Give Liquers the state that is worth sharing.** A view that is the value of a query can be
   put into the address of the page (section 3.11). State that is not worth sharing stays in your
   framework.
-- **With a framework's own rendering**, use `mountRenderer` (section 11.5) or plain `evaluate`,
+- **With a framework's own rendering**, use `mountRenderer` (section 11.6) or plain `evaluate`,
   and let the framework draw.
