@@ -2,7 +2,7 @@
 title: Working with data
 status: ready
 sources: [reference/POLARS_COMMAND_LIBRARY.md, guides/RECORD_STREAM_GUIDE.md, guides/PYTHON_GUIDE.md, reference/PYTHON_INTEGRATION.md]
-reviewed: 2026-11-09
+reviewed: 2026-11-14
 ---
 # 9. Working with data
 
@@ -15,7 +15,8 @@ a query, and you can mix them with commands of your own.
 There are two libraries for tables. *Records* (`ns-rec`) are built into Liquers and give you an
 `lq.RecordView`. *Polars* (`ns-pl`) uses the Polars engine and gives you a `polars.DataFrame`.
 Start with records, which are always there; use Polars when you need its speed on large tables
-or already work with it.
+or already work with it. This chapter shows how to work with both. Chapter 13 explains records
+themselves: schemas, tables in chunks, manifests, and how the two libraries divide the work.
 
 ## 9.1 A first table
 
@@ -216,6 +217,7 @@ use `async for chunk in source` and `await source.chunk_async(i)`.
 
 A manifest is more often a file than a command: a file named `<name>.manifest.yaml` in the
 store, with the same content. Its chunks then get keys of their own and can be read like files.
+Section 13.4 describes manifests in full, and section 13.6 uses one from Python.
 
 ## 9.6 Images
 

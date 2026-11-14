@@ -2,7 +2,7 @@
 title: Introduction
 status: ready
 sources: [reference/PROJECT_OVERVIEW.md, guides/JAVASCRIPT_GUIDE.md]
-reviewed: 2026-11-10
+reviewed: 2026-11-14
 ---
 # 1. Introduction
 
@@ -267,7 +267,7 @@ runs.
 | Values | Rust types | converted to and from JavaScript values (chapter 4) |
 | User interface | egui on the desktop, HTML in the browser | HTML, with elements you can define in JavaScript |
 | Serving queries over HTTP | yes | no: a page is a client of a server, not a server |
-| Search and agent memory | yes | no (chapter 13) |
+| Search and agent memory | yes | search within a table only; no agent memory (chapter 13) |
 | Installing | a crate, a Python package | two files to host: a script and a `.wasm` file of several megabytes (chapter 2) |
 
 Section 15.6 lists the known limitations one by one.

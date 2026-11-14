@@ -1,8 +1,8 @@
 ---
 title: Glossary
 status: ready
-sources: [reference/PROJECT_OVERVIEW.md, reference/PIPELINES.md, guides/PYTHON_GUIDE.md]
-reviewed: 2026-11-09
+sources: [reference/PROJECT_OVERVIEW.md, reference/PIPELINES.md, reference/RECORD_STREAMS.md, guides/PYTHON_GUIDE.md]
+reviewed: 2026-11-14
 ---
 # C. Glossary
 
@@ -38,12 +38,19 @@ PURPOSE: The words of Liquers, defined once.
 | Term | Definition |
 |---|---|
 | **Argument** | A value given to a command in a query, after the command's name |
+| **Chunk** | One piece of a record source: a record view that is the result of one query |
 | **Data node** | A read-only view that reads a value field by field (`lq.DataNode`) |
 | **Dependency** | Something a result was made from: a key, another query, a command |
 | **Extra** | A group of optional Python packages installed with `liquers-py[name]` |
 | **Link** | An argument that is the value of another query |
+| **Manifest** | A file `<name>.manifest.yaml` that describes a record source: its chunks and their schema |
 | **Mount** | One entry of the store configuration: a type of storage and the prefix of the keys it holds |
 | **Opaque object** | A Python object Liquers has no type for; it is passed along unchanged |
-| **Record view** | A table with named, typed columns |
-| **Template** | Text with tags that are replaced when it is rendered; a query tag holds a query |
+| **Query editor** | The object that builds or changes a query step by step, placing and escaping the arguments |
+| **Record source** | A table that is read in chunks, any number of times; it may be larger than memory |
+| **Record stream** | One pass over a record source, chunk by chunk |
+| **Record view** | A table in memory, with named, typed columns |
+| **Record** | One row of a table: a set of named, typed values |
+| **Schema** | The list of the fields of a table: their names, types and roles |
 | **Template command** | A command whose result is a rendered template |
+| **Template** | Text with tags that are replaced when it is rendered; a query tag holds a query |

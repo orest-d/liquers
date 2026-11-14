@@ -2,11 +2,11 @@
 title: Queries
 status: ready
 sources: [reference/PROJECT_OVERVIEW.md, guides/QUERY_ESCAPING_GUIDE.md, guides/PYTHON_GUIDE.md, reference/PIPELINES.md, guides/PIPELINE_GUIDE.md]
-reviewed: 2026-11-09
+reviewed: 2026-11-14
 ---
 # 3. Queries
 
-PURPOSE: The reader can read and write a query, run one from Python, and build one from values without escaping by hand.
+PURPOSE: The reader can read and write a query, run one from Python, and build and edit one from values without escaping by hand.
 
 The query is the one thing in Liquers that you cannot do without, and the one thing that is the
 same in every language. This chapter first describes the query language itself, in the words
@@ -93,14 +93,15 @@ Parsing checks the syntax only. Whether the commands exist and take these argume
 when the query is planned, which happens when you evaluate it. A query with an unknown command
 or a surplus argument fails then, before any command runs.
 
-## 3.9 Building a query from values
+## 3.9 Building and editing a query
 
 Writing a query by hand is fine when you know its text. When part of it comes from a variable,
 a user's input for example, do not paste the value into the text. A value containing `-`, `/` or
 a space would change the meaning of the query, and escaping it by hand is easy to get wrong.
 
-Use a *query editor* instead. It builds the query step by step, escapes every value, and checks
-each step against the commands of the environment:
+Use a *query editor* instead. It builds the query step by step, takes each argument as the
+Python value it is, writes it into the query correctly, and checks each step against the
+commands of the environment:
 
 ```python
 import liquers as lq
@@ -108,36 +109,84 @@ import liquers as lq
 env = lq.Environment()
 
 @env.first_command
-def hello() -> str:
-    return "world"
+def numbers() -> list:
+    return [3, 1, 2]
 
 @env.command
-def greet(text: str, greeting: str = "Hello") -> str:
-    return f"{greeting}, {text}!"
-
-user_input = "Good morning: a-b/c"
+def top(value, n: int = 1, descending: bool = True, label: str = "") -> list:
+    picked = sorted(value, reverse=descending)[:n]
+    return [f"{label}{x}" for x in picked] if label else picked
 
 editor = env.query_editor()
-editor.action("hello")
-step = editor.action("greet")
-step.set("greeting", user_input)             # by name; the value goes in as it is
+editor.action("numbers")
+step = editor.action("top")
+step.set("n", 2)                              # a number goes in as a number
+step.set("descending", False)                 # a boolean as a boolean
+step.set("label", "no. 1-")                   # a text as it is; the editor escapes it
 
 query = editor.query()
-assert query.encode() == "hello/greet-Good~.morning~ncolon~~.a~_b~/c"
-assert env.evaluate(query) == "Good morning: a-b/c, world!"
+assert query.encode() == "numbers/top-2-false-no.~.1~_"
+assert env.evaluate(query) == ["no. 1-1", "no. 1-2"]
 
 try:
-    step.set("salutation", "Hi")              # greet has no such argument
+    step.set("count", 3)                      # top has no such argument
 except lq.ParameterError:
     pass
+assert editor.query().encode() == query.encode()      # a refused edit changes nothing
 env.shutdown()
 ```
+
+Pass numbers and booleans as they are, not as text. You do not need to know how a query
+spells `False` or a negative number; the editor does. `set` takes the name of an argument and
+puts the value in the right position. `step.push(value)` appends the next positional argument
+instead, which is what you use for a command that takes any number of arguments.
 
 The editor knows the commands that were registered when it was created. A wrong command name or
 argument name raises `ParameterError` at once and leaves the editor unchanged, so mistakes show
 up where they are made and not later, when the query runs.
 
-For a single action without an environment, `lq.ActionRequest.from_arguments` does the escaping:
+The same editor changes a query that already exists. Give `query_editor` the query, and edit
+its steps by their position:
+
+```python
+import liquers as lq
+
+env = lq.Environment()
+
+@env.first_command
+def numbers() -> list:
+    return [3, 1, 2]
+
+@env.command
+def top(value, n: int = 1, descending: bool = True) -> list:
+    return sorted(value, reverse=descending)[:n]
+
+editor = env.query_editor("numbers/top-1")
+step = editor.edit_action(1)                  # steps are counted from 0
+step.set("n", 3)
+step.set("descending", False)
+assert editor.query().encode() == "numbers/top-3-false"
+
+step.unset("descending")                      # back to the default
+assert editor.query().encode() == "numbers/top-3"
+assert [a.name for a in editor.unset_arguments(1)] == ["descending"]
+
+editor.set_filename("top.json")
+assert editor.query().encode() == "numbers/top-3/top.json"
+editor.remove(1)                              # drop the step
+editor.set_filename(None)
+assert editor.query().encode() == "numbers"
+env.shutdown()
+```
+
+`editor.action(name)` appends a step and `editor.resource(key)` appends the reading of a key;
+`insert`, `replace`, `remove` and `move_to` change the steps that are there.
+`editor.command_metadata(i)`, `editor.argument_info(i, name)` and `editor.unset_arguments(i)`
+describe the command of a step and its arguments, which is what a form that edits a query needs
+to show.
+
+There is an older, lower-level way, which needs no environment and checks nothing:
+`lq.ActionRequest.from_arguments` builds one action from text values and escapes them.
 
 ```python
 import liquers as lq
@@ -146,12 +195,22 @@ action = lq.ActionRequest.from_arguments("greet", ["Good morning", "a-b/c"])
 assert action.encode() == "greet-Good~.morning-a~_b~/c"
 ```
 
+It takes text only, so a number or a boolean has to be turned into its query spelling by you,
+and it cannot tell you that the command has no such argument. Use the editor unless you have no
+environment at hand.
+
+API reference: [`Environment.query_editor`](https://orest-d.github.io/liquers/api/python/liquers.html#Environment.query_editor),
+[`QueryEditor`](https://orest-d.github.io/liquers/api/python/liquers.html#QueryEditor) and [`ActionEditor`](https://orest-d.github.io/liquers/api/python/liquers.html#ActionEditor), the object that `action`
+and `edit_action` return.
+
 ## 3.10 Pipelines: queries as data
 
-Some values cannot be written into a query at all: a dictionary, a list, a long text. For these
-there is a second form of a query, the *pipeline*. A pipeline is the same chain of steps, written
-as data instead of text: a list in which each step is either query text or a dictionary that
-names an action and its arguments.
+{{> ../_shared/pipelines.md}}
+
+### Running a pipeline from Python
+
+In Python a pipeline is a list. Each step is a string of query text or a dictionary in the form
+of the table above, so a pipeline can be written directly in code:
 
 ```python
 import liquers as lq
@@ -174,14 +233,14 @@ assert env.evaluate(steps) == [3, 2]         # the dictionary arrives whole
 env.shutdown()
 ```
 
-`evaluate` and `evaluate_state` take a pipeline wherever they take a query. A pipeline can be
-written as JSON or YAML, so it is also the form in which another program can send you a
-computation.
+`evaluate` and `evaluate_state` take a pipeline wherever they take a query. The argument
+`options` is a dictionary, which no query could carry.
 
-Every query can be turned into a pipeline, and a pipeline can be turned back into a query when
-all its arguments can be written as text:
+`lq.Pipeline` is the pipeline as an object. It reads and writes the JSON form, and converts to
+and from a query:
 
 ```python
+import json
 import liquers as lq
 
 env = lq.Environment()
@@ -191,16 +250,79 @@ def numbers() -> list:
     return [3, 1, 2]
 
 @env.command
-def top(value, n: int = 1) -> list:
-    return sorted(value, reverse=True)[:n]
+def top(value, n: int = 1, descending: bool = True) -> list:
+    return sorted(value, reverse=descending)[:n]
 
-pipeline = lq.Pipeline(["numbers", {"action": "top", "arguments": {"n": 2}}])
-assert pipeline.to_query(env).encode() == "numbers/top-2"
-assert lq.Pipeline.from_query("numbers/top-2").to_query(env).encode() == "numbers/top-2"
-assert env.evaluate(pipeline) == [3, 2]
+@env.command
+def pick(value, options=None, n: int = 1) -> list:
+    return sorted(value, reverse=options["descending"])[:n]
+
+pipeline = lq.Pipeline(["numbers", {"action": "top", "arguments": {"n": 2, "descending": False}}])
+assert env.evaluate(pipeline) == [1, 2]
+assert pipeline.to_query(env).encode() == "numbers/top-2-false"       # it has a query form
+
+# Every query has a pipeline form; this is how to look inside a query.
+steps = json.loads(lq.Pipeline.from_query("numbers/top-2").to_json())["elements"]
+assert [step["action"] for step in steps] == ["numbers", "top"]
+assert steps[1]["parameters"][0]["value"] == "2"
+
+# A pipeline with a dictionary as an argument has no query form.
+structured = lq.Pipeline(["numbers", {"action": "pick", "arguments": {"options": {"descending": True}}}])
+try:
+    structured.to_query(env)
+except lq.ParameterError as error:
+    assert "not representable as a query" in error.message
 env.shutdown()
 ```
 
-Prefer a query when one can say what you mean: it is shorter, it is a link, and it can be used
-in a recipe and in a URL. Use a pipeline when an argument is structured data. `get_asset` takes
-queries only.
+`to_query` needs the environment, because it has to know the order of a command's arguments to
+write named ones by position. `to_json()` and `Pipeline.from_json(text)` are the form in which
+a pipeline is stored or sent; a pipeline made from a parsed query also records the position of
+each step in the text, as `pos`.
+
+### Editing a pipeline
+
+`env.pipeline_editor()` is the query editor's sibling. It has the same methods, and it also
+accepts what a query cannot hold:
+
+```python
+import json
+import liquers as lq
+
+env = lq.Environment()
+
+@env.first_command
+def numbers() -> list:
+    return [3, 1, 2]
+
+@env.command
+def pick(value, options=None, n: int = 1) -> list:
+    return sorted(value, reverse=options["descending"])[:n]
+
+editor = env.pipeline_editor()
+editor.action("numbers")
+step = editor.action("pick")
+step.set("options", {"descending": True})     # refused by a query editor
+step.set("n", 2)
+assert env.evaluate(editor.pipeline) == [3, 2]
+
+editor.edit_action(1).set("n", 1)
+assert env.evaluate(editor.pipeline) == [3]
+assert json.loads(editor.pipeline.to_json())["elements"][1]["arguments"]["n"] == 1
+env.shutdown()
+```
+
+The difference between the two editors is what they promise. A query editor refuses every edit
+after which the result would no longer be a query, so its `query()` always succeeds. A pipeline
+editor accepts those edits, and `editor.pipeline` is then a pipeline without a query form.
+`env.pipeline_editor(pipeline)` starts from an existing pipeline, a list or a query.
+
+{{> ../_shared/pipeline-or-query.md}}
+
+In Python that means: `env.evaluate(pipeline)` computes every time, and `env.get_asset` raises
+a `TypeError` for a pipeline. Chapter 7 shows a pipeline in a recipe, and section 5.9 a pipeline
+registered as a command with `env.pipeline_command`.
+
+API reference: [`Pipeline`](https://orest-d.github.io/liquers/api/python/liquers.html#Pipeline), [`PipelineEditor`](https://orest-d.github.io/liquers/api/python/liquers.html#PipelineEditor) and
+[`Environment.pipeline_editor`](https://orest-d.github.io/liquers/api/python/liquers.html#Environment.pipeline_editor).
+

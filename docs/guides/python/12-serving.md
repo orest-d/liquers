@@ -2,7 +2,7 @@
 title: Serving and embedding
 status: ready
 sources: [guides/WEB_API_GUIDE.md, guides/PYTHON_GUIDE.md, reference/PYTHON_INTEGRATION.md]
-reviewed: 2026-11-10
+reviewed: 2026-11-14
 ---
 # 12. Serving and embedding
 
@@ -182,6 +182,9 @@ interfaces:
 
 A query goes into the URL as it is. This is the reason queries are written with URL-safe
 characters only.
+
+Every route of the four interfaces, with what it takes and what it answers, is listed in
+[appendix E](e-web-api.md).
 
 ## 12.5 Calling a server from Python
 
