@@ -8,8 +8,8 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 242
-- P2: 68
+Total rows: 243
+- P2: 69
 - P3: 174
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
@@ -44,6 +44,7 @@ Total rows: 242
 | [`AGENT-WORKBENCH-SURFACE`](issues/AGENT-WORKBENCH-SURFACE.md) | feature | Agents get only memory tools — no general surface to evaluate, validate, inspect or propose | draft |  |  | P2 | M | mcp;core/validate;docs |  | 2026-10-15 |
 | [`EXPRESSION-DEPENDENCY-RECORD-IS-LOST-ON-RELOAD`](issues/EXPRESSION-DEPENDENCY-RECORD-IS-LOST-ON-RELOAD.md) | issue | A keyed asset that read a key only through a non-keyed expression is not expired by that key after a reload | draft |  |  | P2 | M | core/assets |  | 2026-10-20 |
 | [`MANIFEST-TEMPLATE-BATCH-ONLY-AT-THE-END-OF-THE-QUERY`](issues/MANIFEST-TEMPLATE-BATCH-ONLY-AT-THE-END-OF-THE-QUERY.md) | feature | A records manifest template can put the batch offset and size only at the end of its query | draft |  |  | P2 | M | records;core/plan |  | 2026-11-02 |
+| [`PY-DEFAULT-ENVIRONMENT-CANNOT-BE-CONFIGURED`](issues/PY-DEFAULT-ENVIRONMENT-CANNOT-BE-CONFIGURED.md) | feature | The Python default environment cannot be configured, and the guide does not say so | draft |  |  | P2 | M | py;docs |  | 2026-11-14 |
 | [`PY-SHUTDOWN-AFTER-EVALUATE-LOSES-THE-STORE-WRITE`](issues/PY-SHUTDOWN-AFTER-EVALUATE-LOSES-THE-STORE-WRITE.md) | issue | shutdown right after an evaluation loses the store write of a keyed result | draft |  |  | P2 | M | py |  | 2026-11-09 |
 | [`STORE-OPENDAL-FS-CONCURRENT-WRITES-TO-ONE-KEY-FAIL`](issues/STORE-OPENDAL-FS-CONCURRENT-WRITES-TO-ONE-KEY-FAIL.md) | issue | Concurrent writes to one key of an OpenDAL fs store can fail with a write error | draft |  |  | P2 | M | store/backends |  | 2026-11-01 |
 | [`UI-INTERFACE-FSD-DESCRIBES-UNBUILT-API`](issues/UI-INTERFACE-FSD-DESCRIBES-UNBUILT-API.md) | issue | UI_INTERFACE_FSD describes a UI API that was never built | draft |  |  | P2 | M | docs;lib/ui |  | 2026-10-27 |
