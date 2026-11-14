@@ -8,7 +8,7 @@ status: in_review
 phase: high-level
 area: [py]
 issues: [PY-API-IS-ONE-FLAT-MODULE]
-affects_docs: [specs/reference/PYTHON_INTEGRATION.md, specs/guides/PYTHON_GUIDE.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, liquers-py/README.md, docs/guides/python/01-introduction.md, docs/guides/python/04-values.md]
+affects_docs: [specs/reference/PYTHON_INTEGRATION.md, specs/guides/PYTHON_GUIDE.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, liquers-py/README.md, docs/guides/python/01-introduction.md]
 created: 2026-11-14
 ---
 # Public submodules for the liquers Python package
@@ -40,9 +40,9 @@ What should happen: `from liquers.query import Key` works, `liquers.query.Key is
 submodule. (`lq` is only the local alias of `import liquers as lq`, used by the guides; it is not
 an installed name and cannot clash with another package.)
 
-Module map. Each module takes the Rust module's name; where a top-level function had that name
-(`ui`, `data_node`), the function moves into the module and `lq.ui` / `lq.data_node` become the
-modules (*Decisions* D2).
+Module map. Each module takes the Rust module's name, except two whose Rust name is already a
+top-level function (`lq.ui()`, `lq.data_node()`): those are `liquers.lui` (Liquers UI) and
+`liquers.data_nodes`, and the functions keep working (*Decisions* D2).
 
 | Python module | Contents | Rust counterpart |
 |---|---|---|
@@ -56,12 +56,12 @@ modules (*Decisions* D2).
 | `liquers.environment` | `Environment`, `Context`, `Issue`, `default_environment`, `evaluate`, `evaluate_async`, `require` | `liquers_core::context`, `environment_builder` |
 | `liquers.assets` | `State`, `AssetRef` | `liquers_core::state`, `assets` |
 | `liquers.error` | `Error`, `ErrorType`, `LiquersError` and its generated subclasses | `liquers_core::error` |
-| `liquers.data_node` | `data_node`, `DataNode`, `NodeKind` | `liquers_core::data_node` |
+| `liquers.data_nodes` | `data_node`, `DataNode`, `NodeKind` | `liquers_core::data_node` |
 | `liquers.pipeline` | `Pipeline`, `PipelineEditor`, `QueryEditor`, `ActionEditor` | `liquers_core::pipeline` |
 | `liquers.template` | `RenderResult`, `Diagnostic` | `liquers-template`, `liquers_lib::template` |
 | `liquers.records` | `RecordView`, `RecordSource`, `RecordStream`, `RecordChunk`, `RecordColumn`, `RecordBuffer`, `RecordSchema`, `FieldSchema`, `FieldType`, `KeyRole`, `ChunkOrigin` | `liquers-records` |
 | `liquers.server` | `serve`, `serve_async`, `Server` | `liquers-axum` |
-| `liquers.ui` | `ui`, `UI`, `UIElement`, `UIElementInfo`, `UIStatusEvent`, `UISubscription` | `liquers_lib::ui` |
+| `liquers.lui` | `ui`, `UI`, `UIElement`, `UIElementInfo`, `UIStatusEvent`, `UISubscription` | `liquers_lib::ui` |
 
 ### Scope and Acceptance Criteria
 
@@ -77,14 +77,13 @@ imports them by name.
   WHEN `from liquers.query import Key, parse` runs in a fresh interpreter
   THEN both names import, and `liquers.query.Key is liquers.Key`
 - **AC-2** Top-level names kept
-  WHEN a program uses a name of today's `liquers.__all__` other than `ui` and `data_node` as
-  `liquers.X`
+  WHEN a program uses any name of today's `liquers.__all__` as `liquers.X`
   THEN it gets the same object as `liquers.<submodule>.X`
-- **AC-3** Functions named like their module live in it
-  WHEN `import liquers as lq` and then `lq.ui.ui()` and `lq.data_node.data_node({"a": 1})` run, and
-  `import liquers.ui as m` runs in either order with `import liquers`
-  THEN `lq.ui` and `m` are the module `liquers.ui`, and both calls return what `lq.ui()` and
-  `lq.data_node(...)` returned before
+- **AC-3** No collision with top-level functions
+  WHEN `import liquers.lui` and `import liquers.data_nodes` run, in either order, before or after
+  `import liquers`
+  THEN `lq.ui` and `lq.data_node` are still the functions, and `liquers.lui.ui is lq.ui` and
+  `liquers.data_nodes.data_node is lq.data_node`
 - **AC-4** Classes report their submodule
   WHEN `type(lq.parse("a/b")).__module__` or `lq.KeyNotFoundError.__module__` is read
   THEN it is `"liquers.query"` or `"liquers.error"`: every public class reports the submodule that
@@ -114,10 +113,10 @@ imports them by name.
 ### Documentation Intent
 
 - `specs/reference/PYTHON_INTEGRATION.md` §1 Layout (`_liquers`, the seam, the public submodules),
-  the `__module__` rule, §13 the stub layout, §14 and §18 for `data_node` and `ui`.
+  the `__module__` rule, §13 the stub layout, §14 and §18 for `liquers.data_nodes` and `liquers.lui`.
 - `specs/guides/PYTHON_GUIDE.md`: a "Package layout" section mapping submodules to Rust modules.
-- `docs/guides/python/01-introduction.md`: the package layout; `04-values.md`: the
-  `data_node` calls (the guide has no `lq.ui()` call). Examples keep `import liquers as lq`.
+- `docs/guides/python/01-introduction.md`: the package layout. Examples keep
+  `import liquers as lq`.
 - `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md`: the lesson "PyO3's `module = "liquers"` decides
   where the stubs go", updated to submodules.
 - `liquers-py/README.md`: the OBJECT08 row.
@@ -131,19 +130,18 @@ imports them by name.
   second puts `QuerySegment` in `liquers.query`.
 - `py-default-environment-config` (PR #273, Phase 1): its `configure` goes in
   `liquers.environment`. `liquers-py-modules` (PR #265): its `import_module` goes there too.
-- No published wheel exists yet (`PY-NO-PUBLISHED-WHEELS`), so the D2 break reaches no released
-  user; it must land before the first release.
+- No published wheel exists yet (`PY-NO-PUBLISHED-WHEELS`); landing before the first release means
+  the first published `__module__` names are already the submodules.
 
 ### Decisions
 
 Orest, 2026-11-14, at the Phase 1 gate:
 
 - **D1 (Q1)** Classes report their submodule (`liquers.query.Key`). Accepted.
-- **D2 (Q2)** Modules take the Rust names. A same-named function lives in its module and calls
-  `_liquers` (`liquers.ui.ui`), rather than `ui_model` / `data_nodes`, which Orest rejected as
-  unclear and one letter from a typo. Proposed consequence, pending confirmation: `lq.ui` and
-  `lq.data_node` become the modules; callers write `lq.ui.ui()` or `env.ui()`, and
-  `from liquers.data_node import data_node`. Rejected: a callable module object (module
+- **D2 (Q2, Q6)** Modules take the Rust names, except `liquers.lui` (Liquers UI) for `ui` and
+  `liquers.data_nodes` for `data_node`, so the top-level functions `lq.ui()` and `lq.data_node()`
+  keep working and live in those modules too. Orest rejected `ui_model`, and rejected turning
+  `lq.ui` / `lq.data_node` into modules. Rejected too: a callable module object (module
   `__class__` swap), which type checkers cannot describe.
 - **D3 (Q3)** `expiration` folds into `metadata`. Dependencies get their own module, which the
   future manager wrapper joins.
@@ -151,13 +149,11 @@ Orest, 2026-11-14, at the Phase 1 gate:
   public modules and Python helpers. A pure-Python fallback must fit later: every public module
   reaches native names only through `liquers/_backend.py`.
 
+- **D5 (Q4)** Every top-level `liquers.X` stays permanently as a re-export, with no deprecation;
+  `lq.X` (`import liquers as lq`) stays the documented style.
+
 ### Open Questions
 
-- **Q4 (open design; recommended answer given) — top-level names.** Keep every other `liquers.X`
-  permanently as a re-export, with no deprecation, and keep `lq.X` as the documented style.
-- **Q6 (open design; recommended answer given) — the D2 consequence.** Accept that `lq.ui()` and
-  `lq.data_node(x)` stop working (2 and 60 call sites, all in this repository's tests and guides),
-  before the first release.
 - **Q5 (implementation detail, Phase 2)** — pdoc's rendering of re-exported names on the
   `liquers` page, and DOCS04 accordingly.
 - **Q7 (implementation detail, Phase 2)** — maturin's layout for a top-level extension beside a

@@ -31,7 +31,7 @@ beyond the comment groups in `__init__.py`.
 ## Expected behaviour
 
 Public submodules named after the Rust modules (`liquers.query`, `liquers.commands`,
-`liquers.metadata`, `liquers.dependencies`, `liquers.plan`, `liquers.environment`, `liquers.ui`, …)
+`liquers.metadata`, `liquers.dependencies`, `liquers.plan`, `liquers.environment`, `liquers.lui`, `liquers.data_nodes`, …)
 over a private native module `_liquers`, each class reporting its submodule. The module map and the
 treatment of top-level names are in design `py-package-submodules`.
 
