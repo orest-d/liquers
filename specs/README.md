@@ -608,6 +608,7 @@ deliberately folded behind a broader line.
 - design `ui-asset-snapshot-boundary`
 - design `ui-display-conversion`
 - design `ui-query-console-error-highlight`
+- design `ui-split-elements`
 - design `uncached-write-back-rechecks-dependency-versions`
 - design `unkeyed-asset-derived-version`
 - design `unmanaged-asset-registry`

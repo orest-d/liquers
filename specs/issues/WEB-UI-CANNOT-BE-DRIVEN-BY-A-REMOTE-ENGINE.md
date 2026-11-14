@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: XL
 area: [lib/ui, axum]
-design: 
+design: ui-split-elements
 created: 2026-11-10
 github:
 ---
