@@ -4,7 +4,7 @@ kind: feature
 title: The Python default environment cannot be configured, and the guide does not say so
 status: draft
 priority: P2
-complexity: M
+complexity: L
 area: [py, docs]
 design: py-default-environment-config
 created: 2026-11-14
@@ -92,6 +92,9 @@ Ways to get there, which can be combined:
    `pickle` and `async_loops` are fixed in `EnvCell::new`.
 4. **An environment variable** such as `LIQUERS_CONFIG=<path>`, read when the default is made.
    It needs no code and suits deployment, but cannot set what the file does not.
+
+Starting from a configuration file with command-line overrides, which Orest asked for on
+2026-11-14, is `PY-APPLICATION-CANNOT-START-FROM-A-CONFIG-FILE`, built on this.
 
 The submodule split (`PY-API-IS-ONE-FLAT-MODULE`, design `py-package-submodules`) puts
 `default_environment` in `liquers.environment`, so any new function goes there too, with a

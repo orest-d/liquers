@@ -501,6 +501,7 @@ deliberately folded behind a broader line.
 - design `pure-command-context`
 - design `py-api-reference`
 - design `py-command-decorator-declaration-keywords`
+- design `py-command-line-config`
 - design `py-default-environment-config`
 - design `py-docstrings`
 - design `py-metadata-fields-as-properties`
@@ -678,6 +679,7 @@ deliberately folded behind a broader line.
 - feature `NO-SQL-ENGINE-IN-WASM-BUILDS`
 - feature `NO-TEMPLATE-EDITOR-UI`
 - feature `NO-WRITE-PATH-FROM-RECORDS-INTO-A-RELATIONAL-DATABASE`
+- feature `PY-APPLICATION-CANNOT-START-FROM-A-CONFIG-FILE`
 - feature `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`
 - feature `PY-COMMAND-DECORATOR-CANNOT-SET-REALM`
 - feature `PY-DEFAULT-ENVIRONMENT-CANNOT-BE-CONFIGURED`
