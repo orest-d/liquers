@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [py, docs]
-design:
+design: py-default-environment-config
 created: 2026-11-14
 github:
 ---

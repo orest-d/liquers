@@ -501,6 +501,7 @@ deliberately folded behind a broader line.
 - design `pure-command-context`
 - design `py-api-reference`
 - design `py-command-decorator-declaration-keywords`
+- design `py-default-environment-config`
 - design `py-docstrings`
 - design `py-metadata-fields-as-properties`
 - design `py-metadata-typed-errors`
