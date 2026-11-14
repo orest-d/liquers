@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 242
+Total rows: 243
 - P2: 68
-- P3: 174
+- P3: 175
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -201,6 +201,7 @@ Total rows: 242
 | [`MARKDOWN-CODE-BLOCKS-FRONT-MATTER-AND-BACKLINKS-ARE-NOT-COMMANDS`](issues/MARKDOWN-CODE-BLOCKS-FRONT-MATTER-AND-BACKLINKS-ARE-NOT-COMMANDS.md) | feature | Fenced blocks, front matter, folders and incoming links cannot be read with ns-md | draft |  |  | P3 | M | lib/commands |  | 2026-11-01 |
 | [`MCP-SERVER-APPLIES-NO-ACCESS-POLICY`](issues/MCP-SERVER-APPLIES-NO-ACCESS-POLICY.md) | feature | The MCP server limits its query tool by a command allow-list, not by an access policy | draft |  |  | P3 | M | mcp |  | 2026-10-20 |
 | [`PLAN-BUILDER-DUPLICATES-PIPELINE-PLANNING`](issues/PLAN-BUILDER-DUPLICATES-PIPELINE-PLANNING.md) | issue | Two plan builders plan the same queries once pipelines land | draft |  |  | P3 | M | core/plan | [notation](design/composite-command-definition/notation-and-integration.md)  [phase1](design/composite-command-definition/phase1-high-level-design.md)  [phase2](design/composite-command-definition/phase2-architecture.md)  [phase3](design/composite-command-definition/phase3-examples.md)  [phase4](design/composite-command-definition/phase4-implementation.md)  [phase5](design/composite-command-definition/phase5-documentation.md)  [pipeline](design/composite-command-definition/pipeline-and-plan.md)  [pipeline](design/composite-command-definition/pipeline-structure-and-sources.md)  [recipe](design/composite-command-definition/recipe-and-pipeline-structures.md)  | 2026-11-03 |
+| [`PY-API-IS-ONE-FLAT-MODULE`](issues/PY-API-IS-ONE-FLAT-MODULE.md) | feature | The Python API is one flat module with no submodules, unlike the Rust crates | draft |  |  | P3 | M | py | `py-package-submodules` | 2026-11-14 |
 | [`PY-EXIT-WITH-UNCANCELLABLE-COMMAND-CRASHES-BEFORE-3-14`](issues/PY-EXIT-WITH-UNCANCELLABLE-COMMAND-CRASHES-BEFORE-3-14.md) | issue | Exiting Python while a command ignores cancellation can still abort the process before CPython 3.14 | draft |  |  | P3 | M | py |  | 2026-10-31 |
 | [`TEMPLATE-ERROR-AT-QUERY-LEVEL-LOSES-THE-TEMPLATE-POSITION`](issues/TEMPLATE-ERROR-AT-QUERY-LEVEL-LOSES-THE-TEMPLATE-POSITION.md) | issue | A template error raised through a query reports the position in the query, not in the template | draft |  |  | P3 | M | lib/commands |  | 2026-11-10 |
 | [`TEMPLATE-HAS-NO-MDBOOK-INCLUDE-SYNTAX`](issues/TEMPLATE-HAS-NO-MDBOOK-INCLUDE-SYNTAX.md) | feature | Liquers templates cannot read mdBook's {{#include}} syntax | draft |  |  | P3 | M | lib/commands;docs |  | 2026-11-01 |
