@@ -2,7 +2,7 @@
 title: Troubleshooting
 status: ready
 sources: [guides/PYTHON_GUIDE.md, reference/PYTHON_INTEGRATION.md, reference/PROJECT_OVERVIEW.md]
-reviewed: 2026-11-09
+reviewed: 2026-11-11
 ---
 # 15. Troubleshooting
 
@@ -123,8 +123,10 @@ Liquers is at version 0.1. These are the gaps you are most likely to notice from
   evaluation can lose that write.
 - `env.recipes.recipe(key)` for a key without a recipe raises `GeneralError`, not
   `KeyNotFoundError`; use `recipe_opt`, which returns `None`.
-- There is no user-interface toolkit for Python (chapter 11), and the HTTP server is a Rust
-  program (chapter 12).
+- User-interface elements cannot be written in Python, and a slow action submitted to a user
+  interface holds it up until it ends (chapter 11). The HTTP server is a Rust program (chapter 12).
+- A window needs a display: on a Linux machine without one, `ui.run()` fails; run the program
+  under `xvfb-run` (chapter 2).
 - Ready-made packages exist for CPython 3.14 and later on five platforms. Elsewhere pip builds
   from source (chapter 2).
 

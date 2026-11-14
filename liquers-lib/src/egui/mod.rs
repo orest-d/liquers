@@ -1,3 +1,41 @@
+//! The egui backend: showing Liquers values and UI elements in egui, and the native window.
+//!
+//! Values render through [`UIValueExtension`]; UI elements through `crate::ui::render_element`.
+//! [`app::run_window`] opens a desktop window over a `crate::ui::NativeDriver` and returns when it
+//! closes, so a program need not write its own frame loop.
+//!
+//! # Main components
+//!
+//! - [`app`] (not on wasm): [`app::run_window`], [`app::WindowOptions`], [`app::WindowCloser`] and
+//!   [`app::FrameControl`], the reusable native window.
+//! - [`UIValueExtension`]: how a `Value` shows itself in an `egui::Ui`.
+//! - [`UiCommand`]: a value that is an egui drawing closure.
+//! - [`widgets`]: asset, metadata, recipe and error panels; `dataframe` (feature `polars`):
+//!   DataFrame tables; [`commands`]: the egui commands.
+//!
+//! # Where it is used
+//!
+//! - `liquers-lib/examples/` (`ui_query_console_app.rs`, `ui_spec_demo.rs`, the other egui
+//!   examples) and `liquers-py`'s `lq.UI.run()` (feature `gui`).
+//!
+//! # Related concepts
+//!
+//! - `crate::ui`: the backend-independent UI model this module shows.
+//! - `specs/reference/UI_INTERFACE_FSD.md`: the model's contract.
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_lib::egui::app::{WindowCloser, WindowOptions};
+//!
+//! let options = WindowOptions::new("Report");
+//! assert_eq!(options.title, "Report");
+//! WindowCloser::default().close(); // no window open: nothing happens
+//! ```
+//!
+//! A window needs the main thread and a display; `crate::egui::app` shows a complete program, and
+//! `liquers-lib/tests/egui_window.rs` runs windows under a virtual display.
+
 use std::sync::Arc;
 
 use egui::RichText;
@@ -11,6 +49,8 @@ use crate::{
     value::{simple::SimpleValue, ExtValue, Value},
 };
 
+#[cfg(not(target_arch = "wasm32"))]
+pub mod app;
 pub mod commands;
 #[cfg(feature = "polars")]
 pub mod dataframe;

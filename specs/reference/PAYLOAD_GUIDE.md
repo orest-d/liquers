@@ -3,7 +3,7 @@ title: Payload Specification and Usage
 kind: reference
 audience: internal
 area: [core/context, core/commands]
-reviewed: 2026-10-17
+reviewed: 2026-11-11
 ---
 # Payload Usage Guide
 
@@ -1173,6 +1173,13 @@ pub struct UserId(pub String);  // Field is public
 | **Boundary** | Keyed recipes cannot require a payload |
 | **Common uses** | UI handles, HTTP request context, user sessions |
 
+### Language bindings
+
+The browser module (`liquers-web`) and the Python package (`liquers-py`) build their
+environments with `SimpleUIPayload`, so their UI models evaluate queries with a payload naming the
+acting element, and any other evaluation passes none. Python reads it as `context.element`, the
+handle or `None` (`PYTHON_INTEGRATION.md` §18).
+
 ### Quick Reference: Access Patterns
 
 | Pattern | Syntax | When to Use |
@@ -1207,6 +1214,7 @@ When creating a newtype for injection:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-11 | Summary, Language bindings: `liquers-web` and `liquers-py` use `SimpleUIPayload`; Python's `context.element`. Only that paragraph was reviewed. | `design/liquers-py-ui/` |
 | 2026-10-17 | A payload-requiring evaluation now finishes `Volatile`: an ad-hoc asset records its plan's volatility. | `design/runtime-volatility` |
 | 2026-10-13 | Stated where an invalid keyed recipe is rejected: in `recipe_opt`, before an asset exists, on every asset manager (the native manager previously deferred it to evaluation), and that overriding or removing such a key is not refused. | `design/default-asset-manager-recipe-opt-payload-check` |
 | 2026-09-04 | Corrected the claim that requiring a payload implies `volatile`. The consequences (never cached, shared, or held as a dependency) are right; the mechanism is construction — ad hoc, non-keyed, in no map — and a payload-requiring evaluation finishes `Ready` with `is_volatile` false. Verified against the planner and pinned by a test. | asset API doc review |

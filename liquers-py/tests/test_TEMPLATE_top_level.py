@@ -156,13 +156,15 @@ def test_second_interrupt_is_deferred(env):
         timer.start()
     started = time.monotonic()
     raised = 0
+    # Nested, because the second interrupt may fire on any bytecode after the render raises,
+    # including while the inner `except` is still matching the first.
     try:
-        env.expand("{{$ slow-5}}")
-    except KeyboardInterrupt:
-        raised += 1
-    try:
-        for _ in range(100):  # gives a pending second interrupt the chance to fire
-            time.sleep(0.01)
+        try:
+            env.expand("{{$ slow-5}}")
+        except KeyboardInterrupt:
+            raised += 1
+            for _ in range(100):  # gives a pending second interrupt the chance to fire
+                time.sleep(0.01)
     except KeyboardInterrupt:
         raised += 1
     for timer in timers:

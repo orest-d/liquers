@@ -5,7 +5,8 @@ interpreter, as a reader would run it. A block that defines ``test_`` functions 
 
 The chapters of the user guide *Liquers for Python* (``docs/guides/python/``) are covered too. A
 chapter may hold a fragment that is not a program (a call to a server that is not running, say);
-its complete examples are the blocks that import ``liquers``, and only those run.
+its complete examples are the blocks that import ``liquers``, and only those run. A block whose
+first line is ``# needs a display`` opens a window that waits for its reader, so it is not run.
 """
 
 import pathlib
@@ -29,6 +30,8 @@ USER_BLOCKS = [
 
 
 def run_block(block, tmp_path, name):
+    if block.startswith("# needs a display"):
+        pytest.skip("opens a window that waits for its reader")
     for module in ("polars", "pyarrow", "pandas", "PIL"):
         if module in block:
             pytest.importorskip(module)

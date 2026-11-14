@@ -1,9 +1,9 @@
 //! The built-in Rust command set, registered into every Python environment.
 //!
 //! A fresh `lq.Environment()` evaluates `liquers-lib` queries with nothing registered (AC-2): the
-//! core commands, `ns-pl`, images, records, search and templates. `egui` is not linked, because a
-//! Python process has no egui event loop, and `lui` needs a UI payload this environment does not
-//! have.
+//! core commands, `ns-pl`, images, records, search and templates, and the `lui` commands that
+//! build and navigate a UI model (`lq.UI`, `ui.rs`); they need the UI payload, which only a
+//! UI's actions pass, and fail with their own error elsewhere.
 //!
 //! # Why this is its own module
 //!
@@ -31,6 +31,7 @@ pub fn register(cr: &mut CommandRegistry<PyEnvironment>) -> Result<(), Error> {
     liquers_lib::register_records_commands!(cr)?;
     liquers_lib::register_search_commands!(cr)?;
     liquers_lib::register_template_commands!(cr)?;
+    liquers_lib::register_lui_commands!(cr)?;
     #[cfg(feature = "debug-handles")]
     register_test_commands(cr)?;
     Ok(())

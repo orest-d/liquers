@@ -123,6 +123,7 @@ pub(crate) fn exiting() -> bool {
 pub(crate) fn at_exit(py: Python<'_>) -> PyResult<()> {
     // Servers first, so no request starts a command once the cancellation below begins.
     crate::server::stop_all(py, crate::server::EXIT_DEADLINE);
+    crate::ui::stop_all_uis(py);
     EXITING.store(true, Ordering::SeqCst);
     let assets: Vec<CoreAssetRef<PyEnvironment>> =
         in_flight().iter().filter_map(|(_, asset)| asset.clone()).collect();

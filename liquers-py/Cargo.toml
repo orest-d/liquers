@@ -15,8 +15,8 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 pyo3 = { version = "0.30.1" }
 liquers-core={path="../liquers-core"}
-# The value type, the command library and the default environment. `egui` is left out: a Python
-# process has no egui event loop, and it is the heaviest optional dependency.
+# The value type, the command library and the default environment. `egui` comes only with the
+# `gui` feature below (the window of `lq.UI.run()`), on by default.
 liquers-lib = { path = "../liquers-lib", default-features = false, features = ["image-support", "polars", "records", "records-ipc", "records-parquet", "templates"] }
 # Linked because the liquers-lib command macros expand into this crate and name these crates.
 liquers-macro = { path = "../liquers-macro" }
@@ -48,7 +48,7 @@ once_cell = "1.21.4"
 chrono = "0.4.45"
 
 [features]
-default=["async_store", "extension-module"]
+default=["async_store", "extension-module", "gui"]
 # Kept so existing `--features async_store` invocations still resolve; it gates nothing since
 # the store is always async (`CORE-SYNC-STORE-TRAIT-OBSOLETE`).
 async_store=[]
@@ -60,6 +60,11 @@ async_store=[]
 # as they were, while `cargo test -p liquers-py --no-default-features` links against libpython and
 # can run. This is the recipe the PyO3 guide gives for exactly this problem.
 extension-module=["pyo3/extension-module"]
+
+# The egui window of `lq.UI.run()` (specs/design/liquers-py-ui-window/): links liquers-lib's egui
+# backend, about 8 MB more in a compressed wheel. On by default, so every standard wheel can open a
+# window; a source build without it raises from `run()` instead.
+gui=["liquers-lib/egui"]
 
 # Test-only: exposes `Environment.live_handle_count()`, the number of Python callables the command
 # registrations hold, so `RUNTIME05` can assert their release deterministically rather than through

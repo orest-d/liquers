@@ -5,6 +5,8 @@
 //! - OpenDAL filesystem store at the current working directory
 //! - Default recipe provider for store-backed queries
 //! - QueryConsoleElement created via menu action
+//! - The reusable window: `NativeDriver` and `liquers_lib::egui::app::run_window`, where *Quit*
+//!   closes the window
 //!
 //! Run with: `cargo run --example ui_query_console_app -p liquers-lib`
 
@@ -17,10 +19,8 @@ use liquers_core::state::State;
 use liquers_core::store::AsyncStore;
 use liquers_lib::environment::{CommandRegistryAccess, DefaultEnvironment};
 use liquers_lib::ui::payload::SimpleUIPayload;
-use liquers_lib::ui::{
-    app_message_channel, render_element, try_sync_lock, AppRunner, AppState, DirectAppState,
-    Invalidation, UIContext,
-};
+use liquers_lib::egui::app::{run_window, WindowCloser, WindowOptions};
+use liquers_lib::ui::{app_message_channel, AppState, DirectAppState, NativeDriver};
 use liquers_lib::value::Value;
 use liquers_macro::register_command;
 use liquers_store::opendal_store::AsyncOpenDALStore;
@@ -66,132 +66,52 @@ layout: windows
 #  - "main_spec/q/ns-lui/query_console/add-child"
 "#;
 
-// ─── eframe App ──────────────────────────────────────────────────────────────
-
-struct QueryConsoleApp {
-    ui_context: UIContext,
-    app_runner: AppRunner<CommandEnvironment>,
-    _runtime: tokio::runtime::Runtime,
-    initialized: bool,
-}
-
-impl QueryConsoleApp {
-    fn new(_cc: &eframe::CreationContext<'_>) -> Self {
-        let runtime = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
-
-        let (ui_context, app_runner) = runtime
-            .block_on(async {
-                // 1. Setup environment
-                let mut env = DefaultEnvironment::<Value, SimpleUIPayload>::new();
-
-                // 2. Add OpenDAL filesystem store at current working directory
-                let fs_op = opendal::Operator::new(opendal::services::Fs::default().root("."))
-                    .expect("Failed to create OpenDAL FS operator")
-                    .finish();
-                let store: Box<dyn AsyncStore> =
-                    Box::new(AsyncOpenDALStore::new(fs_op, Key::new()));
-                env.with_async_store(store);
-
-                // 3. Add default recipe provider
-                env.with_default_recipe_provider();
-
-                // 4. Register commands
-                let envref = {
-                    let cr = env.get_mut_command_registry();
-                    register_command!(cr, fn main_spec(state) -> result)?;
-                    liquers_lib::register_all_commands!(cr)?;
-                    env.to_ref()
-                };
-
-                // 5. Create empty AppState — root will be created by query
-                let app_state: Arc<tokio::sync::Mutex<dyn AppState>> =
-                    Arc::new(tokio::sync::Mutex::new(DirectAppState::new()));
-
-                // 6. Create UIContext and AppRunner
-                let (msg_tx, msg_rx) = app_message_channel();
-                let ui_context = UIContext::new(app_state, msg_tx.clone());
-                let app_runner = AppRunner::new(envref, msg_rx, msg_tx);
-
-                Ok::<_, Error>((ui_context, app_runner))
-            })
-            .expect("Failed to setup app");
-
-        Self {
-            ui_context,
-            app_runner,
-            _runtime: runtime,
-            initialized: false,
-        }
-    }
-}
-
-impl eframe::App for QueryConsoleApp {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        let app_state = self.ui_context.app_state().clone();
-
-        // Submit root query on first frame
-        if !self.initialized {
-            self.initialized = true;
-            self.ui_context.submit_root_query(
-                "main_spec/ns-lui/ui_spec/add-child", //"ns-lui/query_console/add-child"
-            );
-        }
-
-        // Process messages and poll evaluations
-        let _ = self
-            ._runtime
-            .block_on(async { self.app_runner.run(&app_state).await });
-
-        // Repaint when the model changed (taken unconditionally so the record always clears)
-        // or while async work is still in flight.
-        let model_changed = {
-            let mut state = app_state.blocking_lock();
-            !matches!(state.take_invalidation(), Invalidation::None)
-        };
-        if model_changed || self.app_runner.needs_repaint() {
-            ui.ctx().request_repaint();
-        }
-
-        {
-            let roots = match try_sync_lock(&app_state) {
-                Ok(state) => state.roots(),
-                Err(e) => {
-                    ui.label(format!("Error: {}", e));
-                    ui.spinner();
-                    return;
-                }
-            };
-
-            if roots.is_empty() {
-                ui.centered_and_justified(|ui| {
-                    ui.spinner();
-                });
-            } else {
-                for handle in roots {
-                    render_element(ui, handle, &self.ui_context);
-                }
-            }
-        }
-    }
-}
-
 // ─── Main ────────────────────────────────────────────────────────────────────
 
-fn main() -> eframe::Result {
+fn main() -> Result<(), Error> {
     println!("Starting Query Console App...");
     println!("Root element will be created via query (submit_root_query)");
-    println!("Use File > New Console (Ctrl+N) to open query consoles");
+    println!("Use File > New Console (Ctrl+N) to open query consoles, File > Quit to close");
 
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([900.0, 700.0])
-            .with_title("Query Console App"),
-        ..Default::default()
-    };
+    let runtime = tokio::runtime::Runtime::new()
+        .map_err(|e| Error::general_error(format!("cannot start a Tokio runtime: {e}")))?;
 
-    eframe::run_native(
-        "Query Console App",
-        options,
-        Box::new(|cc| Ok(Box::new(QueryConsoleApp::new(cc)))),
-    )
+    let mut driver = runtime.block_on(async {
+        // 1. Setup environment
+        let mut env = DefaultEnvironment::<Value, SimpleUIPayload>::new();
+
+        // 2. Add OpenDAL filesystem store at current working directory
+        let fs_op = opendal::Operator::new(opendal::services::Fs::default().root("."))
+            .map_err(|e| Error::general_error(format!("cannot open the working directory: {e}")))?
+            .finish();
+        let store: Box<dyn AsyncStore> = Box::new(AsyncOpenDALStore::new(fs_op, Key::new()));
+        env.with_async_store(store);
+
+        // 3. Add default recipe provider
+        env.with_default_recipe_provider();
+
+        // 4. Register commands
+        let envref = {
+            let cr = env.get_mut_command_registry();
+            register_command!(cr, fn main_spec(state) -> result)?;
+            liquers_lib::register_all_commands!(cr)?;
+            env.to_ref()
+        };
+
+        // 5. Create empty AppState — root will be created by query
+        let app_state: Arc<tokio::sync::Mutex<dyn AppState>> =
+            Arc::new(tokio::sync::Mutex::new(DirectAppState::new()));
+
+        // 6. The driver owns the runner; the window ticks it every frame.
+        let (sender, receiver) = app_message_channel();
+        Ok::<_, Error>(NativeDriver::new(envref, app_state, receiver, sender))
+    })?;
+
+    driver
+        .ui_context()
+        .submit_root_query("main_spec/ns-lui/ui_spec/add-child");
+
+    let mut options = WindowOptions::new("Query Console App");
+    options.inner_size = [900.0, 700.0];
+    run_window(options, &mut driver, runtime.handle(), &WindowCloser::default(), None)
 }

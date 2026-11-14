@@ -31,6 +31,10 @@ have a row here (`specs/guides/USER_DOCS_EDITING_GUIDE.md`, maintenance).
 | 2026-11-10 | all chapters | promoted from `draft` to `ready` so that release builds publish the guide; the open `CHECK:` (chapter 2) became reader text, the two `TBD:` notes (chapter 13, appendix A) became `EDITOR:` notes |
 | 2026-11-10 | 08-environment.md | merged with the M7 server work: `config=` takes a `pathlib.Path`; keywords override the configuration; the `command_registry`, `python` and `server` sections; unknown sections are errors; command metadata from a file; examples run |
 | 2026-11-10 | 12-serving.md | merged with the M7 server work: new 12.3 Serving an environment (`env.serve`, foreground, asyncio, settings with the shared `_shared/serving.md`, stopping); 12.4-12.6 renumbered; a Rust server cannot run Python commands, a served environment can; examples run |
+| 2026-11-11 | 11-ui.md | rewritten for the UI model and the window: `env.ui()`, status callbacks and who runs them, elements and actions (`context.element`), `ui.run()` on the main thread, Ctrl-C, a server beside the window; examples run |
+| 2026-11-11 | 02-installing.md | 2.1: every package opens the window (about 8 MB); 2.3: a build without the window, a virtual display on Linux |
+| 2026-11-11 | 01-introduction.md, d-sister-guides.md, 15-troubleshooting.md | user interfaces are available from Python; the window needs a display |
+| 2026-11-14 | 11-ui.md | reviewed against `reference/PYTHON_INTEGRATION.md` §18: `wait_idle_async` inside a command, `async def` ones too, raises |
 | 2026-11-14 | 01-introduction.md | chapter 13 is now *Records*: the table of chapters and the paragraph on search follow |
 | 2026-11-14 | 03-queries.md | 3.9 is *Building and editing a query*: the query editor first, with typed values and the editing of an existing query; the older way after it. 3.10 rewritten around the shared fragments `_shared/pipelines.md` and `_shared/pipeline-or-query.md`: creating, reading, editing a pipeline, and when to prefer a query. Links to the API reference. Examples run |
 | 2026-11-14 | 07-assets.md | a recipe with a pipeline: the shared section in `_shared/assets.md` and a tested example |
@@ -40,3 +44,4 @@ have a row here (`specs/guides/USER_DOCS_EDITING_GUIDE.md`, maintenance).
 | 2026-11-14 | c-glossary.md | adds chunk, manifest, query editor, record, record source, record stream, schema |
 | 2026-11-14 | d-sister-guides.md | chapter 13 is *Records*; adds appendix E |
 | 2026-11-14 | e-web-api.md | new appendix: the web API reference, from the shared fragment `_shared/web-api.md` (written from `reference/WEB_API_SPECIFICATION.md`, example answers taken from a running server); `ready` |
+| 2026-11-14 | 11-ui.md | adds 11.6, the reference for UI specs and the `ns-lui` commands, from the shared fragment `_shared/ui-reference.md` |

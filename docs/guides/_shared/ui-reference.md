@@ -1,4 +1,4 @@
-EDITOR: shared fragment (the fields of a UI spec and the commands of `ns-lui`, the same in every guide), included by chapter 11 of the Rust and the Web guide. Keep it language-neutral: queries and YAML only, no host-language code. Written from reference/UI_INTERFACE_FSD.md and the `lui` commands of the command registry. The full example was run in the browser module.
+EDITOR: shared fragment (the fields of a UI spec and the commands of `ns-lui`, the same in every guide), included by chapter 11 of all three guides. Keep it language-neutral: queries and YAML only, no host-language code. Written from reference/UI_INTERFACE_FSD.md and the `lui` commands of the command registry. The full example was run in the browser module.
 
 This section lists what a UI spec may contain and what the commands of `ns-lui` do. It is the
 same on the desktop and in the browser.

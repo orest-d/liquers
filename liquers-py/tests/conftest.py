@@ -145,3 +145,27 @@ def run_async(main, timeout=30):
     if "error" in outcome:
         raise outcome["error"]
     return outcome.get("value")
+
+
+def has_display():
+    """Whether a window can open: a display on Linux, always elsewhere."""
+    import os
+    import sys
+
+    if not sys.platform.startswith("linux"):
+        return True
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "gui: opens a desktop window; skipped without a display")
+
+
+def pytest_collection_modifyitems(config, items):
+    """`gui` tests run under a display (`xvfb-run -a pytest`) and are skipped without one."""
+    if has_display():
+        return
+    skip = pytest.mark.skip(reason="no display: run under xvfb-run to open windows")
+    for item in items:
+        if "gui" in item.keywords:
+            item.add_marker(skip)

@@ -1,10 +1,10 @@
-"""The process-wide default environment, used by ``lq.evaluate``, ``lq.serve`` and the bare decorators."""
+"""The process-wide default environment, used by ``lq.evaluate``, ``lq.serve``, ``lq.ui`` and the bare decorators."""
 
 import threading
 from collections.abc import Awaitable, Coroutine
 from typing import Any
 
-from liquers._native import Environment, Server
+from liquers._native import UI, Environment, Server
 
 _DEFAULT: Environment | None = None
 _LOCK = threading.Lock()
@@ -32,6 +32,11 @@ def evaluate_async(query: Any) -> Awaitable[Any]:
 def serve(**settings: Any) -> Server:
     """Serves the default environment over HTTP: ``lq.serve(port=0)``; see ``Environment.serve``."""
     return default_environment().serve(**settings)
+
+
+def ui() -> UI:
+    """A new UI model on the default environment; see ``Environment.ui``."""
+    return default_environment().ui()
 
 
 def serve_async(**settings: Any) -> Coroutine[Any, Any, None]:

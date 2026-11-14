@@ -93,6 +93,7 @@ use liquers_core::query::Key;
 use liquers_core::type_system::TypeRegistry;
 use liquers_core::value::{DefaultValueSerializer, ValueInterface};
 use liquers_lib::environment::{default_environment_builder, DefaultEnvironment, LibKind};
+use liquers_lib::ui::SimpleUIPayload;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString};
 
@@ -109,9 +110,9 @@ use crate::records::Scope;
 use crate::value::{py_to_value, py_type_info, value_to_py, ConversionMode, Value};
 
 /// The environment every Python handle builds.
-pub type PyEnvironment = DefaultEnvironment<Value>;
+pub type PyEnvironment = DefaultEnvironment<Value, SimpleUIPayload>;
 
-type PyBuilder = EnvironmentBuilder<Value, (), LibKind>;
+type PyBuilder = EnvironmentBuilder<Value, SimpleUIPayload, LibKind>;
 
 /// Where a handle's environment is in its life.
 enum EnvState {
@@ -156,6 +157,8 @@ pub struct EnvCell {
     current: RwLock<Option<EnvRef<PyEnvironment>>>,
     /// The servers started from this environment; stopped ones are pruned on each access.
     servers: Mutex<ServerList>,
+    /// The UI models made by `ui()`, disposed by `shutdown()` after the servers.
+    uis: Mutex<crate::ui::UiList>,
     pub conversion: ConversionMode,
     pub pickle: bool,
     /// Fired by `shutdown()`; every wait started from this handle watches it.
@@ -193,6 +196,7 @@ impl EnvCell {
             config,
             current: RwLock::new(None),
             servers: Mutex::new(ServerList::default()),
+            uis: Mutex::new(crate::ui::UiList::default()),
             conversion,
             pickle,
             shut: Arc::new(Shut::default()),
@@ -264,6 +268,14 @@ impl EnvCell {
         Ok(())
     }
 
+    /// Records a UI model made from this environment, or refuses it after `shutdown()`.
+    pub(crate) fn add_ui(&self, model: std::sync::Weak<crate::ui::UiModel>) -> Result<(), Error> {
+        match self.uis.lock() {
+            Ok(mut uis) => uis.add(model),
+            Err(poisoned) => poisoned.into_inner().add(model),
+        }
+    }
+
     /// The running servers started from this environment.
     pub(crate) fn running_servers(&self) -> Vec<Arc<ServerSlot>> {
         let mut servers = lock_servers(&self.servers);
@@ -282,7 +294,7 @@ impl EnvCell {
     fn configured_builder(&self, declarations: &Declarations) -> Result<(PyBuilder, IssueReport), Error> {
         let mut types = TypeRegistry::from_value_type::<Value>();
         types.register(py_type_info(self.pickle))?;
-        let mut builder = default_environment_builder::<Value, ()>()
+        let mut builder = default_environment_builder::<Value, SimpleUIPayload>()
             .with_type_registry(types)
             .with_asset_manager_options(self.config.environment.assets.clone())
             .with_recipes(self.config.environment.recipes.clone())
@@ -518,6 +530,15 @@ impl EnvCell {
             });
         }
         drop(servers);
+        // Then the UI models: their tasks stop before the asset managers they evaluate with.
+        let uis = match self.uis.lock() {
+            Ok(mut uis) => uis.close(),
+            Err(poisoned) => poisoned.into_inner().close(),
+        };
+        for model in &uis {
+            model.dispose(py);
+        }
+        drop(uis);
         self.shut.fire();
         let specs: Vec<PyCommandSpec>;
         let mut declarations = self.lock(py)?;
@@ -1349,6 +1370,13 @@ impl Environment {
             }),
             Err(e) => Err(error_to_pyerr(py, &e)),
         }
+    }
+
+    /// A new Liquers UI model on this environment (`lq.UI`): show queries as elements, submit
+    /// actions, follow statuses. Each call makes a separate model; its elements evaluate in the
+    /// background until `dispose()` or `shutdown()`. See `PYTHON_GUIDE.md` "Show a Liquers UI".
+    fn ui(&self, py: Python<'_>) -> PyResult<crate::ui::UI> {
+        crate::ui::UI::new(py, &self.cell)
     }
 
     /// Serves this environment over the Liquers HTTP API and returns the running `lq.Server`.

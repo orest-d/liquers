@@ -398,6 +398,12 @@ fn ext_to_py(py: Python<'_>, value: &ExtValue, scope: &Scope) -> Result<Py<PyAny
             )),
         };
     }
+    if let ExtValue::UIElement { value: element } = value {
+        // A live element, not data: Python holds the same `Arc` (`lq.UIElement`).
+        return Py::new(py, crate::ui::UIElement::new(element.clone()))
+            .map(Py::into_any)
+            .map_err(|e| py_conversion_error("UIElement", e));
+    }
     if let ExtValue::PolarsDataFrame { value: frame } = value {
         let mut parquet = Vec::new();
         liquers_lib::polars::serde::serialize_dataframe_to_writer(frame, "parquet", &mut parquet)?;
@@ -610,6 +616,9 @@ fn py_to_ext(object: &Bound<'_, PyAny>) -> Result<Option<ExtValue>, Error> {
     }
     if let Ok(source) = object.cast::<crate::records::source::RecordSource>() {
         return Ok(Some(ExtValue::RecordSource { value: source.get().inner.clone() }));
+    }
+    if let Ok(element) = object.cast::<crate::ui::UIElement>() {
+        return Ok(Some(ExtValue::UIElement { value: element.get().value.clone() }));
     }
     let type_name = qualified_type_name(object);
     if type_name == "pyarrow.lib.Table" || type_name == "pyarrow.lib.RecordBatch" {

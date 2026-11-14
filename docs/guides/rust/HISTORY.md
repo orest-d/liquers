@@ -28,6 +28,8 @@ have a row here (`specs/guides/USER_DOCS_EDITING_GUIDE.md`, maintenance).
 | 2026-11-10 | c-glossary.md | the terms in Rust and the terms this guide adds; `ready` |
 | 2026-11-10 | d-sister-guides.md | introduction written; `ready` |
 | 2026-11-10 | (all) | every `rust` block is a slice of `liquers-lib/tests/user_guide_GUIDE.rs` or `liquers-axum/tests/user_guide_GUIDE.rs`, checked by `liquers-docs/tests/rust_guide_examples.rs` |
+| 2026-11-11 | 11-ui.md | 11.3 rewritten for the reusable window: `NativeDriver`, `run_window` on the main thread, closing, the frame hook, the headless driver |
+| 2026-11-11 | d-sister-guides.md | the Python guide's chapter 11 now covers user interfaces |
 | 2026-11-14 | 01-introduction.md | chapter 13 is now *Records*: the table of chapters and the paragraph on search follow |
 | 2026-11-14 | 03-queries.md | 3.9 is *Building and editing a query*: the query editor first, with typed values and the editing of an existing query; the older way after it. 3.10 rewritten around the shared fragments `_shared/pipelines.md` and `_shared/pipeline-or-query.md`: creating, reading, editing a pipeline, and when to prefer a query. Links to the API reference. Examples run |
 | 2026-11-14 | 07-assets.md | a recipe with a pipeline: the shared section in `_shared/assets.md` and a tested example |

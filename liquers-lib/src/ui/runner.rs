@@ -1,3 +1,58 @@
+//! The message and evaluation loop of a Liquers UI: one pass per [`AppRunner::run`].
+//!
+//! A UI's elements live in an [`AppState`]; messages (`AppMessage`) and element sources change it,
+//! and the runner turns those changes into evaluations. Each `run` drains the message channel,
+//! starts an evaluation for every pending node, and moves finished evaluations into their elements.
+//! It never blocks on an evaluation, and it leaves scheduling, repainting and quitting to its host.
+//!
+//! # Main components
+//!
+//! - [`AppRunner`]: the loop. [`AppRunner::run`] does one pass; [`AppRunner::take_events`],
+//!   [`AppRunner::take_quit_request`] and [`AppRunner::has_pending_messages`] tell the host what it
+//!   did and what is left.
+//! - [`RunnerEvent`]: a status change of one element (`Processing`, `Ready`, `Error`), in order.
+//! - [`ElementStatusInfo`]: an element's status as the runner sees it, for display.
+//!
+//! # Where it is used
+//!
+//! - `crate::ui::native` `NativeDriver`, which owns a runner for the egui window and for headless
+//!   hosts such as `liquers-py`'s `lq.UI`.
+//! - `crate::ui::web`, the browser mount (wasm), which schedules `run` with the browser's timers.
+//! - The egui examples in `liquers-lib/examples/` that still drive it by hand.
+//!
+//! # Related concepts
+//!
+//! - [`AppState`] and `UIChange`: the element tree the runner evaluates into.
+//! - `UIContext`: how commands and widgets send messages to the runner.
+//! - Stale results: an evaluation whose element changed source meanwhile is dropped, and the
+//!   element is evaluated again (`specs/reference/UI_INTERFACE_FSD.md`).
+//!
+//! # Examples
+//!
+//! ```
+//! # use std::sync::Arc;
+//! # use liquers_core::context::Environment;
+//! # use liquers_lib::environment::DefaultEnvironment;
+//! # use liquers_lib::ui::{app_message_channel, AppRunner, AppState, DirectAppState, SimpleUIPayload, UIContext};
+//! # use liquers_lib::value::Value;
+//! # let rt = tokio::runtime::Runtime::new().unwrap();
+//! # rt.block_on(async {
+//! let envref = DefaultEnvironment::<Value, SimpleUIPayload>::new().to_ref();
+//! let app_state: Arc<tokio::sync::Mutex<dyn AppState>> =
+//!     Arc::new(tokio::sync::Mutex::new(DirectAppState::new()));
+//! let (sender, receiver) = app_message_channel();
+//! let mut runner = AppRunner::new(envref, receiver, sender.clone());
+//! let _ = sender.send(liquers_lib::ui::AppMessage::Quit);
+//! assert!(runner.has_pending_messages());
+//! runner.run(&app_state).await.unwrap();
+//! assert!(runner.take_quit_request());
+//! assert!(!runner.has_pending_messages());
+//! # });
+//! ```
+//!
+//! More: `crate::ui::native` (a runner ticked in the background or by a window) and the tests at
+//! the end of this file.
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -70,6 +125,7 @@ pub struct AppRunner<E: Environment> {
     message_rx: AppMessageReceiver,
     sender: AppMessageSender,
     events: Vec<RunnerEvent>,
+    quit_requested: bool,
 }
 
 impl<E> AppRunner<E>
@@ -94,6 +150,7 @@ where
             message_rx,
             sender,
             events: Vec::new(),
+            quit_requested: false,
         }
     }
 
@@ -101,6 +158,19 @@ where
     /// the environment they started in.
     pub fn replace_envref(&mut self, envref: EnvRef<E>) {
         self.envref = envref;
+    }
+
+    /// Whether an `AppMessage::Quit` arrived since the last call; clears the request.
+    ///
+    /// The runner does not close anything itself: the host (a native window, the browser
+    /// mount, a headless loop) decides what quitting means.
+    pub fn take_quit_request(&mut self) -> bool {
+        std::mem::take(&mut self.quit_requested)
+    }
+
+    /// Whether messages are waiting in the channel for the next `run`.
+    pub fn has_pending_messages(&self) -> bool {
+        !self.message_rx.is_empty()
     }
 
     /// Drains the status events recorded since the last call, in recording order.
@@ -239,10 +309,9 @@ where
                     .await;
                 }
                 AppMessage::Quit => {
-                    // Delegate quit handling to the application layer.
-                    // The app should check for this via a separate mechanism
-                    // (e.g. egui viewport close command).
-                    // We don't handle it here to avoid coupling to egui.
+                    // Recorded for the host, which owns the window (or the loop) to close:
+                    // read it with `take_quit_request` after `run`.
+                    self.quit_requested = true;
                 }
                 AppMessage::Serialize { path: _ } => {
                     // Serialization is application-specific.

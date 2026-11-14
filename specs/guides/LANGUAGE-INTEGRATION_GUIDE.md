@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets, core/store, core/value, lib/commands]
-reviewed: 2026-11-09
+reviewed: 2026-11-11
 ---
 # Liquers Language Integration Guide
 
@@ -2149,6 +2149,18 @@ settled on, and the list after them is what cost time. Its contract is
   commands are cancelled, or a request can enter a finalizing interpreter. Stop without needing a
   runtime context (`futures::executor::block_on` over tokens), because the exit hook has none.
 
+- **A Liquers UI** (`UIUSE`, `specs/design/liquers-py-ui/`, `specs/design/liquers-py-ui-window/`).
+  Give the environment the UI payload (`SimpleUIPayload`) and the `lui` built-ins, and drive the
+  model with `liquers-lib`'s `NativeDriver`: `spawn_headless` ticks it in the background, and the
+  egui window borrows the same driver (`HeadlessHandle::stop` returns it) and gives it back. Queue
+  status events in the tick and deliver them only on a thread that asks (a wait, the awaiting event
+  loop, an explicit `process_events`, the window's frame hook), never under the `AppState` lock,
+  so a callback may call back into the UI. Refuse a wait that could never return: inside a command
+  the model is waiting for, and on the window's thread. A window needs the main thread: release
+  the GIL for the event loop and re-attach in the frame hook to deliver and check signals, so
+  Ctrl-C closes it. Count changes after making them and read the count before the tick looks at
+  the model, so "idle" means a settled tick has seen every change.
+
 - **Templates** (`specs/design/liquers-py-templates/`). The `ns-template` commands are in the
   built-in set (`liquers-py/src/builtins.rs`). `render` / `expand` / `validate_template` sit on the
   environment and on `Context` with one signature. A top-level render needs an asset to run in, so
@@ -4040,6 +4052,7 @@ def test_DOCS04_every_public_name_is_documented():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-11 | §6 Python: a Liquers UI (`UIUSE`): the UI payload, the native driver in the background and in a window, delivery on threads that ask, unreturnable waits refused, the main-thread window with Ctrl-C. | `design/liquers-py-ui/`, `design/liquers-py-ui-window/` |
 | 2026-11-09 | §6 Python: the web server (an `EnvSource` over the current build without the GIL, settings from the configuration document, servers stop first at shutdown and exit). | phase-5, `design/liquers-py-web-server/` |
 | 2026-11-04 | §PIPELINE: `liquers-py` implements the feature; §6 Python: *Pipelines* (the JSON walker, `apply_queued` at the top level and `apply_ad_hoc` in a command, editors committed from a clone, declared pipeline commands). | `design/liquers-py-pipelines/` |
 | 2026-11-04 | §6 Python: *Templates* (two receivers, the top-level closure asset and its wait, template commands as declarations, `lq.link`); `TEMPLATE` is implemented by `liquers-py`. | `design/liquers-py-templates/` |

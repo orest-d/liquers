@@ -2,7 +2,7 @@
 id: PY-CANNOT-USE-A-LIQUERS-UI
 kind: feature
 title: Python cannot hold, drive or observe a Liquers UI model on its environment
-status: draft
+status: closed
 priority: P3
 complexity: L
 area: [py, lib/ui]
@@ -10,6 +10,13 @@ design: liquers-py-ui
 created: 2026-11-06
 github:
 ---
+
+## Resolution
+
+Fixed by `specs/design/liquers-py-ui/`. `env.ui()` / `lq.ui()` return an `lq.UI` over a model
+driven in the background (`liquers-py/src/ui.rs`); the environment has the UI payload and the `lui`
+built-ins; UI elements cross as `lq.UIElement`; `context.element` names the acting element.
+Contract: `reference/PYTHON_INTEGRATION.md` §18. Evidence: `liquers-py/tests/test_UIUSE_model.py`.
 
 ## Problem
 

@@ -3,7 +3,7 @@ title: UI Interface Specification
 kind: reference
 audience: internal
 area: [lib/ui]
-reviewed: 2026-10-30
+reviewed: 2026-11-11
 ---
 # UI Interface Specification
 
@@ -380,6 +380,35 @@ shortcuts are consumed by `UISpecElement` itself (`consume_shortcut`) and run th
 in neither backend is a shortcut a `UIEvent`. Kinds beyond `Submit` and `Named` (field change,
 drop, focus, pointer) are not yet defined (`UI-EVENTS-HAVE-NO-POINTER-DRAG-OR-CHANGE-KINDS`).
 
+## Hosts
+
+A *host* owns an `AppState`, its message channel and an `AppRunner`, and decides when the runner
+runs, what quitting means and where status goes. Reviewed against the implementation on
+2026-11-11; the rest of this document was not.
+
+| Host | Where | Ticks the runner | Quit |
+|---|---|---|---|
+| Browser mount | `liquers-lib/src/ui/web/` (`mount_web`, `run_headless`; wasm) | the browser's timers | the page decides |
+| Native driver | `liquers-lib/src/ui/native.rs` `NativeDriver`, `spawn_headless` | `NativeDriver::tick`, from a window or a background task | `Tick::quit` |
+| egui window | `liquers-lib/src/egui/app.rs` `run_window` (feature `egui`) | every frame, and every `poll_interval` while hidden | *Quit* closes the window |
+| Python | `liquers-py/src/ui.rs` `lq.UI` | a background `spawn_headless` task, or the window of `UI.run()` | *Quit* closes the window |
+
+`NativeDriver::tick` runs the runner once and reports a `Tick`: the invalidation, the status
+events (`RunnerEvent`), a quit request (`AppRunner::take_quit_request`), and whether the model
+**settled** (no message waiting, no node pending, no evaluation in flight). A host that changes
+the model from another thread increments the driver's change counter after the change; a settled
+tick whose `changes` has reached that value has seen it. `HeadlessHandle::stop` returns the driver,
+so a model can move from the background to a window and back (the Python host does so).
+
+`run_window` must be called on the main thread and outside a Tokio runtime; it returns an `Error`
+instead of panicking when it cannot open a window, and refuses a second window while one is open.
+A `WindowCloser` closes it from any thread, and an `on_frame` hook sees each tick with no
+`AppState` lock held and may close it. A submitted action is awaited inside a tick, so a slow one
+delays the next tick and freezes the window meanwhile (`WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS`).
+
+The Python host's contract (delivery of status callbacks, `context.element`, lifetime) is
+`PYTHON_INTEGRATION.md` §18.
+
 ## Use Cases
 
 Use cases drive interface design by identifying common operations and interaction patterns.
@@ -739,3 +768,4 @@ Candidate universal operations identified across use cases:
 |---|---|---|
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |
 | 2026-10-30 | Event Handling: implemented UI events (`UIEvent`, `data-lq-*` markup, keyboard precedence, limits). Only that section was reviewed against the implementation. | ui-events |
+| 2026-11-11 | Hosts: the native driver, the egui window and the Python host; reviewed against the implementation (that section only). | `design/egui-native-app/`, `design/liquers-py-ui/`, `design/liquers-py-ui-window/` |
