@@ -3,9 +3,9 @@ id: LIQUERS-PY-UI-WINDOW
 kind: design
 title: "Liquers UI window from liquers-py: open the egui desktop UI over a Python environment"
 workflow: liquers-project
-status: in_review
-phase: documentation
-readiness: needs-decision
+gh_pr: [268]
+status: complete
+readiness: ready
 autofix: not-eligible
 area: [py, lib/egui, build]
 issues: [PY-CANNOT-OPEN-A-LIQUERS-UI-WINDOW]
@@ -27,7 +27,8 @@ Phase 1 approved 2026-11-07 (Orest: "proceed", gate after each phase). Phase 2 w
 after Orest asked to "design the UI - egui support". Phase 2 approved 2026-11-11 (Orest: "proceed
 all", which pre-approves Phases 3 and 4, the implementation and Phase 5); its question 1 (egui in
 every wheel) is unanswered and assumed "yes". Pre-approved after Phase 2 on 2026-11-11.
-Phases 3 and 4 written 2026-11-11 from the working implementation.
+Phases 3 and 4 written 2026-11-11 from the working implementation. Implemented on PR #268 (the third
+commit group). Phase 5 written 2026-11-11 and approved 2026-11-14 (Orest: "complete and merge the design"): `status: complete`. Completing it accepts question 1 as built: egui is in every wheel.
 
 ## Phases
 

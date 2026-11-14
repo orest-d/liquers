@@ -9,9 +9,9 @@ modes, for `VISION.md`'s UI roadmap item 1, the desktop egui application. Milest
 
 ## Design Readiness
 
-- **Readiness:** `needs-decision` (Phase 4 review, 2026-11-11): question 1 is still open. Phase 2
-  was approved with "proceed all" on 2026-11-11 without an answer to it, so the implementation
-  assumes "yes", the recommended answer.
+- **Readiness:** `ready`. Question 1 stayed open through the implementation, which assumed "yes",
+  the recommended answer; Orest accepted it as built on 2026-11-14 ("complete and merge the
+  design").
 - **Automatic fixing:** `not-eligible`: an `L` feature that changes what every wheel contains.
 - **Leading issue:** question 1, whether the published wheels carry egui. Source issue
   `PY-CANNOT-OPEN-A-LIQUERS-UI-WINDOW` (P3 L, filed with this design).
@@ -20,7 +20,7 @@ modes, for `VISION.md`'s UI roadmap item 1, the desktop egui application. Milest
   frame loop (`EGUI-HAS-NO-REUSABLE-NATIVE-APP`, filed with this design). Python adds the main-thread
   rule, the GIL and Ctrl-C.
 - **Open questions:**
-  1. **Needs decision (not blocking since Phase 2): egui in the wheels.** Recommended, and assumed by Phase 2 pending the
+  1. **Decided 2026-11-14 (yes): egui in the wheels.** Recommended, assumed by Phase 2 pending the
      owner's confirmation at its gate: every published wheel includes the egui backend, so `pip install liquers-py` can open a window. **Measured 2026-11-06** (Linux
      x86_64, `--profile wheel --features abi3`, with a probe that links `eframe::run_native`,
      `render_element` and the egui commands): the library grows from 85.3 MB to 104.4 MB
@@ -52,8 +52,8 @@ modes, for `VISION.md`'s UI roadmap item 1, the desktop egui application. Milest
   5. **Proposed resolution: tests.** The window tests are marked `gui` and deselected by default;
      CI runs them on Linux under a virtual display if Phase 2 shows that is reliable.
 - **Decision log (pre-approval, 2026-11-11):**
-  1. **Needs decision, not blocking: egui in every wheel** (question 1). Assumed yes: `gui` is a
-     default feature. The code is the same either way; "no" is one line, dropping `gui` from
+  1. **Decided 2026-11-14: egui in every wheel** (question 1). Assumed yes, `gui` a default
+     feature, and accepted as built when Orest completed the design. The code is the same either way; "no" is one line, dropping `gui` from
      `default` (Phase 4, Step 1 rollback), after which `run` raises as AC-6 says.
   2. Settled by the repository: the `gui` tests skip without a display instead of being deselected
      (Phase 3, Test Plan); `close()` is kept until the first frame (Phase 3, Learning Log).

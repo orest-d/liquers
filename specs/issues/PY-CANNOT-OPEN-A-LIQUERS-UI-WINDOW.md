@@ -15,8 +15,8 @@ github:
 
 Fixed by `specs/design/liquers-py-ui-window/`. `UI.run()` opens the egui window on the main
 thread, `UI.close()` closes it from any thread, Ctrl-C closes it and raises `KeyboardInterrupt`;
-every wheel carries egui (feature `gui`, on by default), pending the owner's confirmation of that
-default. Evidence: `liquers-py/tests/test_UIUSE_window.py` under `xvfb-run`, in CI too.
+every wheel carries egui (feature `gui`, on by default; the owner accepted that default on
+2026-11-14). Evidence: `liquers-py/tests/test_UIUSE_window.py` under `xvfb-run`, in CI too.
 
 ## Problem
 

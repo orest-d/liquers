@@ -13,8 +13,8 @@
 Built as approved, as the third commit group of PR #268:
 
 - `liquers-py` has a default feature `gui` (`liquers-lib/egui`), so every wheel opens windows.
-  **The owner has not yet confirmed this default** (Phase 1 question 1, decision log); dropping
-  `gui` from `default` is the one-line alternative, after which `run` raises (AC-6).
+  Orest accepted this default on 2026-11-14 (Phase 1 question 1, decision log); dropping `gui`
+  from `default` stays the one-line alternative, after which `run` raises (AC-6).
 - `UI.run(title, size)` borrows the model's driver, shows `liquers_lib::egui::app::run_window` on
   the main thread with the GIL released, delivers callbacks and checks signals between frames, and
   gives the driver back; `UI.close()` from any thread; `UI.window_open`.
@@ -70,7 +70,7 @@ not run in the tests (it waits for its reader) and says so.
 - The window costs about 8 MB per wheel and loads its system libraries only when a window opens.
 
 ## Conformance and Remaining Work
-Built as approved; the wheel default awaits the owner's confirmation. Phase 1 deferred two wheel
+Built as approved; the wheel default was accepted on 2026-11-14. Phase 1 deferred two wheel
 checks, both done. The import without display libraries is shown locally (`ldd` lists only libc,
 libm and libgcc_s; the suite runs with no display). A manual run of `liquers-py-release.yml` on the
 branch (run 43092722770, publishing nothing) built all fifteen wheels on five platforms, passed

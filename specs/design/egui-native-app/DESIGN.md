@@ -3,8 +3,8 @@ id: EGUI-NATIVE-APP
 kind: design
 title: "A reusable native UI driver and egui window in liquers-lib"
 workflow: liquers-project
-status: in_review
-phase: documentation
+gh_pr: [268]
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [lib/egui, lib/ui]
@@ -21,6 +21,7 @@ written together on 2026-11-10 and reviewed twice with the Python designs' Phase
 records; codebase and soundness); findings applied. Phases 1 and 2 approved
 2026-11-11 with the Python designs' Phase 2 (Orest: "proceed all", which pre-approves Phases 3
 and 4, the implementation and Phase 5). Pre-approved after Phase 2 on 2026-11-11.
+Implemented 2026-11-11 on PR #268 (the first commit group). Phase 5 written 2026-11-11 and approved 2026-11-14 (Orest: "complete and merge the design"): `status: complete`.
 
 ## Phases
 
