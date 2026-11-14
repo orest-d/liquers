@@ -169,6 +169,7 @@ DOCS-STORE-CONFIG-DESCRIBES-ASYNC-FILESTORE-AS-FUTURE-WORK,issue,Store configura
 DOCS-TOOLING-TESTS-NOT-RUN-IN-CI,issue,The unit tests of the documentation tooling are not run by CI,closed,local,,ready,eligible,P3,S,docs;build,,,,docs-tooling-tests-in-ci,,2026-10-20,specs/issues/DOCS-TOOLING-TESTS-NOT-RUN-IN-CI.md
 DRAFT-MARKERS-LOOK-ALIKE,issue,Draft builds show every editorial marker the same way,draft,local,,,,P3,S,docs,,,,,,2026-11-01,specs/issues/DRAFT-MARKERS-LOOK-ALIKE.md
 DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE,issue,Removing a computed value with a stored record leaves an empty data file at its key,draft,local,,,,P3,S,core/assets;core/store,,,,,,2026-10-27,specs/issues/DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE.md
+EDITOR-UNSET-OF-A-MIDDLE-POSITIONAL-ARGUMENT-SAYS-NOT-SET,issue,The query editor answers 'is not set' when asked to unset a positional argument that is followed by another,draft,local,,,,P3,S,core/query,,,,,,2026-11-14,specs/issues/EDITOR-UNSET-OF-A-MIDDLE-POSITIONAL-ARGUMENT-SAYS-NOT-SET.md
 EGUI-ASSET-MANAGER-INTEGRATION,feature,No stable adapter between egui widgets and the asset manager,accepted,local,,needs-decision,not-eligible,P2,M,lib/egui,,,,ui-asset-snapshot-boundary,,2026-08-08,specs/issues/EGUI-ASSET-MANAGER-INTEGRATION.md
 EGUI-HAS-NO-REUSABLE-NATIVE-APP,feature,liquers-lib has no reusable native egui application; every desktop app re-implements the frame loop,draft,local,,,,P2,M,lib/egui;lib/ui,,,,,,2026-11-06,specs/issues/EGUI-HAS-NO-REUSABLE-NATIVE-APP.md
 ENUM-ALTERNATIVES-HAVE-NO-LABEL,issue,An enum alternative has an alias and a value but no label or description,draft,local,,needs-decision,not-eligible,P3,M,core/commands;macro,,,,enum-alternative-labels,,2026-10-20,specs/issues/ENUM-ALTERNATIVES-HAVE-NO-LABEL.md
@@ -291,6 +292,7 @@ PARAMETER-ESCAPING-INCOMPLETE,issue,Action-parameter escaping cannot express eve
 PAYLOAD-SOURCED-INJECTION-NOT-DECLARED,issue,An injection that reads the payload is indistinguishable from one that does not,rejected,local,,,,P3,M,core/plan;core/commands,,,,predecessor-cut-equivalence,,2026-08-26,specs/issues/PAYLOAD-SOURCED-INJECTION-NOT-DECLARED.md
 PHASE5-SKELETON-CREATED-WITH-PRECONDITIONS-TICKED,issue,A new design's Phase 5 skeleton claims every completion precondition is already met,closed,local,,ready,eligible,P3,S,docs,,,,phase5-skeleton-unticked,,2026-10-18,specs/issues/PHASE5-SKELETON-CREATED-WITH-PRECONDITIONS-TICKED.md
 PIPELINE-COMMAND-OPERAND-TYPES-UNCHECKED,issue,A pipeline command's placeholder operand types and GUI info are not checked or inferred,draft,local,,,,P3,S,core/commands,,,,composite-command-definition,,2026-11-04,specs/issues/PIPELINE-COMMAND-OPERAND-TYPES-UNCHECKED.md
+PIPELINE-RESULTS-ARE-NEVER-CACHED,feature,"A pipeline's result is never cached, even when the pipeline has a query form",draft,local,,,,P2,L,core/assets;core/context,,,,,,2026-11-14,specs/issues/PIPELINE-RESULTS-ARE-NEVER-CACHED.md
 PIPELINES-NOT-IN-LANGUAGE-BINDINGS,feature,"Python cannot pass, evaluate or register pipelines",closed,local,,ready,not-eligible,P2,L,py,,,,liquers-py-pipelines,,2026-11-03,specs/issues/PIPELINES-NOT-IN-LANGUAGE-BINDINGS.md
 PLAN-BUILDER-DUPLICATES-PIPELINE-PLANNING,issue,Two plan builders plan the same queries once pipelines land,draft,local,,,,P3,M,core/plan,,,,composite-command-definition,,2026-11-03,specs/issues/PLAN-BUILDER-DUPLICATES-PIPELINE-PLANNING.md
 PLAN-DEFAULT-LINK-PROMOTION-USES-THE-QUERYS-LAST-NS,issue,"Relative default links are promoted using the query's last ns, not each action's own",draft,local,,,,P3,S,core/plan,,,,,,2026-11-01,specs/issues/PLAN-DEFAULT-LINK-PROMOTION-USES-THE-QUERYS-LAST-NS.md
@@ -367,6 +369,7 @@ QUERY-TOKEN-CLASSES-TRUNCATE-NON-ASCII,issue,"Action names, filenames and header
 QUEUED-MANAGER-EVICTION-RACE,issue,The queued manager's cache evictions can delete a replacement asset,closed,local,,ready,,P2,S,core/assets,,,,queued-manager-conditional-eviction,,2026-08-09,specs/issues/QUEUED-MANAGER-EVICTION-RACE.md
 QUEUED-MANAGER-STARTUP-READINESS,issue,Queued asset manager accepts work before it is ready to run it,closed,local,,,,P1,L,core/assets,,,,environment-builder,,2026-08-08,specs/issues/QUEUED-MANAGER-STARTUP-READINESS.md
 REC-ID-PARSES-DATE-AND-TIMESTAMP-IDS-AS-RAW-NUMBERS,issue,"ns-rec/rec_id reads a Date or Timestamp id as a raw day or microsecond count, not as ISO text",closed,local,,ready,not-eligible,P3,S,records;lib/commands,,,,rec-id-iso-date-parsing,,2026-09-27,specs/issues/REC-ID-PARSES-DATE-AND-TIMESTAMP-IDS-AS-RAW-NUMBERS.md
+REC-ROWID-REFUSES-A-MANIFEST-STORED-AS-TEXT,issue,ns-rec/rowid on a manifest key fails with unknown data format 'txt' where the other record commands read it,draft,local,,,,P3,S,records,,,,,,2026-11-14,specs/issues/REC-ROWID-REFUSES-A-MANIFEST-STORED-AS-TEXT.md
 RECIPE-CANNOT-PARAMETERIZE-RESOURCE-KEY,issue,"A recipe can leave an action parameter open for an override, but not the key of a resource segment",draft,local,,needs-decision,not-eligible,P3,L,core/query;core/plan,,,,recipe-override-addressing,,2026-10-17,specs/issues/RECIPE-CANNOT-PARAMETERIZE-RESOURCE-KEY.md
 RECIPE-CIRCULAR-DEPENDENCY-FIELDS-ARE-DEAD,issue,The recipe circular-dependency fields are never set or read,draft,local,,needs-decision,not-eligible,P3,S,core/assets,,,,recipe-circular-dependency-fields-removal,,2026-10-20,specs/issues/RECIPE-CIRCULAR-DEPENDENCY-FIELDS-ARE-DEAD.md
 RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY,issue,AsyncRecipeProvider::contains has a default that silently assumes recipes are enumerable,closed,local,,ready,,P2,S,core/assets,,,,recipe-provider-listing-contract,,2026-09-20,specs/issues/RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY.md
@@ -1091,65 +1094,68 @@ STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,,c
 TEMPLATE_GUIDE,guide,Template Guide,current,local,,,,,,core/query;lib/commands,,,,,2026-11-04,,specs/guides/TEMPLATE_GUIDE.md
 TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,,core/value;lib/value,,,,,2026-11-04,,specs/guides/TYPE_SYSTEM_GUIDE.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,,build;core/assets,,,,,2026-10-20,,specs/guides/UNITTEST_GUIDE.md
-USER_DOCS_EDITING_GUIDE,guide,User Documentation Editing Guide,current,local,,,,,,docs,,,,,2026-11-10,,specs/guides/USER_DOCS_EDITING_GUIDE.md
+USER_DOCS_EDITING_GUIDE,guide,User Documentation Editing Guide,current,local,,,,,,docs,,,,,2026-11-14,,specs/guides/USER_DOCS_EDITING_GUIDE.md
 WEB_API_GUIDE,guide,Web API Guide,current,local,,,,,,axum;web,,,,,2026-11-09,,specs/guides/WEB_API_GUIDE.md
-python/01-introduction,chapter,Introduction,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/python/01-introduction.md
+python/01-introduction,chapter,Introduction,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/python/01-introduction.md
 python/02-installing,chapter,Installing and setting up,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/python/02-installing.md
-python/03-queries,chapter,Queries,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/03-queries.md
+python/03-queries,chapter,Queries,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/python/03-queries.md
 python/04-values,chapter,"Values, state and metadata",ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/04-values.md
 python/05-commands,chapter,Commands,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/05-commands.md
 python/06-stores,chapter,Stores,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/06-stores.md
-python/07-assets,chapter,"Recipes, assets and caching",ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/07-assets.md
+python/07-assets,chapter,"Recipes, assets and caching",ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/python/07-assets.md
 python/08-environment,chapter,The environment,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/python/08-environment.md
-python/09-data,chapter,Working with data,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/09-data.md
+python/09-data,chapter,Working with data,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/python/09-data.md
 python/10-templates,chapter,Templates,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/10-templates.md
 python/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/11-ui.md
-python/12-serving,chapter,Serving and embedding,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/python/12-serving.md
-python/13-search,chapter,Search and agent memory,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/13-search.md
+python/12-serving,chapter,Serving and embedding,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/python/12-serving.md
+python/13-records,chapter,Records,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/python/13-records.md
 python/14-testing,chapter,Testing,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/14-testing.md
 python/15-troubleshooting,chapter,Troubleshooting,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/15-troubleshooting.md
 python/a-query-syntax,chapter,Query syntax,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/a-query-syntax.md
 python/b-command-library,chapter,Command library,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/b-command-library.md
-python/c-glossary,chapter,Glossary,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/c-glossary.md
-python/d-sister-guides,chapter,Sister guides,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/d-sister-guides.md
+python/c-glossary,chapter,Glossary,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/python/c-glossary.md
+python/d-sister-guides,chapter,Sister guides,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/python/d-sister-guides.md
+python/e-web-api,chapter,Web API reference,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/python/e-web-api.md
 python/index,chapter,Preface,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/index.md
-rust/01-introduction,chapter,Introduction,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/01-introduction.md
+rust/01-introduction,chapter,Introduction,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/01-introduction.md
 rust/02-installing,chapter,Installing and setting up,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/02-installing.md
-rust/03-queries,chapter,Queries,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/03-queries.md
+rust/03-queries,chapter,Queries,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/03-queries.md
 rust/04-values,chapter,"Values, state and metadata",ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/04-values.md
 rust/05-commands,chapter,Commands,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/05-commands.md
 rust/06-stores,chapter,Stores,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/06-stores.md
-rust/07-assets,chapter,"Recipes, assets and caching",ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/07-assets.md
+rust/07-assets,chapter,"Recipes, assets and caching",ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/07-assets.md
 rust/08-environment,chapter,The environment,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/08-environment.md
-rust/09-data,chapter,Working with data,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/09-data.md
+rust/09-data,chapter,Working with data,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/09-data.md
 rust/10-templates,chapter,Templates,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/10-templates.md
-rust/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/11-ui.md
-rust/12-serving,chapter,Serving and embedding,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/12-serving.md
-rust/13-search,chapter,Search and agent memory,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/13-search.md
+rust/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/11-ui.md
+rust/12-serving,chapter,Serving and embedding,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/12-serving.md
+rust/13-records,chapter,Records,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/13-records.md
 rust/14-testing,chapter,Testing,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/14-testing.md
-rust/15-troubleshooting,chapter,Troubleshooting,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/15-troubleshooting.md
+rust/15-troubleshooting,chapter,Troubleshooting,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/15-troubleshooting.md
 rust/a-query-syntax,chapter,Query syntax,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/a-query-syntax.md
-rust/b-command-library,chapter,Command library,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/b-command-library.md
-rust/c-glossary,chapter,Glossary,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/c-glossary.md
-rust/d-sister-guides,chapter,Sister guides,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/d-sister-guides.md
+rust/b-command-library,chapter,Command library,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/b-command-library.md
+rust/c-glossary,chapter,Glossary,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/c-glossary.md
+rust/d-sister-guides,chapter,Sister guides,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/d-sister-guides.md
+rust/e-web-api,chapter,Web API reference,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/e-web-api.md
 rust/index,chapter,Preface,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/index.md
-web/01-introduction,chapter,Introduction,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/01-introduction.md
+web/01-introduction,chapter,Introduction,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/01-introduction.md
 web/02-installing,chapter,Installing and setting up,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/02-installing.md
-web/03-queries,chapter,Queries,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/03-queries.md
+web/03-queries,chapter,Queries,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/03-queries.md
 web/04-values,chapter,"Values, state and metadata",ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/04-values.md
 web/05-commands,chapter,Commands,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/05-commands.md
 web/06-stores,chapter,Stores,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/06-stores.md
-web/07-assets,chapter,"Recipes, assets and caching",ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/07-assets.md
+web/07-assets,chapter,"Recipes, assets and caching",ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/07-assets.md
 web/08-environment,chapter,The environment,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/08-environment.md
-web/09-data,chapter,Working with data,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/09-data.md
+web/09-data,chapter,Working with data,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/09-data.md
 web/10-templates,chapter,Templates,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/10-templates.md
-web/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/11-ui.md
-web/12-serving,chapter,Serving and embedding,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/12-serving.md
-web/13-search,chapter,Search and agent memory,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/13-search.md
+web/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/11-ui.md
+web/12-serving,chapter,Serving and embedding,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/12-serving.md
+web/13-records,chapter,Records,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/13-records.md
 web/14-testing,chapter,Testing,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/14-testing.md
-web/15-troubleshooting,chapter,Troubleshooting,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/15-troubleshooting.md
+web/15-troubleshooting,chapter,Troubleshooting,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/15-troubleshooting.md
 web/a-query-syntax,chapter,Query syntax,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/a-query-syntax.md
 web/b-command-library,chapter,Command library,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/b-command-library.md
-web/c-glossary,chapter,Glossary,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/c-glossary.md
-web/d-sister-guides,chapter,Sister guides,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/d-sister-guides.md
+web/c-glossary,chapter,Glossary,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/c-glossary.md
+web/d-sister-guides,chapter,Sister guides,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/d-sister-guides.md
+web/e-web-api,chapter,Web API reference,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/e-web-api.md
 web/index,chapter,Preface,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/index.md

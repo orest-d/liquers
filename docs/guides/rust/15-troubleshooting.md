@@ -2,7 +2,7 @@
 title: Troubleshooting
 status: ready
 sources: [reference/PROJECT_OVERVIEW.md, guides/COMMAND_REGISTRATION_GUIDE.md, guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md]
-reviewed: 2026-11-10
+reviewed: 2026-11-14
 ---
 # 15. Troubleshooting
 
@@ -114,7 +114,7 @@ Liquers is at version 0.1. These are the limits most likely to matter to a Rust 
 - **Changes behind Liquers' back** are noticed when a file is next read, not when they happen.
 - **No authentication in the server.** Put the server behind a proxy that authenticates
   (section 12.2).
-- **Search has no index.** It reads what it searches each time (section 13.4).
+- **Search has no index.** It reads what it searches each time (section 13.7).
 - **Records have no grouping and joining.** Use Polars for those (section 9.3), which is not
   available in a WebAssembly build.
 - **Cancelling is cooperative.** A synchronous command that never checks runs to its end

@@ -2,7 +2,7 @@
 title: Command library
 status: ready
 sources: [command_registry.yaml]
-reviewed: 2026-11-10
+reviewed: 2026-11-14
 ---
 # B. Command library
 
@@ -14,7 +14,7 @@ namespace is called with `ns-<namespace>` before it: `ns-rec/head-10`. Commands 
 group have no namespace.
 
 The same information is available at run time. The query `commands_doc` returns it as Markdown,
-`ns-search/commands` as a table that can be searched (section 13.4), and
+`ns-search/commands` as a table that can be searched (section 13.7), and
 `env.command_metadata_snapshot()` gives the descriptions themselves, a
 `CommandMetadataRegistry`, from which this appendix is generated.
 

@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 243
-- P2: 69
-- P3: 174
+Total rows: 246
+- P2: 70
+- P3: 176
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -72,6 +72,7 @@ Total rows: 243
 | [`VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`](issues/VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE.md) | feature | Serialization is synchronous and whole-value, so a large or lazy value cannot be served or stored as it is produced | draft | needs-decision | not-eligible | P2 | L | core/value;core/store;core/assets;axum | [phase1](design/value-serialization-streaming/phase1-high-level-design.md)  [phase2](design/value-serialization-streaming/phase2-architecture.md)  [phase3](design/value-serialization-streaming/phase3-examples.md)  [phase4](design/value-serialization-streaming/phase4-implementation.md)  | 2026-09-24 |
 | [`EXTENDED-FAST-TRACK`](issues/EXTENDED-FAST-TRACK.md) | feature | A cheap query waits behind long-running jobs, because commands cannot be classified for scheduling | accepted | phase2-blocked | not-eligible | P2 | L | core/assets | [phase1](design/command-execution-class/phase1-high-level-design.md)  [phase2](design/command-execution-class/phase2-architecture.md)  | 2026-08-08 |
 | [`CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS`](issues/CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS.md) | issue | Every queued command shares one job queue, so commands cannot be placed by their cost | draft |  |  | P2 | L | core/assets |  | 2026-10-26 |
+| [`PIPELINE-RESULTS-ARE-NEVER-CACHED`](issues/PIPELINE-RESULTS-ARE-NEVER-CACHED.md) | feature | A pipeline's result is never cached, even when the pipeline has a query form | draft |  |  | P2 | L | core/assets;core/context |  | 2026-11-14 |
 | [`RING-NEEDS-CLANG-ON-WINDOWS-ARM64`](issues/RING-NEEDS-CLANG-ON-WINDOWS-ARM64.md) | issue | Default builds and cargo doc fail on Windows ARM64 without clang, because Polars and OpenDAL pull in ring | draft |  |  | P2 | L | build;store/backends;lib/polars |  | 2026-11-04 |
 | [`SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED`](issues/SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED.md) | issue | No guideline or user documentation says which Liquers settings are security-sensitive | draft |  |  | P2 | L | docs;axum;py;web |  | 2026-11-06 |
 | [`WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS`](issues/WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS.md) | feature | The web API cannot run a pipeline or recipe document, nor serve recipes as typed endpoints | draft |  |  | P2 | L | axum;core/assets;core/context;mcp |  | 2026-11-01 |
@@ -116,6 +117,7 @@ Total rows: 243
 | [`DOCS-CHECK-FLAGS-A-CODE-SPAN-AS-A-MYST-ROLE`](issues/DOCS-CHECK-FLAGS-A-CODE-SPAN-AS-A-MYST-ROLE.md) | issue | liquers-docs reports a code span ending in a brace as a MyST role | draft |  |  | P3 | S | docs |  | 2026-11-09 |
 | [`DRAFT-MARKERS-LOOK-ALIKE`](issues/DRAFT-MARKERS-LOOK-ALIKE.md) | issue | Draft builds show every editorial marker the same way | draft |  |  | P3 | S | docs |  | 2026-11-01 |
 | [`DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE`](issues/DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE.md) | issue | Removing a computed value with a stored record leaves an empty data file at its key | draft |  |  | P3 | S | core/assets;core/store |  | 2026-10-27 |
+| [`EDITOR-UNSET-OF-A-MIDDLE-POSITIONAL-ARGUMENT-SAYS-NOT-SET`](issues/EDITOR-UNSET-OF-A-MIDDLE-POSITIONAL-ARGUMENT-SAYS-NOT-SET.md) | issue | The query editor answers 'is not set' when asked to unset a positional argument that is followed by another | draft |  |  | P3 | S | core/query |  | 2026-11-14 |
 | [`GUIDE-SECTION-ANCHORS-DIFFER-BETWEEN-RENDERERS`](issues/GUIDE-SECTION-ANCHORS-DIFFER-BETWEEN-RENDERERS.md) | issue | Section links between chapters break in the EPUB and PDF | draft |  |  | P3 | S | docs |  | 2026-11-01 |
 | [`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`](issues/LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT.md) | issue | Language exception class and stack are lost in transport | accepted |  |  | P3 | S | web |  | 2026-08-08 |
 | [`LANGUAGE-GUIDE-PIPELINE-COVERAGE-INCOMPLETE`](issues/LANGUAGE-GUIDE-PIPELINE-COVERAGE-INCOMPLETE.md) | issue | The Language Integration Guide's PIPELINE feature is missing from the profiles, the value bridge and the reference tests | draft |  |  | P3 | S | docs |  | 2026-11-04 |
@@ -128,6 +130,7 @@ Total rows: 243
 | [`PY-LIVE-HANDLE-COUNT-FALLS-DURING-A-TEST`](issues/PY-LIVE-HANDLE-COUNT-FALLS-DURING-A-TEST.md) | issue | A live handle count can fall during a liquers-py test that compares it to its baseline | draft |  |  | P3 | S | py |  | 2026-11-03 |
 | [`PY-STORE-SET-OF-BYTES-IGNORES-THE-KEY-EXTENSION`](issues/PY-STORE-SET-OF-BYTES-IGNORES-THE-KEY-EXTENSION.md) | issue | Environment.store_set of bytes records the format b whatever the key's extension | draft |  |  | P3 | S | py |  | 2026-11-09 |
 | [`QUERY-SYNTAX-HAS-NO-INCLUDABLE-SECTION`](issues/QUERY-SYNTAX-HAS-NO-INCLUDABLE-SECTION.md) | issue | Query Language section of PROJECT_OVERVIEW cannot be included in the user guides | draft |  |  | P3 | S | docs |  | 2026-11-01 |
+| [`REC-ROWID-REFUSES-A-MANIFEST-STORED-AS-TEXT`](issues/REC-ROWID-REFUSES-A-MANIFEST-STORED-AS-TEXT.md) | issue | ns-rec/rowid on a manifest key fails with unknown data format 'txt' where the other record commands read it | draft |  |  | P3 | S | records |  | 2026-11-14 |
 | [`RECIPE-MISSING-RECIPE-IS-A-GENERAL-ERROR`](issues/RECIPE-MISSING-RECIPE-IS-A-GENERAL-ERROR.md) | issue | Asking a recipe provider for a recipe it does not have raises a General error, not KeyNotFound | draft |  |  | P3 | S | core/assets;core/error |  | 2026-11-01 |
 | [`RECIPE-OVERRIDES-MISS-A-FINAL-PIPELINE-COMMAND`](issues/RECIPE-OVERRIDES-MISS-A-FINAL-PIPELINE-COMMAND.md) | issue | Recipe argument and link overrides do not reach a pipeline command that is the query's last action | draft |  |  | P3 | S | core/plan | [notation](design/composite-command-definition/notation-and-integration.md)  [phase1](design/composite-command-definition/phase1-high-level-design.md)  [phase2](design/composite-command-definition/phase2-architecture.md)  [phase3](design/composite-command-definition/phase3-examples.md)  [phase4](design/composite-command-definition/phase4-implementation.md)  [phase5](design/composite-command-definition/phase5-documentation.md)  [pipeline](design/composite-command-definition/pipeline-and-plan.md)  [pipeline](design/composite-command-definition/pipeline-structure-and-sources.md)  [recipe](design/composite-command-definition/recipe-and-pipeline-structures.md)  | 2026-11-04 |
 | [`RUSTDOC-PRIVATE-INTRA-DOC-LINKS-RECUR`](issues/RUSTDOC-PRIVATE-INTRA-DOC-LINKS-RECUR.md) | issue | Public rustdoc in liquers-core and liquers-records links private items again | draft |  |  | P3 | S | docs;core/plan;core/assets;records |  | 2026-11-03 |

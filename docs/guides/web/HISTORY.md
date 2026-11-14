@@ -20,7 +20,7 @@ have a row here (`specs/guides/USER_DOCS_EDITING_GUIDE.md`, maintenance).
 | 2026-11-10 | 10-templates.md | written: `expand`, `render`, `validateTemplate`, template commands, rendering in a command, HTML escaping; `ready` |
 | 2026-11-10 | 11-ui.md | written: the model, `mountUI`, UI specs, elements in JavaScript, `mountRenderer`, limits; `ready` |
 | 2026-11-10 | 12-serving.md | completed: calling a server from a page, live updates, the module and a server together, embedding; `ready` |
-| 2026-11-10 | 13-search.md | written: `ns-rec/filter`; search and agent memory are native only; `ready` |
+| 2026-11-10 | 13-records.md | written: `ns-rec/filter`; search and agent memory are native only; `ready` |
 | 2026-11-10 | 14-testing.md | written: tests under Node, a fresh environment per test, checks without running, browser tests; `ready` |
 | 2026-11-10 | 15-troubleshooting.md | written: `LiquersError`, frequent mistakes, known limitations, loading problems; `ready` |
 | 2026-11-10 | a-query-syntax.md | A.6 added: the syntax in JavaScript; `ready` |
@@ -28,3 +28,14 @@ have a row here (`specs/guides/USER_DOCS_EDITING_GUIDE.md`, maintenance).
 | 2026-11-10 | c-glossary.md | C.2 and C.3 added: the terms in JavaScript, terms this guide adds; `ready` |
 | 2026-11-10 | d-sister-guides.md | introduction written; `ready` |
 | 2026-11-10 | (all) | every chapter written and set to `ready`; the examples import the module from the project site and are run under Node by `liquers-web/tests/guide/run-guide-examples.mjs` |
+| 2026-11-14 | 01-introduction.md | chapter 13 is now *Records*: the table of chapters and the paragraph on search follow |
+| 2026-11-14 | 03-queries.md | 3.9 is *Building and editing a query*: the query editor first, with typed values and the editing of an existing query; the older way after it. 3.10 rewritten around the shared fragments `_shared/pipelines.md` and `_shared/pipeline-or-query.md`: creating, reading, editing a pipeline, and when to prefer a query. Links to the API reference. Examples run |
+| 2026-11-14 | 07-assets.md | a recipe with a pipeline: the shared section in `_shared/assets.md` and a tested example |
+| 2026-11-14 | 09-data.md | points to chapter 13 for schemas and manifests |
+| 2026-11-14 | 11-ui.md | adds the reference section for UI specs and the `ns-lui` commands, from the shared fragment `_shared/ui-reference.md` (the full spec was run in the browser module) |
+| 2026-11-14 | 12-serving.md | points to the new appendix E for the routes |
+| 2026-11-14 | 13-records.md | renamed from `13-search.md` and rewritten as *Records*: the shared fragment `_shared/records.md` (views, sources, streams, schemas, manifests and recipes, records and Polars), records in this language, then search and the agent memory as applications of records. Examples run |
+| 2026-11-14 | 15-troubleshooting.md | section numbers of chapter 13 follow its rewrite |
+| 2026-11-14 | c-glossary.md | adds chunk, manifest, query editor, record, record source, record stream, schema |
+| 2026-11-14 | d-sister-guides.md | chapter 13 is *Records*; adds appendix E |
+| 2026-11-14 | e-web-api.md | new appendix: the web API reference, from the shared fragment `_shared/web-api.md` (written from `reference/WEB_API_SPECIFICATION.md`, example answers taken from a running server); `ready` |

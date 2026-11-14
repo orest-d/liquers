@@ -2,7 +2,7 @@
 title: Troubleshooting
 status: ready
 sources: [guides/JAVASCRIPT_GUIDE.md]
-reviewed: 2026-11-10
+reviewed: 2026-11-14
 ---
 # 15. Troubleshooting
 
@@ -95,7 +95,7 @@ first has one element, a key that ends in `to_text`, and the second has a key an
 | `not_available` on the first call | `liquers.init()` was not awaited; `init()` alone only loads the WebAssembly (section 2.2) |
 | `action_not_registered` for a command you registered | the registration runs after the evaluation, or the command is in a namespace and the query lacks `ns-…` (section 5.6) |
 | `action_not_registered` for `ns-rec` commands | the module was built without `--features records` (section 2.5) |
-| `action_not_registered` for `ns-pl`, `ns-img` or `ns-search` commands | those libraries are not in the browser module (sections 9.5 and 13.2) |
+| `action_not_registered` for `ns-pl`, `ns-img` or `ns-search` commands | those libraries are not in the browser module (sections 9.5 and 13.7) |
 | `asset_not_found` for every `-R/` query | no store is configured, or no mount has the key's prefix (section 6.2) |
 | `asset_not_found` with a key that ends in a command's name | the `/-/` between the key and the actions is missing (section 3.4) |
 | `asset_not_found` for a file that is on the server | an `http` store knows only the keys listed in `keys` (section 6.3) |
@@ -129,7 +129,7 @@ list in one place.
 **Left out of the build:**
 
 - No Polars and no image commands (section 9.5).
-- No search library and no agent memory (chapter 13).
+- No search library beyond `ns-rec/filter`, and no agent memory (chapter 13).
 - The record library only in a build with `--features records` (section 2.5).
 
 **Not done yet:**

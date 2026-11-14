@@ -49,7 +49,7 @@ fn guides_are_parallel() -> Res {
             }
         }
     }
-    assert_eq!(first.map(|c| c.len()), Some(20));
+    assert_eq!(first.map(|c| c.len()), Some(21));
     Ok(())
 }
 

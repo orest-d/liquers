@@ -2,7 +2,7 @@
 title: Introduction
 status: ready
 sources: [reference/VISION.md, reference/PROJECT_OVERVIEW.md, guides/PYTHON_GUIDE.md]
-reviewed: 2026-11-10
+reviewed: 2026-11-14
 ---
 # 1. Introduction
 
@@ -206,8 +206,8 @@ URL, it also travels well beyond it:
 - **User interfaces.** In a Liquers user interface, what you look at is the value of a query, so
   a view can be bookmarked, shared and restored. The same queries run in a desktop application
   and, compiled to WebAssembly, in a browser tab with no server at all (chapter 11).
-- **Search.** Commands that list, read and search the documents and tables in a store
-  (chapter 13).
+- **Search.** Commands that list, read and search the documents and tables in a store.
+  They are built on records, the table type of Liquers (chapter 13).
 - **Tools for AI agents.** A query is a tool call that can be checked before it runs, is cached,
   and leaves a record of what it did. Liquers serves commands as tools over the Model Context
   Protocol (chapter 13).
@@ -231,7 +231,7 @@ query a server serves and a web page shows.
 | Other command libraries | Polars data frames and images: more steps you do not have to write | [9](09-data.md) |
 | Templates | Put the values of queries into text | [10](10-templates.md) |
 | The web API | Serves every query at a URL | [12](12-serving.md) |
-| Search and agent memory | Find documents and rows; give agents queries as tools | [13](13-search.md) |
+| Records | Tables in memory and in chunks, schemas, manifests; search and the agent memory built on them | [13](13-records.md) |
 
 You can use as many of these as you need. A script that only wants cached, named results uses
 commands and assets and ignores the rest. The tools are there when the script grows into a

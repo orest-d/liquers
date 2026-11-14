@@ -108,7 +108,8 @@ The fields of a recipe:
 
 | Field | Meaning |
 |---|---|
-| `query` | The query to run. Its file name is the name of the result. Required |
+| `query` | The query to run. Its file name is the name of the result. Required, unless there is a `pipeline` |
+| `pipeline` | Steps that run before the query, written as a pipeline; see below |
 | `title`, `description` | Text for people, shown where the asset is listed |
 | `volatile` | `true` when the result must be computed on every request |
 | `expires` | How long the result stays valid, for example `in 1 h`, `eod`, `never` |
@@ -118,3 +119,42 @@ The fields of a recipe:
 
 A relative key in a recipe's query, such as `-R/./sales.csv`, is resolved against the folder of
 the `recipes.yaml` file, so a folder with its recipes can be moved as a whole.
+
+### A recipe with a pipeline
+
+A query cannot carry a structured argument, such as a list of values or a map of options. A
+pipeline can (section 3.10), and a recipe may hold one:
+
+```yaml
+recipes:
+  - pipeline:
+      - -R/data/sales.csv/-/ns-rec/to_record
+      - action: is_in
+        ns: rec
+        arguments: {column: region, values: [EU, US]}
+    query: ns-rec/sort-amount-f/head-10/top.csv
+    title: The ten largest sales in the EU and the US
+```
+
+The pipeline runs first, and the query continues from its result. The key of the asset is still
+the file name of the query, here `top.csv`. These rules apply:
+
+- The query continues the pipeline, so it must not start by reading a key (`-R/…`); that would
+  throw the pipeline's result away.
+- The file name is given once. A recipe can also consist of a pipeline alone; the pipeline is
+  then written as a map with its steps under `elements` and the name under `filename`:
+
+  ```yaml
+  recipes:
+    - pipeline:
+        elements:
+          - -R/data/sales.csv/-/ns-rec/to_record
+          - {action: is_in, ns: rec, arguments: {column: region, values: [EU, US]}}
+        filename: eu_us.csv
+  ```
+
+- `arguments` belongs to the last action of the `query`, so it needs a query.
+
+A recipe is also the way to keep the result of a pipeline. A pipeline evaluated on its own has
+no name under which its result could be cached. Inside a recipe it has one, the key, and the
+result is stored, reused and refreshed like that of any other recipe.

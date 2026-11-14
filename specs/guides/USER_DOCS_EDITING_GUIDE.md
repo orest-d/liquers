@@ -3,7 +3,7 @@ title: User Documentation Editing Guide
 kind: guide
 audience: internal
 area: [docs]
-reviewed: 2026-11-10
+reviewed: 2026-11-14
 ---
 # User Documentation Editing Guide
 
@@ -27,7 +27,7 @@ docs/
     guide.yaml                title, language, authors, chapter order
     index.md                  the preface (chapter 0)
     01-introduction.md … 15-troubleshooting.md
-    a-query-syntax.md … d-sister-guides.md   appendices
+    a-query-syntax.md … e-web-api.md         appendices
     HISTORY.md                one row per chapter review
   theme/liquers.css           the shared style of every book
 ```
@@ -103,6 +103,24 @@ reference to "5.2" means the same section in every guide.
 - **Links.** Relative links between chapters and guides. Never a link into `specs/`: it is not
   published, and `docs_index.py --check` (check 18) and `liquers-docs check` refuse it. Link the
   published API reference or an external page by URL instead.
+- **API links.** A chapter links an item of the API reference by the site's absolute address,
+  `https://orest-d.github.io/liquers/api/…`, because the reference is built beside the books and
+  is not part of `docs/`, and because an absolute address also works in the EPUB, the PDF and the
+  offline copy. The address follows the tool that made the page:
+
+  | Language | Address under `api/` | Example |
+  |---|---|---|
+  | Rust (rustdoc) | `rust/<crate>/<module path>/<kind>.<Name>.html`, where the module path is the one of the item's *public* path (an item re-exported from a private module is at the re-exporting module) | `rust/liquers_core/pipeline/struct.QueryEditor.html` |
+  | Python (pdoc) | `python/liquers.html#<Name>` or `#<Class>.<member>` | `python/liquers.html#Environment.query_editor` |
+  | JavaScript (TypeDoc) | `js/{classes,functions,interfaces,types}/<Name>.html` | `js/classes/QueryEditor.html` |
+
+  Write the links as one sentence that begins "API reference:" at the end of the passage that
+  introduces the items, not inline in the prose, so they are easy to find and to maintain.
+  `build-docs.sh --verify` (without `--skip-api`) fails when a linked page, or the `#fragment`
+  of one, is not in the built site, so a renamed item is found by the `docs-site` workflow. The
+  links depend on this layout — `api/rust`, `api/python`, `api/js` under the site's root — and
+  on the site's address; when either changes, the links change with it. Check a new Rust
+  address with `cargo doc --no-deps -p <crate>` and look under `target/doc/`.
 
 ## 4. Editorial markers
 
@@ -219,6 +237,7 @@ artifact of its `docs-site` run.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-14 | §3: links from a chapter to the API reference (absolute address, the layout they depend on, the `--verify` check). §1: appendix E and the `ui-reference`, `records`, `pipelines` fragments exist. | improving the three guides (pipelines, records, web API reference) |
 | 2026-11-10 | §3: how the examples of the Rust guide (slices of two test files, `// Sketch`) and of the Web guide (run under Node, the two markers) are tested. | writing the Rust and Web guides |
 | 2026-11-09 | §3: the Python guide's examples are run by `test_GUIDE_examples.py`. §5: showing a tag instead of expanding it (set-delimiter tags). | writing the Python guide |
 | 2026-11-09 | §1: `docs/site/`, the landing page (maintained under [`PROJECT_SITE_GUIDE.md`](PROJECT_SITE_GUIDE.md)); the home page is published as `overview.html`. | PR #266 |

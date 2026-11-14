@@ -15,10 +15,11 @@ chapters:
   - 10-templates.md
   - 11-ui.md
   - 12-serving.md
-  - 13-search.md
+  - 13-records.md
   - 14-testing.md
   - 15-troubleshooting.md
   - a-query-syntax.md
   - b-command-library.md
   - c-glossary.md
   - d-sister-guides.md
+  - e-web-api.md

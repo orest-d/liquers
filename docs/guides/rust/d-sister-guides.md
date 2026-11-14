@@ -2,7 +2,7 @@
 title: Sister guides
 status: ready
 sources: []
-reviewed: 2026-11-10
+reviewed: 2026-11-14
 ---
 # D. Sister guides
 
@@ -33,9 +33,10 @@ available there.
 | 10. Templates | [Templates](../python/10-templates.md) | [Templates](../web/10-templates.md) |
 | 11. User interfaces | [User interfaces](../python/11-ui.md) | [User interfaces](../web/11-ui.md) |
 | 12. Serving and embedding | [Serving and embedding](../python/12-serving.md) | [Serving and embedding](../web/12-serving.md) |
-| 13. Search and agent memory | [Search and agent memory](../python/13-search.md) | [Search and agent memory](../web/13-search.md) |
+| 13. Records | [Records](../python/13-records.md) | [Records](../web/13-records.md) |
 | 14. Testing | [Testing](../python/14-testing.md) | [Testing](../web/14-testing.md) |
 | 15. Troubleshooting | [Troubleshooting](../python/15-troubleshooting.md) | [Troubleshooting](../web/15-troubleshooting.md) |
 | A. Query syntax | [Query syntax](../python/a-query-syntax.md) | [Query syntax](../web/a-query-syntax.md) |
 | B. Command library | [Command library](../python/b-command-library.md) | [Command library](../web/b-command-library.md) |
 | C. Glossary | [Glossary](../python/c-glossary.md) | [Glossary](../web/c-glossary.md) |
+| E. Web API reference | [Web API reference](../python/e-web-api.md) | [Web API reference](../web/e-web-api.md) |

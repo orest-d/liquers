@@ -2,7 +2,7 @@
 title: Recipes, assets and caching
 status: ready
 sources: [reference/ASSETS.md, reference/ASSET_LIFECYCLE.md, reference/RECIPES_AND_PLANS.md, guides/DEPENDENCY_CONSISTENCY_GUIDE.md, reference/ENVIRONMENT_CONFIG.md, guides/PYTHON_GUIDE.md]
-reviewed: 2026-11-09
+reviewed: 2026-11-14
 ---
 # 7. Recipes, assets and caching
 
@@ -204,6 +204,43 @@ assert env.recipes.recipe_opt("data/other.txt") is None
 assert env.evaluate("-R/data/greeting.txt") == "hello"
 env.shutdown()
 ```
+
+A recipe with a pipeline (section 7.4) is written and read the same way. Here the pipeline
+passes a list of regions, which a query could not hold, and the query finishes the work:
+
+```python
+import time
+import liquers as lq
+
+env = lq.Environment()
+env.store.set("data/sales.csv", b"region,month,amount\nEU,jan,120\nUS,jan,80\nASIA,jan,300\nEU,feb,95\n")
+env.store.set("data/recipes.yaml", b"""
+recipes:
+  - pipeline:
+      - -R/data/sales.csv/-/ns-rec/to_record
+      - action: is_in
+        ns: rec
+        arguments: {column: region, values: [EU, US]}
+    query: ns-rec/sort-amount-f/head-2/top.csv
+    title: The two largest sales in the EU and the US
+""")
+
+top = env.evaluate("-R/data/top.csv")
+assert top.to_dict() == {"region": ["EU", "EU"], "month": ["jan", "feb"], "amount": [120, 95]}
+
+recipe = env.recipes.recipe("data/top.csv")
+assert recipe.query == "ns-rec/sort-amount-f/head-2/top.csv"
+assert isinstance(recipe.pipeline, lq.Pipeline)
+
+time.sleep(0.5)                                         # the result is stored like any other
+assert env.store.get("data/top.csv") == b"region,month,amount\nEU,jan,120\nEU,feb,95\n"
+env.shutdown()
+```
+
+The result has a key, so it is cached and stored, which a pipeline evaluated with
+`env.evaluate` is not (section 3.10).
+
+API reference: [`Recipe`](https://orest-d.github.io/liquers/api/python/liquers.html#Recipe).
 
 ## 7.9 Recipes from Python
 

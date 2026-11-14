@@ -2,7 +2,7 @@
 title: Serving and embedding
 status: ready
 sources: [guides/WEB_API_GUIDE.md, reference/WEB_API_SPECIFICATION.md]
-reviewed: 2026-11-10
+reviewed: 2026-11-14
 ---
 # 12. Serving and embedding
 
@@ -38,6 +38,9 @@ the server's commands, and the page receives the bytes.
 {{> ../_shared/serving.md}}
 
 ## 12.3 Calling a server from a page
+
+This section shows the requests a page makes most often. Every route, with what it takes and
+what it answers, is listed in [appendix E](e-web-api.md).
 
 **The Query API** evaluates a query and returns the value in one request. The query goes into
 the URL as it is, after `/liquer/q/`:

@@ -2,7 +2,7 @@
 title: Sister guides
 status: ready
 sources: []
-reviewed: 2026-11-10
+reviewed: 2026-11-14
 ---
 # D. Sister guides
 
@@ -16,7 +16,7 @@ it goes furthest on stores, the environment, the server and the user-interface f
 the Python guide to see the same toolkit with the whole command library, Polars and search
 included, and to start a server that your page can call. The topics a browser does not have are
 there in full: chapter 9 on Polars and images, chapter 12 on running a server, chapter 13 on
-search and the agent memory.
+search over documents and the agent memory.
 
 | Chapter | Liquers for Rust | Liquers for Python |
 |---|---|---|
@@ -33,9 +33,10 @@ search and the agent memory.
 | 10. Templates | [Templates](../rust/10-templates.md) | [Templates](../python/10-templates.md) |
 | 11. User interfaces | [User interfaces](../rust/11-ui.md) | [User interfaces](../python/11-ui.md) |
 | 12. Serving and embedding | [Serving and embedding](../rust/12-serving.md) | [Serving and embedding](../python/12-serving.md) |
-| 13. Search and agent memory | [Search and agent memory](../rust/13-search.md) | [Search and agent memory](../python/13-search.md) |
+| 13. Records | [Records](../rust/13-records.md) | [Records](../python/13-records.md) |
 | 14. Testing | [Testing](../rust/14-testing.md) | [Testing](../python/14-testing.md) |
 | 15. Troubleshooting | [Troubleshooting](../rust/15-troubleshooting.md) | [Troubleshooting](../python/15-troubleshooting.md) |
 | A. Query syntax | [Query syntax](../rust/a-query-syntax.md) | [Query syntax](../python/a-query-syntax.md) |
 | B. Command library | [Command library](../rust/b-command-library.md) | [Command library](../python/b-command-library.md) |
 | C. Glossary | [Glossary](../rust/c-glossary.md) | [Glossary](../python/c-glossary.md) |
+| E. Web API reference | [Web API reference](../rust/e-web-api.md) | [Web API reference](../python/e-web-api.md) |

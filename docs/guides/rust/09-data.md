@@ -2,7 +2,7 @@
 title: Working with data
 status: ready
 sources: [guides/RECORD_STREAM_GUIDE.md, reference/RECORD_STREAMS.md, reference/POLARS_COMMAND_LIBRARY.md, reference/IMAGE_COMMAND_LIBRARY.md]
-reviewed: 2026-11-10
+reviewed: 2026-11-14
 ---
 # 9. Working with data
 
@@ -136,7 +136,7 @@ The pieces:
 
 - **A schema** names and types the columns. `RecordSchema::new` checks it and refuses, for
   example, two columns of the same name. A field can carry more: a label for display, a role for
-  search (chapter 13), and one field may be declared the identifier of a row.
+  search, and one field may be declared the identifier of a row (section 13.2).
 - **`RecordBatchMut`** builds a table row by row. `append_row` is all or nothing: a row with a
   value of the wrong type is refused and leaves the batch as it was. `freeze` turns the builder
   into an immutable `RecordBatch`, which is a `RecordView`.
@@ -251,14 +251,9 @@ That has a consequence for memory: with the default settings the environment kee
 it has computed. For a table that really does not fit into memory, set the query cache strategy
 to `None` (section 7.10), and each chunk is released when the stream moves on.
 
-A manifest can also give its chunks keys of their own, by a naming pattern, so that
-`data/daily_0010.csv` can be read like a file. That is what the `manifest` recipe provider of
-section 7.9 is for.
-
-In Rust a source is an `Arc<dyn RecordSource>`, from `value.as_record_source()`. Its `stream`
-method returns an asynchronous stream of views. It needs a *resolver*, the object that
-evaluates the chunk queries: inside a command, a `ContextResolver` made from the context, so
-that every chunk becomes a dependency of the command's result.
+A manifest can also give its chunks keys of their own, so that each chunk is stored and can be
+read like a file. Section 13.4 describes manifests in full, and section 13.6 uses one from Rust
+and walks a source as a stream.
 
 ## 9.5 Images
 

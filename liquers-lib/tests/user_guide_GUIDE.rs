@@ -280,13 +280,31 @@ async fn ch03_building() -> Result<(), Error> {
     let mut editor = QueryEditor::new(env.command_metadata_snapshot());
     editor.resource("data/sales.csv", Default::default())?;
     editor.action("to_record")?.ns("rec")?;
-    let mut filter = editor.action("eq")?;
-    filter.ns("rec")?.push("region")?.push(region)?;
-    assert!(filter.set("no_such_argument", 1).is_err()); // refused, and nothing changed
+    editor.action("eq")?.ns("rec")?.set("column", "region")?.set("value", region)?; // a text, escaped for you
+    editor.action("sort")?.ns("rec")?.set("column", "amount")?.set("ascending", false)?; // a boolean as a boolean
+    let mut head = editor.action("head")?;
+    head.ns("rec")?.set("n", 10)?; // a number as a number
+    assert!(head.set("no_such_argument", 1).is_err()); // refused, and nothing changed
     assert_eq!(
         editor.query().encode(),
-        "-R/data/sales.csv/-/ns-rec/to_record/eq-region-North~_West~.~/~.2"
+        "-R/data/sales.csv/-/ns-rec/to_record/eq-region-North~_West~.~/~.2/sort-amount-false/head-10"
     );
+
+    // --- edit
+    let query = parse_query("-R/data/sales.csv/-/ns-rec/to_record/sort-amount/head-10")?;
+    let mut editor = QueryEditor::from_query(&query, env.command_metadata_snapshot())?;
+    // The steps are counted from 0: the file, to_record, sort, head.
+    editor.edit_action(3)?.set("n", 3)?;
+    editor.edit_action(2)?.set("ascending", false)?;
+    assert_eq!(editor.query().encode(), "-R/data/sales.csv/-/ns-rec/to_record/sort-amount-false/head-3");
+
+    editor.edit_action(2)?.unset("ascending")?; // back to the default
+    let unset: Vec<&str> = editor.unset_arguments(2)?.iter().map(|argument| argument.name.as_str()).collect();
+    assert_eq!(unset, ["ascending", "nulls_last"]);
+
+    editor.remove(3)?; // drop the step
+    editor.set_filename(Some("sorted.csv"))?;
+    assert_eq!(editor.query().encode(), "-R/data/sales.csv/-/ns-rec/to_record/sort-amount/sorted.csv");
 
     // --- action
     let action = ActionRequest::new("eq".to_owned()).with_parameters(vec![
@@ -321,6 +339,39 @@ async fn ch03_pipelines() -> Result<(), Error> {
     assert_eq!(query.encode(), "-R/data/sales.csv/-/ns-rec/to_record/eq-region-EU/nrows");
     let back = Pipeline::try_from(&query)?;
     assert_eq!(back.to_query_with(&cmr)?.encode(), query.encode());
+
+    // --- read
+    // The steps of a query, as data: this is how to look inside one.
+    let steps = Pipeline::try_from(&parse_query("-R/data/sales.csv/-/ns-rec/to_record/head-2")?)?.to_json();
+    assert_eq!(steps["elements"][0]["resource"], "data/sales.csv");
+    assert_eq!(steps["elements"][2]["action"], "head");
+    assert_eq!(steps["elements"][2]["parameters"][0]["value"], "2");
+
+    // --- structured
+    // Rows written in place: a value that no query can hold.
+    let structured = Pipeline::from_json(&json!([
+        {"value": [{"region": "EU", "amount": 120}, {"region": "US", "amount": 80}]},
+        {"action": "to_record", "ns": "rec"},
+        {"action": "is_in", "ns": "rec", "arguments": {"column": "region", "values": ["EU", "ASIA"]}},
+        {"action": "nrows", "ns": "rec"}
+    ]))?;
+    let state = evaluate_pipeline(env.clone(), &structured, None).await?;
+    assert_eq!(state.try_into_string()?, "1");
+    let error = structured.to_query_with(&cmr).unwrap_err();
+    assert_eq!(error.error_type, ErrorType::ParameterError);
+    assert!(error.to_string().contains("not representable as a query"));
+
+    // --- edit
+    use liquers_core::pipeline::PipelineEditor;
+
+    let mut editor = PipelineEditor::from_pipeline(structured, cmr.clone())?;
+    // The steps are counted from 0: the value, to_record, is_in, nrows.
+    editor.edit_action(2)?.set("values", json!(["US"]))?;
+    editor.remove(3)?;
+    editor.action("select_columns")?.ns("rec")?.push("amount")?;
+    editor.action("to_json")?.ns("rec")?;
+    let state = evaluate_pipeline(env.clone(), editor.pipeline(), None).await?;
+    assert_eq!(state.value()?.try_into_json_value()?, json!([{"amount": 80}]));
     Ok(())
 }
 
@@ -1062,6 +1113,38 @@ recipes:
 }
 
 #[tokio::test]
+async fn ch07_recipe_pipeline() -> Result<(), Error> {
+    use liquers_core::assets::AssetManager;
+
+    let store = Arc::new(AsyncMemoryStore::new(&Key::new()));
+    let recipes = b"
+recipes:
+  - pipeline:
+      - -R/./sales.csv/-/ns-rec/to_record
+      - action: is_in
+        ns: rec
+        arguments: {column: region, values: [EU, ASIA]}
+    query: ns-rec/sort-amount-false/head-1/top.csv
+    title: The largest sale in the EU and in Asia
+";
+    store.set(&parse_key("data/sales.csv")?, SALES, &Metadata::new()).await?;
+    store.set(&parse_key("data/recipes.yaml")?, recipes, &Metadata::new()).await?;
+    let env = library_environment(store.clone())?;
+    let assets = env.get_asset_manager();
+
+    let recipe = assets.recipe_opt(&parse_key("data/top.csv")?).await?.expect("a recipe");
+    assert!(recipe.pipeline.is_some());
+    assert_eq!(recipe.query, "ns-rec/sort-amount-false/head-1/top.csv");
+
+    // The pipeline runs, then the query; the result is stored under the key.
+    let top = assets.get(&parse_key("data/top.csv")?).await?.get().await?;
+    assert_eq!(top.value()?.as_record_view()?.len(), 1);
+    let (bytes, _metadata) = store.get(&parse_key("data/top.csv")?).await?;
+    assert_eq!(String::from_utf8_lossy(&bytes), "region,month,amount\nEU,jan,120\n");
+    Ok(())
+}
+
+#[tokio::test]
 async fn ch07_cancel() -> Result<(), Error> {
     async fn forever(_state: State<Value>) -> Result<Value, Error> {
         tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
@@ -1476,11 +1559,158 @@ async fn ch10_standalone() -> Result<(), Error> {
     Ok(())
 }
 
+const JAN: &[u8] = b"id,region,amount\na1,EU,120\na2,US,80\n";
+const FEB: &[u8] = b"id,region,amount\nb1,EU,95\n";
+const MONTHLY: &[u8] = b"
+manifest: record-stream
+title: Sales by month
+chunks:
+  - query: -R/sales/jan.raw.csv/-/ns-rec/to_record/jan.csv
+  - query: -R/sales/feb.raw.csv/-/ns-rec/to_record/feb.csv
+uniform_schema:
+  fields:
+    - {name: id, data_type: Text, key: Id}
+    - {name: region, data_type: Text, nullable: false}
+    - {name: amount, data_type: Int}
+";
+
+#[tokio::test]
+async fn ch13_first() -> Result<(), Error> {
+    use liquers_records::{FieldType, FieldValue};
+
+    let store = Arc::new(AsyncMemoryStore::new(&Key::new()));
+    store.set(&parse_key("sales/jan.csv")?, JAN, &Metadata::new()).await?;
+    let env = library_environment(store)?;
+
+    let state = env.evaluate("-R/sales/jan.csv/-/ns-rec/to_record").await?.get().await?;
+    assert_eq!(state.type_identifier(), "RecordView"); // a table in memory
+    let table = state.value()?.as_record_view()?;
+    let fields: Vec<(&str, FieldType)> =
+        table.schema().fields.iter().map(|field| (field.name.as_str(), field.data_type)).collect();
+    assert_eq!(fields, [("id", FieldType::Text), ("region", FieldType::Text), ("amount", FieldType::Int)]);
+    assert_eq!(table.value(0, 2)?, FieldValue::Int(120)); // one cell of one record
+    Ok(())
+}
+
+#[tokio::test]
+async fn ch13_schema() -> Result<(), Error> {
+    use liquers_core::interpreter::evaluate_pipeline;
+    use liquers_core::pipeline::{Pipeline, QueryEditor};
+    use liquers_records::{FieldType, FieldValue, KeyRole};
+    use serde_json::json;
+
+    const SCHEMA: &str = "
+fields:
+  - {name: id, data_type: Text, key: Id}
+  - {name: region, data_type: Text, nullable: false}
+  - {name: amount, data_type: Float}
+";
+    let store = Arc::new(AsyncMemoryStore::new(&Key::new()));
+    store.set(&parse_key("sales/jan.csv")?, JAN, &Metadata::new()).await?;
+    store.set(&parse_key("sales/schema.txt")?, SCHEMA.as_bytes(), &Metadata::new()).await?;
+    let env = library_environment(store)?;
+
+    // The schema as an argument of a pipeline step.
+    let pipeline = Pipeline::from_json(&json!([
+        "-R/sales/jan.csv",
+        {"action": "to_record", "ns": "rec", "arguments": {"schema": SCHEMA}},
+    ]))?;
+    let table = evaluate_pipeline(env.clone(), &pipeline, None).await?.value()?.as_record_view()?;
+    let amount = &table.schema().fields[2];
+    assert_eq!(amount.data_type, FieldType::Float); // declared, not inferred
+    assert_eq!(table.schema().fields[0].key, KeyRole::Id);
+    assert_eq!(table.value(0, 2)?, FieldValue::Float(120.0));
+
+    // --- link
+    // The schema as a link: the argument is the result of another query.
+    let mut editor = QueryEditor::new(env.command_metadata_snapshot());
+    editor.resource("sales/jan.csv", Default::default())?;
+    editor.action("to_record")?.ns("rec")?.link("schema", "-R/sales/schema.txt")?;
+    editor.action("rec_id")?.ns("rec")?.set("id", "a2")?; // look a row up by its Id
+    let query = editor.query();
+    assert_eq!(
+        query.encode(),
+        "-R/sales/jan.csv/-/ns-rec/to_record--true-~X~-R/sales/schema.txt~E/rec_id-a2"
+    );
+    let row = env.evaluate(&query).await?.get().await?.value()?.as_record_view()?;
+    assert_eq!(row.len(), 1);
+    assert_eq!(row.value(0, 1)?, FieldValue::Text("US".into()));
+    Ok(())
+}
+
+#[tokio::test]
+async fn ch13_manifest() -> Result<(), Error> {
+    use liquers_core::assets::AssetManager;
+
+    let store = Arc::new(AsyncMemoryStore::new(&Key::new()));
+    store.set(&parse_key("sales/jan.raw.csv")?, JAN, &Metadata::new()).await?;
+    store.set(&parse_key("sales/feb.raw.csv")?, FEB, &Metadata::new()).await?;
+    store.set(&parse_key("sales/monthly.manifest.yaml")?, MONTHLY, &Metadata::new()).await?;
+    let env = library_environment(store.clone())?;
+
+    // Record commands read the manifest as one table.
+    let count = env.evaluate("-R/sales/monthly.manifest.yaml/-/ns-rec/nrows").await?.get().await?;
+    assert_eq!(count.try_into_string()?, "3");
+
+    // A lazy filter gives a source; materialize makes the table.
+    let lazy = env.evaluate("-R/sales/monthly.manifest.yaml/-/ns-rec/eq-region-EU").await?.get().await?;
+    assert_eq!(lazy.type_identifier(), "RecordSource");
+    let eu = env.evaluate("-R/sales/monthly.manifest.yaml/-/ns-rec/eq-region-EU/materialize").await?.get().await?;
+    assert_eq!(eu.value()?.as_record_view()?.len(), 2);
+
+    // Each chunk has a key, a recipe, and after its first use a stored file.
+    let assets = env.get_asset_manager();
+    let recipe = assets.recipe_opt(&parse_key("sales/feb.csv")?).await?.expect("the chunk's recipe");
+    assert_eq!(recipe.query, "-R/sales/feb.raw.csv/-/ns-rec/to_record/feb.csv");
+    let feb = env.evaluate("-R/sales/feb.csv").await?.get().await?;
+    assert_eq!(feb.value()?.as_record_view()?.len(), 1);
+    assert!(store.contains(&parse_key("sales/feb.csv")?).await?);
+
+    // --- polars
+    // Records cut the table down, Polars computes on what is left.
+    let query = "-R/sales/monthly.manifest.yaml/-/ns-rec/eq-region-EU/materialize/ns-pl/select_columns-amount/sum/total.csv";
+    let total = env.evaluate(query).await?.get().await?;
+    assert_eq!(total.type_identifier(), "polars.DataFrame");
+    let (bytes, _metadata) = env.evaluate(query).await?.get_binary().await?;
+    assert_eq!(String::from_utf8_lossy(&bytes), "amount\n215\n");
+    Ok(())
+}
+
+#[tokio::test]
+async fn ch13_stream() -> Result<(), Error> {
+    use futures::StreamExt;
+    use liquers_lib::records::EnvResolver;
+
+    let store = Arc::new(AsyncMemoryStore::new(&Key::new()));
+    store.set(&parse_key("sales/jan.raw.csv")?, JAN, &Metadata::new()).await?;
+    store.set(&parse_key("sales/feb.raw.csv")?, FEB, &Metadata::new()).await?;
+    store.set(&parse_key("sales/monthly.manifest.yaml")?, MONTHLY, &Metadata::new()).await?;
+    let env = library_environment(store)?;
+
+    let state = env.evaluate("-R/sales/monthly.manifest.yaml/-/ns-rec/to_record_source").await?.get().await?;
+    let source = state.value()?.as_record_source()?;
+    assert!(source.schema().is_some()); // the manifest declares one
+
+    // One pass: a stream of views, one chunk at a time.
+    let resolver = Arc::new(EnvResolver::new(env.clone()));
+    let mut stream = source.clone().stream(resolver.clone()).await?;
+    let mut sizes = Vec::new();
+    while let Some(view) = stream.next().await {
+        sizes.push(view?.len());
+    }
+    assert_eq!(sizes, [2, 1]);
+
+    // Everything as one table, refused beyond 1000 rows.
+    let all = source.materialize(resolver, 1000).await?;
+    assert_eq!(all.len, 3);
+    Ok(())
+}
+
 #[tokio::test]
 async fn ch13_search() -> Result<(), Error> {
     use liquers_core::assets::AssetManager;
     use liquers_core::metadata::MetadataRecord;
-    use liquers_core::query::{ActionParameter, ActionRequest};
+    use liquers_core::pipeline::QueryEditor;
     use liquers_records::FieldValue;
 
     // A Markdown document as a state: the text, and the format it is written in.
@@ -1524,15 +1754,17 @@ async fn ch13_search() -> Result<(), Error> {
     assert_eq!(hits, ["notes/shopping.md"]);
 
     // --- fields
-    // Search by a field of the front matter. The expression has a colon: let the encoder escape it.
-    let search = ActionRequest::new("search".to_owned()).with_parameters(
-        ["status:open", "f", "f", "0"]
-            .iter()
-            .map(|text| ActionParameter::new_string(text.to_string()))
-            .collect(),
-    );
-    assert_eq!(search.encode(), "search-status~ncolon~open-f-f-0");
-    let query = format!("-R-key/notes/-/ns-search/field_extract/{}", search.encode());
+    // Search by a field of the front matter. The editor escapes the colon of the expression.
+    let start = parse_query("-R-key/notes/-/ns-search/field_extract")?;
+    let mut editor = QueryEditor::from_query(&start, env.command_metadata_snapshot())?;
+    editor
+        .action("search")?
+        .ns("search")?
+        .set("query", "status:open")? // a text
+        .set("rank", false)? // a boolean
+        .set("limit", 0)?; // a number; 0 means all matches
+    let query = editor.query().encode();
+    assert_eq!(query, "-R-key/notes/-/ns-search/field_extract/search-status~ncolon~open-false-false-0");
     assert_eq!(column(query, "title").await?, ["Shopping"]);
     Ok(())
 }

@@ -20,7 +20,7 @@ have a row here (`specs/guides/USER_DOCS_EDITING_GUIDE.md`, maintenance).
 | 2026-11-10 | 10-templates.md | written with the shared fragment `_shared/templates.md` and `guides/TEMPLATE_GUIDE.md`; examples run; `ready` |
 | 2026-11-10 | 11-ui.md | written from `reference/UI_INTERFACE_FSD.md` and the examples of `liquers-lib`: the model, `UISpec`, egui, the web backend; code is sketches; `ready` |
 | 2026-11-10 | 12-serving.md | 12.1, 12.2 and 12.5 kept; requests, embedding in an Axum application, live updates and embedding without a server written from `guides/WEB_API_GUIDE.md`; examples run in `liquers-axum`; `ready` |
-| 2026-11-10 | 13-search.md | written from `guides/SEARCH_GUIDE.md` and `reference/AGENT_MEMORY_SERVICE.md`; examples run; an `EDITOR:` note for a worked `liquers-mcp` example; `ready` |
+| 2026-11-10 | 13-records.md | written from `guides/SEARCH_GUIDE.md` and `reference/AGENT_MEMORY_SERVICE.md`; examples run; an `EDITOR:` note for a worked `liquers-mcp` example; `ready` |
 | 2026-11-10 | 14-testing.md | written: the three levels, a test module, assertions, planning shipped queries, servers and stores; examples run; `ready` |
 | 2026-11-10 | 15-troubleshooting.md | written with the shared fragment `_shared/errors.md`; errors in Rust, frequent mistakes, known limitations; examples run; `ready` |
 | 2026-11-10 | a-query-syntax.md | the syntax in Rust and the pipeline step forms added; an `EDITOR:` note for realms; `ready` |
@@ -28,3 +28,15 @@ have a row here (`specs/guides/USER_DOCS_EDITING_GUIDE.md`, maintenance).
 | 2026-11-10 | c-glossary.md | the terms in Rust and the terms this guide adds; `ready` |
 | 2026-11-10 | d-sister-guides.md | introduction written; `ready` |
 | 2026-11-10 | (all) | every `rust` block is a slice of `liquers-lib/tests/user_guide_GUIDE.rs` or `liquers-axum/tests/user_guide_GUIDE.rs`, checked by `liquers-docs/tests/rust_guide_examples.rs` |
+| 2026-11-14 | 01-introduction.md | chapter 13 is now *Records*: the table of chapters and the paragraph on search follow |
+| 2026-11-14 | 03-queries.md | 3.9 is *Building and editing a query*: the query editor first, with typed values and the editing of an existing query; the older way after it. 3.10 rewritten around the shared fragments `_shared/pipelines.md` and `_shared/pipeline-or-query.md`: creating, reading, editing a pipeline, and when to prefer a query. Links to the API reference. Examples run |
+| 2026-11-14 | 07-assets.md | a recipe with a pipeline: the shared section in `_shared/assets.md` and a tested example |
+| 2026-11-14 | 09-data.md | points to chapter 13 for schemas and manifests |
+| 2026-11-14 | 11-ui.md | adds the reference section for UI specs and the `ns-lui` commands, from the shared fragment `_shared/ui-reference.md` (the full spec was run in the browser module) |
+| 2026-11-14 | 12-serving.md | points to the new appendix E for the routes |
+| 2026-11-14 | 13-records.md | renamed from `13-search.md` and rewritten as *Records*: the shared fragment `_shared/records.md` (views, sources, streams, schemas, manifests and recipes, records and Polars), records in this language, then search and the agent memory as applications of records. Examples run |
+| 2026-11-14 | 15-troubleshooting.md | section numbers of chapter 13 follow its rewrite |
+| 2026-11-14 | b-command-library.md | section numbers of chapter 13 follow its rewrite |
+| 2026-11-14 | c-glossary.md | adds chunk, manifest, query editor, record, record source, record stream, schema |
+| 2026-11-14 | d-sister-guides.md | chapter 13 is *Records*; adds appendix E |
+| 2026-11-14 | e-web-api.md | new appendix: the web API reference, from the shared fragment `_shared/web-api.md` (written from `reference/WEB_API_SPECIFICATION.md`, example answers taken from a running server); `ready` |

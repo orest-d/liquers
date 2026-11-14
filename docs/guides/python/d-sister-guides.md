@@ -2,7 +2,7 @@
 title: Sister guides
 status: ready
 sources: []
-reviewed: 2026-11-09
+reviewed: 2026-11-14
 ---
 # D. Sister guides
 
@@ -31,9 +31,10 @@ covered by the Rust and Web guides, and the HTTP server (chapter 12) by the Rust
 | 10. Templates | [Templates](../rust/10-templates.md) | [Templates](../web/10-templates.md) |
 | 11. User interfaces | [User interfaces](../rust/11-ui.md) | [User interfaces](../web/11-ui.md) |
 | 12. Serving and embedding | [Serving and embedding](../rust/12-serving.md) | [Serving and embedding](../web/12-serving.md) |
-| 13. Search and agent memory | [Search and agent memory](../rust/13-search.md) | [Search and agent memory](../web/13-search.md) |
+| 13. Records | [Records](../rust/13-records.md) | [Records](../web/13-records.md) |
 | 14. Testing | [Testing](../rust/14-testing.md) | [Testing](../web/14-testing.md) |
 | 15. Troubleshooting | [Troubleshooting](../rust/15-troubleshooting.md) | [Troubleshooting](../web/15-troubleshooting.md) |
 | A. Query syntax | [Query syntax](../rust/a-query-syntax.md) | [Query syntax](../web/a-query-syntax.md) |
 | B. Command library | [Command library](../rust/b-command-library.md) | [Command library](../web/b-command-library.md) |
 | C. Glossary | [Glossary](../rust/c-glossary.md) | [Glossary](../web/c-glossary.md) |
+| E. Web API reference | [Web API reference](../rust/e-web-api.md) | [Web API reference](../web/e-web-api.md) |
