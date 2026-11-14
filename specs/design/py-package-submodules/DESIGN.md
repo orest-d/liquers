@@ -116,7 +116,7 @@ imports them by name.
 - `specs/reference/PYTHON_INTEGRATION.md` §1 Layout (`_liquers`, the seam, the public submodules),
   the `__module__` rule, §13 the stub layout, §14 and §18 for `data_node` and `ui`.
 - `specs/guides/PYTHON_GUIDE.md`: a "Package layout" section mapping submodules to Rust modules.
-- `docs/guides/python/01-introduction.md`: the package layout; `04-values.md` and `11-ui.md`: the
+- `docs/guides/python/01-introduction.md`: the package layout; `04-values.md`: the
   `data_node` calls (the guide has no `lq.ui()` call). Examples keep `import liquers as lq`.
 - `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md`: the lesson "PyO3's `module = "liquers"` decides
   where the stubs go", updated to submodules.
