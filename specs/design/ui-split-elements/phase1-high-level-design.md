@@ -53,7 +53,7 @@ the image directly, and nothing is encoded or decoded.
   deserialized for display
 - **AC-5** One element definition
   WHEN an element type is used in both modes
-  THEN it is the same Rust type with the same update logic; only the link between its halves
+  THEN it is the same Rust type with the same update logic; only the mode it is mounted in
   differs
 - **AC-6** The server is authoritative
   WHEN the client sends an event based on an older revision, or reconnects after missing messages
@@ -67,6 +67,11 @@ the image directly, and nothing is encoded or decoded.
   WHEN a client sends anything other than an event or action addressed to an existing element
   THEN the server rejects it, and no query is evaluated on its behalf
 
+- **AC-9** A default client renders split elements
+  WHEN a browser loads the default wasm client and connects it to a server UI
+  THEN it mounts the client halves of the built-in elements and renders them, with no
+  application-specific client code
+
 Non-goals: HTML patches from the server (rejected in discussion: the client renders); JavaScript-
 defined elements (`web-ui-define`) in client-server mode; multi-user hardening, authentication and
 per-key access (`CORE-SESSION-AND-KEY-ACL`, `AXUM-WEBSOCKET-HARDENING`), which this design must not
@@ -75,9 +80,16 @@ stays monolithic.
 
 ## Core Interactions
 
-- **UI** (`liquers-lib/src/ui/`): element halves, the update-message type, revisions, the link
-  abstraction, a native session that owns `AppState` + `AppRunner`, a mirror `AppState` on the
-  client.
+- **UI** (`liquers-lib/src/ui/`): element halves, the update-message type, revisions, the mode an
+  element runs in, a native session that owns `AppState` + `AppRunner`, a mirror `AppState` on the
+  client, and the default wasm client that renders it.
+- **Sessions**: none exist for the UI today. `Environment::create_session` / `SimpleSession`
+  (`liquers-core/src/context.rs`) carry only a user and evaluation never sees them. What makes
+  several UIs in one environment possible already is that the `AppState` travels in the payload
+  (`ui/payload.rs` `SimpleUIPayload`), not in the environment, and every `lui` command is
+  `payload: required`, hence volatile and never cached across UIs. A UI session here is one
+  `AppState` + `AppRunner` + sender per WebSocket connection over a shared environment, so data
+  assets are shared and cached while element trees are not.
 - **Value types**: whether a value can travel, and its wire form (PNG bytes, Arrow IPC batches).
 - **Web/API**: a WebSocket route in `liquers-axum` carrying the update messages.
 - **Records**: Arrow IPC (`records-ipc`) as the table page format on both sides.
@@ -86,11 +98,11 @@ stays monolithic.
 
 ## Crate Placement
 
-The element model, messages, envelope codec, link trait and session go in `liquers-lib/src/ui/`
+The element model, messages, envelope codec, mode and session go in `liquers-lib/src/ui/`
 (the model is already there and builds on wasm and native). Client element halves must compile
 without `polars` or `image-support`, so a wasm client does not link them. The WebSocket route goes in
 `liquers-axum` behind a new optional feature that depends on `liquers-lib`; its default build stays
-on `liquers-core` + `liquers-store`. `liquers-web` gains a way to mount a client-mode UI.
+on `liquers-core` + `liquers-store`. The default wasm client is a `liquers-lib` (`webui`) mount in client mode; `liquers-web` exposes it to JavaScript.
 
 ## Documentation Intent
 
@@ -106,26 +118,29 @@ on `liquers-core` + `liquers-store`. `liquers-web` gains a way to mount a client
 
 ## Open Questions
 
-1. **Envelope.** Recommended: one WebSocket message per update: a JSON header plus attachments
-   padded to 8 bytes (`[header length][JSON][attachment…]`), with text frames for attachment-less
-   messages. Alternative: CBOR (`ciborium` is already a `liquers-axum` dependency), rejected
-   provisionally because its byte strings are unaligned (Arrow IPC would be copied) and the header
-   would stop being plain JSON. Confirm.
-2. **Monolithic mode: flag or link.** Recommended: no flag. An attachment is either a local
-   `Arc<Value>` or encoded bytes, encoding happens only at the transport boundary, and elements can
-   ask `is_local()` to skip building a projection at all. Confirm, or keep an explicit flag.
-3. **Client copy granularity.** Recommended: the client holds a *named view* of the value: asset
-   key, asset version, view parameters (page, sort). It caches by that name and drops entries when
-   the version changes. Is a client-side full copy of a value ever wanted (small values only)?
-4. **Where do the two halves live in code?** Recommended: a server-half trait and a client-half
-   trait, with a blanket "same struct is both" for elements that need no split. Alternative: one
-   trait with optional methods. Decide in Phase 2 unless you have a preference.
-5. **Relationship to the parked client/server work.** `remote-store-and-asset-manager` is parked
-   until client/server is defined, and realms will each have their own environment. Recommended:
-   this design defines only the UI channel and assumes one server environment per session; the
-   client environment is the mirror, with no commands of its own. Confirm.
-6. **First transport.** WebSocket from `liquers-axum`, single local session first (testable with the
-   repository's Playwright setup), then multi-session. Confirm the order.
+Answered by Orest on 2026-11-14:
+
+1. **Envelope — agreed.** One WebSocket message per update: a JSON header plus attachments padded
+   to 8 bytes (`[header length][JSON][attachment…]`); text frames for attachment-less messages.
+   CBOR rejected (unaligned byte strings, header no longer plain JSON).
+2. **Mode — the element knows it (revised).** An earlier recommendation was a link that carries
+   values locally and encodes them only at the boundary. Orest's objection holds: in split mode
+   the data must be sent, and the element is the one that decides *what* to send (a page, not the
+   DataFrame), so it must know the mode. Recommendation now: a mode, `Monolithic` or `Split`, fixed
+   per mount and readable from `UIContext`. In `Monolithic` the two halves are one object, the
+   client half reads the value directly and no value update is produced. In `Split` the server
+   half produces value updates and the client half renders its copy. Still to discuss.
+3. **Client copy — still to discuss.** Revised recommendation: each client half owns its copy
+   (full or partial) and replaces it with each update, ordered by the element's revision; no
+   shared client cache in the first version. Naming a copy by asset key, version and view
+   parameters is a later optimisation for sharing and reuse across elements.
+4. **Halves — agreed.** A server-half trait and a client-half trait, plus a blanket "one struct is
+   both" for elements that need no split.
+5. **Scope — agreed, extended.** The UI channel with one server environment shared by all
+   sessions, **and a default wasm client** that renders split elements (AC-9). The client runs
+   no commands of its own in this design.
+6. **First transport — agreed.** WebSocket from `liquers-axum`, one local session first, then
+   multi-session.
 
 ## Design Dependencies
 
