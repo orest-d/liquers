@@ -3,9 +3,9 @@ id: LIQUERS-PY-UI
 kind: design
 title: "Liquers UI model in liquers-py: show, drive and observe UI elements"
 workflow: liquers-project
-status: in_review
-phase: high-level
-readiness: needs-decision
+gh_pr: [268]
+status: complete
+readiness: ready
 autofix: not-eligible
 area: [py, lib/ui]
 issues: [PY-CANNOT-USE-A-LIQUERS-UI]
@@ -18,9 +18,14 @@ The model half of the `UIUSE` feature for liquers-py: milestone M7 of the liquer
 [`liquers-py-web-server`](../liquers-py-web-server/DESIGN.md) and
 [`liquers-py-ui-window`](../liquers-py-ui-window/DESIGN.md), the window half, split from this design on 2026-11-06
 (Phase 1 review) so the wheel decision does not hold up the model. Full form (`L`); needs no egui.
-Based on `main` at `bd36cf1`; M6 (PRs #257, #259–#263) is still open and lands first.
+Based on `main` at `0b01a20` (M6 and the M7 server merged). The driver it runs comes from
+[`egui-native-app`](../egui-native-app/DESIGN.md), which lands first.
 
 Phase 1 written and reviewed twice on 2026-11-06 (conformity and records; codebase and soundness); findings applied.
+Phase 1 approved 2026-11-07 (Orest: "proceed", gate after each phase). Phase 2 written 2026-11-10. Phase 2 approved 2026-11-11 (Orest: "proceed all", which pre-approves
+Phases 3 and 4, the implementation and Phase 5). Pre-approved after Phase 2 on 2026-11-11.
+Phases 3 and 4 written 2026-11-11 from the working implementation. Implemented on PR #268 (the second
+commit group). Phase 5 written 2026-11-11 and approved 2026-11-14 (Orest: "complete and merge the design"): `status: complete`.
 
 ## Phases
 

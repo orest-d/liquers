@@ -2,7 +2,7 @@
 title: Sister guides
 status: ready
 sources: []
-reviewed: 2026-11-10
+reviewed: 2026-11-11
 ---
 # D. Sister guides
 
@@ -15,8 +15,8 @@ Read the Python guide to use Liquers from notebooks and scripts, or to see how a
 bound to the crates this guide describes. Read the Web guide to run queries in a browser, with
 commands written in JavaScript, or to call a server from a page. This guide goes furthest on the
 parts that only exist in Rust: writing value types and stores, the builder, the server and the
-user interface framework. Chapter 11 of the Python guide only says that user interfaces are not
-available there.
+user interface framework. Chapter 11 of the Python guide shows the same elements held from
+Python and opened in a window.
 
 | Chapter | Liquers for Python | Liquers for the Web |
 |---|---|---|

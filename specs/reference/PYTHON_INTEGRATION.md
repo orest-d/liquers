@@ -2,8 +2,8 @@
 title: Python Integration
 kind: reference
 audience: both
-area: [py, core/value, core/error, lib/value, core/store, store/config, core/assets]
-reviewed: 2026-11-10
+area: [py, core/value, core/error, lib/value, core/store, store/config, core/assets, lib/ui, lib/egui]
+reviewed: 2026-11-14
 ---
 # Python Integration
 
@@ -43,6 +43,7 @@ The package's own modules:
 | `_factories.py` | `_declare`: a store or recipe provider factory's declaration from its signature (§9, §10). |
 | `_records.py` | The pyarrow side of the record classes: IPC bytes to and from Arrow, normalization, pandas and polars (§11). |
 | `_extras.py` | `require()` and the table of extras (§12). |
+| `_ui.py` | `wait_idle_async`, the coroutine behind `UI.wait_idle_async`, and the in-command mark of `async def` commands (§18). |
 | `__init__.pyi`, `_native.pyi`, `py.typed` | The type declarations (§13). A class added to `src/lib.rs` is declared here too. |
 
 Cargo features: `extension-module` (default) leaves the Python symbols to the loading interpreter,
@@ -50,8 +51,8 @@ which a wheel needs and a Rust test binary cannot link with, so Rust tests run w
 `--no-default-features`. `debug-handles` is test-only: it adds `Environment.live_handle_count()`
 and the `test_panic` command. `liquers-lib` is linked with `image-support`, `polars`, `records`,
 `records-ipc`, `records-parquet` and `templates`, `liquers-records` with `ipc`, and `liquers-axum`
-for the server (§17); `egui` is not
-linked, since a Python process has no egui event loop. `abi3` (off by default) builds against
+for the server (§17). `gui` (default) adds `liquers-lib`'s `egui`, the window of `UI.run()` (§18);
+a build without it raises from `run`. `abi3` (off by default) builds against
 CPython's limited API from 3.14 (`pyo3/abi3-py314`), for the `cp314-abi3` wheel (§12).
 
 Every class reports `__module__ == "liquers"`, so type names in messages and default reprs read
@@ -75,6 +76,7 @@ frozen; the others hold their own copy of the value.
 | `ErrorType`, `Error` | `liquers_core::error`; `Error` is a data object, not the exception (§6) |
 | `Environment`, `Issue` | the environment handle (§3) and one `IssueReport` finding |
 | `Server` | a running HTTP server (§17): liquers-axum's `LiquersServer` |
+| `UI`, `UIElement`, `UIElementInfo`, `UIStatusEvent`, `UISubscription`, `ui` | a UI model and its window (§18): `liquers_lib::ui` `AppState`, `NativeDriver`, `UIElement` |
 | `Context`, `AssetRef` | a command's context and an asset reference, each watching its environment's shut flag |
 | `State` | a snapshot of a value and a copy of its metadata; `value` converts to Python on first access (§5), `record_view()` gives the record view behind it, or `None`, and `data_node()` reads it in place (§14) |
 | `NodeKind`, `DataNode`, `data_node` | a data node's kind, a view of one, and the function making a view (§14) |
@@ -91,8 +93,10 @@ string. `Key[i]` accepts negative indices and raises `IndexError` out of range.
 
 ## 3. The environment
 
-**Type.** Every handle builds `PyEnvironment = liquers_lib::environment::DefaultEnvironment<Value>`
-with `liquers-lib`'s `Value` and payload `()`, from `liquers_lib::environment::default_environment_builder`.
+**Type.** Every handle builds `PyEnvironment = liquers_lib::environment::DefaultEnvironment<Value, SimpleUIPayload>`
+with `liquers-lib`'s `Value` and the UI payload, from `liquers_lib::environment::default_environment_builder`.
+An evaluation outside a UI passes no payload; a UI's evaluations carry the element's handle (§18).
+The built-ins include the `lui` commands (`register_lui_commands!`).
 The type registry is `Value`'s, plus `py.Object` (§5).
 
 **Construction.** `Environment(*, config=None, conversion=None, pickle=None, async_loops=None,
@@ -294,7 +298,8 @@ the query raises `ExecutionError` with the first such message, whatever the comm
 (`Context::error` in core). `is_cancelled()` reads the asset's cancellation flag.
 `evaluate_async(query)` is the awaitable `evaluate`, for `async def` commands. `data_node(x)` gives `x` as an
 `lq.DataNode`, a state read through this context (§14). `render`, `expand`, their `_async` forms
-and `validate_template` render in the command's context (§15).
+and `validate_template` render in the command's context (§15). `element` is the handle of the UI
+element whose action runs the command, or `None` outside a UI (§18).
 
 ## 5. Values
 
@@ -449,7 +454,8 @@ coroutine that ignores cancellation, or a thread still blocked after that, is le
 `RuntimeWarning`. An `atexit` hook stops a pool still running when the interpreter exits, and a pool
 dropped without either is stopped on a thread of its own.
 
-**Interpreter exit.** Running servers stop first (§17), from whichever exit hook runs first.
+**Interpreter exit.** Running servers stop first (§17), then every UI model is disposed without
+waiting (§18), from whichever exit hook runs first.
 Every time a liquers-owned thread (a runtime blocking thread, a loop thread)
 attaches to the interpreter, the attach is counted, and a Python command call also records its
 asset (`liquers-py/src/exit.rs`). An `atexit` hook registered at import runs after every pool's
@@ -514,6 +520,10 @@ protect.
 - No Pyodide target. Wheels cover CPython 3.14+ only, and other platforms build from source (§12).
 - Records: Python cannot implement a view or a source, and every exit to Arrow, pandas or polars
   copies (§11).
+- UI: elements cannot be written in Python; an element nested in the console has no handle and is
+  missing from `elements()` (`UI-ELEMENT-NESTED-IN-CONSOLE-HAS-NO-HANDLE`); a slow submitted action
+  delays the model's other work, and freezes an open window, until it ends
+  (`WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS`) (§18).
 
 ## 9. Stores
 
@@ -749,10 +759,18 @@ so a module that is importable is used whatever its origin. A missing one raises
 wheel for it, and otherwise naming the `pip install 'liquers-py[extra]'` that fixes it; an unknown
 extra is a `ValueError`. `require("all")` skips an extra with no wheel here whose module is missing.
 
+**The window.** Every wheel carries the egui backend (feature `gui`, §18): measured on Linux
+x86_64 abi3 it adds about 8 MB compressed (+27%). `ldd` lists no new library, since X11, Wayland
+and the GPU drivers are loaded when a window opens, so the wheel imports where there is no
+display. A source build with `--no-default-features --features extension-module` leaves the
+window out.
+
 **Native requirements.** A wheel links only system libraries: TLS is rustls with `aws-lc-rs`
 built in (`AWS_LC_SYS_USE_SYSTEM=0`), and nothing is grafted. `scripts/check-wheel.py` checks each
 wheel against `liquers-py/packaging/allowed-libraries.toml` (the manylinux_2_28 policy, macOS's
-system paths, Windows' system DLLs and VC runtime) and refuses one over 90 MB. The wheel carries
+system paths, Windows' system DLLs and VC runtime, including those the window links: `dwmapi`,
+`dxgi`, `gdi32`, `imm32`, `opengl32`, `setupapi`, `shlwapi`, `uiautomationcore`, `uxtheme`) and
+refuses one over 90 MB. The wheel carries
 `THIRD-PARTY-NOTICES.html`, generated by `cargo about` from the resolved lock at release time and
 not committed.
 
@@ -1026,10 +1044,73 @@ than left listening.
 **Not offered.** Python request handlers or middleware (`PY-WEB-SERVER-CANNOT-TAKE-PYTHON-HANDLERS`),
 authentication, TLS, and a web folder answered by recipes (`WEB-FOLDER-SERVES-STORED-FILES-ONLY`).
 
+## 18. User interface
+
+`env.ui()` (and `lq.ui()` for the default environment) creates a Liquers UI model: an `AppState`,
+a message channel and a `liquers_lib::ui::NativeDriver`, ticked in the background by
+`spawn_headless` on the process runtime. `liquers-py/src/ui.rs`; designs `design/liquers-py-ui/`
+and `design/liquers-py-ui-window/`, over `design/egui-native-app/`. Each call makes a new model.
+
+**`lq.UI`.** `show(query, handle=None)` makes the query's value an element: a new root, or the
+element `handle` takes the query instead (its running evaluation's result is then dropped by
+`AppRunner`'s stale-source rule); it returns the handle. `submit(query, handle=None)` runs the
+query as a control's action (`AppMessage::SubmitQuery`), with `handle` as the acting element.
+A `str` is parsed first, so a syntax error raises `lq.ParseError`; an unknown handle raises
+`GeneralError` "no UI element N". `elements()` lists `lq.UIElementInfo`s (`handle`, `parent`,
+`type_name`, `title`, `status`, the latest status seen). `asset(handle)` is the element's
+`lq.AssetRef` (log, progress, `cancel()`). `on("status", callback)` returns an
+`lq.UISubscription` (`dispose()`, a context manager); another kind is a `ValueError`. Every call
+first rebuilds the environment if a registration retired it, so a later query can use a command
+registered after `env.ui()`, and the driver follows the current build.
+
+**Status events.** `lq.UIStatusEvent` has `handle` (`None` for a root query with no element),
+`status` (`lq.Status`: `Processing` when an evaluation starts, `Ready` or `Error` when it ends)
+and `error` (an `lq.LiquersError` with `Error`). A failing query is an event, not an exception.
+The background task only queues events (at most 1024; the oldest is dropped).
+
+**Who runs the callbacks.** Only a thread that asks: `wait_idle(timeout=None)` (returns `True`
+when idle, `False` on timeout), the event loop awaiting `wait_idle_async(timeout=None)`,
+`process_events()` (delivers the queue and returns its length), or the window between frames.
+Deliveries are serialised and never under the `AppState` lock, so a callback may call back into the
+UI; a callback's own `wait_idle` does not deliver the rest out of order. A raising callback is
+reported through `sys.unraisablehook` and delivery goes on. While a window shows, only its frame
+hook delivers: `wait_idle` elsewhere waits without delivering and `process_events` returns 0.
+
+**Idle.** The model is idle when a tick has settled (no message waiting, no node pending, no
+evaluation in flight) after the last `show` or `submit`. `wait_idle` waits with the GIL released,
+waking every 100 ms to deliver and check signals (Ctrl-C raises `KeyboardInterrupt`). It raises
+`GeneralError` where it could never return: on the window's thread while `run` blocks, and inside
+any Python command, since the model may be waiting for that very command. `wait_idle_async` is
+refused in the same places, an `async def` command included: its coroutine runs marked by the
+`liquers._ui._IN_COMMAND` context variable, as a synchronous command's thread is marked.
+
+**Values.** A UI element value crosses as an `lq.UIElement` (`type_name`, `title`), holding the
+same `Arc`, so a command may return one and `show` displays it. It has no data format: `store_set`
+of one raises. The egui-only `UiCommand` and `Widget` values raise `ConversionError`.
+
+**The window.** `run(title="Liquers", size=(900.0, 700.0))` must be called on the main thread
+(`threading.main_thread()`); elsewhere, after `dispose()` or while a window shows it raises
+`GeneralError` before winit is reached. It takes the driver from the background task, opens
+`liquers_lib::egui::app::run_window` with the GIL released, and blocks until the window closes;
+then the driver goes back to a new background task, so the model goes on. Between frames the hook
+delivers callbacks on the main thread and checks signals: Ctrl-C closes the window and `run` raises
+`KeyboardInterrupt`. `close()` closes it from any thread (a close before the first frame is kept);
+so do *Quit* controls, `dispose()` and `env.shutdown()`. `window_open` tells whether it shows. No
+display, or a window that cannot be created, raises the window's error as `lq.LiquersError`. A
+background server (§17) and the window share the environment and its assets.
+
+**Lifetime.** `dispose()` (idempotent; also the `with` block's exit) closes the window, stops the
+task (up to 5 s) and releases the callbacks; every later call raises "the UI has been disposed".
+`env.shutdown()` disposes the environment's models after its servers and before its asset managers
+stop. A collected `lq.UI` signals its task without waiting. A callback that refers to its `UI`
+keeps it alive until `dispose()`.
+
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-14 | §18 Idle: `wait_idle` and `wait_idle_async` are refused inside any Python command, `async def` ones included (a Codex review of PR #268 found an async command's `wait_idle_async` deadlocked). §1: `_ui.py` holds the mark. | `liquers-py/tests/test_UIUSE_model.py` `test_UIUSE_wait_idle_async_inside_an_async_command_raises` |
+| 2026-11-11 | §18 User interface: `env.ui()`, `lq.UI`, status events and who delivers them, the window (`run`, `close`), lifetime. §3: the UI payload and the `lui` built-ins; `Context.element`. §1: `_ui.py`, the `gui` feature. §2: the UI classes. §7: UI models are disposed at exit after the servers. §8: UI limitations. §12: the wheels carry egui, and the Windows allow-list names the window's system DLLs. | `design/liquers-py-ui/`, `design/liquers-py-ui-window/` |
 | 2026-11-10 | §17 Lifetime: a server still binding when `env.shutdown()` runs is stopped and raises (a review of PR #264 found it could stay listening). | `liquers-py/src/environment.rs` test `a_server_bound_after_shutdown_is_stopped` |
 | 2026-11-09 | §3: `config=` is a configuration document (file, YAML text, dict), with the `python` section and `command_registry`; keywords override the file, and `job_capacity=` replaces `assets.job_capacity` instead of conflicting; `serve`/`servers` methods; shutdown stops the servers first. §1, §2, §7: `Server`, `liquers-axum`, servers stop first at exit. §17 Web server. | phase-5, `design/configuration-document/`, `design/liquers-py-web-server/` |
 | 2026-11-06 | §16: an `ActionEditor` is stale after any edit that can move its step, not only its removal. | PR #263 review |

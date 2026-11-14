@@ -12,10 +12,11 @@ this mirrors. Milestone M7.
 
 ## Design Readiness
 
-- **Readiness:** `needs-decision`: Phase 1 written and reviewed twice; the questions below wait for
-  the Phase 1 gate, none blocking.
+- **Readiness:** `ready` (Phase 4 review, 2026-11-11): the Phase 2 gate approved every proposed
+  resolution ("proceed all"), and Phase 2 answered question 3 (callbacks are delivered by the
+  thread that waits; no delivery thread).
 - **Automatic fixing:** `not-eligible`: an `L` feature that changes `PyEnvironment`'s type.
-- **Leading issue:** question 1, the payload change. Source issue `PY-CANNOT-USE-A-LIQUERS-UI`
+- **Leading issue:** None (question 1, the payload change, approved at the Phase 2 gate). Source issue `PY-CANNOT-USE-A-LIQUERS-UI`
   (P3 L, filed with this design).
 - **Explanation:** the model needs no egui. `AppState`, `AppRunner` (status events, the stale-source
   rule, `replace_envref`), `SimpleUIPayload`, `UIElement` and the `lui` commands are not gated on
@@ -48,6 +49,9 @@ this mirrors. Milestone M7.
      through its asset (`ui.asset(handle)`, an `lq.AssetRef`), and `asset.cancel()` cancels it;
      no new UI-level API. The legacy `UiCommand` and `Widget` values, egui-only, raise `ConversionError`
      when they reach Python.
+- **Decision log (pre-approval, 2026-11-11):** None needs the owner. Settled by the repository:
+  status names are `lq.Status`'s (`Processing`, `Ready`; Phase 3, Example 1); `wait_idle` waits on
+  a tick counter, not a `Notify` (Phase 3, Learning Log); `wait_idle_async` is a Python coroutine.
 - **Deviations from Appendix A** (copied to the conformance matrix): UIUSE03 reads
   `context.element`, not `context.query`; UIUSE04 observes statuses (`processing` … `ready`), not
   progress fractions; UIUSE06 gives an element query B while A runs, as `web-ui-use` does, instead of
@@ -116,7 +120,8 @@ Value types: `lq.UIElement`. Bindings: `Environment.ui`, `lq.UI`, `lq.UISubscrip
 ## Crate Placement
 
 `liquers-py` only: `environment.rs` (payload), `builtins.rs` (`lui`), `value.rs` (`UIElement`),
-`context.rs` (`element`), a new `src/ui.rs`; the stubs and `__init__.py`. No `liquers-lib` change.
+`context.rs` (`element`), `exit.rs` (the exit hook), `lib.rs`, a new `src/ui.rs`; the stubs and
+`__init__.py`. The driver is a `liquers-lib` change in its own design (Scope Changes).
 
 ## Documentation Intent
 
@@ -128,10 +133,11 @@ Value types: `lq.UIElement`. Bindings: `Environment.ui`, `lq.UI`, `lq.UISubscrip
 - Documents to update: user guide chapter `docs/guides/python/11-ui.md` ("Not available from
   Python"), which `chapters-for` does not list; the others it lists.
 - API docs: the module docs of the new `liquers-py/src/ui.rs`, and of `liquers-py/src/environment.rs`,
-  `builtins.rs`, `value.rs` and `context.rs`; docstrings on every new Python name.
+  `builtins.rs`, `value.rs`, `context.rs`, `exit.rs` and `lib.rs`; docstrings on every new Python name.
 
 ## Design Dependencies
 
+- `egui-native-app`: **requires** (lands first): the background driver (scope change below).
 - `liquers-py-ui-window`: **required-by**.
 - `language-late-registration-without-rebuild`, `post-init-command-registration` (in review):
   **overlap** AC-9.
@@ -139,6 +145,15 @@ Value types: `lq.UIElement`. Bindings: `Environment.ui`, `lq.UI`, `lq.UISubscrip
   (in review): **overlap**; they change `PyEnvironment` or `liquers-py/src/value.rs` too.
 - `ui-asset-snapshot-boundary` (in review): **overlaps** the widgets' own asset fetching.
 - M6 (PRs #257, #259–#263): built after it merges; the closure asset is generic over the payload.
+
+## Scope Changes
+
+- 2026-11-11 (Phase 3): `egui-native-app` lands as the first commit group of this design's PR, not a
+  PR of its own (one branch carries M7's UI work); `command.rs` joins the crate placement (the
+  own-action mark).
+- 2026-11-10 (Phase 2): the driver that ticks the model is liquers-lib's `NativeDriver` and
+  `spawn_headless` from `egui-native-app`, shared with the window, instead of a liquers-py loop.
+  Crate placement gains that liquers-lib change, in its own PR.
 
 ## References
 

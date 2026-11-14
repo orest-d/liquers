@@ -2,7 +2,8 @@ name: liquers-py-tests
 
 # Runs the liquers-py test loop (scripts/test-liquers-py.sh: maturin develop, pytest, then the
 # crate's Rust unit tests) on the oldest supported CPython, the newest stable one and the
-# free-threaded build. Design: specs/design/language-binding-tests-in-ci/.
+# free-threaded build, under a virtual display so the window tests run too. Designs:
+# specs/design/language-binding-tests-in-ci/, specs/design/liquers-py-ui-window/.
 
 on:
   pull_request:
@@ -69,8 +70,12 @@ jobs:
           key: pyright-python-1.1.414
       # A restored venv would point at a toolcache interpreter that no longer exists.
       - run: rm -rf target/liquers-py-venv-*
+      # The `gui` tests (tests/test_UIUSE_window.py) open egui windows on a virtual display: winit
+      # loads libxkbcommon-x11 at run time, and wgpu needs a software Vulkan (lavapipe) without a GPU.
+      - name: Install a virtual display
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb libxkbcommon-x11-0 mesa-vulkan-drivers
       - name: Run the liquers-py test loop
-        run: bash scripts/test-liquers-py.sh
+        run: xvfb-run -a bash scripts/test-liquers-py.sh
         env:
           PYTHON: ${{ steps.py.outputs.python-path }}
       - run: df -h /

@@ -2,14 +2,25 @@
 id: EGUI-HAS-NO-REUSABLE-NATIVE-APP
 kind: feature
 title: liquers-lib has no reusable native egui application; every desktop app re-implements the frame loop
-status: draft
-priority: P2
-complexity: M
+status: closed
+priority: P1
+complexity: L
 area: [lib/egui, lib/ui]
-design:
+design: egui-native-app
 created: 2026-11-06
 github:
 ---
+
+## Resolution
+
+Fixed by `specs/design/egui-native-app/`. `liquers-lib` has a native driver
+(`liquers-lib/src/ui/native.rs`: `NativeDriver`, `Tick`, `spawn_headless`, `HeadlessHandle`) and a
+reusable window over it (`liquers-lib/src/egui/app.rs`: `run_window`, `WindowOptions`,
+`WindowCloser`, `FrameControl`). `AppMessage::Quit` now reaches the host
+(`AppRunner::take_quit_request`), so *Quit* closes the window. `ui_query_console_app` and
+`ui_spec_demo` use it; the other egui examples still write their own loop
+(`EGUI-EXAMPLES-HAND-WRITE-THE-FRAME-LOOP`). Evidence: the `ui::native` and `egui::app` unit tests
+and `liquers-lib/tests/egui_window.rs` under `xvfb-run`.
 
 ## Problem
 

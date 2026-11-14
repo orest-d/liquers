@@ -2,7 +2,7 @@
 title: Introduction
 status: ready
 sources: [reference/VISION.md, reference/PROJECT_OVERVIEW.md, guides/PYTHON_GUIDE.md]
-reviewed: 2026-11-10
+reviewed: 2026-11-11
 ---
 # 1. Introduction
 
@@ -204,8 +204,8 @@ URL, it also travels well beyond it:
   writes an endpoint for it. Whatever can be said as a query is already served, with the store
   and the assets available over HTTP as well (chapter 12).
 - **User interfaces.** In a Liquers user interface, what you look at is the value of a query, so
-  a view can be bookmarked, shared and restored. The same queries run in a desktop application
-  and, compiled to WebAssembly, in a browser tab with no server at all (chapter 11).
+  a view can be bookmarked, shared and restored. From Python you show it in a desktop window, or
+  drive it with no window at all; the same queries run in a browser tab (chapter 11).
 - **Search.** Commands that list, read and search the documents and tables in a store
   (chapter 13).
 - **Tools for AI agents.** A query is a tool call that can be checked before it runs, is cached,

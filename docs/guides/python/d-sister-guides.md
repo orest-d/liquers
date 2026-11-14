@@ -2,7 +2,7 @@
 title: Sister guides
 status: ready
 sources: []
-reviewed: 2026-11-09
+reviewed: 2026-11-11
 ---
 # D. Sister guides
 
@@ -13,8 +13,9 @@ chapter of this guide to the same topic in *Liquers for Rust* and *Liquers for t
 
 Read the Rust guide when you want to know how the library commands and the server work, or to
 write commands in Rust. Read the Web guide to run queries in a browser or to call a server from
-JavaScript. A few topics exist in only some of the guides: user interfaces (chapter 11) are
-covered by the Rust and Web guides, and the HTTP server (chapter 12) by the Rust guide.
+JavaScript. User interfaces (chapter 11) are in all three: from Python you hold and open the
+library's elements, while the Rust guide shows how they are made. A few topics exist in only some
+of the guides: the internals of the HTTP server (chapter 12) are in the Rust guide.
 
 | Chapter | Liquers for Rust | Liquers for the Web |
 |---|---|---|
