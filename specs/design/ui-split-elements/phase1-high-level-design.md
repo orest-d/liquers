@@ -107,14 +107,14 @@ on `liquers-core` + `liquers-store`. The default wasm client is a `liquers-lib` 
 ## Documentation Intent
 
 - Reference: extend `specs/reference/UI_INTERFACE_FSD.md` with split elements, the update message
-  and the link; extend `specs/reference/WEB_API_SPECIFICATION.md` with the UI WebSocket route and
+  and the mode; extend `specs/reference/WEB_API_SPECIFICATION.md` with the UI WebSocket route and
   envelope.
 - Guide: extend the UI section of `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` only if JavaScript
   mounting changes; otherwise none.
 - Other documents: none.
 - Documents to update: the two references above.
 - API docs: `liquers-lib/src/ui/mod.rs` and `liquers-lib/src/ui/web/mod.rs` (new concepts), the new
-  link/session modules, and the `liquers-axum` UI route module.
+  mode and session modules, and the `liquers-axum` UI route module.
 
 ## Open Questions
 
