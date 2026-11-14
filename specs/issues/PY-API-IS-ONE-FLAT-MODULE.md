@@ -12,7 +12,8 @@ github:
 ---
 ## Problem
 
-The `liquers` package exposes about 90 public names from one namespace. `liquers-py/src/lib.rs`
+The `liquers` package exposes about 120 public names from one namespace (89 in `__all__` plus the generated error
+classes). `liquers-py/src/lib.rs`
 registers every class and function on the single native module `liquers._native`,
 `liquers-py/python/liquers/__init__.py` re-exports all of them, every `#[pyclass]` says
 `module = "liquers"`, and the stub `liquers-py/python/liquers/__init__.pyi` (about 1,700 lines)

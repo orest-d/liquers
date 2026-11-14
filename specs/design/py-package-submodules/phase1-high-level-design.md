@@ -110,7 +110,8 @@ store, command, asset or value-type behaviour changes.
 
 - `specs/reference/PYTHON_INTEGRATION.md` §1 Layout (`_liquers`, the seam, the public submodules),
   the `__module__` rule, §13 the stub layout, §14 and §18 for `liquers.data_nodes` and `liquers.lui`.
-- `specs/guides/PYTHON_GUIDE.md`: a "Package layout" section mapping submodules to Rust modules.
+- `specs/guides/PYTHON_GUIDE.md`: §2 "What is in the package" becomes the package layout, mapping
+  submodules to Rust modules.
 - `docs/guides/python/01-introduction.md`: the package layout. Examples keep
   `import liquers as lq`.
 - `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md`: the lesson "PyO3's `module = "liquers"` decides
@@ -150,6 +151,8 @@ Orest, 2026-11-14, at the Phase 1 gate:
 - **D4** The native extension is the private top-level module `_liquers`; `liquers` holds only the
   public modules and Python helpers. A pure-Python fallback must fit later: every public module
   reaches native names only through `liquers/_backend.py`.
+  Phase 2 (R1) found that maturin needs `_liquers` to be a private top-level *package* holding the
+  compiled `_liquers._liquers`; the decision stands, in that form.
 - **D5 (Q4)** Every top-level `liquers.X` stays permanently as a re-export, with no deprecation;
   `lq.X` (`import liquers as lq`) stays the documented style.
 

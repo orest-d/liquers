@@ -3,7 +3,7 @@ id: PY-PACKAGE-SUBMODULES
 kind: design
 title: Public submodules for the liquers Python package, mirroring the Rust modules
 workflow: liquers-project
-status: draft
+status: in_review
 phase: architecture
 area: [py]
 issues: [PY-API-IS-ONE-FLAT-MODULE]
@@ -18,7 +18,8 @@ issue `PY-API-IS-ONE-FLAT-MODULE`; draft PR #272.
 Phase 1 written and reviewed by the author on 2026-11-14 (compact form); Orest's gate answers
 applied the same day. Phase 1 approved 2026-11-14 (Orest: "proceed").
 
-Phase 2 written 2026-11-14.
+Phase 2 written 2026-11-14 and reviewed twice (conformity and records; codebase and soundness);
+findings applied. Phase 2 in review.
 
 ## Phases
 
