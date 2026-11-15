@@ -96,6 +96,14 @@ reads the new value.
   WHEN two accessors of different recipes in one `recipes.yaml` each set their part, both based on
   the same root version
   THEN both sets apply. A set conflicts only when the part it was based on has changed since
+- **AC-15** A content change keeps a projection, a structural change invalidates it
+  WHEN a specialised editor holds `-R-key/some/recipes.yaml/-/recipe_query_accessor-1/action_accessor-2`
+  and a query editor holds `-R-key/some/recipes.yaml/-/recipe_query_accessor-1`, and one of them
+  changes an argument of action 2
+  THEN the other receives `Changed` and both accessors stay valid. When a step is instead inserted
+  before action 2, the action accessor is invalidated (its asset expires), and evaluating its query
+  again gives an accessor of whatever is step 2 now. The root accessor expires only when its key is
+  removed
 
 Non-goals: locking (a later design, which this one must not preclude); the editor widgets and
 composite editors themselves (separate UI designs that use accessors); detecting a change made
@@ -159,9 +167,19 @@ in scope.
    check comes first (an unchanged part keeps its `Arc`), and a content hash is the fallback.
    Structural steps (field, index, action argument) may also declare a path, so a whole subtree can
    be skipped without deriving it.
-4. **Paths across structural edits.** Inserting a step before `head` shifts its index.
-   *Recommended:* index paths that the root re-bases for edits it applies itself. After an outside
-   rewrite, projections are re-resolved and report `Moved` or `Removed` when the part is gone.
+4. **Structural edits.** *Decided (Orest, 2026-11-15):* an accessor is an asset named by its
+   query, and a projection is a longer query. After the root changes, each projection is
+   **unchanged** (same fingerprint, nothing happens; this includes the editor that made the edit),
+   **changed** (same slot, new content: `Changed`, the accessor stays valid) or **invalidated** (its
+   slot is gone or its anchor changed: the asset expires and its holders re-evaluate the query,
+   which resolves by position). There is no re-basing in v1 (AC-15). Each step has an **anchor**, a
+   cheap structural fingerprint of where it sits in its parent: an index step's anchor is the list's
+   length plus the identity of the element (for an action, its command), and a field step's anchor
+   is that the field exists. A changed anchor means invalidated, and a changed content fingerprint
+   with the same anchor means changed. The root tracks its live projections (by weak reference) as a
+   tree, the way a signal-reactivity system does: a change marks the tree dirty top down, subscribed
+   nodes are recomputed lazily, and a child of an invalidated node is invalidated without being
+   derived.
 5. **Notification granularity.** *Recommended:* after a change, the root re-derives only the
    accessors that have subscribers, walking them as a tree so a shared prefix is derived once, and
    notifies those whose fingerprint changed. The others check when they are next read.
