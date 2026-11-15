@@ -4,7 +4,7 @@ kind: design
 title: Configure the Python default environment after commands are registered
 workflow: liquers-project
 gh_pr: [273]
-phase: high-level
+phase: architecture
 area: [py, docs]
 issues: [PY-DEFAULT-ENVIRONMENT-CANNOT-BE-CONFIGURED]
 affects_docs: [specs/guides/PYTHON_GUIDE.md, specs/reference/PYTHON_INTEGRATION.md, docs/guides/python/02-installing.md, docs/guides/python/08-environment.md, docs/guides/python/12-serving.md]
@@ -23,8 +23,10 @@ then codebase and soundness. The findings are applied. At the Phase 1 gate on 20
 accepted open questions 1 and 2. He also asked for a command-line start-up and YAML-configured UI
 and server examples, which were split into `py-command-line-config` to keep within the size
 limits. This design was re-sized to `L` and converted to the full form. The revision was reviewed
-twice again, and the findings are applied.
+twice again, and the findings are applied. Phase 1 approved 2026-11-15 (Orest: "proceed", with a
+gate after each phase). Phase 2 written 2026-11-15.
 
 ## Phases
 
 - [Phase 1](./phase1-high-level-design.md)
+- [Phase 2](./phase2-architecture.md)

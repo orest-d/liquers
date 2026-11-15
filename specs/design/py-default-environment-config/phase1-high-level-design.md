@@ -69,7 +69,8 @@ rebuild without making it unbuilt again, and a failed build does not count.
   overriding them, and `lq.ui()` uses the configured store and settings.
 - **AC-9** A failed build can be repaired
   WHEN the first build fails (for example, the store cannot be opened)
-  THEN `configure` is still allowed, and the next build uses its settings.
+  THEN `configure` is still allowed, and the next build uses its settings. (If the failed build
+  already started the async loops, their number can no longer change.)
 Non-goals: an environment variable naming the configuration file (deferred by Orest, 2026-11-14);
 reconfiguring a built environment; replacing the default with another environment. Starting an
 application from a configuration file with command-line overrides is the follow-on design
