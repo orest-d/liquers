@@ -172,23 +172,15 @@ impl ChunkResolver for PyChunkResolver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::num::NonZeroUsize;
 
     use liquers_core::context::Context as CoreContext;
     use liquers_core::parse::parse_query;
     use liquers_records::ChunkValue;
 
-    use crate::config::PyConfig;
     use crate::runtime::runtime;
-    use crate::value::ConversionMode;
 
     fn new_cell() -> Result<Arc<EnvCell>, Error> {
-        Ok(Arc::new(EnvCell::new(
-            PyConfig::default(),
-            ConversionMode::Permissive,
-            false,
-            NonZeroUsize::MIN,
-        )?))
+        Ok(Arc::new(EnvCell::new(crate::environment::Settings::default())))
     }
 
     /// Evaluates `query` through `resolver`, detached from the interpreter.

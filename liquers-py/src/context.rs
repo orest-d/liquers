@@ -79,9 +79,9 @@ impl Context {
     }
 
     /// The same context, converting as `conversion` and `pickle` say.
-    pub fn with_conversion(mut self, conversion: ConversionMode, pickle: bool) -> Self {
-        self.conversion = conversion;
-        self.pickle = pickle;
+    pub fn with_conversion(mut self, conversion: crate::value::Conversion) -> Self {
+        self.conversion = conversion.mode;
+        self.pickle = conversion.pickle;
         self
     }
 

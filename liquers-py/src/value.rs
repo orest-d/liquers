@@ -88,6 +88,21 @@ impl ConversionMode {
     }
 }
 
+/// How an environment converts Python results to Liquers values: its conversion mode and whether
+/// the pickle codec is on. A build binds it to every Python command it registers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Conversion {
+    pub mode: ConversionMode,
+    pub pickle: bool,
+}
+
+impl Default for Conversion {
+    /// The defaults of `lq.Environment()`: permissive, pickle off.
+    fn default() -> Self {
+        Conversion { mode: ConversionMode::Permissive, pickle: false }
+    }
+}
+
 /// A Python object retained opaquely inside a Liquers value.
 ///
 /// `Py<PyAny>` is `Send + Sync`, and dropping it without the GIL is deferred by PyO3, so the value

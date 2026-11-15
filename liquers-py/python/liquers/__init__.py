@@ -10,7 +10,9 @@ added to or removed from this file too.
   environment and return its value as a Python object.
 - `liquers.command` — the decorator that registers a Python function as a command.
 - `liquers.default_environment` and `liquers.Environment` — the environment: its store, commands
-  and assets; configure it before the first query.
+  and assets; `liquers.configure` sets the default's settings before its first build.
+- `liquers.add_arguments`, `liquers.configure_from_args` and `liquers.configure_from_command_line`
+  — start an application from a configuration file with command-line overrides.
 - `liquers.Query` and `liquers.parse` — the query language, parsed and inspected without running.
 - `liquers.Environment.serve` and `liquers.Server` — serve an environment over the Liquers HTTP
   API.
@@ -147,7 +149,8 @@ from liquers._native import (
     # The Liquers version in PEP 440 form; deliberately not in __all__ (OBJECT08).
     __version__,
 )
-from liquers._env import default_environment, evaluate, evaluate_async, serve, serve_async, ui
+from liquers._env import configure, default_environment, evaluate, evaluate_async, serve, serve_async, ui
+from liquers._cli import add_arguments, configure_from_args, configure_from_command_line
 from liquers._commands import command, first_command
 from liquers._extras import require
 from liquers._errors import LiquersError, _install as _install_errors
@@ -238,6 +241,10 @@ __all__ = [
     "RecordStream",
     "RecordChunk",
     "default_environment",
+    "configure",
+    "add_arguments",
+    "configure_from_args",
+    "configure_from_command_line",
     "evaluate",
     "evaluate_async",
     "serve",

@@ -271,9 +271,6 @@ fn deadline(py: Python<'_>, timeout: f64) -> PyResult<Duration> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::PyConfig;
-    use crate::value::ConversionMode;
-    use std::num::NonZeroUsize;
 
     fn attached<T>(f: impl for<'py> FnOnce(Python<'py>) -> Result<T, Error>) -> Result<T, Error> {
         Python::initialize();
@@ -283,7 +280,7 @@ mod tests {
     /// After a registration retires the build, a burst of requests rebuilds once.
     #[test]
     fn cell_source_rebuilds_once_after_invalidate() -> Result<(), Error> {
-        let cell = Arc::new(EnvCell::new(PyConfig::default(), ConversionMode::Permissive, false, NonZeroUsize::MIN)?);
+        let cell = Arc::new(EnvCell::new(crate::environment::Settings::default()));
         let first = attached(|py| cell.envref(py))?;
         let source = Arc::new(CellSource::new(cell.clone()));
         let runtime = crate::runtime::runtime()?;

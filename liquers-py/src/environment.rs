@@ -4,10 +4,17 @@
 //!
 //! A built `DefaultEnvironment` is frozen: its command registry cannot change once it is shared.
 //! Python, though, registers commands whenever a module is imported — before or after the first
-//! evaluation. So the handle keeps every declaration it receives (configuration, Python command
-//! specs, unregistrations and imported metadata), builds the environment from them on first
-//! use, and marks it for a rebuild when a declaration arrives late. This is liquers-web's
-//! `rebuild_with`, without the global.
+//! evaluation. So the handle keeps every declaration it receives (Python command specs,
+//! unregistrations and imported metadata) and its [`Settings`] (the configuration, conversion,
+//! loop count and registry file), builds the environment from them on first use, and marks it
+//! for a rebuild when a declaration arrives late. This is liquers-web's `rebuild_with`, without
+//! the global.
+//!
+//! The settings stay open until the first successful build: `configure` (`env.configure`,
+//! `lq.configure`) replaces them, under the same lock, so a program can configure an environment
+//! after its modules registered commands. Nothing reads them earlier: the conversion is bound to
+//! each Python command when a build registers it, not when the decorator runs. Once a build has
+//! succeeded, `configure` is refused and rebuilds keep the settings.
 //!
 //! A rebuild keeps the store: the first build constructs it, and every later build is given the
 //! same `Arc` through `with_async_store`, so data written with `store_set` survives (AC-10). The
@@ -40,8 +47,10 @@
 //!   pipelines (`pipeline_command`, `pipeline_editor`, `query_editor`), data nodes, shutdown.
 //! - [`to_evaluable`], [`evaluate_evaluable`], [`pipeline_recipe`]: what `evaluate` takes, and how
 //!   a pipeline runs (a pipeline-only recipe through `apply_queued`).
-//! - [`EnvCell`]: the retained declarations, the lazy build and the rebuild, and the current
-//!   build the servers read.
+//! - [`EnvCell`]: the retained declarations, the lazy build and the rebuild, `configure`, and
+//!   the current build the servers read.
+//! - [`Settings`]: what `config=`, `overrides=` and the keywords resolve to, held under the
+//!   declarations lock (`Settings::resolve`).
 //! - [`crate::config::PyConfig`]: what `config=` and the keywords resolve to; `serve` starts a
 //!   server over the environment (`server.rs`).
 //! - [`block_on`]: the sliced, GIL-free wait every blocking call uses.
@@ -64,13 +73,15 @@
 //!
 //! ```python
 //! env = lq.Environment()
+//! env.configure(config="assets: {job_capacity: 2}\n")   # before the first use
 //! env.store_set("templates/greet.md", "Hello, {{.}}!")
 //! env.template_command("greeting", template="-R/templates/greet.md")
 //! assert env.render(lq.parse("-R/templates/greet.md"), state="Ann") == "Hello, Ann!"
 //! env.shutdown()
 //! ```
 //!
-//! Executed in `liquers-py/tests/test_ENVIRON_*.py` and `test_TEMPLATE_*.py`.
+//! Executed in `liquers-py/tests/test_ENVIRON_*.py`, `test_TEMPLATE_*.py` and
+//! `test_CONFIGURE_environment.py`.
 
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, RwLock};
@@ -107,7 +118,7 @@ use liquers_core::store_factory::{ChainedStoreFactory, StoreFactory, StoreTypeIn
 use crate::error::{error_to_pyerr, pyerr_to_error, PyFailure};
 use crate::runtime::runtime;
 use crate::records::Scope;
-use crate::value::{py_to_value, py_type_info, value_to_py, ConversionMode, Value};
+use crate::value::{py_to_value, py_type_info, value_to_py, Conversion, ConversionMode, Value};
 
 /// The environment every Python handle builds.
 pub type PyEnvironment = DefaultEnvironment<Value, SimpleUIPayload>;
@@ -121,6 +132,80 @@ enum EnvState {
     Built(EnvRef<PyEnvironment>),
     /// `shutdown()` was called; every later use fails.
     Shut,
+}
+
+/// Everything `lq.Environment(...)` and `configure(...)` set, resolved once: a keyword wins over
+/// the configuration file, which wins over the built-in default (`configuration-document`
+/// Decision 2). They can be replaced until the environment's first successful build
+/// ([`EnvCell::configure`]) and are fixed from then on, so every build sees the same settings.
+pub struct Settings {
+    /// The configuration document, parsed.
+    pub config: PyConfig,
+    /// How Python results become Liquers values; bound to each Python command by the build.
+    pub conversion: Conversion,
+    /// How many event loops `async def` commands run on.
+    pub async_loops: NonZeroUsize,
+    /// The commands of the `command_registry:` file, read when the settings are resolved so a
+    /// missing or unparsable file raises at the call. Applied before `import_metadata`'s.
+    pub registry_file: Vec<CommandMetadata>,
+}
+
+impl Default for Settings {
+    /// The settings of `lq.Environment()`.
+    fn default() -> Self {
+        Settings {
+            config: PyConfig::default(),
+            conversion: Conversion::default(),
+            async_loops: NonZeroUsize::MIN,
+            registry_file: Vec::new(),
+        }
+    }
+}
+
+impl Settings {
+    /// Resolves `config=` (a file, YAML text or a dict) with `overrides=` merged over it, then the
+    /// keywords, and reads the command registry file the configuration names. Takes no lock: it
+    /// only reads files.
+    #[allow(clippy::too_many_arguments)]
+    pub fn resolve(
+        py: Python<'_>,
+        config: Option<&Bound<'_, PyAny>>,
+        overrides: Option<&Bound<'_, PyAny>>,
+        conversion: Option<&str>,
+        pickle: Option<bool>,
+        async_loops: Option<i64>,
+        job_capacity: Option<i64>,
+    ) -> Result<Settings, Error> {
+        let mut config = PyConfig::from_python(py, config, overrides)?;
+        let async_loops = match async_loops {
+            Some(loops) => usize::try_from(loops).ok().and_then(NonZeroUsize::new).ok_or_else(|| {
+                Error::configuration_error(format!("async_loops must be at least 1, not {loops}"))
+            })?,
+            None => config.python.async_loops.unwrap_or(NonZeroUsize::MIN),
+        };
+        if let Some(capacity) = job_capacity {
+            let capacity = usize::try_from(capacity)
+                .ok()
+                .filter(|capacity| *capacity >= 1)
+                .ok_or_else(|| {
+                    Error::configuration_error(format!("job_capacity must be at least 1, not {capacity}"))
+                })?;
+            config.environment.assets.job_capacity = Some(capacity);
+        }
+        let mode = match conversion {
+            Some(conversion) => ConversionMode::parse(conversion)?,
+            None => match &config.python.conversion {
+                Some(conversion) => ConversionMode::parse(conversion)?,
+                None => ConversionMode::Permissive,
+            },
+        };
+        let pickle = pickle.or(config.python.pickle).unwrap_or(false);
+        let registry_file = match &config.command_registry {
+            Some(path) => read_command_registry(path)?,
+            None => Vec::new(),
+        };
+        Ok(Settings { config, conversion: Conversion { mode, pickle }, async_loops, registry_file })
+    }
 }
 
 /// Everything a handle retains to build, and rebuild, its environment.
@@ -143,14 +228,13 @@ struct Declarations {
     store_types: Vec<Arc<PyStoreType>>,
     /// Python recipe provider types, in registration order (`register_recipe_provider_factory`).
     recipe_types: Vec<Arc<PyRecipeProviderType>>,
+    /// The settings every build uses; replaced by `configure` until the first successful build.
+    settings: Arc<Settings>,
 }
 
 /// The shared state behind an `lq.Environment`.
 pub struct EnvCell {
     declarations: Mutex<Declarations>,
-    /// The whole configuration document, parsed at construction, so an unknown section or key
-    /// fails at `lq.Environment` (`crate::config`).
-    pub config: PyConfig,
     /// The built environment, readable without the GIL (a server reads it per request). Written
     /// only while the declarations lock is held: set by `envref`, cleared by `retire` and
     /// `shutdown`.
@@ -159,8 +243,6 @@ pub struct EnvCell {
     servers: Mutex<ServerList>,
     /// The UI models made by `ui()`, disposed by `shutdown()` after the servers.
     uis: Mutex<crate::ui::UiList>,
-    pub conversion: ConversionMode,
-    pub pickle: bool,
     /// Fired by `shutdown()`; every wait started from this handle watches it.
     pub shut: Arc<Shut>,
     /// The loops `async def` commands run on, shared by every rebuild.
@@ -168,20 +250,10 @@ pub struct EnvCell {
 }
 
 impl EnvCell {
-    /// A handle on `config`. The command metadata registry file it names is read here, so a
-    /// missing or unparsable file raises at `lq.Environment`; its commands are applied to every
-    /// build as `import_metadata`'s are.
-    pub fn new(
-        config: PyConfig,
-        conversion: ConversionMode,
-        pickle: bool,
-        async_loops: NonZeroUsize,
-    ) -> Result<Self, Error> {
-        let imported = match &config.command_registry {
-            Some(path) => read_command_registry(path)?,
-            None => Vec::new(),
-        };
-        Ok(EnvCell {
+    /// A handle with `settings`; nothing is built until the first use.
+    pub fn new(settings: Settings) -> Self {
+        let loops = Arc::new(LazyLoopPool::new(settings.async_loops));
+        EnvCell {
             declarations: Mutex::new(Declarations {
                 state: EnvState::Pending,
                 store: None,
@@ -189,19 +261,17 @@ impl EnvCell {
                 specs: Vec::new(),
                 unregistered: Vec::new(),
                 declared: Vec::new(),
-                imported,
+                imported: Vec::new(),
                 store_types: Vec::new(),
                 recipe_types: Vec::new(),
+                settings: Arc::new(settings),
             }),
-            config,
             current: RwLock::new(None),
             servers: Mutex::new(ServerList::default()),
             uis: Mutex::new(crate::ui::UiList::default()),
-            conversion,
-            pickle,
             shut: Arc::new(Shut::default()),
-            loops: Arc::new(LazyLoopPool::new(async_loops)),
-        })
+            loops,
+        }
     }
 
     fn lock(&self, py: Python<'_>) -> Result<MutexGuard<'_, Declarations>, Error> {
@@ -219,9 +289,16 @@ impl EnvCell {
 
     /// The built environment, building it first if a declaration changed.
     pub fn envref(&self, py: Python<'_>) -> Result<EnvRef<PyEnvironment>, Error> {
+        self.envref_and_settings(py).map(|(envref, _)| envref)
+    }
+
+    /// The built environment and the settings it was built with, taken under one lock. Building
+    /// fixes the settings, so what is returned stays true.
+    pub fn envref_and_settings(&self, py: Python<'_>) -> Result<(EnvRef<PyEnvironment>, Arc<Settings>), Error> {
         let mut declarations = self.lock(py)?;
+        let settings = declarations.settings.clone();
         match &declarations.state {
-            EnvState::Built(envref) => return Ok(envref.clone()),
+            EnvState::Built(envref) => return Ok((envref.clone(), settings)),
             EnvState::Shut => return Err(shut_down_error()),
             EnvState::Pending => {}
         }
@@ -234,7 +311,54 @@ impl EnvCell {
         }
         declarations.state = EnvState::Built(envref.clone());
         self.set_current(Some(envref.clone()));
-        Ok(envref)
+        Ok((envref, settings))
+    }
+
+    /// The current settings.
+    pub fn settings(&self, py: Python<'_>) -> Result<Arc<Settings>, Error> {
+        Ok(self.lock(py)?.settings.clone())
+    }
+
+    /// Replaces the settings, keeping every declaration.
+    ///
+    /// Refused after `shutdown()`, and once a build has succeeded: "built" is a store being kept,
+    /// which only a successful build sets and only `shutdown()` clears, so a late registration
+    /// (which marks the environment for a rebuild) does not reopen it and a failed build does not
+    /// close it. A declared command (a template or pipeline command) is checked against the new
+    /// settings, and only its own issues refuse them; anything else waits for the build, as it
+    /// does for `lq.Environment(...)`. Each check runs before anything changes.
+    pub fn configure(&self, py: Python<'_>, settings: Settings) -> Result<(), Error> {
+        let mut declarations = self.lock(py)?;
+        refuse_if_shut(&declarations)?;
+        if declarations.store.is_some() {
+            return Err(Error::configuration_error(
+                "the environment is already built: configure must be called before its first \
+                 evaluation, serve, ui or store write"
+                    .to_string(),
+            ));
+        }
+        if !declarations.declared.is_empty() {
+            let (mut builder, mut issues) = self.configured_builder(&declarations, &settings)?;
+            issues.append(builder.validate().clone());
+            let keys: Vec<&CommandKey> = declarations.declared.iter().map(|d| d.key()).collect();
+            let mut own = IssueReport::default();
+            own.extend(issues.issues().iter().filter(|issue| match issue {
+                CoreIssue::CommandRegistry { realm, namespace, name, .. } => keys
+                    .iter()
+                    .any(|k| &k.realm == realm && &k.namespace == namespace && &k.name == name),
+                CoreIssue::Generic { .. } => false,
+            }).cloned());
+            if let Some(summary) = own.short_summary("Command metadata") {
+                return Err(Error::configuration_error(summary));
+            }
+        }
+        self.loops.resize(py, settings.async_loops)?;
+        let previous = std::mem::replace(&mut declarations.settings, Arc::new(settings));
+        drop(declarations);
+        // Released after the guard: the old configuration holds nothing Python, but this keeps the
+        // module's rule that nothing is dropped under the lock.
+        drop(previous);
+        Ok(())
     }
 
     /// The built environment without taking the GIL or the declarations lock: `None` before the
@@ -291,13 +415,13 @@ impl EnvCell {
     }
 
     /// The builder with every declaration applied, but no store yet.
-    fn configured_builder(&self, declarations: &Declarations) -> Result<(PyBuilder, IssueReport), Error> {
+    fn configured_builder(&self, declarations: &Declarations, settings: &Settings) -> Result<(PyBuilder, IssueReport), Error> {
         let mut types = TypeRegistry::from_value_type::<Value>();
-        types.register(py_type_info(self.pickle))?;
+        types.register(py_type_info(settings.conversion.pickle))?;
         let mut builder = default_environment_builder::<Value, SimpleUIPayload>()
             .with_type_registry(types)
-            .with_asset_manager_options(self.config.environment.assets.clone())
-            .with_recipes(self.config.environment.recipes.clone())
+            .with_asset_manager_options(settings.config.environment.assets.clone())
+            .with_recipes(settings.config.environment.recipes.clone())
             .with_recipe_provider_factory(Box::new(PyRecipeProviderFactory {
                 types: declarations.recipe_types.clone(),
                 loops: self.loops.clone(),
@@ -305,7 +429,7 @@ impl EnvCell {
             }));
         // Fields are applied one by one rather than through `with_config`, so a new field of
         // `EnvironmentConfig` has to be listed here too.
-        if let Some(namespaces) = &self.config.environment.default_namespaces {
+        if let Some(namespaces) = &settings.config.environment.default_namespaces {
             builder = builder.with_default_namespaces(namespaces.clone());
         }
         crate::builtins::register(&mut builder.command_registry)?;
@@ -313,28 +437,31 @@ impl EnvCell {
             builder.command_registry.unregister(key.clone());
         }
         for spec in &declarations.specs {
-            register_py_command(&mut builder.command_registry, spec)?;
+            register_py_command(&mut builder.command_registry, spec, settings.conversion)?;
         }
         for declared in &declarations.declared {
             declared.apply(&mut builder.command_registry)?;
         }
-        let issues = apply_imported(&mut builder.command_registry, &declarations.imported);
+        // The configuration's registry file first, so an `import_metadata` call overrides it.
+        let mut issues = apply_imported(&mut builder.command_registry, &settings.registry_file);
+        issues.append(apply_imported(&mut builder.command_registry, &declarations.imported));
         Ok((builder, issues))
     }
 
     fn build(&self, declarations: &Declarations) -> Result<EnvRef<PyEnvironment>, Error> {
-        let (mut builder, mut issues) = self.configured_builder(declarations)?;
+        let settings = declarations.settings.clone();
+        let (mut builder, mut issues) = self.configured_builder(declarations, &settings)?;
         issues.append(builder.validate().clone());
         if let Some(summary) = issues.short_summary("Command metadata") {
             return Err(Error::configuration_error(summary));
         }
         builder = match &declarations.store {
             Some(store) => builder.with_async_store(store.clone()),
-            None if self.config.environment.store.stores.is_empty() => {
+            None if settings.config.environment.store.stores.is_empty() => {
                 builder.with_async_store(Arc::new(AsyncMemoryStore::new(&Key::new())))
             }
             None => builder.with_store_config(
-                self.config.environment.store.clone(),
+                settings.config.environment.store.clone(),
                 Box::new(self.store_factory(declarations)),
             ),
         };
@@ -408,7 +535,7 @@ impl EnvCell {
     /// Every issue a build would meet, without building.
     pub fn validate(&self, py: Python<'_>) -> Result<IssueReport, Error> {
         let declarations = self.lock(py)?;
-        let (mut builder, mut issues) = self.configured_builder(&declarations)?;
+        let (mut builder, mut issues) = self.configured_builder(&declarations, &declarations.settings)?;
         issues.append(builder.validate().clone());
         Ok(issues)
     }
@@ -485,7 +612,7 @@ impl EnvCell {
         // A declared command is applied after the Python ones and replaces one with its key, so
         // the trial needs no change to `specs`.
         let trial = (|| {
-            let (mut builder, mut issues) = self.configured_builder(&declarations)?;
+            let (mut builder, mut issues) = self.configured_builder(&declarations, &declarations.settings)?;
             issues.append(builder.validate().clone());
             match issues.short_summary("Command metadata") {
                 Some(summary) => Err(Error::configuration_error(summary)),
@@ -648,7 +775,7 @@ fn lock_servers(servers: &Mutex<ServerList>) -> MutexGuard<'_, ServerList> {
 /// only `commands` is read), as `import_metadata` takes them.
 fn read_command_registry(path: &std::path::Path) -> Result<Vec<CommandMetadata>, Error> {
     let text = std::fs::read_to_string(path).map_err(|e| {
-        Error::general_error(format!("cannot read the command registry file {}: {e}", path.display()))
+        Error::configuration_error(format!("cannot read the command registry file {}: {e}", path.display()))
     })?;
     serde_yaml::from_str::<ImportedMetadata>(&text)
         .map(|imported| imported.commands)
@@ -973,8 +1100,8 @@ impl Environment {
     /// environment first, so a broken configuration (or a shut environment) raises here.
     fn server_config(&self, py: Python<'_>, overrides: ServeOverrides) -> PyResult<liquers_axum::ServerConfig> {
         let result = (|| -> Result<_, Error> {
-            self.cell.envref(py)?;
-            let mut config = self.cell.config.server.clone();
+            let (_, settings) = self.cell.envref_and_settings(py)?;
+            let mut config = settings.config.server.clone();
             if let Some(host) = overrides.host {
                 config.host = host;
             }
@@ -1017,12 +1144,11 @@ impl Environment {
         full: bool,
     ) -> PyResult<Py<PyAny>> {
         check_blocking_call(py, call.name())?;
-        let request = crate::template::build_request(py, call, arguments, self.cell.conversion, self.cell.pickle)?;
-        let render = (|| {
-            let envref = self.cell.envref(py)?;
-            liquers_lib::template::render_top_level(&envref, request)
-        })()
-        .map_err(|e| error_to_pyerr(py, &e))?;
+        let (envref, settings) = self.cell.envref_and_settings(py).map_err(|e| error_to_pyerr(py, &e))?;
+        let conversion = settings.conversion;
+        let request = crate::template::build_request(py, call, arguments, conversion.mode, conversion.pickle)?;
+        let render = liquers_lib::template::render_top_level(&envref, request)
+            .map_err(|e| error_to_pyerr(py, &e))?;
         let asset = render.asset().clone();
         let outcome = crate::closure::wait_for_run(py, &self.cell.shut, asset, render.run())
             .map_err(|e| e.into_pyerr(py))?;
@@ -1040,13 +1166,15 @@ impl Environment {
         arguments: crate::template::Arguments<'_, 'py>,
         full: bool,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let request = crate::template::build_request(py, call, arguments, self.cell.conversion, self.cell.pickle)?;
-        let render = (|| {
+        let (envref, settings) = (|| {
             runtime()?;
-            let envref = self.cell.envref(py)?;
-            liquers_lib::template::render_top_level(&envref, request)
+            self.cell.envref_and_settings(py)
         })()
         .map_err(|e| error_to_pyerr(py, &e))?;
+        let conversion = settings.conversion;
+        let request = crate::template::build_request(py, call, arguments, conversion.mode, conversion.pickle)?;
+        let render = liquers_lib::template::render_top_level(&envref, request)
+            .map_err(|e| error_to_pyerr(py, &e))?;
         let asset = render.asset().clone();
         crate::closure::awaitable_run(py, &self.cell.shut, asset, render.run(), move |result| {
             ToPy::Rendered(result.map(|rendered| (rendered, full)))
@@ -1099,9 +1227,9 @@ impl Environment {
     /// The key and the state `store_set` writes. The value is serialized here, so a value with no
     /// byte form raises `SerializationError` instead of being kept as metadata only (AC-6), and
     /// the data format is always recorded, so the read path never has to guess it.
-    fn stored_state(&self, key: &str, data: &Bound<'_, PyAny>) -> Result<(Key, State<Value>), Error> {
+    fn stored_state(&self, key: &str, data: &Bound<'_, PyAny>, conversion: Conversion) -> Result<(Key, State<Value>), Error> {
         let key = parse_key(key)?;
-        let value = py_to_value(data, self.cell.conversion, self.cell.pickle)?;
+        let value = py_to_value(data, conversion.mode, conversion.pickle)?;
         let data_format = value.default_data_format().to_string();
         value.as_bytes(&data_format)?;
         let mut record = MetadataRecord::new();
@@ -1324,10 +1452,11 @@ impl Environment {
     }
 
     #[new]
-    #[pyo3(signature = (*, config=None, conversion=None, pickle=None, async_loops=None, job_capacity=None))]
+    #[pyo3(signature = (*, config=None, overrides=None, conversion=None, pickle=None, async_loops=None, job_capacity=None))]
     fn new(
         py: Python<'_>,
         config: Option<&Bound<'_, PyAny>>,
+        overrides: Option<&Bound<'_, PyAny>>,
         conversion: Option<&str>,
         pickle: Option<bool>,
         async_loops: Option<i64>,
@@ -1335,41 +1464,30 @@ impl Environment {
     ) -> PyResult<Self> {
         // A keyword wins over the file's `python:` / `assets:` setting, which wins over the
         // built-in default (`configuration-document` Decision 2).
-        let built = (|| {
-            let mut config = PyConfig::from_python(py, config)?;
-            let async_loops = match async_loops {
-                Some(loops) => usize::try_from(loops).ok().and_then(NonZeroUsize::new).ok_or_else(|| {
-                    Error::configuration_error(format!("async_loops must be at least 1, not {loops}"))
-                })?,
-                None => config.python.async_loops.unwrap_or(NonZeroUsize::MIN),
-            };
-            if let Some(capacity) = job_capacity {
-                let capacity = usize::try_from(capacity)
-                    .ok()
-                    .filter(|capacity| *capacity >= 1)
-                    .ok_or_else(|| {
-                        Error::configuration_error(format!(
-                            "job_capacity must be at least 1, not {capacity}"
-                        ))
-                    })?;
-                config.environment.assets.job_capacity = Some(capacity);
-            }
-            let conversion = match conversion {
-                Some(conversion) => ConversionMode::parse(conversion)?,
-                None => match &config.python.conversion {
-                    Some(conversion) => ConversionMode::parse(conversion)?,
-                    None => ConversionMode::Permissive,
-                },
-            };
-            let pickle = pickle.or(config.python.pickle).unwrap_or(false);
-            EnvCell::new(config, conversion, pickle, async_loops)
-        })();
-        match built {
-            Ok(cell) => Ok(Environment {
-                cell: Arc::new(cell),
-            }),
-            Err(e) => Err(error_to_pyerr(py, &e)),
-        }
+        let settings = Settings::resolve(py, config, overrides, conversion, pickle, async_loops, job_capacity)
+            .map_err(|e| error_to_pyerr(py, &e))?;
+        Ok(Environment { cell: Arc::new(EnvCell::new(settings)) })
+    }
+
+    /// Replaces this environment's settings, keeping every command registered so far; takes
+    /// `lq.Environment`'s keywords, and each call replaces every setting (an omitted keyword is
+    /// its default, not its earlier value). Allowed until the first successful build — the first
+    /// evaluation, `serve`, `ui`, render or store write — and refused with `ConfigurationError`
+    /// after it. A failed call changes nothing.
+    #[pyo3(signature = (*, config=None, overrides=None, conversion=None, pickle=None, async_loops=None, job_capacity=None))]
+    fn configure(
+        &self,
+        py: Python<'_>,
+        config: Option<&Bound<'_, PyAny>>,
+        overrides: Option<&Bound<'_, PyAny>>,
+        conversion: Option<&str>,
+        pickle: Option<bool>,
+        async_loops: Option<i64>,
+        job_capacity: Option<i64>,
+    ) -> PyResult<()> {
+        Settings::resolve(py, config, overrides, conversion, pickle, async_loops, job_capacity)
+            .and_then(|settings| self.cell.configure(py, settings))
+            .map_err(|e| error_to_pyerr(py, &e))
     }
 
     /// A new Liquers UI model on this environment (`lq.UI`): show queries as elements, submit
@@ -1559,8 +1677,8 @@ impl Environment {
     fn store_set(&self, py: Python<'_>, key: &str, data: &Bound<'_, PyAny>) -> PyResult<()> {
         check_blocking_call(py, "store_set")?;
         let result = (|| -> Result<_, PyFailure> {
-            let (key, state) = self.stored_state(key, data)?;
-            let envref = self.cell.envref(py)?;
+            let (envref, settings) = self.cell.envref_and_settings(py)?;
+            let (key, state) = self.stored_state(key, data, settings.conversion)?;
             block_on(py, &self.cell.shut, async move {
                 envref.get_asset_manager().set_state(&key, state).await
             })
@@ -1619,8 +1737,9 @@ impl Environment {
     fn store_set_async<'py>(&self, py: Python<'py>, key: &str, data: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
         let prepared = (|| -> Result<_, Error> {
             crate::runtime::runtime()?;
-            let (key, state) = self.stored_state(key, data)?;
-            Ok((key, state, self.cell.envref(py)?))
+            let (envref, settings) = self.cell.envref_and_settings(py)?;
+            let (key, state) = self.stored_state(key, data, settings.conversion)?;
+            Ok((key, state, envref))
         })();
         let (key, state, envref) = prepared.map_err(|e| error_to_pyerr(py, &e))?;
         awaitable(
@@ -1672,8 +1791,6 @@ impl Environment {
                 &declaration,
                 context_index,
                 implementation.as_deref(),
-                self.cell.conversion,
-                self.cell.pickle,
                 self.cell.shut.clone(),
                 is_async.then(|| self.cell.loops.clone()),
             )?;
@@ -1837,7 +1954,7 @@ mod tests {
     }
 
     fn new_cell() -> Result<EnvCell, Error> {
-        EnvCell::new(PyConfig::default(), ConversionMode::Permissive, false, NonZeroUsize::MIN)
+        Ok(EnvCell::new(Settings::default()))
     }
 
     #[test]
@@ -1864,6 +1981,28 @@ mod tests {
                 })
             })?;
             assert!(value.try_into_string()?.contains("to_text"));
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn configure_is_refused_once_built() -> Result<(), Error> {
+        attached(|py| {
+            let cell = new_cell()?;
+            let strict = Settings {
+                conversion: Conversion { mode: ConversionMode::Strict, pickle: true },
+                ..Settings::default()
+            };
+            cell.configure(py, strict)?;
+            assert!(cell.settings(py)?.conversion.pickle);
+            cell.envref(py)?;
+            let refused = cell.configure(py, Settings::default()).expect_err("built");
+            assert_eq!(refused.error_type, liquers_core::error::ErrorType::ConfigurationError);
+            assert!(refused.to_string().contains("already built"), "{refused}");
+            assert!(cell.settings(py)?.conversion.pickle, "a refused configure changes nothing");
+            // A late registration marks the environment for a rebuild but does not reopen it.
+            cell.invalidate(py)?;
+            assert!(cell.configure(py, Settings::default()).is_err());
             Ok(())
         })
     }
