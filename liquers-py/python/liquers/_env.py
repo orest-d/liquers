@@ -37,7 +37,7 @@ assert lq.evaluate("hello") == "hello"
 
 import threading
 from collections.abc import Awaitable, Coroutine
-from typing import Any
+from typing import Any, Literal
 
 from liquers._native import UI, Environment, Server
 
@@ -58,7 +58,7 @@ def configure(
     *,
     config: Any = None,
     overrides: dict[str, Any] | None = None,
-    conversion: str | None = None,
+    conversion: Literal["permissive", "strict"] | None = None,
     pickle: bool | None = None,
     async_loops: int | None = None,
     job_capacity: int | None = None,
