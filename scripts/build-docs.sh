@@ -217,6 +217,19 @@ if [ "$VERIFY" = 1 ]; then
         while read -r target; do
             expect "$target"
         done < <(grep -o '](api/[^)#]*' "$ROOT/docs/index.md" | sed 's/^](//')
+        # Every API page a guide chapter links to. The guides link by the site's absolute address
+        # (USER_DOCS_EDITING_GUIDE.md §3), so the page is looked up in this build; a `#fragment`
+        # must be an `id` of that page, which is how pdoc and rustdoc mark an item.
+        while read -r link; do
+            page=${link%%#*}
+            expect "$page"
+            if [ "$link" != "$page" ] && [ -f "$OUT/$page" ] \
+                && ! grep -q -F "id=\"${link#*#}\"" "$OUT/$page"; then
+                echo "missing: #${link#*#} in $page (linked from a guide chapter)" >&2
+                missing=1
+            fi
+        done < <(grep -rhoE 'https://orest-d\.github\.io/liquers/api/[A-Za-z0-9_./#-]+' \
+            "$ROOT/docs/guides" | sed -e 's|^https://orest-d\.github\.io/liquers/||' -e 's/[.]$//' | sort -u)
         # The browser module the Web guide's examples import, published beside its reference.
         expect pkg/liquers-web/liquers_web.js
         expect pkg/liquers-web/liquers_web_bg.wasm

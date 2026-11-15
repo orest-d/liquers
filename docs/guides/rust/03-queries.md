@@ -2,11 +2,11 @@
 title: Queries
 status: ready
 sources: [reference/PROJECT_OVERVIEW.md, guides/QUERY_ESCAPING_GUIDE.md, reference/PIPELINES.md, guides/PIPELINE_GUIDE.md]
-reviewed: 2026-11-10
+reviewed: 2026-11-14
 ---
 # 3. Queries
 
-PURPOSE: The reader can read and write a query, run one from Rust, build one from values without escaping by hand, and check one without running it.
+PURPOSE: The reader can read and write a query, run one from Rust, build and edit one from values without escaping by hand, read and write a pipeline, and check one without running it.
 
 The query is the one thing in Liquers that you cannot do without, and the one thing that is the
 same in every language. This chapter first describes the query language itself, in the words
@@ -111,14 +111,15 @@ mark the place.
 Parsing checks the syntax only. `parse_query("no_such_command")` succeeds, because the parser
 does not know which commands exist.
 
-## 3.9 Building a query from values
+## 3.9 Building and editing a query
 
 Writing a query by hand is fine when you know its text. When part of it comes from a variable,
 a user's input for example, do not paste the value into the text with `format!`. A value
 containing `-`, `/` or a space would change the meaning of the query, and escaping it by hand is
 easy to get wrong.
 
-Use a *query editor* instead. It builds the query step by step and escapes every value:
+Use a *query editor* instead. It builds the query step by step, takes each argument as the Rust
+value it is, and writes it into the query correctly:
 
 ```rust
 use liquers_core::pipeline::QueryEditor;
@@ -130,26 +131,58 @@ let region = "North-West / 2"; // a value you do not control
 let mut editor = QueryEditor::new(env.command_metadata_snapshot());
 editor.resource("data/sales.csv", Default::default())?;
 editor.action("to_record")?.ns("rec")?;
-let mut filter = editor.action("eq")?;
-filter.ns("rec")?.push("region")?.push(region)?;
-assert!(filter.set("no_such_argument", 1).is_err()); // refused, and nothing changed
+editor.action("eq")?.ns("rec")?.set("column", "region")?.set("value", region)?; // a text, escaped for you
+editor.action("sort")?.ns("rec")?.set("column", "amount")?.set("ascending", false)?; // a boolean as a boolean
+let mut head = editor.action("head")?;
+head.ns("rec")?.set("n", 10)?; // a number as a number
+assert!(head.set("no_such_argument", 1).is_err()); // refused, and nothing changed
 assert_eq!(
     editor.query().encode(),
-    "-R/data/sales.csv/-/ns-rec/to_record/eq-region-North~_West~.~/~.2"
+    "-R/data/sales.csv/-/ns-rec/to_record/eq-region-North~_West~.~/~.2/sort-amount-false/head-10"
 );
 ```
+
+Pass numbers and booleans as they are, not as text. You do not need to know how a query spells
+`false` or a negative number; the editor does. `set` takes the name of an argument and any value
+that converts to JSON, and puts it in the right position. `push` appends the next positional
+argument instead, which is what you use for a command that takes any number of arguments.
 
 The editor is created from the *command metadata* of the environment: the description of every
 registered command, without the functions themselves. It uses the descriptions to place
 arguments, so `set` with a name the command does not have is refused and leaves the editor
-unchanged. `push` appends the next positional argument.
+unchanged.
 
 One thing the editor does not do when you add an action is check that the command exists.
 `editor.editor().validate()` reports that, and so does planning the finished query
 (section 3.11).
 
-For a single action, without an environment, build an `ActionRequest` from its parts. Encoding
-escapes the parameters:
+The same editor changes a query that already exists. Create it with `from_query` and edit the
+steps by their position:
+
+```rust
+let query = parse_query("-R/data/sales.csv/-/ns-rec/to_record/sort-amount/head-10")?;
+let mut editor = QueryEditor::from_query(&query, env.command_metadata_snapshot())?;
+// The steps are counted from 0: the file, to_record, sort, head.
+editor.edit_action(3)?.set("n", 3)?;
+editor.edit_action(2)?.set("ascending", false)?;
+assert_eq!(editor.query().encode(), "-R/data/sales.csv/-/ns-rec/to_record/sort-amount-false/head-3");
+
+editor.edit_action(2)?.unset("ascending")?; // back to the default
+let unset: Vec<&str> = editor.unset_arguments(2)?.iter().map(|argument| argument.name.as_str()).collect();
+assert_eq!(unset, ["ascending", "nulls_last"]);
+
+editor.remove(3)?; // drop the step
+editor.set_filename(Some("sorted.csv"))?;
+assert_eq!(editor.query().encode(), "-R/data/sales.csv/-/ns-rec/to_record/sort-amount/sorted.csv");
+```
+
+`unset_arguments` lists the arguments of a step that still have their defaults, with their types
+and descriptions. It is what a form for editing a query is built from.
+
+The older way to build a query is from its parts, with `ActionRequest` and `ActionParameter`.
+It needs no environment, and it is still the right tool for a single action. But it knows
+nothing about the command: every parameter is text that you place by position and convert
+yourself. Encoding escapes it:
 
 ```rust
 let action = ActionRequest::new("eq".to_owned()).with_parameters(vec![
@@ -159,13 +192,20 @@ let action = ActionRequest::new("eq".to_owned()).with_parameters(vec![
 assert_eq!(action.encode(), "eq-region-North~_West~.~/~.2");
 ```
 
+Prefer the editor whenever you have an environment.
+
+API reference: [`QueryEditor`](https://orest-d.github.io/liquers/api/rust/liquers_core/pipeline/struct.QueryEditor.html),
+[`ActionEditor`](https://orest-d.github.io/liquers/api/rust/liquers_core/pipeline/struct.ActionEditor.html), the object that `action` and
+`edit_action` return, and [`ActionRequest`](https://orest-d.github.io/liquers/api/rust/liquers_core/query/struct.ActionRequest.html).
+
 ## 3.10 Pipelines: queries as data
 
-Some arguments cannot be written into a query at all: a nested structure, a list, a long text.
-For these there is a second form of a query, the *pipeline*. A pipeline is the same chain of
-steps written as data: a list in which each step is either query text or a map that names an
-action and its arguments. It has a JSON and a YAML form, so it is also the form in which another
-program can send you a computation.
+{{> ../_shared/pipelines.md}}
+
+### Running a pipeline from Rust
+
+`Pipeline::from_json` reads a pipeline from JSON, and `serde` reads one from YAML.
+`evaluate_pipeline` runs it the way `interpreter::evaluate` runs a query:
 
 ```rust
 use liquers_core::interpreter::evaluate_pipeline;
@@ -185,9 +225,10 @@ let state = evaluate_pipeline(env.clone(), &pipeline, None).await?;
 assert_eq!(state.try_into_string()?, "2");
 ```
 
-`evaluate_pipeline` runs a pipeline the way `interpreter::evaluate` runs a query. Every query can
-be turned into a pipeline, and a pipeline can be turned back into a query when all its arguments
-can be written as text:
+The result is a `State`, the value with its metadata, and not an asset reference: there is no
+asset behind a pipeline, as the next section explains.
+
+A pipeline turns into a query, and a query into a pipeline:
 
 ```rust
 let cmr = env.command_metadata_snapshot();
@@ -198,11 +239,61 @@ assert_eq!(back.to_query_with(&cmr)?.encode(), query.encode());
 ```
 
 `to_query_with` needs the command metadata, because it has to know the order of a command's
-arguments to write named ones positionally.
+arguments to write named ones positionally. The other direction is also a way to look inside a
+query, as data and with every step taken apart:
 
-Prefer a query when one can say what you mean: it is shorter, it is a link, it is cached as an
-asset, and it can be used in a recipe and in a URL. Use a pipeline when an argument is
-structured data. Section 5.9 shows a third use: a pipeline registered as a command.
+```rust
+// The steps of a query, as data: this is how to look inside one.
+let steps = Pipeline::try_from(&parse_query("-R/data/sales.csv/-/ns-rec/to_record/head-2")?)?.to_json();
+assert_eq!(steps["elements"][0]["resource"], "data/sales.csv");
+assert_eq!(steps["elements"][2]["action"], "head");
+assert_eq!(steps["elements"][2]["parameters"][0]["value"], "2");
+```
+
+Here is a pipeline that no query can replace. Its first step is a value written in place, and
+one of its arguments is a list:
+
+```rust
+// Rows written in place: a value that no query can hold.
+let structured = Pipeline::from_json(&json!([
+    {"value": [{"region": "EU", "amount": 120}, {"region": "US", "amount": 80}]},
+    {"action": "to_record", "ns": "rec"},
+    {"action": "is_in", "ns": "rec", "arguments": {"column": "region", "values": ["EU", "ASIA"]}},
+    {"action": "nrows", "ns": "rec"}
+]))?;
+let state = evaluate_pipeline(env.clone(), &structured, None).await?;
+assert_eq!(state.try_into_string()?, "1");
+let error = structured.to_query_with(&cmr).unwrap_err();
+assert_eq!(error.error_type, ErrorType::ParameterError);
+assert!(error.to_string().contains("not representable as a query"));
+```
+
+### Editing a pipeline
+
+A `PipelineEditor` is the query editor of section 3.9 without the limit to what a query can
+hold. It has the same methods, and its values may be lists and maps:
+
+```rust
+use liquers_core::pipeline::PipelineEditor;
+
+let mut editor = PipelineEditor::from_pipeline(structured, cmr.clone())?;
+// The steps are counted from 0: the value, to_record, is_in, nrows.
+editor.edit_action(2)?.set("values", json!(["US"]))?;
+editor.remove(3)?;
+editor.action("select_columns")?.ns("rec")?.push("amount")?;
+editor.action("to_json")?.ns("rec")?;
+let state = evaluate_pipeline(env.clone(), editor.pipeline(), None).await?;
+assert_eq!(state.value()?.try_into_json_value()?, json!([{"amount": 80}]));
+```
+
+`PipelineEditor::new` starts an empty pipeline. A `QueryEditor` is in fact a pipeline editor
+that refuses every edit after which the pipeline would no longer be a query.
+
+API reference: [`Pipeline`](https://orest-d.github.io/liquers/api/rust/liquers_core/pipeline/struct.Pipeline.html),
+[`PipelineEditor`](https://orest-d.github.io/liquers/api/rust/liquers_core/pipeline/struct.PipelineEditor.html) and
+[`evaluate_pipeline`](https://orest-d.github.io/liquers/api/rust/liquers_core/interpreter/fn.evaluate_pipeline.html).
+
+{{> ../_shared/pipeline-or-query.md}}
 
 ## 3.11 Checking a query without running it
 

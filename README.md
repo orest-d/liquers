@@ -33,6 +33,21 @@ Generate the Rust API reference from a source checkout:
 cargo doc --workspace --no-deps
 ```
 
+On Windows, Cargo inherits `PATH` from the process that launched the terminal or editor. After
+installing Python or LLVM, quit and reopen the editor (opening another integrated terminal is not
+enough), then check `where.exe clang` and `python -c "import sys; print(sys.executable)"`. If the
+Microsoft Store execution alias shadows an installed Python but `py -3` works, point PyO3 at the
+real interpreter for the current PowerShell session:
+
+```powershell
+$env:PYO3_PYTHON = py -3 -c "import sys; print(sys.executable)"
+cargo doc --workspace --no-deps
+```
+
+If `where.exe clang` is still empty after installing LLVM, add its default location for the current
+session with `$env:Path = "C:\Program Files\LLVM\bin;$env:Path"`; make that directory a user or
+system `PATH` entry for the durable fix, then restart the editor.
+
 In a disk-constrained environment, generate one crate at a time:
 
 ```shell

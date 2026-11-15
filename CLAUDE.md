@@ -365,9 +365,27 @@ winget install --id LLVM.LLVM     # native ARM64 build; adds C:\Program Files\LL
 winget install --id Kitware.CMake # aws-lc-sys uses it on some targets
 ```
 
-Open a new shell and check `clang --version`. (Alternatively, add the *C++ Clang Compiler for
-Windows* component to the Build Tools in the Visual Studio Installer and put
-`VC\Tools\Llvm\ARM64\bin` on `PATH`.) `cargo clean -p ring` afterwards if a failed build is cached.
+Quit and reopen any editor that was already running, then open a new shell and check
+`where.exe clang` and `clang --version`: an integrated terminal inherits the editor process's old
+`PATH`, so opening a new terminal tab alone does not see a newly installed LLVM. (Alternatively, add
+the *C++ Clang Compiler for Windows* component to the Build Tools in the Visual Studio Installer and
+put `VC\Tools\Llvm\ARM64\bin` on `PATH`.) `cargo clean -p ring` afterwards if a failed build is
+cached.
+
+`cargo doc --workspace --no-deps` also builds `liquers-py`, whose PyO3 build script must run a
+supported interpreter. On Windows, `where.exe python` may list the Microsoft Store execution alias
+before the real installation; that alias reports "Python was not found" even when `py -3` works.
+Restart the editor after installing Python. If the alias still wins, select the real interpreter in
+the current PowerShell session explicitly:
+
+```powershell
+$env:PYO3_PYTHON = py -3 -c "import sys; print(sys.executable)"
+& $env:PYO3_PYTHON -c "import sys; print(sys.executable)" # verify the selected interpreter
+cargo doc --workspace --no-deps
+```
+
+`PYO3_PYTHON` only needs to be set for commands that build `liquers-py`; it may also be set to a
+literal path returned by the first command. Do not point it at the `py.exe` launcher itself.
 
 Without clang, these configurations are ring-free and document fine:
 

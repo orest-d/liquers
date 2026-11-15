@@ -133,6 +133,9 @@ server sets, 30 seconds by default (`with_query_timeout`). For anything longer, 
 through the Assets API, which answers at once, and then ask for its status or follow it over the
 WebSocket (section 12.6).
 
+Every route of the four interfaces, with what it takes and what it answers, is listed in
+[appendix E](e-web-api.md).
+
 ## 12.4 Inside your own application
 
 The builder can also start from a prefix and be adjusted in code: `read_only()`,

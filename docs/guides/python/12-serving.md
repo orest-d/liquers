@@ -220,6 +220,9 @@ interfaces:
 A query goes into the URL as it is. This is the reason queries are written with URL-safe
 characters only.
 
+Every route of the four interfaces, with what it takes and what it answers, is listed in
+[appendix E](e-web-api.md).
+
 ## 12.5 Calling a server from Python
 
 Any HTTP client will do. With the standard library:
