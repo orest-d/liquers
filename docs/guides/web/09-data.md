@@ -2,7 +2,7 @@
 title: Working with data
 status: ready
 sources: [guides/RECORD_STREAM_GUIDE.md, guides/JAVASCRIPT_GUIDE.md]
-reviewed: 2026-11-10
+reviewed: 2026-11-14
 ---
 # 9. Working with data
 
@@ -199,6 +199,10 @@ source.free();
 each. `materialize(maxRows)` puts them together into one table and refuses when there are more
 rows than you allow, which protects the page from a table that is larger than you thought.
 `source.chunks()` lists the chunks without reading any.
+
+Most sources are not made from a table in memory but described by a *manifest*, a file that
+lists the query which makes each chunk. Section 13.4 describes manifests, and section 13.6 uses
+one in a page.
 
 Keep the scale in mind. Everything is in the page's memory and on its one thread. Tens of
 thousands of rows are comfortable; for millions, let a server do the work and send the page the

@@ -1,8 +1,8 @@
 ---
 title: Glossary
 status: ready
-sources: [reference/PROJECT_OVERVIEW.md, reference/PIPELINES.md]
-reviewed: 2026-11-10
+sources: [reference/PROJECT_OVERVIEW.md, reference/PIPELINES.md, reference/RECORD_STREAMS.md]
+reviewed: 2026-11-14
 ---
 # C. Glossary
 
@@ -40,17 +40,25 @@ PURPOSE: The words of Liquers, defined once.
 |---|---|
 | **Argument** | A value given to a command in a query, after the command's name |
 | **Browser module** | The ES module `liquers_web.js` with its WebAssembly file: Liquers for a page |
+| **Chunk** | One piece of a record source: a record view that is the result of one query |
 | **Declaration** | The object that describes a command to `registerCommand`: its name, input, arguments and function |
 | **Dependency** | Something a result was made from: a key, another query, a command |
 | **Handle** | A JavaScript object that refers to data inside the module instead of copying it; released with `free()` |
 | **Inline** | Evaluated as part of the call that asked, on the page's one thread |
 | **Link** | An argument that is the value of another query |
+| **Manifest** | A file `<name>.manifest.yaml` that describes a record source: its chunks and their schema |
 | **Mount** | One entry of the store configuration: a type of storage and the prefix of the keys it holds. Also the object `mountUI` returns for a user interface placed in the page |
 | **Opaque object** | A JavaScript object passed through Liquers by reference, wrapped with `liquers.opaque` |
 | **Pipeline command** | A command defined as a pipeline, with placeholders as its arguments |
 | **Placeholder** | A named gap in a pipeline, filled by an argument |
 | **Props** | The data of a user-interface element defined in JavaScript |
-| **Template** | Text with tags that are replaced when it is rendered; a query tag holds a query |
+| **Query editor** | The object that builds or changes a query step by step, placing and escaping the arguments |
+| **Record source** | A table that is read in chunks, any number of times; it may be larger than memory |
+| **Record stream** | One pass over a record source, chunk by chunk |
+| **Record view** | A table in memory, with named, typed columns |
+| **Record** | One row of a table: a set of named, typed values |
+| **Schema** | The list of the fields of a table: their names, types and roles |
 | **Template command** | A command whose result is a rendered template |
+| **Template** | Text with tags that are replaced when it is rendered; a query tag holds a query |
 | **UI spec** | The description of a layout with a menu, as data |
 | **WebAssembly** | The binary format browsers run next to JavaScript; the form in which the Rust code of Liquers reaches the page |

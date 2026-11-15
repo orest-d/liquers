@@ -2,7 +2,7 @@
 title: Introduction
 status: ready
 sources: [reference/VISION.md, reference/PROJECT_OVERVIEW.md, guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md]
-reviewed: 2026-11-10
+reviewed: 2026-11-14
 ---
 # 1. Introduction
 
@@ -279,8 +279,8 @@ also travels well beyond it:
   of *Liquers for the Web*.
 - **Python.** The package `liquers-py` wraps the same crates, so a query means the same thing in
   a notebook as in your Rust service. See *Liquers for Python*.
-- **Search.** Commands that list, read and search the documents and tables in a store
-  (chapter 13).
+- **Search.** Commands that list, read and search the documents and tables in a store.
+  They are built on records, the table type of Liquers (chapter 13).
 - **Tools for AI agents.** A query is a tool call that can be checked before it runs, is cached,
   and leaves a record of what it did. Liquers serves commands as tools over the Model Context
   Protocol (chapter 13).
@@ -303,7 +303,7 @@ serves and a web page shows.
 | Templates | Put the values of queries into text | `liquers-template` | [10](10-templates.md) |
 | User interfaces | Show the values of queries, on the desktop and in the browser | `liquers-lib` | [11](11-ui.md) |
 | The web API | Serves every query at a URL | `liquers-axum` | [12](12-serving.md) |
-| Search and agent memory | Find documents and rows; give agents queries as tools | `liquers-lib`, `liquers-mcp`, `liquers-agent` | [13](13-search.md) |
+| Records | Tables in memory and in chunks, schemas, manifests; search and the agent memory built on them | `liquers-lib`, `liquers-mcp`, `liquers-agent` | [13](13-records.md) |
 
 You can use as many of these as you need. A program that only wants cached, named results uses
 commands and assets and ignores the rest. The tools are there when the program grows into a

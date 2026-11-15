@@ -2,7 +2,7 @@
 title: Serving and embedding
 status: ready
 sources: [guides/WEB_API_GUIDE.md, reference/WEB_API_SPECIFICATION.md, reference/ENVIRONMENT_CONFIG.md]
-reviewed: 2026-11-10
+reviewed: 2026-11-14
 ---
 # 12. Serving and embedding
 
@@ -132,6 +132,9 @@ that cannot be converted to the requested format, and 500 for a failing command.
 server sets, 30 seconds by default (`with_query_timeout`). For anything longer, submit the query
 through the Assets API, which answers at once, and then ask for its status or follow it over the
 WebSocket (section 12.6).
+
+Every route of the four interfaces, with what it takes and what it answers, is listed in
+[appendix E](e-web-api.md).
 
 ## 12.4 Inside your own application
 
