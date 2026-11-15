@@ -126,7 +126,7 @@ simply stop being wanted.
 - **Environment, Context and evaluation** — documented → [`reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`](reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md)
 - **Recipe-provider fallback in the payload environment** — built → [`reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`](reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md) *(design: [`payload-env-recipe-provider-fallback`](design/payload-env-recipe-provider-fallback/))*
 - **Metadata format/type consistency** — designing → [`design/metadata-consistency/`](design/metadata-consistency/)
-- **Value accessor abstraction** — designing → [`design/value-accessor/`](design/value-accessor/)
+- **Settable value accessors** (read, write, watch and project a value where it lives; supersedes [`value-accessor`](design/value-accessor/)) — designing → [`design/settable-value-accessor/`](design/settable-value-accessor/)
 - **`ValueInterface` capability split** — planned → [`issues/CORE-VALUE-INTERFACE-CAPABILITY-SPLIT.md`](issues/CORE-VALUE-INTERFACE-CAPABILITY-SPLIT.md)
 - **Auto-generated value descriptions** — planned → [`issues/VALUE-DESCRIPTION.md`](issues/VALUE-DESCRIPTION.md)
 - **Application-defined metadata attributes** — planned → [`issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md`](issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md)
