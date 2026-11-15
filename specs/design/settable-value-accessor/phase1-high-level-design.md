@@ -76,9 +76,9 @@ reads the new value.
   record table is projected to a row, a column or a cell
   THEN reads and sets apply to that part only
 - **AC-10** One query editor for every query source
-  WHEN a query accessor is made from a UI element's field, from a recipe, or from a link in a
-  template
-  THEN the same action and argument projections (AC-1 to AC-5) work on each
+  WHEN a query accessor is made from a UI element's field or from a recipe
+  THEN the same action and argument projections (AC-1 to AC-5) work on each. A further source, such
+  as a link in a template, needs only its own root-to-query projection
 - **AC-11** Accessors pass through commands
   WHEN a query creates an accessor of `reports/recipes.yaml` and passes it to projection commands
   THEN the result is a live accessor of the projected part. It is never stored, and evaluating the
@@ -105,7 +105,8 @@ reads the new value.
   again gives an accessor of whatever is step 2 now. The root accessor expires only when its key is
   removed
 
-Non-goals: locking (a later design, which this one must not preclude); the editor widgets and
+Non-goals: locking (a later design, which this one must not preclude: `VALUE-ACCESSOR-CANNOT-LOCK`);
+query accessors over template links (they must remain implementable as a projection); the editor widgets and
 composite editors themselves (separate UI designs that use accessors); detecting a change made
 outside the environment, for example a file edited on disk (`ASSET-EVENTS-ARE-NOT-DELIVERED-OUT-OF-PROCESS`);
 merging concurrent edits (a conflicting set fails); the transport of addresses and edits between
@@ -127,15 +128,15 @@ client and server (`ui-split-elements`).
 - **Web/API**: `liquers-axum` routes that read and write an accessor defined by a query, with the
   version token as an entity tag.
 - **UI**: elements bind fields to accessors, and editors are built from projections.
-- **Records / Templates**: table projections over record views, and query projections over template
-  links.
+- **Records**: table projections over record views.
 
 ## Crate Placement
 
 The accessor contract, addresses, versions, change notifications, and the store, asset, document,
 query, pipeline and recipe accessors go in `liquers-core` (a new `accessor` module). That way axum,
 web and py can resolve addresses without `liquers-lib`. Record-table projections go in
-`liquers-records`, and template-link projections in `liquers-template`. Both depend on core only.
+`liquers-records`, which depends on core only. A later template-link projection would go in
+`liquers-template` the same way.
 The value variant and the commands go in `liquers-lib`, along with polars projections if they are
 in scope.
 
@@ -180,16 +181,22 @@ in scope.
    tree, the way a signal-reactivity system does: a change marks the tree dirty top down, subscribed
    nodes are recomputed lazily, and a child of an invalidated node is invalidated without being
    derived.
-5. **Notification granularity.** *Recommended:* after a change, the root re-derives only the
-   accessors that have subscribers, walking them as a tree so a shared prefix is derived once, and
-   notifies those whose fingerprint changed. The others check when they are next read.
-6. **Locking.** *Recommended:* none now. Phase 2 reserves a lease hook, so a lock can be added
-   without changing the contract.
-7. **The write side of `DataNode`.** This design and `store-handler-field-access` both need it.
-   *Recommended:* one contract, owned by this design, with `MetadataRecord` as one implementation.
-8. **Template links in v1 (AC-10).** *Recommended:* yes, but only for links whose position the
-   template parser reports. If you'd rather keep v1 smaller, they can be deferred.
-9. **Command namespace** for the accessor and projection commands. *Recommended:* `acc`.
+5. **Notification granularity.** *Decided (Orest, 2026-11-15)* with question 4: the root
+   re-derives only subscribed projections, walking them as a tree so a shared prefix is derived
+   once. Projections without subscribers check when they are next read.
+6. **Locking.** *Decided (Orest, 2026-11-15):* out of scope. Phase 2 reserves a hook so a lock can
+   be added without changing the contract. What is known (asset-level locks held by a user or
+   session, which require `CORE-SESSION-AND-KEY-ACL`; simpler accessor-level locks, where only one
+   projection accessor may write) is recorded in `VALUE-ACCESSOR-CANNOT-LOCK`.
+7. **One write contract.** *Decided (Orest, 2026-11-15):* there is one write contract, the
+   accessor's set. This design is about whole value accessors and does not design a writable
+   `DataNode`. A document projection may implement its set on top of whatever data-node write
+   `store-handler-field-access` ends up with. That design should adopt the accessor's contract
+   rather than define a second one.
+8. **Template links.** *Decided (Orest, 2026-11-15):* not in this design. Phase 2 checks that a
+   template-link query projection can be added later as one more root-to-query projection.
+9. **Command namespace.** *Decided (Orest, 2026-11-15):* `acc`, for example
+   `-R-key/some/recipes.yaml/-/ns-acc/recipe_query-1/action-2`.
 
 ## Design Dependencies
 
@@ -199,7 +206,8 @@ in scope.
 - **Requires:** none to start. AC-6 and AC-7 use the per-asset notifications that exist today.
 - **Overlaps:** `store-handler-field-access` (shared contract, question 7); `command-parameter-editor`
   (its `set_argument_parameter` duplicates `ActionEditor::set`; the form should edit through an
-  argument accessor); `text-editor-save` (its save is a store-data accessor set);
+  argument accessor); `text-editor-save` (its save is a store-data accessor set); `VALUE-ACCESSOR-CANNOT-LOCK` (the later
+locking design);
   `query-editor-live-validation`; `ui-events` and `UI-EVENTS-HAVE-NO-POINTER-DRAG-OR-CHANGE-KINDS`
   (a field-change event); `ui-split-elements` (addresses and edits are what crosses the wire,
   AC-12); `asset-event-kinds` and `asset-events-over-websocket` (out-of-process change detection);

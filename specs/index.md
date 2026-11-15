@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 245
+Total rows: 246
 - P2: 69
-- P3: 176
+- P3: 177
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -254,6 +254,7 @@ Total rows: 245
 | [`NO-SQL-ENGINE-IN-WASM-BUILDS`](issues/NO-SQL-ENGINE-IN-WASM-BUILDS.md) | feature | SQL over records is unavailable in wasm builds, where polars does not build | draft |  |  | P3 | L | records;lib/commands;web |  | 2026-10-21 |
 | [`PY-WEB-SERVER-CANNOT-TAKE-PYTHON-HANDLERS`](issues/PY-WEB-SERVER-CANNOT-TAKE-PYTHON-HANDLERS.md) | feature | A Liquers server started from Python cannot route a request to a Python handler or middleware | draft |  |  | P3 | L | py;axum |  | 2026-11-06 |
 | [`UI-EVENTS-HAVE-NO-POINTER-DRAG-OR-CHANGE-KINDS`](issues/UI-EVENTS-HAVE-NO-POINTER-DRAG-OR-CHANGE-KINDS.md) | feature | UI events cannot express field changes, focus, drag-and-drop or pointer input | draft |  |  | P3 | L | lib/ui | [phase1](design/ui-events/phase1-high-level-design.md)  [phase2](design/ui-events/phase2-architecture.md)  [phase3](design/ui-events/phase3-examples.md)  [phase4](design/ui-events/phase4-implementation.md)  | 2026-10-30 |
+| [`VALUE-ACCESSOR-CANNOT-LOCK`](issues/VALUE-ACCESSOR-CANNOT-LOCK.md) | feature | An asset or value accessor cannot be locked against other writers | draft |  |  | P3 | L | core/assets;core/context |  | 2026-11-15 |
 | [`WEB-CANCELLATION-INERT`](issues/WEB-CANCELLATION-INERT.md) | issue | Web cancellation surface exists but does nothing | accepted |  |  | P3 | L | core/assets;web |  | 2026-08-08 |
 | [`WEB-NATIVE-IO-TIER2`](issues/WEB-NATIVE-IO-TIER2.md) | issue | Browser storage has no IndexedDB backend | accepted |  |  | P3 | L | web | [phase1](design/liquers-web-store/phase1-high-level-design.md)  [phase2](design/liquers-web-store/phase2-architecture.md)  [phase3](design/liquers-web-store/phase3-examples.md)  [phase4](design/liquers-web-store/phase4-implementation.md)  | 2026-08-08 |
 | [`CORE-MULTI-REALM-INTERPRETER`](issues/CORE-MULTI-REALM-INTERPRETER.md) | issue | The interpreter supports a single realm | accepted | phase2-blocked | not-eligible | P3 | XL | core/plan;core/commands | [phase1](design/multi-realm-dispatch/phase1-high-level-design.md)  [phase2](design/multi-realm-dispatch/phase2-architecture.md)  | 2026-08-08 |
