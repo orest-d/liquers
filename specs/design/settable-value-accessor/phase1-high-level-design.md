@@ -87,6 +87,15 @@ reads the new value.
   WHEN an accessor's address (root and projection path) is serialized and resolved in another
   environment that has the same root
   THEN the resolved accessor reads and sets the same part
+- **AC-13** Accessors over the web API
+  WHEN a client reads an accessor defined by a query (for example the `head` argument of AC-1)
+  through the web API, then writes it back with the version token it read
+  THEN the read returns the part and its token, the write applies it, and a write with a stale token
+  for a part that has changed since is refused as a conflict
+- **AC-14** Disjoint edits do not conflict
+  WHEN two accessors of different recipes in one `recipes.yaml` each set their part, both based on
+  the same root version
+  THEN both sets apply. A set conflicts only when the part it was based on has changed since
 
 Non-goals: locking (a later design, which this one must not preclude); the editor widgets and
 composite editors themselves (separate UI designs that use accessors); detecting a change made
@@ -107,6 +116,8 @@ client and server (`ui-split-elements`).
 - **Data nodes**: document projections read through `DataNode`. This design needs a write side,
   which `store-handler-field-access` also proposes (`DataNodeMut`).
 - **Commands**: an accessor-creating command and projection commands.
+- **Web/API**: `liquers-axum` routes that read and write an accessor defined by a query, with the
+  version token as an entity tag.
 - **UI**: elements bind fields to accessors, and editors are built from projections.
 - **Records / Templates**: table projections over record views, and query projections over template
   links.
@@ -141,14 +152,19 @@ in scope.
 2. **Version of a root.** *Decided (Orest, 2026-11-15):* the asset's version where there is an
    asset, otherwise a counter held by the root. Every set carries the version it was based on, and
    a stale one is a conflict (AC-5).
-3. **Unconditional set.** Should a set without a base version be allowed (last writer wins) for
-   simple UI fields? *Recommended:* yes, as an explicit separate call.
+3. **Conflict rule.** *Chosen with Orest, 2026-11-15, subject to Phase 2's cost check:* option C.
+   A set conflicts only when the part it was based on has changed (AC-14). There is no forced set in
+   v1. Projections are arbitrary commands, so there is no general path. The proposed mechanism is a
+   fingerprint of the part's content that each accessor remembers in place of a copy. A pointer-equality
+   check comes first (an unchanged part keeps its `Arc`), and a content hash is the fallback.
+   Structural steps (field, index, action argument) may also declare a path, so a whole subtree can
+   be skipped without deriving it.
 4. **Paths across structural edits.** Inserting a step before `head` shifts its index.
    *Recommended:* index paths that the root re-bases for edits it applies itself. After an outside
    rewrite, projections are re-resolved and report `Moved` or `Removed` when the part is gone.
-5. **Notification granularity.** *Recommended:* a change carries the path and the operation, so an
-   accessor can tell whether it overlaps. An outside change is reported as a change of the whole
-   root.
+5. **Notification granularity.** *Recommended:* after a change, the root re-derives only the
+   accessors that have subscribers, walking them as a tree so a shared prefix is derived once, and
+   notifies those whose fingerprint changed. The others check when they are next read.
 6. **Locking.** *Recommended:* none now. Phase 2 reserves a lease hook, so a lock can be added
    without changing the contract.
 7. **The write side of `DataNode`.** This design and `store-handler-field-access` both need it.
