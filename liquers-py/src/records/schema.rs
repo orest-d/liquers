@@ -21,7 +21,7 @@ use pyo3::types::{PyList, PyString};
 use crate::error::error_to_pyerr;
 
 /// The type of a record field.
-#[pyclass(from_py_object, eq, eq_int, frozen, hash, module = "liquers")]
+#[pyclass(from_py_object, eq, eq_int, frozen, hash, module = "liquers.records")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FieldType {
     Bool,
@@ -125,7 +125,7 @@ impl FieldType {
 
 /// The structural role of a field: the row's identity (`Id`), the index into the batch's origins
 /// (`Source`), or ordinary data (`Data`).
-#[pyclass(from_py_object, eq, eq_int, frozen, hash, module = "liquers")]
+#[pyclass(from_py_object, eq, eq_int, frozen, hash, module = "liquers.records")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum KeyRole {
     Id,
@@ -195,7 +195,7 @@ impl KeyRole {
 /// `FieldSchema(type, *, name=None, key="data", label=None, description="", nullable=True)`.
 /// Inside `fields=` the dict key supplies the name; in an `lq.RecordSchema` every field needs one.
 /// The label defaults from the name, as `"unit_price"` labels itself `"unit price"`.
-#[pyclass(frozen, module = "liquers")]
+#[pyclass(frozen, module = "liquers.records")]
 #[derive(Debug, Clone)]
 pub struct FieldSchema {
     pub name: Option<String>,
@@ -380,7 +380,7 @@ impl FieldSchema {
 /// The schema of a record view: its fields in order, and optionally the Liquers type the rows
 /// describe. `RecordSchema(fields, *, type_identifier=None)` checks what Rust checks: names are
 /// unique, and there is at most one `Id` and one `Source` field.
-#[pyclass(frozen, module = "liquers")]
+#[pyclass(frozen, module = "liquers.records")]
 pub struct RecordSchema {
     pub inner: Arc<CoreRecordSchema>,
 }
@@ -471,7 +471,7 @@ impl RecordSchema {
 
 /// Where the rows indexed by a `Source` field came from: the asset, and the query that re-produces
 /// the rows.
-#[pyclass(frozen, module = "liquers")]
+#[pyclass(frozen, module = "liquers.records")]
 pub struct ChunkOrigin {
     pub inner: CoreChunkOrigin,
 }

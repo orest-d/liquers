@@ -853,7 +853,7 @@ fn json_default(object: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
 }
 
 /// One validation finding.
-#[pyclass(frozen, name = "Issue", module = "liquers")]
+#[pyclass(frozen, name = "Issue", module = "liquers.environment")]
 pub struct Issue {
     /// `"debug"`, `"info"`, `"warning"` or `"error"`.
     #[pyo3(get)]
@@ -901,7 +901,7 @@ impl From<&CoreIssue> for Issue {
 /// store and the asset manager), `conversion`, `pickle`, `async_loops` and `job_capacity`. It is
 /// built on first use from the commands registered on it, and runs until `shutdown()`. See
 /// `PYTHON_GUIDE.md` §4.
-#[pyclass(frozen, name = "Environment", module = "liquers")]
+#[pyclass(frozen, name = "Environment", module = "liquers.environment")]
 pub struct Environment {
     pub cell: Arc<EnvCell>,
 }

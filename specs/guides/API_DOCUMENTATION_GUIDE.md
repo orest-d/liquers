@@ -3,7 +3,7 @@ title: API Documentation Guide
 kind: guide
 audience: internal
 area: [docs]
-reviewed: 2026-11-03
+reviewed: 2026-11-15
 ---
 # API Documentation Guide
 
@@ -136,7 +136,7 @@ are free.
 - `liquers-py/python/liquers/__init__.py` is the package's module doc; each `_*.py` module has its
   own docstring, purpose-only when it exports nothing a user imports directly. Classes defined in
   Rust take their docstring from the PyO3 `///` comment (`#[pyclass]`, `#[pymethods]`), with
-  `#[pyo3(text_signature = "…")]` for the signature; the stub `_native.pyi` repeats them.
+  `#[pyo3(text_signature = "…")]` for the signature; the stub of the class's submodule (`liquers/query.pyi`) repeats them.
 - The docstring is Markdown, which pdoc renders. The headings are `# Main components` and so on;
   the leading text of the docstring is the purpose.
 - The example is a `>>>` session, run by `pytest --doctest-modules` in
@@ -195,4 +195,5 @@ design, a documentation fix to a module doc is eligible for automatic fixing
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-15 | Python signatures: the stub of the class's submodule repeats them (was `_native.pyi`). | `design/py-package-submodules/` |
 | 2026-11-03 | Created. | `design/api-documentation-rules/` |

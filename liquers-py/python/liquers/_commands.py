@@ -37,7 +37,7 @@ import warnings
 from collections.abc import Callable
 from typing import Any
 
-from liquers._native import Environment, Link
+from liquers._backend import Environment, Link
 
 _SIMPLE_TYPES = {str: "string", int: "int", float: "float", bool: "bool"}
 _OPTIONAL_TYPES = {int: "int_opt", float: "float_opt", bool: "bool_opt"}

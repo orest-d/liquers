@@ -285,6 +285,7 @@ drop, focus, pointer) are `issues/UI-EVENTS-HAVE-NO-POINTER-DRAG-OR-CHANGE-KINDS
 - **Language-binding tests in CI (liquers-py on 3.10, 3.14, 3.14t; liquers-web under Node)** — built → `.github/workflows/liquers-py-tests.yml`, `.github/workflows/liquers-web-tests.yml`; [`reference/PYTHON_INTEGRATION.md`](reference/PYTHON_INTEGRATION.md) §8; design [`design/language-binding-tests-in-ci/`](design/language-binding-tests-in-ci/)
 - **Python pipelines, templates and data nodes (M6: evaluate, convert, edit and register pipelines; `env.render` / `expand`, template commands; `dict`s read in place as data nodes)** — built → [`reference/PYTHON_INTEGRATION.md`](reference/PYTHON_INTEGRATION.md) §14 Data nodes, §15 Templates, §16 Pipelines; [`guides/PYTHON_GUIDE.md`](guides/PYTHON_GUIDE.md) §6-§7 *(designs [`design/liquers-py-data-nodes/`](design/liquers-py-data-nodes/), [`design/liquers-py-templates/`](design/liquers-py-templates/), [`design/liquers-py-pipelines/`](design/liquers-py-pipelines/); core prerequisites [`design/ad-hoc-closure-asset/`](design/ad-hoc-closure-asset/) → [`reference/ASSETS.md`](reference/ASSETS.md) §Closure assets, [`design/template-render-in-env/`](design/template-render-in-env/) → [`guides/TEMPLATE_GUIDE.md`](guides/TEMPLATE_GUIDE.md), [`design/foreign-value-data-node/`](design/foreign-value-data-node/))*
 - **Python web server (M7 WEBSERV: `env.serve`, `serve_async`, `lq.Server`, served from a config file or keywords)** — built → [`reference/PYTHON_INTEGRATION.md`](reference/PYTHON_INTEGRATION.md) §3 and §17 Web server, [`guides/PYTHON_GUIDE.md`](guides/PYTHON_GUIDE.md) §Serving over HTTP *(design in [`design/liquers-py-web-server/`](design/liquers-py-web-server/))*
+- **Python package layout (public submodules `liquers.query` … `liquers.lui` mirroring the Rust modules; the private native package `_liquers` behind `liquers._backend`)** — built → [`reference/PYTHON_INTEGRATION.md`](reference/PYTHON_INTEGRATION.md) §1 Layout and §13 Type declarations, [`guides/PYTHON_GUIDE.md`](guides/PYTHON_GUIDE.md) §2 *(design in [`design/py-package-submodules/`](design/py-package-submodules/))*
 - **`repr` of `Key`, `Expires` and `ExpirationTime` evaluates back (`Key('data/a.txt')`)** — built → `liquers-py/src/query.rs` `quoted`; design [`design/py-encoded-reprs/`](design/py-encoded-reprs/) *(`Query` and the other classes: [`design/py-python-style-reprs/`](design/py-python-style-reprs/))*
 - **Executor-agnostic core** — planned → [`issues/CORE-TOKIO-REMOVAL.md`](issues/CORE-TOKIO-REMOVAL.md)
 - **Browser stores (localStorage, fetch, JS, routing)** — built → [`design/liquers-web-store/`](design/liquers-web-store/) *(conformance gaps closed: [`design/web-store-conformance-tests/`](design/web-store-conformance-tests/))*
@@ -678,8 +679,10 @@ deliberately folded behind a broader line.
 - feature `NO-TEMPLATE-EDITOR-UI`
 - feature `NO-WRITE-PATH-FROM-RECORDS-INTO-A-RELATIONAL-DATABASE`
 - feature `PIPELINE-RESULTS-ARE-NEVER-CACHED`
+- feature `PY-CANNOT-INSPECT-THE-DEPENDENCY-MANAGER`
 - feature `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`
 - feature `PY-COMMAND-DECORATOR-CANNOT-SET-REALM`
+- feature `PY-HAS-NO-PURE-PYTHON-FALLBACK`
 - feature `PY-WEB-SERVER-CANNOT-TAKE-PYTHON-HANDLERS`
 - feature `QUERY-BUILDER-NOT-IN-BINDINGS`
 - feature `QUERY-CANNOT-CHOOSE-A-DATA-FORMAT`

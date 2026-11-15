@@ -3,7 +3,7 @@ title: Using Liquers from Python
 kind: guide
 audience: user
 area: [py]
-reviewed: 2026-11-14
+reviewed: 2026-11-15
 ---
 # Using Liquers from Python
 
@@ -60,19 +60,36 @@ Liquers writes progress lines to stderr while it evaluates, and they cannot be t
 
 ## 2. What is in the package
 
-Everything is imported from `liquers`; the underscored modules are implementation, listed so a
-traceback is readable.
+`import liquers` gives every public name at the top level, and every name of `liquers.__all__`
+also lives in one submodule that mirrors a Rust module, so `from liquers.query import Key` and `liquers.Key` are the
+same class. Use the submodules to find your way around the API; both spellings stay supported.
 
-| Module | What it holds |
-|---|---|
-| `liquers` | The public names, all re-exported here. |
-| `liquers._native` | The Rust extension: every class below except the exception classes, and `parse`, `parse_key`, `build_plan`. |
-| `liquers._env` | `default_environment()`, `evaluate()`, `serve()` and `serve_async()`. |
-| `liquers._commands` | The `command` and `first_command` decorators. |
-| `liquers._errors` | `LiquersError` and its subclasses, one per `ErrorType`. |
-| `liquers._records` | The pyarrow, pandas and polars side of the record classes. |
-| `liquers._extras` | `require()` and the table of extras. |
-| `liquers._ui` | The coroutine behind `UI.wait_idle_async`. |
+| Submodule | What it holds | Rust counterpart |
+|---|---|---|
+| `liquers.query` | `Query`, `Key`, `ActionRequest`, the segment classes, `parse`, `parse_key`, `Link`, `link` | `liquers_core::query`, `parse` |
+| `liquers.commands` | `command`, `first_command`, `CommandMetadata`, `ArgumentInfo`, … | `liquers_core::commands`, `command_metadata` |
+| `liquers.metadata` | `Metadata`, `MetadataRecord`, `AssetInfo`, `Status`, `LogEntry`, `LogEntryKind`, `Version`, `Expires`, `ExpirationTime` | `liquers_core::metadata`, `expiration` |
+| `liquers.dependencies` | `DependencyKey`, `DependencyRecord`, `DependencyRelation`, `PlanDependency` | `liquers_core::dependencies` |
+| `liquers.plan` | `Plan`, `Step`, `ParameterValue`, `ResolvedParameterValues`, `build_plan` | `liquers_core::plan` |
+| `liquers.recipes` | `Recipe`, `RecipeList`, `RecipeProviders` | `liquers_core::recipes` |
+| `liquers.store` | `Store`, `StoreArgumentInfo` | `liquers_core::store` |
+| `liquers.environment` | `Environment`, `Context`, `Issue`, `default_environment`, `evaluate`, `evaluate_async`, `require` | `liquers_core::context` |
+| `liquers.assets` | `State`, `AssetRef` | `liquers_core::assets`, `state` |
+| `liquers.error` | `Error`, `ErrorType`, `LiquersError`, one subclass per `ErrorType` and the category bases (`StoreError`, `KeyedAssetError`, `NotFoundError`) | `liquers_core::error` |
+| `liquers.data_nodes` | `data_node`, `DataNode`, `NodeKind` | `liquers_core::data_node` |
+| `liquers.pipeline` | `Pipeline` and its editors | `liquers_core::pipeline` |
+| `liquers.template` | `RenderResult`, `Diagnostic` | `liquers-template`, `liquers_lib::template` |
+| `liquers.records` | `RecordView`, `RecordSource`, the schema classes, … | `liquers-records` |
+| `liquers.server` | `serve`, `serve_async`, `Server` | `liquers-axum` |
+| `liquers.lui` | `ui`, `UI`, `UIElement`, … | `liquers_lib::ui` |
+
+Two modules are named so that they cannot shadow a function: `liquers.lui` holds `ui()` and
+`liquers.data_nodes` holds `data_node()`, so `lq.ui` and `lq.data_node` stay functions after
+either module is imported. A class reports its submodule (`lq.Key.__module__ == "liquers.query"`).
+
+The compiled extension is the private package `_liquers`; import nothing from it, nor from the
+underscored modules of `liquers` (`_backend`, `_env`, `_commands`, `_errors`, `_records`,
+`_extras`, `_ui`), which are implementation and may change.
 
 The public names, by purpose:
 
@@ -1336,7 +1353,7 @@ way to give a test its input.
 
 ### Type checking
 
-The package ships type declarations (`py.typed`, `__init__.pyi`), so mypy, pyright and editors check
+The package ships type declarations (`py.typed` and one `.pyi` per submodule), so mypy, pyright and editors check
 calls into `liquers`. A decorated command keeps its own signature:
 
 ```python
@@ -1381,6 +1398,7 @@ What you will notice; the complete list, with the tracking issues, is
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-15 | §2 and §9 (one stub per submodule): the public submodules, `liquers.lui` and `liquers.data_nodes`, the private `_liquers` package. | `design/py-package-submodules/` |
 | 2026-11-14 | §6 "Showing a Liquers UI": `wait_idle_async` inside a command, `async def` ones included, raises too. | `liquers-py/tests/test_UIUSE_model.py` |
 | 2026-11-11 | §6 "Showing a Liquers UI": the model, status callbacks, opening a window. §1: the wheels open windows; a build without. §2: the UI names. §10: UI limits. | phase-5, `design/liquers-py-ui/`, `design/liquers-py-ui-window/` |
 | 2026-11-09 | §4: `config=` takes a file (`pathlib.Path`), YAML text or a dict; the `python` section; keywords override the file; unknown sections and server/python keys are refused; the command metadata file. §6: serving over HTTP, with its security settings. §10: the server's limits. | phase-5, `design/configuration-document/`, `design/liquers-py-web-server/` |

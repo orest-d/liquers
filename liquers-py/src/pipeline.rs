@@ -266,7 +266,7 @@ pub(crate) fn pipeline_has_relative_key(pipeline: &CorePipeline) -> Option<Strin
 /// `lq.Pipeline(data)` reads its JSON form: a list of elements (query text, or dicts such as
 /// `{"action": "head", "ns": "pl", "parameters": [5]}`), a dict with `elements`, or another
 /// `lq.Pipeline`. `Pipeline.from_query(q)` reads a query. Pipelines compare by value.
-#[pyclass(frozen, eq, name = "Pipeline", module = "liquers")]
+#[pyclass(frozen, eq, name = "Pipeline", module = "liquers.pipeline")]
 #[derive(Clone, PartialEq)]
 pub struct Pipeline(pub CorePipeline);
 
@@ -576,7 +576,7 @@ macro_rules! editor_methods {
 /// Edits a pipeline step by step, each edit checked against the environment's commands as they
 /// were when the editor was made. Every method returns the editor, so edits chain; a refused edit
 /// raises and leaves the editor as it was. Made by `env.pipeline_editor(pipeline=None)`.
-#[pyclass(frozen, name = "PipelineEditor", module = "liquers")]
+#[pyclass(frozen, name = "PipelineEditor", module = "liquers.pipeline")]
 pub struct PipelineEditor {
     inner: Mutex<CorePipelineEditor>,
     /// Counts the edits that can move an element to another index (`insert`, `replace`,
@@ -592,7 +592,7 @@ impl PipelineEditor {
 
 /// A `PipelineEditor` that keeps the pipeline a query at every step; `query()` gives it. Made by
 /// `env.query_editor(query=None)`.
-#[pyclass(frozen, name = "QueryEditor", module = "liquers")]
+#[pyclass(frozen, name = "QueryEditor", module = "liquers.pipeline")]
 pub struct QueryEditor {
     inner: Mutex<CoreQueryEditor>,
     /// As [`PipelineEditor`]'s.
@@ -617,7 +617,7 @@ editor_methods!(QueryEditor, Query {
 /// checked against the action's command, and returns this editor; a refused edit raises and leaves
 /// the owner as it was. An action editor raises `ParameterError` once its step may have moved:
 /// after an `insert`, `replace`, `remove` or `move_to` on the owner (appending keeps it valid).
-#[pyclass(frozen, name = "ActionEditor", module = "liquers")]
+#[pyclass(frozen, name = "ActionEditor", module = "liquers.pipeline")]
 pub struct ActionEditor {
     owner: Owner,
     index: usize,

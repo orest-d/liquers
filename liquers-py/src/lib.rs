@@ -1,9 +1,14 @@
-//! The native extension of the `liquers` Python package (`liquers._native`): Python bindings of
+//! The native extension of the `liquers` Python package (`_liquers`): Python bindings of
 //! Liquers, built with PyO3.
 //!
-//! Every module registers its classes and functions into one extension module; the pure-Python
-//! package `liquers` (`liquers-py/python/liquers/`) re-exports them with the decorators and the
-//! exception classes.
+//! Every module registers its classes and functions into one flat extension module, compiled as
+//! `_liquers._liquers` and re-exported by the private package `_liquers`
+//! (`liquers-py/python/_liquers/`). The pure-Python package `liquers` (`liquers-py/python/liquers/`)
+//! reaches it only through `liquers/_backend.py`, and groups the names into public submodules that
+//! mirror the Rust crates (`liquers.query`, `liquers.environment`, `liquers.records`, …). Each
+//! `#[pyclass(module = "liquers.<sub>")]` names the submodule that exports the class, so its
+//! `__module__`, its default repr and its stub all say `liquers.<sub>`; a class added here is added
+//! to `_backend.py`, its submodule and `liquers/__init__.py`.
 //!
 //! # Main components
 //!
@@ -18,7 +23,8 @@
 //!
 //! # Where it is used
 //!
-//! - `import liquers` loads it; `maturin` builds it (`liquers-py/pyproject.toml`).
+//! - `import liquers` loads it through `liquers._backend`; `maturin` builds it
+//!   (`liquers-py/pyproject.toml`, `module-name = "_liquers"`).
 //!
 //! # Related concepts
 //!
@@ -73,13 +79,14 @@ pub mod value;
 
 use crate::query::*;
 
-/// The native extension, `liquers._native`; the `liquers` package (`python/liquers/`) re-exports it.
+/// The native extension, `_liquers` (compiled as `_liquers._liquers`, re-exported by the private
+/// package `python/_liquers/`); the `liquers` package (`python/liquers/`) re-exports it.
 ///
 /// Declared safe without the GIL, so a free-threaded interpreter keeps the GIL off when it imports
 /// `liquers` (PyO3's default since 0.28, stated here so it is a decision rather than an
 /// inheritance). The audit behind it is in `specs/design/liquers-py-async/phase2-architecture.md`;
 /// `gil_used = true` is the fallback if a free-threading defect is found.
-#[pymodule(gil_used = false)]
+#[pymodule(name = "_liquers", gil_used = false)]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Stored `py.Object` values are read back through this decoder; an environment with the
     // pickle codec off lists no formats for the type, so the read path never reaches it there.

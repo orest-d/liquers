@@ -3,7 +3,7 @@ title: Python Integration
 kind: reference
 audience: both
 area: [py, core/value, core/error, lib/value, core/store, store/config, core/assets, lib/ui, lib/egui]
-reviewed: 2026-11-14
+reviewed: 2026-11-15
 ---
 # Python Integration
 
@@ -22,21 +22,52 @@ and type declarations, [`design/liquers-py-records/`](../design/liquers-py-recor
 [`design/liquers-py-stubs/`](../design/liquers-py-stubs/DESIGN.md); for data nodes,
 [`design/liquers-py-data-nodes/`](../design/liquers-py-data-nodes/DESIGN.md); for templates,
 [`design/liquers-py-templates/`](../design/liquers-py-templates/DESIGN.md); for pipelines,
-[`design/liquers-py-pipelines/`](../design/liquers-py-pipelines/DESIGN.md).
+[`design/liquers-py-pipelines/`](../design/liquers-py-pipelines/DESIGN.md); for the package
+layout, [`design/py-package-submodules/`](../design/py-package-submodules/DESIGN.md).
 
 ## 1. Layout
 
 | Part | Where | Role |
 |---|---|---|
-| Rust crate `liquers-py` | `liquers-py/src/` | Builds the native extension `liquers._native` with PyO3. |
-| Python package `liquers` | `liquers-py/python/liquers/` | Re-exports the extension by name and adds the parts written in Python. |
+| Rust crate `liquers-py` | `liquers-py/src/` | Builds the native extension with PyO3, compiled as `_liquers._liquers`. |
+| Private package `_liquers` | `liquers-py/python/_liquers/` | Holds the compiled extension and re-exports it (`from ._liquers import *`, with its `__all__`). maturin builds the extension inside a Python package when the project has Python sources, so the native module is a package. |
+| Python package `liquers` | `liquers-py/python/liquers/` | The public modules, grouped like the Rust modules, and the parts written in Python. |
 | Distribution `liquers-py` | `liquers-py/pyproject.toml` | Built by maturin. |
 
-The package's own modules:
+The public modules, each a thin module with an explicit `__all__` and a module doc naming its Rust
+counterpart. Every name is exported by exactly one of them, and `liquers` re-exports every name
+once more, as the same object (`liquers.Key is liquers.query.Key`):
+
+| Module | Contents | Rust counterpart |
+|---|---|---|
+| `liquers.query` | `Query`, `Key`, `ActionRequest`, `ActionParameter`, `ResourceName`, `Position`, `SegmentHeader`, `TransformQuerySegment`, `ResourceQuerySegment`, `QuerySource`, `parse`, `parse_key`, `Link`, `link` | `liquers_core::query`, `parse` |
+| `liquers.commands` | `command`, `first_command`, `CommandMetadata`, `CommandDefinition`, `CommandKey`, `CommandPreset`, `CommandMetadataRegistry`, `ArgumentInfo`, `ArgumentType`, `EnumArgument`, `EnumArgumentType` | `liquers_core::command_metadata`, `commands` |
+| `liquers.metadata` | `Metadata`, `MetadataRecord`, `AssetInfo`, `Status`, `LogEntry`, `LogEntryKind`, `Version`, `Expires`, `ExpirationTime` | `liquers_core::metadata`, `expiration` |
+| `liquers.dependencies` | `DependencyKey`, `DependencyRecord`, `DependencyRelation`, `PlanDependency` | `liquers_core::dependencies` |
+| `liquers.plan` | `Plan`, `Step`, `ParameterValue`, `ResolvedParameterValues`, `build_plan` | `liquers_core::plan` |
+| `liquers.recipes` | `Recipe`, `RecipeList`, `RecipeProviders` | `liquers_core::recipes` |
+| `liquers.store` | `Store`, `StoreArgumentInfo` | `liquers_core::store` |
+| `liquers.environment` | `Environment`, `Context`, `Issue`, `default_environment`, `evaluate`, `evaluate_async`, `require` | `liquers_core::context`, `environment_builder` |
+| `liquers.assets` | `State`, `AssetRef` | `liquers_core::state`, `assets` |
+| `liquers.error` | `Error`, `ErrorType`, `LiquersError` and its generated subclasses (§6) | `liquers_core::error` |
+| `liquers.data_nodes` | `data_node`, `DataNode`, `NodeKind` | `liquers_core::data_node` |
+| `liquers.pipeline` | `Pipeline`, `PipelineEditor`, `QueryEditor`, `ActionEditor` | `liquers_core::pipeline` |
+| `liquers.template` | `RenderResult`, `Diagnostic` | `liquers-template` |
+| `liquers.records` | `RecordView`, `RecordSource`, `RecordStream`, `RecordChunk`, `RecordColumn`, `RecordBuffer`, `RecordSchema`, `FieldSchema`, `FieldType`, `KeyRole`, `ChunkOrigin` | `liquers-records` |
+| `liquers.server` | `serve`, `serve_async`, `Server` | `liquers-axum` |
+| `liquers.lui` | `ui`, `UI`, `UIElement`, `UIElementInfo`, `UIStatusEvent`, `UISubscription` | `liquers_lib::ui` |
+
+Two modules differ from the Rust name on purpose: `lui` (Liquers UI) and `data_nodes`, because a
+submodule `liquers.ui` or `liquers.data_node` would replace the functions `liquers.ui` and
+`liquers.data_node` when imported. The submodules are attributes of `liquers` but not in its
+`__all__`; `liquers.__all__` lists the names.
+
+The package's private modules:
 
 | Module | Contents |
 |---|---|
-| `__init__.py` | Imports every class and function of `_native` **by name**, and lists them in `__all__`. A class registered in `src/lib.rs` is not public until it is added here too. |
+| `__init__.py` | Imports `liquers.error` first (it installs the error classes), then the other submodules, then every name **by name**, listed in `__all__`. |
+| `_backend.py` | The only module that imports `_liquers`: every native name, explicitly, in `__all__`. A class registered in `src/lib.rs` is added here, to its public module and to `__init__.py`. A pure-Python fallback (`PY-HAS-NO-PURE-PYTHON-FALLBACK`) would be put behind this module: it must provide the same names, each class reporting the same `__module__`. |
 | `_env.py` | `default_environment()` (one `Environment`, created lazily under a lock), `evaluate()`, `evaluate_async()`, `serve()` and `serve_async()`. |
 | `_commands.py` | The decorators, and declaration stage 1 (§4). |
 | `_errors.py` | `LiquersError` and one subclass per `ErrorType`, generated at import (§6). |
@@ -44,7 +75,7 @@ The package's own modules:
 | `_records.py` | The pyarrow side of the record classes: IPC bytes to and from Arrow, normalization, pandas and polars (§11). |
 | `_extras.py` | `require()` and the table of extras (§12). |
 | `_ui.py` | `wait_idle_async`, the coroutine behind `UI.wait_idle_async`, and the in-command mark of `async def` commands (§18). |
-| `__init__.pyi`, `_native.pyi`, `py.typed` | The type declarations (§13). A class added to `src/lib.rs` is declared here too. |
+| `__init__.pyi`, `<module>.pyi`, `py.typed`; `_liquers/__init__.pyi` | The type declarations (§13). A class added to `src/lib.rs` is declared in the stub of its public module. |
 
 Cargo features: `extension-module` (default) leaves the Python symbols to the loading interpreter,
 which a wheel needs and a Rust test binary cannot link with, so Rust tests run with
@@ -55,8 +86,11 @@ for the server (§17). `gui` (default) adds `liquers-lib`'s `egui`, the window o
 a build without it raises from `run`. `abi3` (off by default) builds against
 CPython's limited API from 3.14 (`pyo3/abi3-py314`), for the `cp314-abi3` wheel (§12).
 
-Every class reports `__module__ == "liquers"`, so type names in messages and default reprs read
-`liquers.X`, not `liquers._native.X`. The classes cannot be pickled.
+Every class reports the public module that exports it (`#[pyclass(module = "liquers.query")]`),
+so type names in messages, default reprs and the API reference read `liquers.query.Key`, never
+`_liquers`. Hand-written reprs keep the shorter top-level form (`<liquers.Server …>`), which is a
+valid path too. The classes cannot be pickled. The exception classes pickle by reference; their instances cannot
+(`PY-ERROR-INSTANCES-CANNOT-BE-PICKLED`).
 
 ## 2. Exposed types
 
@@ -372,7 +406,8 @@ before anything is written.
 written as exhaustive matches.
 
 **Liquers to Python** (`error_to_pyerr`). A Liquers error becomes an instance of the `LiquersError`
-subclass for its type, built by `liquers._errors._from_native` with `type`, `message`, `query`,
+subclass for its type, built by `liquers._errors._from_native` (the classes are installed by `liquers.error` and report
+it as their module) with `type`, `message`, `query`,
 `key`, `position` and `traceback`. The subclass of a variant `X` is `XError`, or `X` when the name
 already ends in `Error`; the subclasses are generated from `ErrorType` at import, so a new variant
 needs no Python change. Error types also fall into overlapping categories
@@ -796,10 +831,14 @@ free-threaded wheel; the 90 MB margin under PyPI's limit; the manual PyPI approv
 
 ## 13. Type declarations
 
-The package is typed (`py.typed`). `liquers/__init__.pyi` declares every native class under its
-runtime home `liquers`, the module functions, the decorators and the generated error classes;
-`liquers/_native.pyi` re-exports those names, so a checker following `liquers._native` sees the
-same declarations. The six pure-Python modules carry inline annotations.
+The package is typed (`py.typed` in `liquers/` and `_liquers/`). Each public module has a stub,
+`liquers/<module>.pyi`, declaring the classes and functions it exports: stubtest looks a class up in
+the stub of the module it reports. The generated error classes are declared in `error.pyi`.
+`liquers/__init__.pyi` binds the submodules and re-exports every name; `_liquers/__init__.pyi`
+re-exports them for the native package. Stub-only helpers (`_P`, `_R`, `_Decorator`, `_Fields`,
+`_MetadataLike`, `_QuerySegment`) are defined in each stub that uses them, never imported from
+another stub, and the aliases that name a class (`_Fields`, `_MetadataLike`) follow that class,
+because pdoc executes the stubs. The private pure-Python modules carry inline annotations.
 
 - **Values are `Any`**: a query's result, `State.value`, a command's inputs and outputs.
 - **Third-party types are `Any`** too, with a comment naming the runtime type (`to_arrow() -> Any
@@ -813,14 +852,15 @@ same declarations. The six pure-Python modules carry inline annotations.
 - Every awaitable is `Awaitable[T]`; `Query | str` and `Key | str` parameters accept both forms;
   every native class is `@final`; the PyO3 enums are classes whose members are class attributes
   of their own type; settable properties have setters. `Query.segments` returns the stub-only
-  `_QuerySegment`, since `_native` does not export that class
+  `_QuerySegment`, since `_liquers` does not export that class (it reports `liquers.query`)
   (`PY-QUERY-SEGMENT-CLASS-NOT-REGISTERED`).
 
 **The checks** (`liquers-py/tests/test_STUBS_declarations.py`, on CPython 3.14 with the GIL only,
 with `mypy==2.4.1` and `pyright[nodejs]==1.1.414` pinned in `scripts/test-liquers-py.sh`):
-`stubtest liquers` with `tests/typing/stubtest-allowlist.txt` (only `debug-handles` names, each
-with a reason; an unused entry fails); a comparison of `dir(liquers._native)` and of the generated
-error classes, bases included, with the stubs; `mypy -p liquers` under `--strict`; and the samples
+`stubtest liquers _liquers` with `tests/typing/stubtest-allowlist.txt` (only `debug-handles` names, each
+with a reason; an unused entry fails); a comparison of `dir(_liquers)`, of each submodule's `__all__`
+and of the generated error classes, bases included, with the stubs; `mypy -p liquers -p _liquers`
+under `--strict`; and the samples
 in `tests/typing/`, `good/` passing and `bad/` failing on exactly the marked lines, under both
 mypy `--strict` and pyright `strict`. A change to the package's surface updates the stubs in the
 same change.
@@ -866,7 +906,7 @@ awaitable `get_async(key)` (`None` when missing), `scalar_async()`, `len_async()
 
 | Made by | Root | Reads |
 |---|---|---|
-| `lq.data_node(x)`, `State.data_node()` | `x` through `node_of`, or the state's Liquers value | sync |
+| `lq.data_node(x)` (also `liquers.data_nodes.data_node`), `State.data_node()` | `x` through `node_of`, or the state's Liquers value | sync |
 | `context.data_node(state)` | the state read through the running command's context (`ContextHost::node_of`) | a folder or record source with `_async`; `GeneralError` once the command returned |
 | `env.data_node(state)` | the state read at the top level | a folder or record source with `_async`, each read one closure asset (`ASSETS.md` §Closure assets); `GeneralError` after `shutdown()` |
 
@@ -1046,7 +1086,7 @@ authentication, TLS, and a web folder answered by recipes (`WEB-FOLDER-SERVES-ST
 
 ## 18. User interface
 
-`env.ui()` (and `lq.ui()` for the default environment) creates a Liquers UI model: an `AppState`,
+`env.ui()` (and `lq.ui()`, also `liquers.lui.ui`, for the default environment) creates a Liquers UI model: an `AppState`,
 a message channel and a `liquers_lib::ui::NativeDriver`, ticked in the background by
 `spawn_headless` on the process runtime. `liquers-py/src/ui.rs`; designs `design/liquers-py-ui/`
 and `design/liquers-py-ui-window/`, over `design/egui-native-app/`. Each call makes a new model.
@@ -1109,6 +1149,7 @@ keeps it alive until `dispose()`.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-15 | §1: the native extension is the private package `_liquers`, reached only through `liquers/_backend.py`; sixteen public submodules mirror the Rust modules; every class reports its submodule. §6: `liquers.error` installs the error classes. §13: one stub per submodule; stubtest and mypy cover `_liquers`. §14, §18: `liquers.data_nodes`, `liquers.lui`. | `design/py-package-submodules/`; `liquers-py/tests/test_LAYOUT_submodules.py` |
 | 2026-11-14 | §18 Idle: `wait_idle` and `wait_idle_async` are refused inside any Python command, `async def` ones included (a Codex review of PR #268 found an async command's `wait_idle_async` deadlocked). §1: `_ui.py` holds the mark. | `liquers-py/tests/test_UIUSE_model.py` `test_UIUSE_wait_idle_async_inside_an_async_command_raises` |
 | 2026-11-11 | §18 User interface: `env.ui()`, `lq.UI`, status events and who delivers them, the window (`run`, `close`), lifetime. §3: the UI payload and the `lui` built-ins; `Context.element`. §1: `_ui.py`, the `gui` feature. §2: the UI classes. §7: UI models are disposed at exit after the servers. §8: UI limitations. §12: the wheels carry egui, and the Windows allow-list names the window's system DLLs. | `design/liquers-py-ui/`, `design/liquers-py-ui-window/` |
 | 2026-11-10 | §17 Lifetime: a server still binding when `env.shutdown()` runs is stopped and raises (a review of PR #264 found it could stay listening). | `liquers-py/src/environment.rs` test `a_server_bound_after_shutdown_is_stopped` |

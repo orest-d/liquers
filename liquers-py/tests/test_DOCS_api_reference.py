@@ -5,6 +5,7 @@ py-api-reference).
 lists every public name, and that the script fails when the module cannot be documented.
 """
 
+import importlib
 import os
 import pathlib
 import subprocess
@@ -27,6 +28,31 @@ def test_DOCS04_api_reference_lists_every_public_name(tmp_path):
     page = (tmp_path / "liquers.html").read_text(encoding="utf-8")
     missing = [name for name in lq.__all__ if f'id="{name}"' not in page]
     assert missing == []
+
+
+SUBMODULES = (
+    "query", "commands", "metadata", "dependencies", "plan", "recipes", "store", "environment",
+    "assets", "error", "data_nodes", "pipeline", "template", "records", "server", "lui",
+)
+
+
+def test_DOCS04_api_reference_has_a_page_per_submodule(tmp_path):
+    """Design py-package-submodules, AC-8: the script writes one page per public submodule."""
+    pytest.importorskip("pdoc")
+    env = dict(os.environ)
+    # With VIRTUAL_ENV set the script uses this interpreter's environment instead of building one.
+    env["VIRTUAL_ENV"] = sys.prefix
+    env["PATH"] = os.path.dirname(sys.executable) + os.pathsep + env.get("PATH", "")
+    result = subprocess.run(
+        ["bash", str(SCRIPT), "--out", str(tmp_path)],
+        capture_output=True, text=True, env=env, cwd=REPO, timeout=600,
+    )
+    assert result.returncode == 0, result.stderr
+    for sub in SUBMODULES:
+        page = (tmp_path / "liquers" / f"{sub}.html").read_text(encoding="utf-8")
+        module = importlib.import_module(f"liquers.{sub}")
+        missing = [name for name in module.__all__ if f'id="{name}"' not in page]
+        assert missing == [], sub
 
 
 def test_DOCS04_docs_script_fails_on_generator_error(tmp_path):

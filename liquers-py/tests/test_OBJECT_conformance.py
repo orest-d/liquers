@@ -1,5 +1,6 @@
 """OBJECT: the wrapper objects (LANGUAGE-INTEGRATION_GUIDE.md, Appendix A)."""
 
+import importlib
 import inspect
 
 import pytest
@@ -70,7 +71,12 @@ def test_OBJECT08_wrappers_follow_naming_and_ownership_conventions():
         assert not name.startswith("_")
         exported = getattr(lq, name)
         if inspect.isclass(exported):
-            assert exported.__module__ == "liquers", f"{name} reports {exported.__module__}"
+            # Each class reports the public submodule that exports it (design py-package-submodules).
+            module = exported.__module__
+            assert module.startswith("liquers.") and not module.split(".")[1].startswith("_"), (
+                f"{name} reports {module}"
+            )
+            assert getattr(importlib.import_module(module), name) is exported, name
 
 
 def test_OBJECT09_any_parameter_value_round_trips():

@@ -79,8 +79,9 @@ class LiquersError(Exception):
         return f"{type(self).__name__}({self.message!r})"
 
 
-# Reported as `liquers.LiquersError`, where users import it from (OBJECT08).
-LiquersError.__module__ = "liquers"
+# Reported as `liquers.error.LiquersError`, its public module (OBJECT08); `liquers.LiquersError` is
+# the same class.
+LiquersError.__module__ = "liquers.error"
 
 _ERROR_TYPE_CLASS: Any = None
 
@@ -108,7 +109,7 @@ def _install(error_type_class: Any) -> dict[str, type["LiquersError"]]:
         bases = (LiquersError,) + _CATEGORY_EXTRA_BASES.get(category, ())
         # No `_error_type`: like LiquersError itself, a category class needs an explicit ErrorType.
         namespace = {
-            "__module__": "liquers",
+            "__module__": "liquers.error",
             "__doc__": f"Base class of every error in the {category} category.",
         }
         categories[category] = type(class_name, bases, namespace)
@@ -123,7 +124,7 @@ def _install(error_type_class: Any) -> dict[str, type["LiquersError"]]:
         bases = tuple(categories[c] for c in member.categories()) or (LiquersError,)
         namespace = {
             "_error_type": member,
-            "__module__": "liquers",
+            "__module__": "liquers.error",
             "__doc__": f"Raised for ErrorType.{name}.",
         }
         subclass = type(class_name, bases, namespace)

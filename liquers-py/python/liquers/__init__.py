@@ -1,9 +1,30 @@
 """Liquers: query-driven data pipelines, from Python.
 
-The classes and functions are implemented in Rust, in the native extension ``liquers._native``;
-this package re-exports them under the ``liquers`` name. Every name the extension registers is
-listed here explicitly, so a name added to or removed from ``liquers-py/src/lib.rs`` has to be
-added to or removed from this file too.
+The classes and functions are implemented in Rust, in the private native package ``_liquers``.
+The public modules of this package re-export them, grouped like the Rust modules, and this package
+re-exports every public name once more, so ``liquers.Key`` and ``liquers.query.Key`` are the same
+object. A name added to or removed from ``liquers-py/src/lib.rs`` is added to or removed from
+``liquers/_backend.py``, its public module, and this file.
+
+# Modules
+| Module | Contents | Rust counterpart |
+|---|---|---|
+| `liquers.query` | `Query`, `Key`, `parse`, `link`, … | `liquers_core::query` |
+| `liquers.commands` | `command`, `CommandMetadata`, … | `liquers_core::command_metadata` |
+| `liquers.metadata` | `Metadata`, `Status`, `Expires`, … | `liquers_core::metadata` |
+| `liquers.dependencies` | `DependencyKey`, `PlanDependency`, … | `liquers_core::dependencies` |
+| `liquers.plan` | `Plan`, `Step`, `build_plan`, … | `liquers_core::plan` |
+| `liquers.recipes` | `Recipe`, `RecipeList`, `RecipeProviders` | `liquers_core::recipes` |
+| `liquers.store` | `Store`, `StoreArgumentInfo` | `liquers_core::store` |
+| `liquers.environment` | `Environment`, `Context`, `evaluate`, … | `liquers_core::context` |
+| `liquers.assets` | `State`, `AssetRef` | `liquers_core::assets` |
+| `liquers.error` | `LiquersError` and its subclasses, `ErrorType` | `liquers_core::error` |
+| `liquers.data_nodes` | `data_node`, `DataNode`, `NodeKind` | `liquers_core::data_node` |
+| `liquers.pipeline` | `Pipeline` and its editors | `liquers_core::pipeline` |
+| `liquers.template` | `RenderResult`, `Diagnostic` | `liquers-template` |
+| `liquers.records` | `RecordView`, `RecordSource`, … | `liquers-records` |
+| `liquers.server` | `serve`, `Server` | `liquers-axum` |
+| `liquers.lui` | `ui`, `UI`, `UIElement`, … | `liquers_lib::ui` |
 
 # Main components
 - `liquers.evaluate` and `liquers.evaluate_async` — run a query in the process's default
@@ -28,7 +49,7 @@ added to or removed from this file too.
 Every other test under `liquers-py/tests/` imports it as `lq`.
 
 # Related concepts
-- `liquers._native` is the compiled extension. Import `liquers`, never `_native`: the extension's
+- `_liquers` is the compiled extension. Import `liquers`, never `_liquers`: the extension's
   layout is an implementation detail with no stability promise.
 - The Rust crate `liquers_py` (`liquers-py/src/`) implements the extension; the Rust API
   reference on the documentation site documents it for contributors.
@@ -51,110 +72,152 @@ Longer examples:
 More are under `liquers-py/tests/`, one file per conformance group.
 """
 
-from liquers._native import (
-    # Query language
-    Position,
+# The public submodules, `liquers.error` first: it installs the error classes the others raise.
+from liquers import error
+from liquers import (
+    query,
+    commands,
+    metadata,
+    dependencies,
+    plan,
+    recipes,
+    store,
+    environment,
+    assets,
+    data_nodes,
+    pipeline,
+    template,
+    records,
+    server,
+    lui,
+)
+from liquers._backend import __version__  # deliberately not in __all__ (OBJECT08)
+from liquers.error import (
+    Error,
+    ErrorType,
+    LiquersError,
+)
+from liquers.query import (
+    Query,
+    Key,
+    ActionRequest,
     ActionParameter,
     ResourceName,
-    ActionRequest,
+    Position,
     SegmentHeader,
     TransformQuerySegment,
-    Key,
     ResourceQuerySegment,
-    Query,
     QuerySource,
     parse,
     parse_key,
-    # Command metadata
-    EnumArgumentType,
-    EnumArgument,
-    ArgumentType,
-    ArgumentInfo,
-    CommandDefinition,
-    CommandPreset,
+    Link,
+    link,
+)
+from liquers.commands import (
+    command,
+    first_command,
     CommandMetadata,
+    CommandDefinition,
     CommandKey,
+    CommandPreset,
     CommandMetadataRegistry,
-    # Asset metadata
+    ArgumentInfo,
+    ArgumentType,
+    EnumArgument,
+    EnumArgumentType,
+)
+from liquers.metadata import (
     Metadata,
-    Version,
-    DependencyKey,
-    DependencyRecord,
     MetadataRecord,
     AssetInfo,
     Status,
     LogEntry,
     LogEntryKind,
-    # Errors
-    ErrorType,
-    Error,
-    # Expiration
+    Version,
     Expires,
     ExpirationTime,
-    # Dependencies
+)
+from liquers.dependencies import (
+    DependencyKey,
+    DependencyRecord,
     DependencyRelation,
     PlanDependency,
-    # Plans
+)
+from liquers.plan import (
     Plan,
     Step,
     ParameterValue,
     ResolvedParameterValues,
     build_plan,
-    # Recipes
+)
+from liquers.recipes import (
     Recipe,
     RecipeList,
     RecipeProviders,
-    # Environments
+)
+from liquers.store import (
+    Store,
+    StoreArgumentInfo,
+)
+from liquers.environment import (
     Environment,
+    Context,
     Issue,
+    default_environment,
+    evaluate,
+    evaluate_async,
+    require,
+)
+from liquers.assets import (
+    State,
+    AssetRef,
+)
+from liquers.data_nodes import (
+    data_node,
+    DataNode,
+    NodeKind,
+)
+from liquers.pipeline import (
+    Pipeline,
+    PipelineEditor,
+    QueryEditor,
+    ActionEditor,
+)
+from liquers.template import (
+    RenderResult,
+    Diagnostic,
+)
+from liquers.records import (
+    RecordView,
+    RecordSource,
+    RecordStream,
+    RecordChunk,
+    RecordColumn,
+    RecordBuffer,
+    RecordSchema,
+    FieldSchema,
+    FieldType,
+    KeyRole,
+    ChunkOrigin,
+)
+from liquers.server import (
+    serve,
+    serve_async,
     Server,
+)
+from liquers.lui import (
+    ui,
     UI,
     UIElement,
     UIElementInfo,
     UIStatusEvent,
     UISubscription,
-    Context,
-    State,
-    AssetRef,
-    # Data nodes
-    NodeKind,
-    DataNode,
-    data_node,
-    # Templates
-    RenderResult,
-    Diagnostic,
-    Link,
-    link,
-    # Pipelines
-    Pipeline,
-    PipelineEditor,
-    QueryEditor,
-    ActionEditor,
-    StoreArgumentInfo,
-    Store,
-    # Records
-    FieldType,
-    KeyRole,
-    FieldSchema,
-    RecordSchema,
-    ChunkOrigin,
-    RecordView,
-    RecordColumn,
-    RecordBuffer,
-    RecordSource,
-    RecordStream,
-    RecordChunk,
-    # The Liquers version in PEP 440 form; deliberately not in __all__ (OBJECT08).
-    __version__,
 )
-from liquers._env import default_environment, evaluate, evaluate_async, serve, serve_async, ui
-from liquers._commands import command, first_command
-from liquers._extras import require
-from liquers._errors import LiquersError, _install as _install_errors
 
 # One LiquersError subclass per ErrorType variant (KeyNotFoundError, ExecutionError, ...), and one
-# base class per error category (StoreError, KeyedAssetError, NotFoundError).
-_ERROR_SUBCLASSES = _install_errors(ErrorType)
+# base class per error category (StoreError, KeyedAssetError, NotFoundError), as `liquers.error`
+# generated them.
+_ERROR_SUBCLASSES = error._ERROR_SUBCLASSES
 globals().update(_ERROR_SUBCLASSES)
 
 __all__ = [
