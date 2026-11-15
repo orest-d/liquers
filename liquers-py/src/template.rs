@@ -204,7 +204,7 @@ pub(crate) fn rendered_to_py(py: Python<'_>, rendered: Rendered, full: bool) -> 
 ///
 /// Returned by `render` / `expand` with `full=True`. The same warnings are in the log of the asset
 /// the render ran in (the command's, or the top-level render's own).
-#[pyclass(frozen, name = "RenderResult", module = "liquers")]
+#[pyclass(frozen, name = "RenderResult", module = "liquers.template")]
 pub struct RenderResult {
     /// The rendered text.
     #[pyo3(get)]
@@ -246,7 +246,7 @@ impl RenderResult {
 
 /// One problem `validate_template` found: its severity (`"error"` or `"warning"`), a message and
 /// its position in the template.
-#[pyclass(frozen, name = "Diagnostic", module = "liquers")]
+#[pyclass(frozen, name = "Diagnostic", module = "liquers.template")]
 pub struct Diagnostic {
     /// `"error"` or `"warning"`.
     #[pyo3(get)]

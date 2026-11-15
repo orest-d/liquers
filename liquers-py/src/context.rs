@@ -57,7 +57,7 @@ use crate::template::{build_request, rendered_to_py, Arguments, Call};
 use crate::value::{value_to_py, ConversionMode};
 
 /// The execution context of a running Python command.
-#[pyclass(frozen, name = "Context", module = "liquers")]
+#[pyclass(frozen, name = "Context", module = "liquers.environment")]
 pub struct Context {
     inner: Arc<Mutex<Option<CoreContext<PyEnvironment>>>>,
     /// The environment's shut signal, so a nested wait ends when it is shut down.

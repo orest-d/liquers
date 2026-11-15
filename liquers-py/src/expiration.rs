@@ -11,7 +11,7 @@ use crate::query::quoted;
 /// `"at 18:00"`, `"on Monday"`, `"eod"`, a date, or a comma-separated combination, and raises a
 /// `LiquersError` when it is not one. `Expires.never()` and `Expires.immediately()` are the two
 /// fixed cases.
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.metadata")]
 #[derive(Clone, Debug)]
 pub struct Expires(pub liquers_core::expiration::Expires);
 
@@ -62,7 +62,7 @@ impl Expires {
 ///
 /// The resolved form of an `Expires`. `ExpirationTime(spec)` takes `"never"`, `"immediately"` or an
 /// RFC 3339 timestamp, and raises an exception for anything else.
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.metadata")]
 #[derive(Clone, Debug)]
 pub struct ExpirationTime(pub liquers_core::expiration::ExpirationTime);
 

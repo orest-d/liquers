@@ -355,9 +355,12 @@ def collect(root: Path, crates: list[str] | None) -> list[ModuleDoc]:
         if crates and crate.name not in crates:
             continue
         docs.extend(rust_docs(crate))
-    package = root / "liquers-py" / "python" / "liquers"
-    if package.is_dir() and (not crates or "liquers-py" in crates):
-        docs.extend(python_docs(package))
+    # The public package `liquers` and the private native package `_liquers`, whose `__init__.py`
+    # carries the module doc of the extension (design py-package-submodules).
+    for name in ("liquers", "_liquers"):
+        package = root / "liquers-py" / "python" / name
+        if package.is_dir() and (not crates or "liquers-py" in crates):
+            docs.extend(python_docs(package))
     typescript = root / "liquers-web" / "src" / "typescript.rs"
     if typescript.is_file() and (not crates or "liquers-web" in crates):
         docs.append(javascript_doc(typescript))

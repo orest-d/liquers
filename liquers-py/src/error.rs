@@ -6,7 +6,7 @@ use crate::parse::Position;
 ///
 /// Every variant has its own exception class, a subclass of `LiquersError` (`KeyNotFoundError` for
 /// `ErrorType.KeyNotFound`); an error's `type` is its `ErrorType`. See `PYTHON_GUIDE.md` §8.
-#[pyclass(from_py_object, eq, eq_int, module = "liquers")]
+#[pyclass(from_py_object, eq, eq_int, module = "liquers.error")]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
 pub enum ErrorType {
     ArgumentMissing,
@@ -153,7 +153,7 @@ impl ErrorType {
 ///
 /// `Error(error_type, message)` makes one; `throw()` raises it as the matching `LiquersError`
 /// subclass. Errors that Liquers raises arrive as those exceptions, not as `Error` objects.
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.error")]
 #[derive(Debug, Clone)]
 pub struct Error(pub liquers_core::error::Error);
 

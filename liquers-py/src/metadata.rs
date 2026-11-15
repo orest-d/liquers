@@ -14,7 +14,7 @@ use crate::parse::{Key, Position, Query};
 /// An opaque version of an asset's content: only equality matters.
 ///
 /// `Version(value)` takes a non-negative integer below 2**128.
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.metadata")]
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Version {
     pub inner: CoreVersion,
@@ -46,7 +46,7 @@ impl Version {
 /// The name of something an asset can depend on: a query, a store key, a command's metadata, ...
 ///
 /// `DependencyKey(text)` takes the encoded form; any text is accepted.
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.dependencies")]
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DependencyKey {
     pub inner: CoreDependencyKey,
@@ -78,7 +78,7 @@ impl DependencyKey {
 /// One dependency of an evaluated asset and the version it had at the time.
 ///
 /// `DependencyRecord(key, version)` takes a `DependencyKey` and a `Version`.
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.dependencies")]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DependencyRecord {
     pub inner: CoreDependencyRecord,
@@ -124,7 +124,7 @@ impl DependencyRecord {
 /// legacy JSON document kept as it was read; the methods work on both, and those that need a field
 /// a legacy document lacks raise an exception. `Metadata()` is an empty record. See
 /// `PYTHON_GUIDE.md` §6, "Reading metadata".
-#[pyclass(module = "liquers")]
+#[pyclass(module = "liquers.metadata")]
 pub struct Metadata {
     pub inner: CoreMetadata,
 }
@@ -304,7 +304,7 @@ impl Metadata {
 ///
 /// `MetadataRecord()` is an empty record. Most fields are properties; the `with_*` methods set a
 /// field the way the evaluator does, keeping related fields consistent.
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.metadata")]
 #[derive(Clone, Debug)]
 pub struct MetadataRecord {
     pub inner: CoreMetadataRecord,
@@ -654,7 +654,7 @@ impl MetadataRecord {
 ///
 /// Directory listings use it for their entries (`MetadataRecord.children`). Every field is a
 /// settable property; `AssetInfo()` is empty.
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.metadata")]
 #[derive(Clone, Debug)]
 pub struct AssetInfo {
     pub inner: CoreAssetInfo,
@@ -823,7 +823,7 @@ impl AssetInfo {
 ///
 /// `Status(name)` takes the variant name and raises `ValueError` for an unknown one. A status
 /// equals another of the same variant and also its name as a string (`status == "Ready"`).
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.metadata")]
 #[derive(Clone, Debug)]
 pub struct Status {
     pub inner: CoreStatus,
@@ -905,7 +905,7 @@ impl Status {
 /// The level of a log entry: `Debug`, `Info`, `Warning` or `Error`.
 ///
 /// `LogEntryKind(name)` takes the lower-case name (`"info"`) and raises `ValueError` for any other.
-#[pyclass(from_py_object, eq, eq_int, module = "liquers")]
+#[pyclass(from_py_object, eq, eq_int, module = "liquers.metadata")]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum LogEntryKind {
     #[serde(rename = "debug")]
@@ -970,7 +970,7 @@ impl LogEntryKind {
 /// One entry of an asset's log: a level, a message, a timestamp, and where it came from.
 ///
 /// `LogEntry(kind, message)` makes one with the current time. Every field is a settable property.
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.metadata")]
 #[derive(Clone, Debug)]
 pub struct LogEntry {
     pub inner: CoreLogEntry,
