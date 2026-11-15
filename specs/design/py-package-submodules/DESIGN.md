@@ -25,7 +25,9 @@ Phase 2 approved and pre-approved after Phase 2 on 2026-11-15 (Orest: "proceed a
 and 4, the implementation and Phase 5 run without gates; Phase 5 results are presented before
 `status: complete`.
 
-Phases 3 and 4 written 2026-11-15.
+Phases 3 and 4 written 2026-11-15 and reviewed twice (conformity, records and the consistency
+pass over all phases; codebase and soundness); findings applied. Problem filed:
+`PY-ERROR-INSTANCES-CANNOT-BE-PICKLED` (pre-existing, out of scope).
 
 ## Phases
 

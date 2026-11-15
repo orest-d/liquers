@@ -58,7 +58,12 @@ D4 rules out; a callable module, which D2 rules out.
   - `.github/workflows/liquers-py-release.yml:193`: the Windows dependency check's glob changes
     from `unpacked/liquers/*.pyd` to `unpacked/_liquers/*.pyd`. Today's glob would match nothing,
     and the check would test nothing.
-  - `.gitignore:27-28` ignores `liquers-py/python/_liquers/_liquers*.{so,pyd}`.
+  - `.github/workflows/liquers-py-package.yml:18`: the path filter adds `liquers-py/python/_liquers/**`.
+  - `.gitignore:27-28` ignores `liquers-py/python/_liquers/_liquers*.{so,pyd}`; a stale
+    `python/liquers/_native*` from earlier `maturin develop` runs is deleted.
+  - `scripts/test-liquers-py.sh:73-74`: the doctest run covers `python/liquers/*.py` and
+    `python/_liquers/__init__.py`, so the new module docs' examples execute.
+  - `scripts/check_api_docs.py` `python_docs`: also collects `python/_liquers/__init__.py`.
   - `scripts/check-wheel.py` and `scripts/build-liquers-py-docs.sh` stay unchanged: neither depends
     on paths, and pdoc finds the submodules itself.
 - **`python/_liquers/__init__.py`** (new) holds a module doc, `from ._liquers import *` and
@@ -69,11 +74,13 @@ D4 rules out; a callable module, which D2 rules out.
   `__module__` values. `_env.py:7` and `_commands.py:40` import from `liquers._backend` instead of
   `liquers._native`. No other helper imports a native name.
 - **Errors.**
+  - `QuerySegment`, registered nowhere (`PY-QUERY-SEGMENT-CLASS-NOT-REGISTERED`), reports
+    `liquers.query`.
   - `_errors.py` sets `__module__ = "liquers.error"` on `LiquersError` and on every class that
     `_install` generates.
   - The `_install(ErrorType)` call moves from `liquers/__init__.py` to `liquers/error.py`. That file
     binds the classes as module attributes (`globals().update`), keeps `_ERROR_SUBCLASSES`, and
-    builds `__all__` from it.
+    builds `__all__` from `Error`, `ErrorType`, `LiquersError` and `_ERROR_SUBCLASSES`.
   - `liquers/__init__.py` imports `liquers.error` first, then the other submodules, then their
     names. It keeps `_ERROR_SUBCLASSES` as an alias and `__all__` with today's content; `__version__`
     comes from `_backend`.
@@ -93,8 +100,9 @@ D4 rules out; a callable module, which D2 rules out.
     because stubtest would report one that has no runtime module.
   - `__init__.pyi` binds the submodules (`from liquers import query as query, …`) and re-exports
     every name (`from liquers.query import Key as Key`, …).
-  - `liquers/_native.pyi` becomes `_liquers/__init__.pyi`, and `_backend.pyi` re-exports. Both
-    packages carry `py.typed`.
+  - `liquers/_native.pyi` becomes `_liquers/__init__.pyi`. Both packages carry `py.typed`.
+    `_backend.py` gets no stub, like the other private helpers, so mypy checks its source against
+    the `_liquers` stub.
   - `tests/typing/stubtest-allowlist.txt`: `liquers.Environment.live_handle_count` becomes
     `liquers.environment.Environment.live_handle_count`. `liquers._native.live_record_handle_count`
     and `liquers._native.__all__` become `_liquers.…`. Phase 4 then keeps only the entries a
@@ -110,6 +118,7 @@ D4 rules out; a callable module, which D2 rules out.
       `liquers.error._ERROR_SUBCLASSES`.
     - `remaining()` matches `^error: _?liquers\.(?:(?:query|commands|…|lui)\.)?(\w+)`, with the
       sixteen names spelled out.
+  - `test_package_sources_pass_mypy` checks `-p liquers -p _liquers`.
   - `test_OBJECT08` asserts that `__module__` is a public submodule of `liquers`.
   - `tests/package/test_PACKAGE_wheel.py` expects `_liquers/__init__.pyi`, `_liquers/py.typed` and
     the submodule stubs.
@@ -122,9 +131,11 @@ D4 rules out; a callable module, which D2 rules out.
 
 There is no new failure case and no new `Error` constructor. An `ImportError` from `_liquers`
 (native library missing or broken) propagates unchanged from `liquers._backend`. A future fallback
-would catch it there (`PY-HAS-NO-PURE-PYTHON-FALLBACK`). Pickling keeps working for exceptions:
-`LiquersError` and its subclasses pickle by `__module__` and name, so `liquers.error` binds them.
-The other classes cannot be pickled, as today.
+would catch it there (`PY-HAS-NO-PURE-PYTHON-FALLBACK`). The exception *classes* pickle by `__module__`
+and name, so `liquers.error` binds them. Exception *instances* cannot be pickled, today or after:
+`LiquersError.type` holds a PyO3 `ErrorType`, which has no `__reduce__`
+(`PY-ERROR-INSTANCES-CANNOT-BE-PICKLED`, out of scope). The other classes cannot be pickled either,
+as today.
 
 ## Relevant Commands
 
@@ -159,5 +170,5 @@ Module docs, each with all five parts of `API_DOCUMENTATION_GUIDE.md` §3:
 | Existing tests likely to change | `test_STUBS_declarations.py`, `test_OBJECT_conformance.py` (OBJECT08), `test_PACKAGE_wheel.py`, `test_RECORDS_columns.py`, `scripts/test_check_wheel.py`. Every other test keeps `lq.X` (D5) |
 | New validation | tests of AC-1 to AC-9 (Phase 3); stubtest over both packages; pdoc pages per submodule |
 | Compatibility, data, concurrency, performance, security | `__module__` values change, before any release. Errors pickled before the change name `liquers.X`, which still resolves. Import adds about seventeen small module loads |
-| Recovery | each Phase 4 step is one commit; reverting the series restores `liquers._native` |
+| Recovery | each Phase 4 commit reverts on its own (Steps 2 and 3 share one); reverting the series restores `liquers._native` |
 | Certainty and open questions | High. R1–R3 hold on the toy crate, and the full wheel build is Phase 4's first proof. There are no import cycles: no helper imports `liquers` at module load (`_records.py:33` imports it inside a function), and AC-3's test imports each submodule first in a fresh interpreter. No open question |

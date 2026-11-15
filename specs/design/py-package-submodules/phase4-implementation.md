@@ -2,17 +2,21 @@
 
 ## Overview
 
-The work lands in one PR (#272, after the design) as four commits (Steps 2 and 3 together). The order is: the native module
-moves; then the public modules and class names; then the stubs; then the reference and module
-docs; then the documents. Each step leaves the suite green, so a step's proof is the tests it
-touches plus the parts of the suite that could break. There is no prerequisite issue (Phase 2
-preflight).
+The work lands in one PR (#272, after the design) as four commits, with Steps 2 and 3 in one
+commit. The order is: the native module moves; then the public modules and class names together
+with the stubs; then the reference and module docs; then the documents. Each commit leaves the
+suite green. There is no prerequisite issue (Phase 2 preflight).
+
+Proof commands use `V=target/liquers-py-venv-cpython3.14` (the typing leg), which
+`scripts/test-liquers-py.sh` creates. The script always runs the whole suite, so a single file
+between runs is `$V/bin/python -m pytest liquers-py/tests/<file>` after
+`maturin develop --manifest-path liquers-py/Cargo.toml --features debug-handles` in that venv.
 
 ## Progress
 
 - [ ] Step 1: move the native module to `_liquers` behind `liquers/_backend.py`
-- [ ] Step 2: public submodules, class module names, `liquers.error`
-- [ ] Step 3: split the stubs per submodule
+- [ ] Step 2: public submodules, class module names, `liquers.error` (one commit with Step 3)
+- [ ] Step 3: split the stubs per submodule (one commit with Step 2)
 - [ ] Step 4: API reference per submodule and module docs
 - [ ] Step 5: documents
 
@@ -20,125 +24,143 @@ preflight).
 
 ### Step 1: move the native module to `_liquers` behind `liquers/_backend.py`
 - Files / symbols:
-  - `liquers-py/pyproject.toml` `[tool.maturin]`
-  - `liquers-py/src/lib.rs` `_native` (`#[pymodule]`, the `//!` text and the line-76 comment)
-  - new `liquers-py/python/_liquers/__init__.py` and `py.typed`
-  - `git mv liquers-py/python/liquers/_native.pyi liquers-py/python/_liquers/__init__.pyi`
-  - new `liquers/_backend.py` and `_backend.pyi`
-  - `liquers/_env.py:7`, `liquers/_commands.py:40`
-  - `liquers/__init__.py`, which imports from `liquers._backend`
-  - `.gitignore:27-28`
-  - `.github/workflows/liquers-py-release.yml:193`
-  - `scripts/test_check_wheel.py:35`
-  - `tests/typing/stubtest-allowlist.txt` (the `_native` entries)
-  - `tests/test_STUBS_declarations.py` (the stubtest arguments, `test_native_names_are_declared`,
-    `test_declaration_files_exist`)
-  - `tests/test_RECORDS_columns.py`
-  - `tests/package/test_PACKAGE_wheel.py`
+  - Build:
+    - `liquers-py/pyproject.toml` `[tool.maturin]` and its comment.
+    - `liquers-py/src/lib.rs` `_native`: only the `#[pymodule]` name in this step; Step 4 writes the doc.
+    - `.gitignore:27-28`; delete the stale `liquers-py/python/liquers/_native*`.
+    - `.github/workflows/liquers-py-release.yml:193` (the `.pyd` glob).
+    - `.github/workflows/liquers-py-package.yml:18` (the path filter).
+    - `scripts/test_check_wheel.py:35`.
+  - Python:
+    - New `liquers-py/python/_liquers/__init__.py` and `py.typed`.
+    - `git mv liquers-py/python/liquers/_native.pyi liquers-py/python/_liquers/__init__.pyi`.
+    - New `liquers/_backend.py` (no stub).
+    - `liquers/_env.py:7` and `liquers/_commands.py:40`.
+    - `liquers/__init__.py`, which imports from `_backend`.
+  - Tests:
+    - `tests/typing/stubtest-allowlist.txt`: the two `_native` entries.
+    - `tests/test_STUBS_declarations.py`: the stubtest arguments, `test_native_names_are_declared`,
+      `test_declaration_files_exist`, and `test_package_sources_pass_mypy`, which adds
+      `-p _liquers`.
+    - `tests/test_RECORDS_columns.py`.
+    - `tests/package/test_PACKAGE_wheel.py`: `_liquers/` files.
+    - New `tests/test_LAYOUT_submodules.py` with `test_LAYOUT06_native_package_is_private`.
 - Change:
   - `module-name = "_liquers"` and `python-packages = ["liquers"]`.
   - `#[pymodule(name = "_liquers", gil_used = false)]`; the Rust function keeps its name.
-  - `_liquers/__init__.py` is a module doc plus `from ._liquers import *` and
+  - `_liquers/__init__.py` is a module doc, `from ._liquers import *`, and
     `__all__ = _liquers.__all__`.
   - Class modules stay `"liquers"` in this step.
 - Depends on: none.
-- Proof: `bash scripts/test-liquers-py.sh` under 3.14 (the whole suite, STUBS included), and
-  `python3 -m pytest scripts/test_check_wheel.py`. `test_LAYOUT06_native_package_is_private` is
-  added here and passes.
+- Proof:
+  1. `PYTHON=python3.14 bash scripts/test-liquers-py.sh` passes. It runs the whole suite, STUBS
+     and LAYOUT06 included.
+  2. `python3 -m pytest scripts/test_check_wheel.py` passes.
+  3. `maturin build -m liquers-py/Cargo.toml -o target/wheel-check` builds a wheel. In a fresh venv
+     with the wheel installed, `LIQUERS_PY_WHEEL_TEST=1 python -m pytest liquers-py/tests/package`
+     passes. That proves R1 in a real wheel, which `maturin develop` alone cannot.
 - Rollback: revert the commit.
 
 ### Step 2: public submodules, class module names, `liquers.error`
 - Files / symbols:
-  - new `liquers/{query, commands, metadata, dependencies, plan, recipes, store, environment, assets, error, data_nodes, pipeline, template, records, server, lui}.py`
-  - `liquers/__init__.py` (rewritten: it imports `liquers.error` first, then the submodules, then
-    their names; `__all__` keeps its content; `_ERROR_SUBCLASSES` becomes an alias)
-  - `liquers/_errors.py` (the `__module__` values at lines 83, 111 and 126)
-  - every `#[pyclass(…, module = "liquers")]` in `liquers-py/src/` (75), set from the Phase 1 map
-  - new `tests/test_LAYOUT_submodules.py`
-  - `tests/test_OBJECT_conformance.py` (OBJECT08)
+  - New `liquers/{query, commands, metadata, dependencies, plan, recipes, store, environment,
+    assets, error, data_nodes, pipeline, template, records, server, lui}.py`.
+  - `liquers/__init__.py`, rewritten. It imports `liquers.error` first, then the submodules, then
+    their names. `__all__` keeps its content, and `_ERROR_SUBCLASSES` becomes an alias.
+  - `liquers/error.py`: the `__all__` holds `Error`, `ErrorType`, `LiquersError` and the generated
+    classes.
+  - `liquers/_errors.py`: the `__module__` values at lines 83, 111 and 126.
+  - The 75 `#[pyclass(…, module = "liquers")]` attributes in `liquers-py/src/`, set from the Phase 1
+    map. `QuerySegment` (`src/query.rs:429`) gets `liquers.query`.
+  - `tests/test_LAYOUT_submodules.py` gains LAYOUT01 to LAYOUT05.
+  - `tests/test_OBJECT_conformance.py`: OBJECT08.
 - Change: as in Phase 2 *Integration Points* (Errors, Public modules). Each new file gets a
-  first-version module doc; the finished doc comes in Step 4.
+  first-version module doc; Step 4 completes it.
 - Depends on: Step 1.
-- Proof: `bash scripts/test-liquers-py.sh tests/test_LAYOUT_submodules.py
-  tests/test_OBJECT_conformance.py tests/test_ERROR_errors.py`, then the whole suite except STUBS
-  (`--deselect tests/test_STUBS_declarations.py`). Stubs still declare classes in
-  `__init__.pyi`, so stubtest fails until Step 3; Steps 2 and 3 are therefore committed together,
-  and Step 3's proof covers both.
-- Rollback: revert Steps 2 and 3 together.
+- Proof: `$V/bin/python -m pytest liquers-py/tests --deselect
+  liquers-py/tests/test_STUBS_declarations.py` passes. The stubs still place every class in
+  `__init__.pyi` until Step 3, so stubtest is expected to fail here, and Step 3's proof covers
+  both steps.
+- Rollback: revert the shared commit of Steps 2 and 3.
 
 ### Step 3: split the stubs per submodule
 - Files / symbols:
-  - `liquers/__init__.pyi`, split into `liquers/<sub>.pyi` with the stub-only helpers placed as in
-    Phase 2
-  - the error declarations (`__init__.pyi:1670` onwards) move to `error.pyi`
-  - `tests/typing/stubtest-allowlist.txt` (`liquers.environment.Environment.live_handle_count`)
-  - `tests/test_STUBS_declarations.py` (`remaining()` regex, `test_stubtest_reports_drift`,
-    `stub_classes`, `test_error_classes_are_declared`)
-  - new `tests/typing/good/submodules.py`
-  - `tests/package/test_PACKAGE_wheel.py` (the submodule stubs)
-- Change: declarations move with their names; imports are added between the stubs.
+  - `liquers/__init__.pyi` is split into `liquers/<sub>.pyi`. The stub-only helpers go where
+    Phase 2 places them, and the error declarations (`__init__.pyi:1670` onwards) go to
+    `error.pyi`.
+  - `tests/typing/stubtest-allowlist.txt`: `liquers.environment.Environment.live_handle_count`.
+  - `tests/test_STUBS_declarations.py`: the `remaining()` regex, `test_stubtest_reports_drift`,
+    `stub_classes` and `test_error_classes_are_declared`.
+  - New `tests/typing/good/submodules.py`.
+  - `tests/package/test_PACKAGE_wheel.py`: the submodule stubs.
+- Change: each declaration moves with its name, and the stubs import from one another as needed.
   `__init__.pyi` binds the submodules and re-exports every name.
 - Depends on: Step 2.
-- Proof: `bash scripts/test-liquers-py.sh` under 3.14 (`test_STUBS_declarations.py` runs only
-  there), then the whole suite.
-- Rollback: revert Steps 2 and 3.
+- Proof: `PYTHON=python3.14 bash scripts/test-liquers-py.sh` passes, which is the whole suite with
+  STUBS. Then commit Steps 2 and 3 together.
+- Rollback: revert the shared commit.
 
 ### Step 4: API reference per submodule and module docs
 - Files / symbols:
-  - `tests/test_DOCS_api_reference.py`
-    (`test_DOCS04_api_reference_has_a_page_per_submodule`)
-  - `tests/test_LAYOUT_submodules.py` (`test_LAYOUT07_submodules_have_module_docs`,
-    `test_LAYOUT08_private_helpers_import`)
-  - module docs of the sixteen submodules, `_backend.py`, `_liquers/__init__.py`,
-    `liquers/__init__.py` (module map; "never `_liquers`") and `liquers-py/src/lib.rs` `//!`
-- Change: module docs follow `API_DOCUMENTATION_GUIDE.md` §3. Each names its Rust counterpart
-  and has a doctest.
+  - `tests/test_DOCS_api_reference.py`: `test_DOCS04_api_reference_has_a_page_per_submodule`.
+  - `tests/test_LAYOUT_submodules.py`: LAYOUT07 and LAYOUT08.
+  - `scripts/test-liquers-py.sh:73-74`: doctests over `python/liquers/*.py` and
+    `python/_liquers/__init__.py`.
+  - `scripts/check_api_docs.py` `python_docs`: also collects `python/_liquers/`.
+  - Module docs of the sixteen submodules, `_backend.py`, `_liquers/__init__.py`,
+    `liquers/__init__.py` (the module map, and "never `_liquers`"), and `liquers-py/src/lib.rs`
+    (the `//!` block and the line-76 comment).
+- Change: each module doc follows `API_DOCUMENTATION_GUIDE.md` §3, names its Rust counterpart, and
+  has a doctest. `_backend.py` covers all five parts, although the checker requires only its
+  purpose.
 - Depends on: Step 3.
-- Proof: `python3 scripts/check_api_docs.py` on each touched file reports nothing;
-  `bash scripts/test-liquers-py.sh tests/test_DOCS_api_reference.py tests/test_DOCS_docstrings.py
-  tests/test_LAYOUT_submodules.py`; `bash scripts/build-liquers-py-docs.sh`.
+- Proof:
+  - `python3 scripts/check_api_docs.py --strict` on each touched file exits 0 with no output.
+  - `python3 -m pytest scripts/` passes, covering `check_api_docs`' own tests.
+  - `PYTHON=python3.14 bash scripts/test-liquers-py.sh` passes, which covers the doctests and pdoc.
 - Rollback: revert the commit.
 
 ### Step 5: documents
-- Files / symbols: the Phase 2 *Documentation Architecture* table:
-  - `specs/reference/PYTHON_INTEGRATION.md` §1, §6, §13, §14, §18
-  - `specs/guides/PYTHON_GUIDE.md` §2
-  - `docs/guides/python/01-introduction.md`
-  - `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md`
-  - `specs/guides/API_DOCUMENTATION_GUIDE.md:139`
-  - `liquers-py/README.md`
+- Files / symbols:
+  - The Phase 2 *Documentation Architecture* table.
+  - The user-guide chapters that `python3 scripts/docs_index.py chapters-for <affects_docs>`
+    lists, which are reviewed and updated where they name the layout.
+  - The open issues that name the old layout: `PY-QUERY-SEGMENT-CLASS-NOT-REGISTERED`
+    (`_native.pyi`, and its class now reports `liquers.query`) and `PY-ABI3T-WHEEL-NOT-USED`
+    (the library path).
 - Change: as in the table. Every `reference/` and `guides/` document gets a `## History` row and a
-  `reviewed:` bump (§9.2), and the user-guide chapter gets a `HISTORY.md` row.
+  `reviewed:` bump (§9.2), and each user-guide chapter gets a `HISTORY.md` row.
 - Depends on: Step 4.
-- Proof: `python3 scripts/docs_index.py --check`; `cargo run -p liquers-docs -- check`;
-  `bash scripts/test-liquers-py.sh tests/test_GUIDE_examples.py`. There are no
-  `_native` mentions outside `specs/archive/` and the design records:
-  `grep -rn "_native" --exclude-dir=target --exclude-dir=archive --exclude-dir=design .` lists
-  only lines that are not about the Python layout.
+- Proof:
+  - `python3 scripts/docs_index.py --check` reports 0 errors.
+  - `cargo run -p liquers-docs -- check` passes.
+  - `$V/bin/python -m pytest liquers-py/tests/test_GUIDE_examples.py` passes.
+  - `grep -rn "liquers\._native\|_native\.pyi" --exclude-dir=target --exclude-dir=archive
+    --exclude-dir=design .` finds nothing.
 - Rollback: revert the commit.
 
 ## Testing Plan
 
-During each step, run that step's proof and nothing more. After Step 5, run the whole suite once
-under 3.14 (typing leg) and once under 3.13 with `bash scripts/test-liquers-py.sh`, plus
-`cargo test -p liquers-py --no-default-features --features debug-handles --lib`, which the script
-runs. A full wheel build (`maturin build`) checks the R1 layout and the wheel contents
-(`tests/package/`). No `cfg(feature)` or optional dependency changes, so the build matrix is not
-needed. CI on the PR runs `liquers-py-tests.yml` on 3.10, 3.14 and 3.14t.
+During a step, run its proof. After Step 5:
+- run `PYTHON=python3.14 bash scripts/test-liquers-py.sh` and `PYTHON=python3.13 bash
+  scripts/test-liquers-py.sh` once each;
+- repeat the wheel check of Step 1 (`maturin build` and the `tests/package` suite in a fresh venv).
+
+No `cfg(feature)` or optional dependency changes, so the build matrix is not needed. CI on the PR
+runs `liquers-py-tests.yml` on 3.10, 3.14 and 3.14t, and `liquers-py-package.yml`.
 
 ## Rollback Plan
 
-Revert the series. Steps 1 and 4–5 can each be reverted alone. Steps 2 and 3 go together: a class
-named `liquers.query` needs its stub in `query.pyi`. If only Step 1 lands, the package works with
-the flat API over `_liquers`.
+Revert the series. Each commit can be reverted alone, and newest first is always safe. If only
+Step 1 lands, the package works with the flat API over `_liquers`.
 
 ## Documentation Updates
 
-These are the documents of Step 5 and the module docs of Step 4, checked with
-`scripts/check_api_docs.py` (`API_DOCUMENTATION_GUIDE.md` §10). Regenerated files:
-`specs/index.csv`, `specs/index.md` and the `specs/README.md` blocks, all through
-`scripts/docs_index.py`. `specs/command_registry.yaml` is untouched, because no command changes.
-History rows and `reviewed:` bumps go on each changed `reference/` or `guides/` document.
+The documents of Step 5 and the module docs of Step 4 are checked with `scripts/check_api_docs.py
+--strict` (`API_DOCUMENTATION_GUIDE.md` §10). Regenerated files are `specs/index.csv`,
+`specs/index.md` and the `specs/README.md` blocks, through `scripts/docs_index.py`.
+`specs/command_registry.yaml` stays untouched, because no command changes. Each changed
+`reference/` or `guides/` document gets a History row and a `reviewed:` bump.
 
 ## Phase 5 Entry Criteria
 - [ ] Implementation finished and validated
