@@ -123,7 +123,9 @@ def test_wheel_contents():
         "liquers/THIRD-PARTY-NOTICES.html",
         "liquers/py.typed",
         "liquers/__init__.pyi",
-        "liquers/_native.pyi",
+        "_liquers/__init__.py",
+        "_liquers/__init__.pyi",
+        "_liquers/py.typed",
     ):
         assert expected in files, sorted(files)
     assert any(name.endswith("/licenses/LICENSE") or name.endswith("/LICENSE") for name in files)

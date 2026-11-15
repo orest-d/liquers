@@ -1,4 +1,4 @@
-"""Type declarations for ``liquers._native``: the same names as ``liquers``, declared there."""
+"""Type declarations for ``_liquers``, the native extension: the same names as ``liquers``, declared there."""
 
 from liquers import ActionParameter as ActionParameter
 from liquers import ActionRequest as ActionRequest
@@ -154,6 +154,12 @@ __all__ = [
     "RecordSource",
     "RecordStream",
     "RecordChunk",
+    "Server",
+    "UI",
+    "UIElement",
+    "UIElementInfo",
+    "UIStatusEvent",
+    "UISubscription",
     "__version__",
 ]
 

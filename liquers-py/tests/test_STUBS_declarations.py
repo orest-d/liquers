@@ -17,8 +17,8 @@ from pathlib import Path
 
 import pytest
 
+import _liquers
 import liquers
-import liquers._native
 
 TYPING_LEG = (
     sys.implementation.name == "cpython"
@@ -36,8 +36,9 @@ MYPY_INI = TYPING / "mypy.ini"
 PYRIGHT_CONFIG = TYPING / "pyrightconfig.json"
 ALLOWLIST = TYPING / "stubtest-allowlist.txt"
 PACKAGE = Path(liquers.__file__).parent
+NATIVE = Path(_liquers.__file__).parent
 PINS = {"mypy": "2.4.1", "pyright": "1.1.414"}
-# Names `_native` has only in a `debug-handles` build (the test build).
+# Names `_liquers` has only in a `debug-handles` build (the test build).
 DEBUG_ONLY = {"live_record_handle_count"}
 
 
@@ -48,7 +49,7 @@ def run(args, cwd, env=None):
 
 def stubtest(cwd, env=None):
     return run(
-        [sys.executable, "-m", "mypy.stubtest", "liquers", "--allowlist", str(ALLOWLIST),
+        [sys.executable, "-m", "mypy.stubtest", "liquers", "_liquers", "--allowlist", str(ALLOWLIST),
          "--mypy-config-file", str(MYPY_INI)],
         cwd,
         env,
@@ -58,7 +59,7 @@ def stubtest(cwd, env=None):
 def remaining(stubtest_output):
     """The class or function each stubtest error names (`liquers.X.y is ...` gives `X`)."""
     names = set()
-    for match in re.finditer(r"^error: liquers\.(?:_native\.)?(\w+)", stubtest_output, re.M):
+    for match in re.finditer(r"^error: _?liquers\.(\w+)", stubtest_output, re.M):
         names.add(match.group(1))
     return names
 
@@ -105,8 +106,11 @@ def test_checkers_are_pinned():
 
 def test_declaration_files_exist():
     files = importlib.resources.files("liquers")
-    for name in ("__init__.pyi", "_native.pyi", "py.typed"):
+    for name in ("__init__.pyi", "py.typed"):
         assert files.joinpath(name).is_file(), name
+    native = importlib.resources.files("_liquers")
+    for name in ("__init__.pyi", "py.typed"):
+        assert native.joinpath(name).is_file(), f"_liquers/{name}"
 
 
 def test_stubtest_passes(tmp_path):
@@ -116,15 +120,15 @@ def test_stubtest_passes(tmp_path):
 
 
 def test_package_sources_pass_mypy(tmp_path):
-    # `-p liquers` checks the stubs and the six pure-Python modules; `__init__.py` is read
-    # through `__init__.pyi`.
-    result = mypy(["-p", "liquers"], tmp_path)
+    # `-p liquers` checks the stubs and the pure-Python modules that have no stub of their own;
+    # `__init__.py` is read through `__init__.pyi`. `-p _liquers` checks the native package's stub.
+    result = mypy(["-p", "liquers", "-p", "_liquers"], tmp_path)
     assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_native_names_are_declared():
-    runtime = set(dir(liquers._native)) - DEBUG_ONLY
-    assert undeclared(runtime, declared_names(PACKAGE / "_native.pyi")) == []
+    runtime = set(dir(_liquers)) - DEBUG_ONLY
+    assert undeclared(runtime, declared_names(NATIVE / "__init__.pyi")) == []
     assert undeclared(set(liquers.__all__), declared_names(PACKAGE / "__init__.pyi")) == []
 
 

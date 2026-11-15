@@ -1,6 +1,6 @@
 """Type declarations for the ``liquers`` package.
 
-Every native class is declared here under its runtime home, ``liquers``; ``_native.pyi`` re-exports
+Every native class is declared here under its runtime home, ``liquers``; ``_liquers/__init__.pyi`` re-exports
 these names. Values are ``Any``: a query's result, ``State.value`` and a command's inputs can be
 any Python object. Third-party types (pyarrow, pandas, polars) are ``Any`` too, with a comment
 naming the runtime type, since pyarrow ships no type information. A change to the package's
@@ -266,7 +266,7 @@ class ResourceQuerySegment:
     @property
     def key(self) -> Key: ...
 
-# The class `Query.segments` returns. The runtime class is `liquers.QuerySegment`, which `_native`
+# The class `Query.segments` returns. The runtime class is `liquers.QuerySegment`, which `_liquers`
 # does not export (PY-QUERY-SEGMENT-CLASS-NOT-REGISTERED), so it is declared under a private name.
 @final
 class _QuerySegment:

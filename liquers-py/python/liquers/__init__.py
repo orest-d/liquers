@@ -1,6 +1,6 @@
 """Liquers: query-driven data pipelines, from Python.
 
-The classes and functions are implemented in Rust, in the native extension ``liquers._native``;
+The classes and functions are implemented in Rust, in the native extension ``_liquers``;
 this package re-exports them under the ``liquers`` name. Every name the extension registers is
 listed here explicitly, so a name added to or removed from ``liquers-py/src/lib.rs`` has to be
 added to or removed from this file too.
@@ -28,7 +28,7 @@ added to or removed from this file too.
 Every other test under `liquers-py/tests/` imports it as `lq`.
 
 # Related concepts
-- `liquers._native` is the compiled extension. Import `liquers`, never `_native`: the extension's
+- `_liquers` is the compiled extension. Import `liquers`, never `_liquers`: the extension's
   layout is an implementation detail with no stability promise.
 - The Rust crate `liquers_py` (`liquers-py/src/`) implements the extension; the Rust API
   reference on the documentation site documents it for contributors.
@@ -51,7 +51,7 @@ Longer examples:
 More are under `liquers-py/tests/`, one file per conformance group.
 """
 
-from liquers._native import (
+from liquers._backend import (
     # Query language
     Position,
     ActionParameter,

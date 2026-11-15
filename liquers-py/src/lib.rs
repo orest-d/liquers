@@ -1,4 +1,4 @@
-//! The native extension of the `liquers` Python package (`liquers._native`): Python bindings of
+//! The native extension of the `liquers` Python package (`_liquers`): Python bindings of
 //! Liquers, built with PyO3.
 //!
 //! Every module registers its classes and functions into one extension module; the pure-Python
@@ -73,13 +73,14 @@ pub mod value;
 
 use crate::query::*;
 
-/// The native extension, `liquers._native`; the `liquers` package (`python/liquers/`) re-exports it.
+/// The native extension, `_liquers` (compiled as `_liquers._liquers`, re-exported by the private
+/// package `python/_liquers/`); the `liquers` package (`python/liquers/`) re-exports it.
 ///
 /// Declared safe without the GIL, so a free-threaded interpreter keeps the GIL off when it imports
 /// `liquers` (PyO3's default since 0.28, stated here so it is a decision rather than an
 /// inheritance). The audit behind it is in `specs/design/liquers-py-async/phase2-architecture.md`;
 /// `gil_used = true` is the fallback if a free-threading defect is found.
-#[pymodule(gil_used = false)]
+#[pymodule(name = "_liquers", gil_used = false)]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Stored `py.Object` values are read back through this decoder; an environment with the
     // pickle codec off lists no formats for the type, so the read path never reaches it there.
