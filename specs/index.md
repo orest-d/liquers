@@ -8,8 +8,8 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 244
-- P2: 70
+Total rows: 242
+- P2: 68
 - P3: 174
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
@@ -71,8 +71,6 @@ Total rows: 244
 | [`VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`](issues/VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE.md) | feature | Serialization is synchronous and whole-value, so a large or lazy value cannot be served or stored as it is produced | draft | needs-decision | not-eligible | P2 | L | core/value;core/store;core/assets;axum | [phase1](design/value-serialization-streaming/phase1-high-level-design.md)  [phase2](design/value-serialization-streaming/phase2-architecture.md)  [phase3](design/value-serialization-streaming/phase3-examples.md)  [phase4](design/value-serialization-streaming/phase4-implementation.md)  | 2026-09-24 |
 | [`EXTENDED-FAST-TRACK`](issues/EXTENDED-FAST-TRACK.md) | feature | A cheap query waits behind long-running jobs, because commands cannot be classified for scheduling | accepted | phase2-blocked | not-eligible | P2 | L | core/assets | [phase1](design/command-execution-class/phase1-high-level-design.md)  [phase2](design/command-execution-class/phase2-architecture.md)  | 2026-08-08 |
 | [`CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS`](issues/CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS.md) | issue | Every queued command shares one job queue, so commands cannot be placed by their cost | draft |  |  | P2 | L | core/assets |  | 2026-10-26 |
-| [`PY-APPLICATION-CANNOT-START-FROM-A-CONFIG-FILE`](issues/PY-APPLICATION-CANNOT-START-FROM-A-CONFIG-FILE.md) | feature | A Python Liquers application has no supported way to start from a configuration file with command-line overrides | draft |  |  | P2 | L | py;docs | [phase1](design/py-command-line-config/phase1-high-level-design.md)  [phase2](design/py-command-line-config/phase2-architecture.md)  [phase3](design/py-command-line-config/phase3-examples.md)  [phase4](design/py-command-line-config/phase4-implementation.md)  | 2026-11-14 |
-| [`PY-DEFAULT-ENVIRONMENT-CANNOT-BE-CONFIGURED`](issues/PY-DEFAULT-ENVIRONMENT-CANNOT-BE-CONFIGURED.md) | feature | The Python default environment cannot be configured, and the guide does not say so | draft |  |  | P2 | L | py;docs | [phase1](design/py-default-environment-config/phase1-high-level-design.md)  [phase2](design/py-default-environment-config/phase2-architecture.md)  [phase3](design/py-default-environment-config/phase3-examples.md)  [phase4](design/py-default-environment-config/phase4-implementation.md)  | 2026-11-14 |
 | [`RING-NEEDS-CLANG-ON-WINDOWS-ARM64`](issues/RING-NEEDS-CLANG-ON-WINDOWS-ARM64.md) | issue | Default builds and cargo doc fail on Windows ARM64 without clang, because Polars and OpenDAL pull in ring | draft |  |  | P2 | L | build;store/backends;lib/polars |  | 2026-11-04 |
 | [`SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED`](issues/SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED.md) | issue | No guideline or user documentation says which Liquers settings are security-sensitive | draft |  |  | P2 | L | docs;axum;py;web |  | 2026-11-06 |
 | [`WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS`](issues/WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS.md) | feature | The web API cannot run a pipeline or recipe document, nor serve recipes as typed endpoints | draft |  |  | P2 | L | axum;core/assets;core/context;mcp |  | 2026-11-01 |

@@ -28,3 +28,4 @@ have a row here (`specs/guides/USER_DOCS_EDITING_GUIDE.md`, maintenance).
 | 2026-11-10 | c-glossary.md | C.2 and C.3 added: the terms in JavaScript, terms this guide adds; `ready` |
 | 2026-11-10 | d-sister-guides.md | introduction written; `ready` |
 | 2026-11-10 | (all) | every chapter written and set to `ready`; the examples import the module from the project site and are run under Node by `liquers-web/tests/guide/run-guide-examples.mjs` |
+| 2026-11-15 | 08-environment.md | reviewed for `py-command-line-config` (`ConfigDocument::overlay`, a missing file is a `ConfigurationError`): still right; no edit |

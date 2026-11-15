@@ -24,7 +24,8 @@ keyword per server setting on `configure`, which would duplicate the document's 
 - `ERROR-TYPES-TOO-COARSE-AND-GENERAL-OVERUSED` (P2): the missing-file error is one instance of it,
   fixed here. It does not block.
 - `USER-GUIDE-EXAMPLES-ARE-NOT-EXECUTED` (P2): the "runnable" chapter 8 examples of AC-6 are
-  tested by Python tests that mirror them until that issue is fixed. It does not block.
+  run by `liquers-py/tests/test_GUIDE_examples.py`, which already executes the Python guide's
+  blocks; the issue is stale for the Python guide. It does not block.
 - `MODULE-DOCS-DO-NOT-FOLLOW-THE-API-DOC-RULES` (P3): `_cli.py` is written to §3. It does not
   block.
 
@@ -37,8 +38,9 @@ Nothing blocks. No command namespace is involved.
 
 ```rust
 /// Merges `overlay` (a partial document) over this one: mappings merge key by key, every other
-/// value replaces, and `null` is an empty overlay. Refuses a non-mapping overlay (ParseError), a
-/// section already taken, or environment keys that no longer parse (ConfigurationError). `base`
+/// value replaces, and `null` is an empty overlay. Refuses a non-mapping overlay or environment keys
+/// that no longer parse (ParseError, as `from_json`), and a section already taken
+/// (ConfigurationError). `base`
 /// is kept, so a relative `command_registry` in the overlay resolves against the file's folder.
 pub fn overlay(&mut self, overlay: serde_json::Value) -> Result<(), Error>;
 ```

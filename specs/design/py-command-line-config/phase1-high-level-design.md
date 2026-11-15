@@ -116,6 +116,16 @@ because it is a property of the configuration document, which every host reads.
    `liquers-agent` defaults to `liquers-agent.yaml`. `default_config=` changes it, and `None` turns
    it off.
 
+## Design Readiness
+
+- **Readiness:** ready. Both open questions are decided, Phases 2 to 4 are written and reviewed,
+  and Orest pre-approved the remaining phases ("proceed all", 2026-11-15).
+- **Automatic fixing:** not-eligible — adds public API in `liquers-core`
+  (`ConfigDocument::overlay`) and `liquers-py` (complexity `L`).
+- **Decision log under "proceed all":** no question needed Orest after Phase 2. A relative
+  `--command-registry` is resolved against the working directory before it is merged, so it keeps
+  the meaning a command-line path has.
+
 ## Findings carried to Phase 2
 
 - Overrides cannot be applied in Python. A `dict` loses `ConfigDocument::base`, the sections of

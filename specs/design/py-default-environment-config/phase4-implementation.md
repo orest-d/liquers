@@ -9,12 +9,12 @@ first.
 
 ## Progress
 
-- [ ] Step 1: `Conversion`, bound when a build registers a command
-- [ ] Step 2: `Settings` under the declarations lock
-- [ ] Step 3: `LazyLoopPool::resize`
-- [ ] Step 4: `EnvCell::configure`, `Environment.configure`, `lq.configure`
-- [ ] Step 5: Python tests and stubs
-- [ ] Step 6: documentation
+- [x] Step 1: `Conversion`, bound when a build registers a command (87988ea)
+- [x] Step 2: `Settings` under the declarations lock (87988ea)
+- [x] Step 3: `LazyLoopPool::resize` (87988ea)
+- [x] Step 4: `EnvCell::configure`, `Environment.configure`, `lq.configure` (87988ea)
+- [x] Step 5: Python tests and stubs (87988ea)
+- [x] Step 6: documentation (documentation commit of PR #273)
 
 ## Implementation Steps
 
@@ -26,7 +26,8 @@ first.
   - `liquers-py/src/context.rs`: `with_conversion`;
   - `liquers-py/src/environment.rs`: `_register_command`, `configured_builder`.
 - Change: as in Phase 2 Interfaces. `configured_builder` passes the cell's current conversion.
-- Proof: `cargo check -p liquers-py` and `cargo test -p liquers-py --lib`.
+- Proof: `cargo check -p liquers-py --tests`, then `bash scripts/test-liquers-py.sh` (the Rust
+  unit tests of the extension module link only there).
 - Rollback: revert the commit.
 
 ### Step 2: Settings under the declarations lock
@@ -41,14 +42,15 @@ first.
 
   Also the test call sites in `server.rs`, `records/resolver.rs` and `environment.rs` tests.
 - Depends on: Step 1.
-- Proof: `cargo test -p liquers-py --lib`, then `bash scripts/test-liquers-py.sh`: the whole
-  existing suite passes unchanged.
+- Proof: `bash scripts/test-liquers-py.sh`: the whole existing suite, Rust unit tests included,
+  passes unchanged.
 - Rollback: revert the commit.
 
 ### Step 3: `LazyLoopPool::resize`
 - Files / symbols: `liquers-py/src/aio.rs` `PoolSlot::Idle(NonZeroUsize)`, `get_with`, `resize`.
 - Depends on: none; it can run in parallel with Step 2.
-- Proof: `cargo test -p liquers-py --lib aio::tests::resize_sets_an_idle_pool_and_refuses_a_running_one`.
+- Proof: `aio::tests::resize_sets_an_idle_pool_and_refuses_a_running_one`, run by
+  `bash scripts/test-liquers-py.sh`.
 - Rollback: revert the commit.
 
 ### Step 4: `configure`
@@ -56,14 +58,15 @@ first.
   - `environment.rs`: `EnvCell::configure` (the five ordered checks of Phase 2) and
     `Environment::configure` (`#[pymethods]`);
   - `liquers-py/python/liquers/_env.py` `configure`;
-  - `__init__.py` `__all__`.
+  - `__init__.py` `__all__`, and the stubs `__init__.pyi` (`configure`, `Environment.configure`)
+    with their docstrings, so `test_STUBS_declarations.py` stays green at this step.
 - Depends on: Steps 2 and 3.
-- Proof: `cargo test -p liquers-py --lib environment::tests::configure_is_refused_once_built`.
+- Proof: `environment::tests::configure_is_refused_once_built`, run by
+  `bash scripts/test-liquers-py.sh`.
 - Rollback: revert the commit.
 
 ### Step 5: Python tests and stubs
-- Files: `liquers-py/tests/test_CONFIGURE_environment.py` (the nine tests of Phase 3);
-  `python/liquers/__init__.pyi` (`configure`, `Environment.configure`).
+- Files: `liquers-py/tests/test_CONFIGURE_environment.py` (the nine tests of Phase 3).
 - Depends on: Step 4.
 - Proof: `pytest tests/test_CONFIGURE_environment.py tests/test_STUBS_declarations.py`, run in
   `liquers-py` after `maturin develop`.
@@ -81,7 +84,7 @@ first.
 
 ## Testing Plan
 
-Step 1 runs the Rust unit tests. Steps 2 and 5 each run the full Python suite once
+Step 1 checks that the crate and its tests compile. Steps 2 and 5 each run the full Python suite once
 (`bash scripts/test-liquers-py.sh`). Only `liquers-py` changes here, and no `cfg(feature)` is
 touched, so the build matrix is not needed. CI's `liquers-py-tests.yml` runs it on 3.10, 3.14 and
 3.14t.
@@ -103,5 +106,5 @@ nothing else.
 
 ## Phase 5 Entry Criteria
 
-- [ ] Implementation finished and validated
-- [ ] User and review comments answered
+- [x] Implementation finished and validated
+- [x] User and review comments answered

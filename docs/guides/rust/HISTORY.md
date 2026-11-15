@@ -30,3 +30,6 @@ have a row here (`specs/guides/USER_DOCS_EDITING_GUIDE.md`, maintenance).
 | 2026-11-10 | (all) | every `rust` block is a slice of `liquers-lib/tests/user_guide_GUIDE.rs` or `liquers-axum/tests/user_guide_GUIDE.rs`, checked by `liquers-docs/tests/rust_guide_examples.rs` |
 | 2026-11-11 | 11-ui.md | 11.3 rewritten for the reusable window: `NativeDriver`, `run_window` on the main thread, closing, the frame hook, the headless driver |
 | 2026-11-11 | d-sister-guides.md | the Python guide's chapter 11 now covers user interfaces |
+| 2026-11-15 | 06-stores.md | reviewed for `py-command-line-config` (`ConfigDocument::overlay`, a missing file is a `ConfigurationError`): still right; no edit |
+| 2026-11-15 | 08-environment.md | reviewed for `py-command-line-config` (`ConfigDocument::overlay`, a missing file is a `ConfigurationError`): still right; no edit |
+| 2026-11-15 | 12-serving.md | reviewed for `py-command-line-config` (`ConfigDocument::overlay`, a missing file is a `ConfigurationError`): still right; no edit |

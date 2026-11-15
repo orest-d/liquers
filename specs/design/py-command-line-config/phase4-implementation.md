@@ -7,16 +7,17 @@ depends on `py-default-environment-config` Step 4 (`configure`) and lands in the
 
 ## Progress
 
-- [ ] Step 1: `liquers-core/src/environment_config.rs` `ConfigDocument`: the raw environment map,
-  `overlay`, and `load`'s missing-file error, with the four core tests — `cargo test -p
-  liquers-core --lib environment_config`
-- [ ] Step 2: `liquers-py/src/config.rs` `PyConfig::from_python(.., overrides)`; `Settings::resolve`,
-  `Environment.__new__` and `configure` gain `overrides=None` — `cargo test -p liquers-py --lib`
-- [ ] Step 3: `liquers-py/python/liquers/_cli.py` (new), re-exported from `__init__.py`; stubs in
-  `__init__.pyi` — `pytest tests/test_CLI_startup.py tests/test_STUBS_declarations.py`
-- [ ] Step 4: Docs: chapter 8 "Starting an application"; YAML in every server and UI example of
+- [x] Step 1: `liquers-core/src/environment_config.rs` `ConfigDocument`: the raw environment map,
+  `overlay`, and `load`'s missing-file error, with the core tests — `cargo test -p
+  liquers-core --lib environment_config` and `cargo test -p liquers-core --doc environment_config` (f39039b)
+- [x] Step 2: `liquers-py/src/config.rs` `PyConfig::from_python(.., overrides)`; `Settings::resolve`,
+  `Environment.__new__` and `configure` gain `overrides=None`, as do `_env.py` `configure` and the
+  stubs — `bash scripts/test-liquers-py.sh` (87988ea)
+- [x] Step 3: `liquers-py/python/liquers/_cli.py` (new), re-exported from `__init__.py`; stubs in
+  `__init__.pyi` — `pytest tests/test_CLI_startup.py tests/test_STUBS_declarations.py` (87988ea)
+- [x] Step 4: Docs: chapter 8 "Starting an application"; YAML in every server and UI example of
   chapters 11 and 12; `PYTHON_GUIDE.md`, `PYTHON_INTEGRATION.md`, `ENVIRONMENT_CONFIG.md` —
-  `pytest tests/test_GUIDE_examples.py`, `cargo run -p liquers-docs -- check`
+  `pytest tests/test_GUIDE_examples.py`, `cargo run -p liquers-docs -- check` (documentation commit of PR #273)
 
 ## Implementation Steps
 
@@ -47,5 +48,5 @@ bumps are listed above.
 
 ## Phase 5 Entry Criteria
 
-- [ ] Implementation finished and validated
-- [ ] User and review comments answered
+- [x] Implementation finished and validated
+- [x] User and review comments answered

@@ -2,7 +2,7 @@
 title: Troubleshooting
 status: ready
 sources: [guides/PYTHON_GUIDE.md, reference/PYTHON_INTEGRATION.md, reference/PROJECT_OVERVIEW.md]
-reviewed: 2026-11-11
+reviewed: 2026-11-15
 ---
 # 15. Troubleshooting
 

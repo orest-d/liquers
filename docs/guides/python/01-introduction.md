@@ -2,7 +2,7 @@
 title: Introduction
 status: ready
 sources: [reference/VISION.md, reference/PROJECT_OVERVIEW.md, guides/PYTHON_GUIDE.md]
-reviewed: 2026-11-11
+reviewed: 2026-11-15
 ---
 # 1. Introduction
 
@@ -115,8 +115,8 @@ commands they belong to. No Python function was written for this example.
 
 It also introduced the *environment*. An environment holds a store and a set of commands, and
 queries are evaluated in it. `lq.evaluate` and `@lq.command` use a default environment that the
-package creates for you. Making your own, as here, gives you control over where the data lives
-(chapters 6 and 8).
+package creates for you, and `lq.configure` can point it at a configuration file. Making your
+own, as here, gives you an environment of its own (chapters 6 and 8).
 
 ## 1.5 Assets and caching
 

@@ -107,12 +107,19 @@ application from a configuration file with command-line overrides is the follow-
 1. *(decided, Orest 2026-11-14)* `configure` after the build is refused (AC-4). Reconfiguring can
    come later.
 2. *(decided, Orest 2026-11-14)* A repeated `configure` replaces every setting (AC-5).
-3. *(implementation detail, Phase 2)* Should `configure` re-check declared template and pipeline
-   commands against the new settings at the call (AC-6), or leave that to the build?
+3. *(decided in Phase 2, an implementation detail)* `configure` re-checks the declared template
+   and pipeline commands against the new settings at the call, so a configuration they cannot
+   build under is refused there (AC-6) instead of at the first evaluation.
 
 ## Design Readiness
 
-Not assessed yet. It will be assessed after Phase 4.
+- **Readiness:** ready. Every open question is decided, Phases 2 to 4 are written and reviewed,
+  and Orest pre-approved the remaining phases ("proceed all", 2026-11-15).
+- **Automatic fixing:** not-eligible — adds public API (`lq.configure`, `Environment.configure`)
+  and changes when an environment's settings are fixed (complexity `L`).
+- **Decision log under "proceed all":** no question needed Orest after Phase 2. Two choices were
+  made in the design and are listed for review: open question 3 above, and that `configure`
+  refuses a different `async_loops` once a failed build has started the loops.
 
 ### Findings carried to Phase 2
 

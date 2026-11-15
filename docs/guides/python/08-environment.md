@@ -2,11 +2,11 @@
 title: The environment
 status: ready
 sources: [reference/ENVIRONMENT_CONFIG.md, guides/PYTHON_GUIDE.md, reference/PYTHON_INTEGRATION.md]
-reviewed: 2026-11-10
+reviewed: 2026-11-15
 ---
 # 8. The environment
 
-PURPOSE: The reader can build an environment with the commands, stores and recipes an application needs, and use it from threads and from asyncio.
+PURPOSE: The reader can build and configure an environment with the commands, stores and recipes an application needs, start an application from a configuration file and its command line, and use the environment from threads and from asyncio.
 
 An *environment* is everything a query needs in order to run: the commands it may call, the
 store it reads and writes, the recipes, and the machinery that evaluates and caches. The earlier
@@ -29,15 +29,43 @@ assert lq.evaluate("hello") == "hello"
 assert lq.default_environment().evaluate("hello") == "hello"
 ```
 
-It is created the first time it is needed, with default settings: a store in memory and the
-commands of the library. That suits a script and a notebook.
+Left alone, it has the default settings: a store in memory and the commands of the library.
+That suits a script and a notebook. To give it a store on disk, a server section or any other
+setting, call `lq.configure` with the same keywords as `lq.Environment` (section 8.2):
+
+```python
+import pathlib, tempfile
+import liquers as lq
+
+@lq.first_command                       # often in a module you import: that is fine
+def hello() -> str:
+    return "hello"
+
+folder = pathlib.Path(tempfile.mkdtemp())
+(folder / "liquers.yaml").write_text(
+    "store:\n"
+    "  stores:\n"
+    "    - {type: filesystem, prefix: data, config: {path: " + str(folder / "data") + "} }\n"
+)
+lq.configure(config=folder / "liquers.yaml")
+assert lq.evaluate("hello") == "hello"
+lq.default_environment().store_set("data/note.txt", "kept")
+assert (folder / "data" / "data" / "note.txt").read_text() == "kept"
+```
+
+`lq.configure` can come after the commands are registered, in whatever order your modules are
+imported. It must come before the environment's first use: the first evaluation, `lq.serve`,
+`lq.ui` or a store write. After that it raises `ConfigurationError` ("already built"), and the
+environment carries on with the settings it has. Calling it twice before that is allowed: the
+second call replaces every setting of the first, so give all of them at once. A configuration
+that is wrong (a section Liquers does not know, a missing command metadata file) raises at the
+call and changes nothing.
 
 Create your own `lq.Environment` when you need any of these:
 
-- a store on disk or elsewhere (chapter 6);
 - isolation: tests that must not see each other's commands, or two configurations in one
   process;
-- control over the options below.
+- an environment you shut down and replace while the program runs.
 
 An environment you create has its own decorators, `@env.command` and `@env.first_command`, and
 its own `evaluate`. Nothing is shared between two environments.
@@ -82,6 +110,27 @@ env.shutdown()
 
 In the same way, a keyword of `env.serve()` overrides the configuration's `server` section
 (chapter 12).
+
+`env.configure(...)` takes the same keywords and sets them later, until the environment's first
+use, as `lq.configure` does for the default environment. Both also take `overrides`, a partial
+configuration merged over `config` (section 8.7):
+
+```python
+import liquers as lq
+import pytest
+
+env = lq.Environment()
+
+@env.first_command
+def two() -> int:
+    return 2
+
+env.configure(conversion="strict", job_capacity=8)
+assert env.evaluate("two") == 2             # the first use: the settings are fixed now
+with pytest.raises(lq.ConfigurationError, match="already built"):
+    env.configure(pickle=True)
+env.shutdown()
+```
 
 ## 8.3 The configuration
 
@@ -171,8 +220,9 @@ commands:
 ```
 
 After `@env.first_command def greet(...)`, `env.command_metadata("greet").label` is
-`"Greet someone"`. The file is read when the environment is created, so a missing or malformed
-file raises at once, naming it. An entry naming a command nobody registered is reported by
+`"Greet someone"`. The file is read when the environment is created or configured, so a missing
+or malformed file raises at once, naming it. It describes commands registered before or after
+that, and `env.import_metadata(...)` overrides what it says. An entry naming a command nobody registered is reported by
 `env.validate()` and fails the next build.
 
 ## 8.4 The life of an environment
@@ -201,15 +251,17 @@ it when you are done with an environment you created, typically in a `finally` b
 test fixture (chapter 14). The default environment is shut down when the program exits.
 
 Because the environment is built at first use, some mistakes show up late. An invalid
-`conversion` or a malformed `config` is refused by the constructor. A store of an unknown type
+`conversion` or a malformed `config` is refused by the constructor or by `configure`. A store of an unknown type
 or an unknown source of recipes is reported by the first evaluation.
 
 `env.validate()` checks the registered commands without building the environment, and returns a
 list of `lq.Issue` objects, empty when all is well. It does not check the store configuration.
 
 Registering a command, a store factory or a recipe provider after the first use rebuilds the
-environment. The store is kept; the results computed so far are not. Set everything up first,
-then evaluate.
+environment, with the settings it already has. The store is kept; the results computed so far are
+not. Set everything up first, then evaluate. If the first build fails, for example on a store
+that cannot be opened, the environment counts as not yet used: `configure` it again and
+evaluate.
 
 ## 8.5 Using an environment from asyncio
 
@@ -274,3 +326,86 @@ commands called from different threads really run at the same time. Two things f
   `threading.Lock` around a counter.
 - Do not change one `lq.Query`, `lq.Key` or `lq.Metadata` object from two threads at once. The
   environment, assets, states and contexts are safe to share.
+
+## 8.7 Starting an application
+
+An application usually starts from a configuration file and lets its command line override a
+setting or two, such as the port. `lq.add_arguments(parser)` adds the Liquers options to your
+own `argparse` parser, in a group of their own:
+
+| Option | Sets |
+|---|---|
+| `--config FILE` | the configuration file; without it, `liquers.yaml` in the working directory if there is one |
+| `--command-registry FILE` | `command_registry` |
+| `--default-namespace NS` | `default_namespaces` (repeat it for more) |
+| `--host`, `--port`, `--prefix` | `server.host`, `server.port`, `server.prefix` |
+| `--server-read-only`, `--no-server-read-only` | `server.read_only` |
+| `--job-capacity N`, `--async-loops N` | `assets.job_capacity`, `python.async_loops` |
+| `--conversion`, `--pickle`, `--no-pickle` | `python.conversion`, `python.pickle` |
+
+An option you do not give leaves the file's value. `lq.configure_from_args(args)` then
+configures the default environment from the file with the given options merged over it, step by
+step:
+
+```python
+import argparse, pathlib, tempfile
+import liquers as lq
+
+@lq.first_command
+def hello() -> str:
+    return "hello"
+
+folder = pathlib.Path(tempfile.mkdtemp())
+(folder / "app.yaml").write_text("server: {host: 127.0.0.1, port: 8123, prefix: /app}\n")
+
+parser = argparse.ArgumentParser(description="My Liquers app")
+parser.add_argument("--title", default="My app")          # your program's own option
+lq.add_arguments(parser)
+args = parser.parse_args(["--config", str(folder / "app.yaml"), "--port", "0"])
+lq.configure_from_args(args)
+
+with lq.serve() as server:                                 # the file's prefix, port 0: a free port
+    assert server.port != 8123 and args.title == "My app"
+```
+
+A real program calls `parser.parse_args()` with no list, which reads its command line:
+`python app.py --config app.yaml --port 9000`. `lq.configure_from_command_line` does the three
+steps in one call and returns the parsed arguments:
+
+```python
+import argparse, pathlib, tempfile
+import liquers as lq
+
+folder = pathlib.Path(tempfile.mkdtemp())
+(folder / "app.yaml").write_text("server: {port: 8123}\npython: {conversion: strict}\n")
+
+parser = argparse.ArgumentParser(description="My Liquers app")
+parser.add_argument("--title", default="My app")
+args = lq.configure_from_command_line(parser, argv=["--config", str(folder / "app.yaml"), "--port", "0"])
+assert args.title == "My app" and args.liquers_port == 0
+```
+
+Both take `env=` to configure an environment of your own instead of the default. Leave out a
+Liquers option your program already uses with `options=["config", "port"]`, which adds only
+those; without it, an option name your parser already has is an `argparse.ArgumentError`.
+`default_config=None` turns off the default `liquers.yaml`. A `--config` that does not exist is a
+`ConfigurationError`.
+
+Paths keep their meaning. A relative `command_registry` in the file is found next to the file,
+and a relative `--command-registry` next to where the program was started, because the options
+are merged into the parsed file instead of into its text. To merge settings of your own the same
+way, pass them to `configure` as `overrides`, a partial configuration in the shape of the file:
+
+```python
+import pathlib, tempfile
+import liquers as lq
+
+folder = pathlib.Path(tempfile.mkdtemp())
+(folder / "app.yaml").write_text("server: {host: 127.0.0.1, port: 8123}\n")
+lq.configure(config=folder / "app.yaml", overrides={"server": {"port": 0}})
+with lq.serve() as server:                                 # host from the file, port 0 merged in
+    assert server.port != 8123
+```
+
+`--pickle` and the server options change what the program trusts and exposes; chapter 12 says
+when each is safe.

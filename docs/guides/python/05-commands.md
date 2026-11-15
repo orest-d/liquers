@@ -2,7 +2,7 @@
 title: Commands
 status: ready
 sources: [guides/PYTHON_GUIDE.md, guides/COMMAND_REGISTRATION_GUIDE.md, reference/COMMAND_DECLARATION.md, reference/PIPELINES.md, guides/PIPELINE_GUIDE.md]
-reviewed: 2026-11-09
+reviewed: 2026-11-15
 ---
 # 5. Commands
 

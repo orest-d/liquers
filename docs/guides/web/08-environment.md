@@ -2,7 +2,7 @@
 title: The environment
 status: ready
 sources: [reference/ENVIRONMENT_CONFIG.md, guides/JAVASCRIPT_GUIDE.md]
-reviewed: 2026-11-10
+reviewed: 2026-11-15
 ---
 # 8. The environment
 

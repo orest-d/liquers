@@ -35,3 +35,18 @@ have a row here (`specs/guides/USER_DOCS_EDITING_GUIDE.md`, maintenance).
 | 2026-11-11 | 02-installing.md | 2.1: every package opens the window (about 8 MB); 2.3: a build without the window, a virtual display on Linux |
 | 2026-11-11 | 01-introduction.md, d-sister-guides.md, 15-troubleshooting.md | user interfaces are available from Python; the window needs a display |
 | 2026-11-14 | 11-ui.md | reviewed against `reference/PYTHON_INTEGRATION.md` §18: `wait_idle_async` inside a command, `async def` ones too, raises |
+| 2026-11-15 | 02-installing.md | the default environment can be configured (`lq.configure`, `lq.configure_from_command_line`) |
+| 2026-11-15 | 08-environment.md | §8.1 configuring the default environment with `lq.configure`; §8.2 `env.configure`; §8.3–8.4 when files and settings are read; new §8.7 "Starting an application" (`add_arguments`, `configure_from_args`, `configure_from_command_line`, `overrides`); examples run |
+| 2026-11-15 | 11-ui.md | every UI example starts from a `liquers.yaml` configuration; the window with a server from its `server` section; examples run |
+| 2026-11-15 | 12-serving.md | the service, server and settings examples load a YAML configuration; a server configured from its command line; examples run |
+| 2026-11-15 | 01-introduction.md | the default environment can be pointed at a configuration file with `lq.configure` |
+| 2026-11-15 | 03-queries.md | reviewed for `py-default-environment-config` / `py-command-line-config`: no claim about configuring the default environment or reading a configuration file changed; no edit |
+| 2026-11-15 | 04-values.md | reviewed for `py-default-environment-config` / `py-command-line-config`: no claim about configuring the default environment or reading a configuration file changed; no edit |
+| 2026-11-15 | 05-commands.md | reviewed for `py-default-environment-config` / `py-command-line-config`: no claim about configuring the default environment or reading a configuration file changed; no edit |
+| 2026-11-15 | 06-stores.md | reviewed for `py-default-environment-config` / `py-command-line-config`: no claim about configuring the default environment or reading a configuration file changed; no edit |
+| 2026-11-15 | 07-assets.md | reviewed for `py-default-environment-config` / `py-command-line-config`: no claim about configuring the default environment or reading a configuration file changed; no edit |
+| 2026-11-15 | 09-data.md | reviewed for `py-default-environment-config` / `py-command-line-config`: no claim about configuring the default environment or reading a configuration file changed; no edit |
+| 2026-11-15 | 10-templates.md | reviewed for `py-default-environment-config` / `py-command-line-config`: no claim about configuring the default environment or reading a configuration file changed; no edit |
+| 2026-11-15 | 14-testing.md | reviewed for `py-default-environment-config` / `py-command-line-config`: no claim about configuring the default environment or reading a configuration file changed; no edit |
+| 2026-11-15 | 15-troubleshooting.md | reviewed for `py-default-environment-config` / `py-command-line-config`: no claim about configuring the default environment or reading a configuration file changed; no edit |
+| 2026-11-15 | c-glossary.md | reviewed for `py-default-environment-config` / `py-command-line-config`: no claim about configuring the default environment or reading a configuration file changed; no edit |

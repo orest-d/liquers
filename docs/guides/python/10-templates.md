@@ -2,7 +2,7 @@
 title: Templates
 status: ready
 sources: [guides/TEMPLATE_GUIDE.md, reference/TEMPLATE_LANGUAGE.md, guides/PYTHON_GUIDE.md]
-reviewed: 2026-11-09
+reviewed: 2026-11-15
 ---
 # 10. Templates
 

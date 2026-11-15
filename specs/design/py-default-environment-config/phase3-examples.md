@@ -34,7 +34,7 @@ def hello() -> str:
 
 folder = pathlib.Path(tempfile.mkdtemp())
 (folder / "liquers.yaml").write_text(
-    "store:\n  stores:\n    - {type: file, root: " + str(folder / "data") + "}\n"
+    "store:\n  stores:\n    - {type: filesystem, prefix: data, config: {path: " + str(folder / "data") + "}}\n"
     "server: {port: 0}\npython: {pickle: true}\n"
 )
 lq.configure(config=folder / "liquers.yaml")
@@ -93,23 +93,26 @@ env.shutdown()
     before `configure(conversion="strict")` that returns an opaque object raises
     `ConversionError`. Under the default it does not. An `async def` command registered before
     `configure(async_loops=2)` runs on a pool of 2 (`lq._native.live_loop_count` is not needed:
-    the command reports `threading.get_ident()` of two concurrent calls). `job_capacity=8` reaches
-    the asset manager's options.
+    a volatile `where(i)` reports `threading.get_ident()`, and three calls see two loop threads).
+    `job_capacity=1` reaches the job queue: two threads running a volatile, sleeping command never
+    overlap.
   - `test_CONFIGURE03_registry_file_then_import_metadata` (AC-3): `command_registry:` relabels a
     registered command, and a later `import_metadata` relabels it again. `command_metadata` shows
     the last label. A file describing a command registered after `configure` is accepted.
   - `test_CONFIGURE04_configure_after_build_is_refused` (AC-4): after `evaluate`,
     `configure(...)` raises `ConfigurationError` matching "already built". `evaluate` still works,
     and a command registered after that is evaluated.
-  - `test_CONFIGURE05_last_configure_wins` (AC-5): `configure(config=a)` then
-    `configure(pickle=True)` drops `a`, and pickle is on.
+  - `test_CONFIGURE05_last_configure_wins` (AC-5): `configure(config="python: {conversion:
+    strict}")` then `configure(pickle=True)`: a command returning an opaque object evaluates (the
+    strict setting is gone), and `store_set` of an opaque object succeeds (pickle is on).
   - `test_CONFIGURE06_invalid_configure_changes_nothing` (AC-6), parametrized:
     - an unparsable YAML text;
     - an unknown section;
     - `async_loops=0`;
     - a missing `command_registry:` file.
 
-    Each raises `ConfigurationError` or `ParseError`, and the earlier settings stay in force.
+    The unparsable text raises `ParseError`, the others `ConfigurationError`, and the earlier
+    `conversion="strict"` stays in force (the opaque command still raises `ConversionError`).
   - `test_CONFIGURE07_env_configure_is_per_environment` (AC-7): configuring `env` leaves the
     default and a second environment unchanged. `lq.configure is not None`, and its keywords
     match `Environment.configure`'s (`inspect.signature`).
@@ -121,8 +124,9 @@ env.shutdown()
 - Rust unit tests:
   - `liquers-py/src/aio.rs` `resize_sets_an_idle_pool_and_refuses_a_running_one` (AC-2, AC-9).
   - `liquers-py/src/environment.rs` `configure_is_refused_once_built` (AC-4).
-- Run: `bash scripts/test-liquers-py.sh`, or for the loop `cd liquers-py && pytest
-  tests/test_CONFIGURE_environment.py` after `maturin develop`.
+- Run: `bash scripts/test-liquers-py.sh` (it also runs the Rust unit tests, which cannot be
+  linked as a plain `cargo test` of the extension module), or for the loop `cd liquers-py &&
+  pytest tests/test_CONFIGURE_environment.py` after `maturin develop`.
 
 ## Learning Log
 

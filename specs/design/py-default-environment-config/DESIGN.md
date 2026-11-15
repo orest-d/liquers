@@ -3,8 +3,10 @@ id: PY-DEFAULT-ENVIRONMENT-CONFIG
 kind: design
 title: Configure the Python default environment after commands are registered
 workflow: liquers-project
+readiness: ready
+autofix: not-eligible
 gh_pr: [273]
-phase: implementation
+phase: documentation
 area: [py, docs]
 issues: [PY-DEFAULT-ENVIRONMENT-CANNOT-BE-CONFIGURED]
 affects_docs: [specs/guides/PYTHON_GUIDE.md, specs/reference/PYTHON_INTEGRATION.md, docs/guides/python/02-installing.md, docs/guides/python/08-environment.md, docs/guides/python/12-serving.md]
@@ -25,7 +27,7 @@ and server examples, which were split into `py-command-line-config` to keep with
 limits. This design was re-sized to `L` and converted to the full form. The revision was reviewed
 twice again, and the findings are applied. Phase 1 approved 2026-11-15 (Orest: "proceed", with a
 gate after each phase). Phase 2 written 2026-11-15. Pre-approved after Phase 2 on 2026-11-15
-(Orest: "proceed all"). Phases 3 and 4 written 2026-11-15.
+(Orest: "proceed all"). Phases 3 and 4 written 2026-11-15. Implemented and Phase 5 written 2026-11-15 on PR #273.
 
 ## Phases
 
@@ -33,3 +35,4 @@ gate after each phase). Phase 2 written 2026-11-15. Pre-approved after Phase 2 o
 - [Phase 2](./phase2-architecture.md)
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
+- [Phase 5](./phase5-documentation.md)

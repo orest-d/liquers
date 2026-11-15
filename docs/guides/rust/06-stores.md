@@ -2,7 +2,7 @@
 title: Stores
 status: ready
 sources: [reference/STORE_SEMANTICS.md, guides/STORE_CONFIG_GUIDE.md, guides/STORE_IMPLEMENTATION_GUIDE.md, guides/STORE_FACTORY_GUIDE.md, reference/ENVIRONMENT_CONFIG.md]
-reviewed: 2026-11-10
+reviewed: 2026-11-15
 ---
 # 6. Stores
 

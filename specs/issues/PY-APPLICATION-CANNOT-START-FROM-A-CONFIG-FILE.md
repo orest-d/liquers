@@ -2,7 +2,7 @@
 id: PY-APPLICATION-CANNOT-START-FROM-A-CONFIG-FILE
 kind: feature
 title: A Python Liquers application has no supported way to start from a configuration file with command-line overrides
-status: draft
+status: closed
 priority: P2
 complexity: L
 area: [py, docs]
@@ -51,3 +51,7 @@ runnable example of each. The guide's UI and server examples load a YAML configu
 
 Orest asked for it on 2026-11-14 at the Phase 1 gate of `py-default-environment-config`, which
 this builds on.
+
+## Resolution
+
+Fixed by design `py-command-line-config` on PR #273 (2026-11-15). Evidence: `liquers-py/tests/test_CLI_startup.py` (CLI01 to CLI06) and the `overlay_*` tests of `liquers-core/src/environment_config.rs`; documented in the user guide §8.7 and chapters 11 and 12.

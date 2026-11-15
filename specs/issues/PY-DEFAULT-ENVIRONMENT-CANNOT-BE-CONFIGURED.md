@@ -2,7 +2,7 @@
 id: PY-DEFAULT-ENVIRONMENT-CANNOT-BE-CONFIGURED
 kind: feature
 title: The Python default environment cannot be configured, and the guide does not say so
-status: draft
+status: closed
 priority: P2
 complexity: L
 area: [py, docs]
@@ -105,3 +105,7 @@ top-level name.
 Orest asked on 2026-11-14 whether the default environment can be configured, since the user
 documentation does not show how. Tracing `_env.py`, `Environment.__new__`, `EnvCell::new`,
 `PyConfig::from_python` and `_commands.py` at `2c1a94e` showed no way to do it.
+
+## Resolution
+
+Fixed by design `py-default-environment-config` on PR #273 (2026-11-15). Evidence: `liquers-py/tests/test_CONFIGURE_environment.py` (CONFIGURE01 to CONFIGURE09) and the Rust tests `environment::tests::configure_is_refused_once_built` and `aio::tests::resize_sets_an_idle_pool_and_refuses_a_running_one`; documented in the user guide chapter 8 and `PYTHON_GUIDE.md` §4.
