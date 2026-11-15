@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 246
+Total rows: 247
 - P2: 69
-- P3: 177
+- P3: 178
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -139,6 +139,7 @@ Total rows: 246
 | [`STORE-PATHS-ARE-NOT-RELATIVE-TO-THE-CONFIGURATION-FILE`](issues/STORE-PATHS-ARE-NOT-RELATIVE-TO-THE-CONFIGURATION-FILE.md) | issue | A relative filesystem path in a store configuration resolves against the working directory, not the configuration file | draft |  |  | P3 | S | core/store |  | 2026-11-07 |
 | [`TEMPLATE-DIAGNOSTICS-CHECK-COMMANDS-A-Q-QUOTES`](issues/TEMPLATE-DIAGNOSTICS-CHECK-COMMANDS-A-Q-QUOTES.md) | issue | Template diagnostics report unknown commands in a query part that a later q quotes, which the planner never resolves | draft |  |  | P3 | S | core/query;lib/commands |  | 2026-10-26 |
 | [`TOP-LEVEL-RELATIVE-RESOURCE-QUERY-LOOKS-UP-A-RELATIVE-RECIPES-KEY`](issues/TOP-LEVEL-RELATIVE-RESOURCE-QUERY-LOOKS-UP-A-RELATIVE-RECIPES-KEY.md) | issue | A top-level query reading a relative key fails on './recipes.yaml', while its pipeline form resolves the key | draft |  |  | P3 | S | core/assets |  | 2026-11-04 |
+| [`UI-ELEMENT-KEEPS-AN-EXPIRED-VALUE-AND-NEVER-RE-REQUESTS`](issues/UI-ELEMENT-KEEPS-AN-EXPIRED-VALUE-AND-NEVER-RE-REQUESTS.md) | issue | A UI element keeps an expired asset's value and never requests the query again | draft |  |  | P3 | S | lib/ui |  | 2026-11-15 |
 | [`VALIDATE-PHASE-COMPACT-SIZE-IGNORES-SOURCE-COMPLEXITY`](issues/VALIDATE-PHASE-COMPACT-SIZE-IGNORES-SOURCE-COMPLEXITY.md) | issue | validate_phase.py checks every compact design against the M size limit | draft |  |  | P3 | S | docs;build |  | 2026-10-27 |
 | [`VALIDATE-PHASE-PHASE1-SIZE-COUNTS-EXCLUDED-SECTIONS`](issues/VALIDATE-PHASE-PHASE1-SIZE-COUNTS-EXCLUDED-SECTIONS.md) | issue | validate_phase.py counts the problem example and readiness section against Phase 1's size limit | draft |  |  | P3 | S | docs |  | 2026-10-31 |
 | [`WEB-COMMAND-NAME-WITH-A-DASH-IS-ACCEPTED`](issues/WEB-COMMAND-NAME-WITH-A-DASH-IS-ACCEPTED.md) | issue | registerCommand accepts a command name that no query can spell | draft |  |  | P3 | S | web;core/commands |  | 2026-11-10 |
