@@ -4,7 +4,7 @@ kind: feature
 title: A Python Liquers application has no supported way to start from a configuration file with command-line overrides
 status: draft
 priority: P2
-complexity: M
+complexity: L
 area: [py, docs]
 design: py-command-line-config
 created: 2026-11-14
