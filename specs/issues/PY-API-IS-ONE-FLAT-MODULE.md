@@ -2,7 +2,7 @@
 id: PY-API-IS-ONE-FLAT-MODULE
 kind: feature
 title: The Python API is one flat module with no submodules, unlike the Rust crates
-status: draft
+status: closed
 priority: P3
 complexity: L
 area: [py]
@@ -41,3 +41,12 @@ treatment of top-level names are in design `py-package-submodules`.
 Raised by Orest on 2026-11-14 ("python code is organised in a single module, which makes it
 difficult to orientate in the API"); the assessment is in the project thread *Split Python API
 into submodules*.
+
+## Resolution (2026-11-15)
+
+Closed by `design/py-package-submodules/` (PR #272): sixteen public submodules (`liquers.query` …
+`liquers.lui`) mirror the Rust modules, every class reports its submodule, the stubs are split one
+per submodule, and pdoc writes a page per submodule; every top-level name stays. The native code is
+the private package `_liquers`, imported only by `liquers/_backend.py`. Evidence:
+`liquers-py/tests/test_LAYOUT_submodules.py` (LAYOUT01-08), `test_OBJECT08`, the STUBS suite and
+`test_DOCS04_api_reference_has_a_page_per_submodule`.

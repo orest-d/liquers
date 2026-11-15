@@ -140,13 +140,16 @@ environment, registering commands included, raises `lq.GeneralError`.
 ## Layout
 
 This is a mixed Rust/Python project. The Rust crate (`src/`) builds the native extension
-`liquers._native`; the Python package around it is `python/liquers/`, whose `__init__.py`
-re-exports every class and function of the extension by name. A class registered in
-`src/lib.rs` is not reachable as `liquers.<Name>` until it is added to `__init__.py` as well, and
-it must be declared in `__init__.pyi` (and re-exported from `_native.pyi`): the type declarations
-are written by hand, and `tests/test_STUBS_declarations.py` fails on a name, method or parameter
-that the runtime has and the declarations do not, or the other way round. `py.typed` marks the
-package as typed.
+`_liquers._liquers`, inside the private package `python/_liquers/`, whose `__init__.py` re-exports
+it. The public package is `python/liquers/`: one submodule per Rust module (`query.py`,
+`commands.py`, … `lui.py`), each importing its names from `liquers/_backend.py`, the only module
+that imports `_liquers`; `__init__.py` re-exports every name of every submodule. A class registered
+in `src/lib.rs` needs `module = "liquers.<sub>"` on its `#[pyclass]`, an import in `_backend.py`,
+an entry in that submodule's `__all__`, and a declaration in `liquers/<sub>.pyi` (re-exported by
+`liquers/__init__.pyi` and `_liquers/__init__.pyi`): the type declarations are written by hand, and
+`tests/test_STUBS_declarations.py` fails on a name, method or parameter that the runtime has and
+the declarations do not, or the other way round. `tests/test_LAYOUT_submodules.py` checks that
+each name has exactly one home. `py.typed` marks both packages as typed.
 
 ## Supported Python
 

@@ -2,7 +2,7 @@
 title: Queries
 status: ready
 sources: [reference/PROJECT_OVERVIEW.md, guides/QUERY_ESCAPING_GUIDE.md, guides/PYTHON_GUIDE.md, reference/PIPELINES.md, guides/PIPELINE_GUIDE.md]
-reviewed: 2026-11-09
+reviewed: 2026-11-15
 ---
 # 3. Queries
 

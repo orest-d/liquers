@@ -21,7 +21,10 @@ the usual style.
 >>> import liquers as lq
 >>> from liquers.environment import Environment
 >>> env = Environment()
->>> env.evaluate("hello/to_text")
+>>> @env.first_command
+... def hello() -> str:
+...     return "hello"
+>>> env.evaluate("hello")
 'hello'
 >>> env.shutdown()
 """

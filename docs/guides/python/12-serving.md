@@ -2,7 +2,7 @@
 title: Serving and embedding
 status: ready
 sources: [guides/WEB_API_GUIDE.md, guides/PYTHON_GUIDE.md, reference/PYTHON_INTEGRATION.md]
-reviewed: 2026-11-10
+reviewed: 2026-11-15
 ---
 # 12. Serving and embedding
 

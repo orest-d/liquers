@@ -18,7 +18,10 @@ the usual style.
 >>> import liquers as lq
 >>> from liquers.assets import State
 >>> env = lq.Environment()
->>> isinstance(env.evaluate_state("hello/to_text"), State)
+>>> @env.first_command
+... def hello() -> str:
+...     return "hello"
+>>> isinstance(env.evaluate_state("hello"), State)
 True
 >>> env.shutdown()
 """

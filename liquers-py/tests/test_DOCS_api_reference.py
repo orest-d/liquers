@@ -37,12 +37,17 @@ SUBMODULES = (
 
 
 def test_DOCS04_api_reference_has_a_page_per_submodule(tmp_path):
-    """Design py-package-submodules, AC-8: pdoc writes one page per public submodule."""
+    """Design py-package-submodules, AC-8: the script writes one page per public submodule."""
     pytest.importorskip("pdoc")
-    subprocess.run(
-        [sys.executable, "-m", "pdoc", "liquers", "-o", str(tmp_path), "--docformat", "markdown"],
-        check=True,
+    env = dict(os.environ)
+    # With VIRTUAL_ENV set the script uses this interpreter's environment instead of building one.
+    env["VIRTUAL_ENV"] = sys.prefix
+    env["PATH"] = os.path.dirname(sys.executable) + os.pathsep + env.get("PATH", "")
+    result = subprocess.run(
+        ["bash", str(SCRIPT), "--out", str(tmp_path)],
+        capture_output=True, text=True, env=env, cwd=REPO, timeout=600,
     )
+    assert result.returncode == 0, result.stderr
     for sub in SUBMODULES:
         page = (tmp_path / "liquers" / f"{sub}.html").read_text(encoding="utf-8")
         module = importlib.import_module(f"liquers.{sub}")

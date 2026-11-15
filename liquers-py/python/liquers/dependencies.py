@@ -19,7 +19,7 @@ the usual style.
 # Examples
 >>> from liquers.dependencies import DependencyRelation
 >>> DependencyRelation.recipe().encode()
-'recipe'
+'Recipe'
 """
 
 from liquers._backend import (

@@ -14,11 +14,11 @@ between runs is `$V/bin/python -m pytest liquers-py/tests/<file>` after
 
 ## Progress
 
-- [ ] Step 1: move the native module to `_liquers` behind `liquers/_backend.py`
-- [ ] Step 2: public submodules, class module names, `liquers.error` (one commit with Step 3)
-- [ ] Step 3: split the stubs per submodule (one commit with Step 2)
-- [ ] Step 4: API reference per submodule and module docs
-- [ ] Step 5: documents
+- [x] Step 1 (f9231d2): move the native module to `_liquers` behind `liquers/_backend.py`
+- [x] Step 2 (0708cc8): public submodules, class module names, `liquers.error` (one commit with Step 3)
+- [x] Step 3 (0708cc8): split the stubs per submodule (one commit with Step 2)
+- [x] Step 4 (1a10c43): API reference per submodule and module docs
+- [x] Step 5 (the commit after 1a10c43, with Phase 5): documents
 
 ## Implementation Steps
 
@@ -163,6 +163,6 @@ The documents of Step 5 and the module docs of Step 4 are checked with `scripts/
 `reference/` or `guides/` document gets a History row and a `reviewed:` bump.
 
 ## Phase 5 Entry Criteria
-- [ ] Implementation finished and validated
-- [ ] User and review comments answered
-- [ ] Documentation checkable against implemented and tested behaviour
+- [x] Implementation finished and validated
+- [x] User and review comments answered
+- [x] Documentation checkable against implemented and tested behaviour

@@ -2,7 +2,7 @@
 title: Introduction
 status: ready
 sources: [reference/VISION.md, reference/PROJECT_OVERVIEW.md, guides/PYTHON_GUIDE.md]
-reviewed: 2026-11-11
+reviewed: 2026-11-15
 ---
 # 1. Introduction
 

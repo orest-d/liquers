@@ -2,7 +2,7 @@
 title: Glossary
 status: ready
 sources: [reference/PROJECT_OVERVIEW.md, reference/PIPELINES.md, guides/PYTHON_GUIDE.md]
-reviewed: 2026-11-09
+reviewed: 2026-11-15
 ---
 # C. Glossary
 

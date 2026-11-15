@@ -2,7 +2,7 @@
 title: The environment
 status: ready
 sources: [reference/ENVIRONMENT_CONFIG.md, guides/PYTHON_GUIDE.md, reference/PYTHON_INTEGRATION.md]
-reviewed: 2026-11-10
+reviewed: 2026-11-15
 ---
 # 8. The environment
 

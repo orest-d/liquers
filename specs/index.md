@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 246
+Total rows: 245
 - P2: 68
-- P3: 178
+- P3: 177
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -251,7 +251,6 @@ Total rows: 246
 | [`MODULE-DOCS-DO-NOT-FOLLOW-THE-API-DOC-RULES`](issues/MODULE-DOCS-DO-NOT-FOLLOW-THE-API-DOC-RULES.md) | issue | Existing module docs lack purpose, usage, related concepts and examples | draft |  |  | P3 | L | docs;core/commands;core/value;lib/commands;axum;py |  | 2026-11-01 |
 | [`NO-SOURCE-CODE-AND-API-DOC-NAVIGATION`](issues/NO-SOURCE-CODE-AND-API-DOC-NAVIGATION.md) | feature | Source code and API documentation cannot be navigated or extracted | draft |  |  | P3 | L | lib/commands |  | 2026-10-11 |
 | [`NO-SQL-ENGINE-IN-WASM-BUILDS`](issues/NO-SQL-ENGINE-IN-WASM-BUILDS.md) | feature | SQL over records is unavailable in wasm builds, where polars does not build | draft |  |  | P3 | L | records;lib/commands;web |  | 2026-10-21 |
-| [`PY-API-IS-ONE-FLAT-MODULE`](issues/PY-API-IS-ONE-FLAT-MODULE.md) | feature | The Python API is one flat module with no submodules, unlike the Rust crates | draft |  |  | P3 | L | py | [phase1](design/py-package-submodules/phase1-high-level-design.md)  [phase2](design/py-package-submodules/phase2-architecture.md)  [phase3](design/py-package-submodules/phase3-examples.md)  [phase4](design/py-package-submodules/phase4-implementation.md)  | 2026-11-14 |
 | [`PY-WEB-SERVER-CANNOT-TAKE-PYTHON-HANDLERS`](issues/PY-WEB-SERVER-CANNOT-TAKE-PYTHON-HANDLERS.md) | feature | A Liquers server started from Python cannot route a request to a Python handler or middleware | draft |  |  | P3 | L | py;axum |  | 2026-11-06 |
 | [`UI-EVENTS-HAVE-NO-POINTER-DRAG-OR-CHANGE-KINDS`](issues/UI-EVENTS-HAVE-NO-POINTER-DRAG-OR-CHANGE-KINDS.md) | feature | UI events cannot express field changes, focus, drag-and-drop or pointer input | draft |  |  | P3 | L | lib/ui | [phase1](design/ui-events/phase1-high-level-design.md)  [phase2](design/ui-events/phase2-architecture.md)  [phase3](design/ui-events/phase3-examples.md)  [phase4](design/ui-events/phase4-implementation.md)  | 2026-10-30 |
 | [`WEB-CANCELLATION-INERT`](issues/WEB-CANCELLATION-INERT.md) | issue | Web cancellation surface exists but does nothing | accepted |  |  | P3 | L | core/assets;web |  | 2026-08-08 |

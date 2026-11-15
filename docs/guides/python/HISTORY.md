@@ -35,3 +35,18 @@ have a row here (`specs/guides/USER_DOCS_EDITING_GUIDE.md`, maintenance).
 | 2026-11-11 | 02-installing.md | 2.1: every package opens the window (about 8 MB); 2.3: a build without the window, a virtual display on Linux |
 | 2026-11-11 | 01-introduction.md, d-sister-guides.md, 15-troubleshooting.md | user interfaces are available from Python; the window needs a display |
 | 2026-11-14 | 11-ui.md | reviewed against `reference/PYTHON_INTEGRATION.md` §18: `wait_idle_async` inside a command, `async def` ones too, raises |
+| 2026-11-15 | 02-installing.md | §2.4: the submodules (`liquers.query`, …, `liquers.lui`, `liquers.data_nodes`) and the private `_liquers`, from `guides/PYTHON_GUIDE.md` §2; example runs |
+| 2026-11-15 | 01-introduction.md | reviewed against the package layout of `design/py-package-submodules/`: imports only `liquers as lq`, unchanged; no change |
+| 2026-11-15 | 03-queries.md | reviewed against the package layout of `design/py-package-submodules/`: imports only `liquers as lq`, unchanged; no change |
+| 2026-11-15 | 04-values.md | reviewed against the package layout of `design/py-package-submodules/`: imports only `liquers as lq`, unchanged; no change |
+| 2026-11-15 | 05-commands.md | reviewed against the package layout of `design/py-package-submodules/`: imports only `liquers as lq`, unchanged; no change |
+| 2026-11-15 | 06-stores.md | reviewed against the package layout of `design/py-package-submodules/`: imports only `liquers as lq`, unchanged; no change |
+| 2026-11-15 | 07-assets.md | reviewed against the package layout of `design/py-package-submodules/`: imports only `liquers as lq`, unchanged; no change |
+| 2026-11-15 | 08-environment.md | reviewed against the package layout of `design/py-package-submodules/`: imports only `liquers as lq`, unchanged; no change |
+| 2026-11-15 | 09-data.md | reviewed against the package layout of `design/py-package-submodules/`: imports only `liquers as lq`, unchanged; no change |
+| 2026-11-15 | 10-templates.md | reviewed against the package layout of `design/py-package-submodules/`: imports only `liquers as lq`, unchanged; no change |
+| 2026-11-15 | 11-ui.md | reviewed against the package layout of `design/py-package-submodules/`: imports only `liquers as lq`, unchanged; no change |
+| 2026-11-15 | 12-serving.md | reviewed against the package layout of `design/py-package-submodules/`: imports only `liquers as lq`, unchanged; no change |
+| 2026-11-15 | 14-testing.md | reviewed against the package layout of `design/py-package-submodules/`: imports only `liquers as lq`, unchanged; no change |
+| 2026-11-15 | 15-troubleshooting.md | reviewed against the package layout of `design/py-package-submodules/`: imports only `liquers as lq`, unchanged; no change |
+| 2026-11-15 | c-glossary.md | reviewed against the package layout of `design/py-package-submodules/`: imports only `liquers as lq`, unchanged; no change |

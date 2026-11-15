@@ -4,10 +4,10 @@ kind: design
 title: Public submodules for the liquers Python package, mirroring the Rust modules
 workflow: liquers-project
 status: approved
-phase: implementation
+phase: documentation
 area: [py]
 issues: [PY-API-IS-ONE-FLAT-MODULE]
-affects_docs: [specs/reference/PYTHON_INTEGRATION.md, specs/guides/PYTHON_GUIDE.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, liquers-py/README.md, docs/guides/python/01-introduction.md, specs/guides/API_DOCUMENTATION_GUIDE.md]
+affects_docs: [specs/reference/PYTHON_INTEGRATION.md, specs/guides/PYTHON_GUIDE.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, liquers-py/README.md, docs/guides/python/02-installing.md, specs/guides/API_DOCUMENTATION_GUIDE.md]
 created: 2026-11-14
 ---
 # Public submodules for the liquers Python package
@@ -29,9 +29,14 @@ Phases 3 and 4 written 2026-11-15 and reviewed twice (conformity, records and th
 pass over all phases; codebase and soundness); findings applied. Problem filed:
 `PY-ERROR-INSTANCES-CANNOT-BE-PICKLED` (pre-existing, out of scope).
 
+Implemented 2026-11-15 in four commits on PR #272 (Phase 4 *Progress*); Phase 5 written and
+reviewed twice the same day (conformity and records; accuracy against the code), findings
+applied; its results are presented to Orest before `status: complete`.
+
 ## Phases
 
 - [Phase 1](./phase1-high-level-design.md)
 - [Phase 2](./phase2-architecture.md)
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
+- [Phase 5](./phase5-documentation.md)
