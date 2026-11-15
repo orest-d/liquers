@@ -158,17 +158,18 @@ is a read-only view that reads a value one field at a time:
 
 ```python
 import datetime
-import liquers as lq
+from liquers.data_nodes import NodeKind, data_node
 
-node = lq.data_node({"name": "Ann", "when": datetime.datetime.now(), "tags": ["a", "b"]})
+node = data_node({"name": "Ann", "when": datetime.datetime.now(), "tags": ["a", "b"]})
 assert node["name"].scalar == "Ann"
-assert node["tags"].kind == lq.NodeKind.List and len(node["tags"]) == 2
-assert node["when"].kind == lq.NodeKind.Opaque          # no Liquers equivalent
+assert node["tags"].kind == NodeKind.List and len(node["tags"]) == 2
+assert node["when"].kind == NodeKind.Opaque             # no Liquers equivalent
 assert node.get("missing") is None
 ```
 
-`lq.data_node` accepts a Python value or a state. Given a state, it reads the value where it is,
-without converting it. The first cell of a table is then `lq.data_node(state)[0]["amount"].scalar`,
+`data_node`, from the module `liquers.data_nodes` (also `lq.data_node`), accepts a Python value
+or a state. Given a state, it reads the value where it is, without converting it. The first cell
+of a table is then `data_node(state)[0]["amount"].scalar`,
 and polars need not even be installed. Templates read their data in the same way (chapter 10),
 which is why a template can render a dictionary that holds a `datetime`.
 
@@ -177,7 +178,7 @@ never runs the code of a class it does not know, so an object of your own class 
 the class opts in:
 
 ```python
-import liquers as lq
+from liquers.data_nodes import data_node
 
 class Person:
     __liquers_data__ = True                 # read through keys() and __getitem__
@@ -194,8 +195,8 @@ class Wrapper:
     def __liquers_data__(self):             # or: return the data to read instead
         return self.data
 
-assert lq.data_node(Person())["name"].scalar == "Ann"
-assert lq.data_node(Wrapper({"a": 1}))["a"].scalar == 1
+assert data_node(Person())["name"].scalar == "Ann"
+assert data_node(Wrapper({"a": 1}))["a"].scalar == 1
 ```
 
 With `__liquers_data__ = True`, an object is read as a dictionary through `keys` and

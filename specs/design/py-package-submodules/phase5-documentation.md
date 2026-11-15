@@ -80,9 +80,19 @@ The sixteen `liquers/<sub>.py`, `liquers/__init__.py`, `liquers/_backend.py`,
 for any of them.
 
 ### User-Guide Chapters
-`docs_index.py chapters-for` lists `01`-`12`, `14`, `15` and `c-glossary` of the Python guide.
-`02-installing.md` §2.4 gains the submodules, with an example that runs; the others import only
-`liquers as lq`, which is unchanged, and were marked reviewed. One `HISTORY.md` row each.
+`docs_index.py chapters-for` lists `01`-`15` and `c-glossary` of the Python guide, reviewed
+after main's chapter rewrite (PR #270) was merged in, keeping its text. On Orest's ask
+(2026-11-15), the examples use the public submodules where a chapter is about their classes, and
+the text changes only around them:
+- `02-installing.md` §2.4: the submodules, with an example.
+- `03` (`liquers.query`, `liquers.pipeline`), `04` (`liquers.data_nodes`), `06` (`liquers.store`),
+  `07` (`liquers.recipes`), `09` and `13` (`liquers.records`), `15` (`liquers.error`): the
+  examples import from the submodule, and the first mention names it. API links point to the
+  submodule pages.
+- `c-glossary.md` C.2 gains a module column.
+- The others use only the entry points (`lq.Environment`, `lq.evaluate`, the decorators, the
+  error classes): reviewed, unchanged. No example imports `_liquers`. Every example runs, and each
+  chapter has a `HISTORY.md` row.
 
 ### Links and Capability Map
 `specs/README.md`: new entry "Python package layout", linking `PYTHON_INTEGRATION.md` §1 and §13
