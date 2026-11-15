@@ -2,13 +2,14 @@
 
 ## Purpose
 
-An editor needs a handle to *the place a value lives*, not a copy of the value: a stored file, an
-asset, a field of a document, a cell of a table, or one argument of one action of a query. A
+Code that changes a value — a command, a binding, a service, an editor — often needs a handle to
+*the place a value lives*, not a copy of the value: a stored file, an asset, a field of a document, a cell of a table, or one argument of one action of a query. A
 **value accessor** is that handle. It can read the value, write it, and report changes made by
 others (a new version, expiry, removal). Narrower accessors are made from wider ones by
-**projection**. This is what interactive editors need (VISION: desktop application, web UI and
-dashboards), above all a query and pipeline editor that shows each step and edits its arguments with
-the GUI hints of the command metadata registry, wherever the query comes from.
+**projection**. The contract is not UI-specific. Interactive editors are the motivating consumer
+(VISION: desktop application, web UI and dashboards), and the problem example below uses one: a
+query and pipeline editor that shows each step and edits its arguments with the GUI hints of the
+command metadata registry, wherever the query comes from.
 
 ## Problem Example
 
@@ -134,11 +135,12 @@ in scope.
 
 ## Open Questions
 
-1. **Value variant.** Should the accessor be in core `Value`, or only in lib `ExtValue`?
-   *Recommended:* the trait in core and the variant in `ExtValue`, so core's `Value` stays plain data.
-2. **Version of a root.** *Recommended:* the asset's version where there is an asset, otherwise a
-   counter held by the root. Every set carries the version it was based on, and a stale one is a
-   conflict (AC-5).
+1. **Value variant.** *Decided (Orest, 2026-11-15):* the accessor belongs in `liquers-core`. The
+   trait and the core accessors live there. Phase 2 confirms whether core's `Value` carries the
+   variant as well, or whether only `ExtValue` does.
+2. **Version of a root.** *Decided (Orest, 2026-11-15):* the asset's version where there is an
+   asset, otherwise a counter held by the root. Every set carries the version it was based on, and
+   a stale one is a conflict (AC-5).
 3. **Unconditional set.** Should a set without a base version be allowed (last writer wins) for
    simple UI fields? *Recommended:* yes, as an explicit separate call.
 4. **Paths across structural edits.** Inserting a step before `head` shifts its index.
