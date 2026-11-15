@@ -69,9 +69,10 @@ maturin develop --manifest-path liquers-py/Cargo.toml --features debug-handles
 echo "==> pytest liquers-py/tests"
 python3 -m pytest liquers-py/tests "$@"
 
-# The package docstring's `>>>` example (specs/guides/API_DOCUMENTATION_GUIDE.md §8).
-echo "==> pytest --doctest-modules liquers-py/python/liquers/__init__.py"
-python3 -m pytest --doctest-modules liquers-py/python/liquers/__init__.py
+# The module docstrings' `>>>` examples (specs/guides/API_DOCUMENTATION_GUIDE.md §8): the package,
+# its public submodules, its private helpers and the native package `_liquers`.
+echo "==> pytest --doctest-modules liquers-py/python/liquers liquers-py/python/_liquers"
+python3 -m pytest --doctest-modules liquers-py/python/liquers liquers-py/python/_liquers
 
 echo "==> scripts/build-liquers-py-docs.sh"
 bash scripts/build-liquers-py-docs.sh

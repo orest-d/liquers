@@ -1,9 +1,14 @@
 //! The native extension of the `liquers` Python package (`_liquers`): Python bindings of
 //! Liquers, built with PyO3.
 //!
-//! Every module registers its classes and functions into one extension module; the pure-Python
-//! package `liquers` (`liquers-py/python/liquers/`) re-exports them with the decorators and the
-//! exception classes.
+//! Every module registers its classes and functions into one flat extension module, compiled as
+//! `_liquers._liquers` and re-exported by the private package `_liquers`
+//! (`liquers-py/python/_liquers/`). The pure-Python package `liquers` (`liquers-py/python/liquers/`)
+//! reaches it only through `liquers/_backend.py`, and groups the names into public submodules that
+//! mirror the Rust crates (`liquers.query`, `liquers.environment`, `liquers.records`, …). Each
+//! `#[pyclass(module = "liquers.<sub>")]` names the submodule that exports the class, so its
+//! `__module__`, its default repr and its stub all say `liquers.<sub>`; a class added here is added
+//! to `_backend.py`, its submodule and `liquers/__init__.py`.
 //!
 //! # Main components
 //!
@@ -18,7 +23,8 @@
 //!
 //! # Where it is used
 //!
-//! - `import liquers` loads it; `maturin` builds it (`liquers-py/pyproject.toml`).
+//! - `import liquers` loads it through `liquers._backend`; `maturin` builds it
+//!   (`liquers-py/pyproject.toml`, `module-name = "_liquers"`).
 //!
 //! # Related concepts
 //!
