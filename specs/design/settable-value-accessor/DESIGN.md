@@ -3,7 +3,7 @@ id: SETTABLE-VALUE-ACCESSOR
 kind: design
 title: Settable value accessor
 workflow: liquers-project
-status: draft
+status: in_review
 phase: architecture
 area: [core/value, core/assets, core/query, lib/ui, lib/value, records, axum]
 issues: []
