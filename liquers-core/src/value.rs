@@ -1,3 +1,50 @@
+//! Values: the data a query produces, and the trait every value type implements.
+//!
+//! [`Value`] is the built-in value type of `liquers-core`: scalars, text, arrays, objects, bytes,
+//! and the structured values the system itself produces (metadata, asset info, recipes, queries,
+//! keys, pipelines). An application with richer data (data frames, images, UI elements) uses its
+//! own value type instead, implementing [`ValueInterface`]; `liquers-lib`'s `CombinedValue` is one.
+//!
+//! # Main components
+//!
+//! - [`ValueInterface`]: conversions to and from Rust types, type identifiers and default
+//!   formats; the bound of `State<V>` and of every environment.
+//! - [`DefaultValueSerializer`]: bytes in a data format (`json`, `yaml`, `txt`, …) and back, guided
+//!   by the type identifier.
+//! - [`json_f64`]: lossless JSON for floats, including NaN and the infinities.
+//!
+//! **Handle values.** Some values are handles to something live rather than data: a UI element,
+//! a foreign-language object, a value accessor. A handle is passed around like any value but is
+//! never serialized (its type declares no formats, so persisting it is `NonSerializable`).
+//! [`ValueInterface::from_accessor`] and [`ValueInterface::try_into_accessor`] carry a
+//! [`crate::accessor::ValueAccessor`]; both default to refusing, and core [`Value`] keeps the
+//! defaults (`liquers-lib`'s `ExtValue::Accessor` is the variant that holds one).
+//!
+//! # Where it is used
+//!
+//! - [`crate::state::State`]: a value with its metadata, the result of every evaluation.
+//! - [`crate::context::Environment::Value`]: the value type of an environment.
+//! - [`crate::commands`]: command arguments and results convert through [`ValueInterface`].
+//!
+//! # Related concepts
+//!
+//! - [`crate::type_system`]: the registry of type identifiers and the formats each one supports.
+//! - [`crate::data_node`]: a read-only view into a value's data.
+//! - [`crate::accessor`]: a settable handle to where a value lives.
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_core::value::{DefaultValueSerializer, Value, ValueInterface};
+//! let value = Value::from(42i64);
+//! assert_eq!(value.identifier(), "I64");
+//! let bytes = value.as_bytes("json").unwrap();
+//! assert_eq!(Value::deserialize_from_bytes(&bytes, "I64", "json").unwrap(), value);
+//! ```
+//!
+//! - [Tests](https://github.com/orest-d/liquers/blob/main/liquers-core/src/value.rs): the
+//!   `mod tests` of this file, on identifiers, JSON round trips and float encodings.
+
 #![allow(unused_imports)]
 #![allow(dead_code)]
 
@@ -445,6 +492,22 @@ pub trait ValueInterface:
             Ok(json) => crate::data_node::AnyNode::from_json(json),
             Err(_) => crate::data_node::AnyNode::opaque(),
         }
+    }
+
+    /// A value holding `accessor`. Default: refused, for a value type with no accessor variant.
+    fn from_accessor(
+        _accessor: std::sync::Arc<dyn crate::accessor::ValueAccessor<Self>>,
+    ) -> Result<Self, Error> {
+        Err(Error::not_supported(
+            "this value type cannot hold a value accessor".to_string(),
+        ))
+    }
+
+    /// The accessor this value holds. Default: a conversion error.
+    fn try_into_accessor(
+        &self,
+    ) -> Result<std::sync::Arc<dyn crate::accessor::ValueAccessor<Self>>, Error> {
+        Err(Error::conversion_error(self.identifier(), "Accessor"))
     }
 
     /// Try to convert JSON value to value type
