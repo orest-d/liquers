@@ -335,3 +335,41 @@ async fn websocket_relays_accessor_events() {
     assert!(invalidated, "the socket closed without an invalidated event");
     server.shutdown(Duration::from_secs(1)).await;
 }
+
+#[tokio::test]
+async fn websocket_as_first_consumer_hears_outside_writes() {
+    let envref = fixture().await;
+    let config = ServerConfig { port: 0, apis: vec![Api::Accessors], ..ServerConfig::default() };
+    let server = LiquersServerBuilder::<Env>::from_config(config).bind(envref.clone()).await.unwrap();
+    let base = format!("{}/liquer/api/acc", server.local_addr());
+    // Nothing has read this accessor before the socket opens.
+    let document = "-R-key/config.yaml/-/ns-acc/accessor";
+    let (mut socket, _) = tokio_tungstenite::connect_async(format!("ws://{base}/ws/{document}"))
+        .await
+        .unwrap();
+    next_event(&mut socket).await.expect("the current event");
+
+    // A write through the asset manager, not through the accessor, wakes the socket. Events
+    // coalesce, so the client reads again after each one rather than waiting for `changed`.
+    envref
+        .get_asset_manager()
+        .set_binary(&parse_key("config.yaml").unwrap(), b"title: Outside\nrows: 3\n", text_record())
+        .await
+        .unwrap();
+    let client = reqwest::Client::new();
+    loop {
+        next_event(&mut socket).await.expect("an event after the outside write");
+        let body = client
+            .get(format!("http://{base}/q/{document}"))
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        if body.contains("Outside") {
+            break;
+        }
+    }
+    server.shutdown(Duration::from_secs(1)).await;
+}

@@ -205,7 +205,8 @@ again, because the asset may have moved on in between.
 **Wrappers** restrict an accessor: `read_only(inner)` refuses every set with `NotSupported` and
 reports `write: false`; `validated(inner, check)` runs a `ValueCheck` before every set. A wrapper's
 projections are `WrapperProjection`s, which put the part into the wrapper's value and set that
-through the wrapper, so the rule holds for every part.
+through the wrapper, so the rule holds for every part. Like a hub node, a `WrapperProjection`
+remembers the fingerprint of its last read or write, and a plain `set` is checked against it.
 
 ## 6. Projection steps
 
@@ -227,7 +228,7 @@ they make is one the editor would accept.
 Records (`liquers-lib/src/records/accessor.rs`, feature `records`): `RowStep(i)` (a row, as an object
 of field values), `ColumnStep(name)` (a column, as a list; a list of the wrong length is refused) and
 `CellStep(row, column)` (a scalar). A `put` builds a new batch sharing every column except the edited
-one, with the schema unchanged. These steps are Rust API only:
+one, with the schema, the row identities and the sources unchanged. These steps are Rust API only:
 `RECORD-ACCESSOR-STEPS-HAVE-NO-COMMANDS`.
 
 ## 7. The accessor value and the `acc` commands
@@ -269,7 +270,7 @@ type. Every route resolves its query with `resolve_accessor`, which evaluates it
 | `GET {base}/info/{*query}` | `AccessorInfo` as JSON, with `etag` once the accessor has been read |
 | `GET {base}/log/{*query}?since=n` | the log entries from `n` (`400` when `n` is not a number) |
 | `GET {base}/describe/{*query}` | `PartDescription` |
-| `GET {base}/ws/{*query}` | a WebSocket of events as `to_json()` frames: the current event, then each change; closes with `1000` after `invalidated` and `1001` when the server stops. For a root that cannot notify it refreshes once a second |
+| `GET {base}/ws/{*query}` | a WebSocket of events as `to_json()` frames: it reads the root once, then sends the current event and each change; closes with `1000` after `invalidated` and `1001` when the server stops. For a root that cannot notify it refreshes once a second |
 
 `PUT` preconditions: `If-Match: <token>` sets a value whose token matches; `If-Match: *` sets the value
 as it is now (`412` when it does not exist); `If-None-Match: *` creates. No precondition is `428`; a
@@ -305,3 +306,4 @@ spawn it on construction. Contracts of each integration: [`PYTHON_INTEGRATION.md
 | Date | Change | Source |
 |---|---|---|
 | 2026-11-16 | Created: roots and projections, the hub, fingerprints and conflicts, events, the first-class accessors, the steps, the `acc` commands, the web routes and the Python and JavaScript wrappers. | `design/settable-value-accessor/` |
+| 2026-11-16 | Review fixes: a wrapper projection's `set` checks its last-seen fingerprint; the WebSocket reads the root on connect; the record steps keep row identity and sources. | PR #274 review |

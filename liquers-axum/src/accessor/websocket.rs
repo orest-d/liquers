@@ -47,6 +47,11 @@ async fn session<V: ValueInterface>(
     };
     tokio::pin!(stopped);
     let (mut sink, mut stream) = socket.split();
+    // Read the root once: an asset root starts relaying its asset only after a read, and a root
+    // that notifies is not polled below, so without it a first consumer would hear nothing.
+    if let Err(e) = accessor.refresh().await {
+        eprintln!("accessor socket: initial refresh failed: {e}");
+    }
     let mut events = accessor.subscribe();
     let first = events.borrow_and_update().clone();
     if !send(&mut sink, &first).await {

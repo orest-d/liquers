@@ -141,7 +141,8 @@ fn rebuild_column(
     Ok(built.freeze())
 }
 
-/// A new batch of `view` with column `col` replaced by `edit`'s values.
+/// A new batch of `view` with column `col` replaced by `edit`'s values, its row identities and
+/// sources kept.
 fn with_column(
     view: &dyn RecordView,
     col: usize,
@@ -153,7 +154,14 @@ fn with_column(
         let column = batch.column(c)?;
         columns.push(if c == col { rebuild_column(&column, &edit)? } else { column });
     }
-    let edited = RecordBatch::new(batch.schema().clone(), columns, None, None, Vec::new())?;
+    // Only values change: the rows keep their identity (chunk, row runs) and provenance (sources).
+    let edited = RecordBatch::new(
+        batch.schema().clone(),
+        columns,
+        batch.chunk_id.clone(),
+        Some(batch.rows.clone()),
+        batch.sources.clone(),
+    )?;
     Ok(Value::from_record_view(Arc::new(edited)))
 }
 

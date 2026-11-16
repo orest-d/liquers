@@ -1050,6 +1050,29 @@ mod tests {
         assert_eq!(value_of(&inner.get().await.unwrap()), object(&[("a", 5)]));
     }
 
+    #[tokio::test]
+    async fn validated_projection_set_checks_the_last_read() {
+        let inner = memory_accessor(Some(state(object(&[("a", 1)]))), Query::new());
+        let any = validated(inner.clone(), Arc::new(|_: &Value| Ok(())));
+        let a = any.project(Arc::new(Field("a")), Query::new()).unwrap();
+        a.get().await.unwrap();
+        // Another holder changes the part after this one read it.
+        let other = inner.project(Arc::new(Field("a")), Query::new()).unwrap();
+        other.set_if(Value::from(2), None, SetOptions::default()).await.unwrap_err();
+        let fp = other.get().await.unwrap().fingerprint;
+        other.set_if(Value::from(2), Some(fp), SetOptions::default()).await.unwrap();
+        // The stale edit is refused, and nothing is written.
+        let err = a.set(Value::from(3), SetOptions::default()).await.unwrap_err();
+        assert_eq!(err.error_type, ErrorType::StatusConflict);
+        assert_eq!(value_of(&inner.get().await.unwrap()), object(&[("a", 2)]));
+        // After reading again, the edit goes through.
+        a.get().await.unwrap();
+        a.set(Value::from(3), SetOptions::default()).await.unwrap();
+        assert_eq!(value_of(&inner.get().await.unwrap()), object(&[("a", 3)]));
+        // And its own write counts as seen.
+        a.set(Value::from(4), SetOptions::default()).await.unwrap();
+    }
+
     /// A root that reports events through `poll_event` only.
     #[derive(Debug)]
     struct Pushed {

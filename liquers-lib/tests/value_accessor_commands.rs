@@ -310,7 +310,7 @@ async fn record_row_column_and_cell_projections() {
     use liquers_lib::records::accessor::{CellStep, ColumnStep, RowStep};
     use liquers_lib::value::ExtValueInterface;
     use liquers_records::{
-        Buffer, Column, FieldSchema, FieldType, RecordBatch, RecordSchema, RecordView,
+        Buffer, Column, FieldSchema, FieldType, RecordBatch, RecordSchema, RecordView, RowRun,
     };
 
     let schema = Arc::new(
@@ -328,7 +328,10 @@ async fn record_row_column_and_cell_projections() {
         validity: None,
         values: Buffer::from_slice(&[0.5f64, 1.5, 2.5]),
     };
-    let batch = RecordBatch::new(schema, vec![n, x], None, None, vec![]).unwrap();
+    // Rows 10..13 of chunk 7: an edit must keep these identities.
+    let runs = vec![RowRun { chunk: 7, first_row: 10, first_number: Some(100), len: 3 }];
+    let batch = RecordBatch::new(schema, vec![n, x], None, Some(runs), vec![]).unwrap();
+    let ids_before: Vec<_> = (0..3).map(|r| batch.row_id(r).unwrap()).collect();
     let table = memory_accessor::<Value>(
         Some(State::from_value_and_metadata(
             Value::from_record_view(Arc::new(batch)),
@@ -369,6 +372,9 @@ async fn record_row_column_and_cell_projections() {
         cells,
         ["Int(1)", "Float(0.5)", "Int(2)", "Float(9.0)", "Int(30)", "Float(2.5)"]
     );
+    // And every row kept its identity.
+    let ids_after: Vec<_> = (0..3).map(|r| view.row_id(r).unwrap()).collect();
+    assert_eq!(ids_after, ids_before);
     // A column of the wrong length is refused and writes nothing.
     let short = Value::try_from_json_value(&serde_json::json!([1.0])).unwrap();
     assert!(within(column.set(short, SetOptions::default())).await.is_err());

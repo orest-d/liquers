@@ -172,14 +172,14 @@ impl<V: ValueInterface> ValueAccessor<V> for Restricted<V> {
     ) -> Result<Arc<dyn ValueAccessor<V>>, Error> {
         match &self.rule {
             Rule::ReadOnly => Ok(read_only(self.inner.project(step, address)?)),
-            Rule::Check(check) => Ok(Arc::new(WrapperProjection {
-                parent: Arc::new(Restricted {
+            Rule::Check(check) => Ok(Arc::new(WrapperProjection::new(
+                Arc::new(Restricted {
                     inner: self.inner.clone(),
                     rule: Rule::Check(check.clone()),
                 }),
                 step,
                 address,
-            })),
+            ))),
         }
     }
     fn set_invalidation_sink(&self, sink: Arc<dyn InvalidationSink>) {
@@ -192,11 +192,14 @@ impl<V: ValueInterface> ValueAccessor<V> for Restricted<V> {
 
 /// A projection of an accessor that is not a hub node: it reads through the parent's `get` and
 /// writes the whole parent value through the parent's `set_if`, so the parent's rules apply. Its
-/// events are the parent's.
+/// events are the parent's. Like a hub node, it remembers the fingerprint of its last read or
+/// write, and a plain `set` is checked against it.
 pub struct WrapperProjection<V: ValueInterface> {
     pub parent: Arc<dyn ValueAccessor<V>>,
     pub step: Arc<dyn ProjectionStep<V>>,
     pub address: Query,
+    /// The fingerprint of the last read or write; `None` until the first.
+    last_seen: std::sync::Mutex<Option<Fingerprint>>,
 }
 
 impl<V: ValueInterface> Debug for WrapperProjection<V> {
@@ -209,6 +212,30 @@ impl<V: ValueInterface> Debug for WrapperProjection<V> {
 }
 
 impl<V: ValueInterface> WrapperProjection<V> {
+    /// A projection of `parent` through `step`, named `address`.
+    pub fn new(
+        parent: Arc<dyn ValueAccessor<V>>,
+        step: Arc<dyn ProjectionStep<V>>,
+        address: Query,
+    ) -> Self {
+        WrapperProjection {
+            parent,
+            step,
+            address,
+            last_seen: std::sync::Mutex::new(None),
+        }
+    }
+
+    fn remember(&self, seen: Fingerprint) {
+        if let Ok(mut last) = self.last_seen.lock() {
+            *last = Some(seen);
+        }
+    }
+
+    fn last_seen(&self) -> Option<Fingerprint> {
+        self.last_seen.lock().ok().and_then(|last| *last)
+    }
+
     fn part(&self, snap: &AccessorSnapshot<V>) -> Result<(V, Fingerprint), Error> {
         let parent = snap.state.value()?;
         let part = self
@@ -246,6 +273,7 @@ impl<V: ValueInterface> WrapperProjection<V> {
             .set_if(new_parent, Some(snap.fingerprint), options)
             .await?;
         let (part, fingerprint) = self.part(&written)?;
+        self.remember(fingerprint);
         Ok(AccessorSnapshot {
             state: State::from_value_and_metadata(part, Arc::new(Metadata::new())),
             fingerprint,
@@ -263,6 +291,7 @@ impl<V: ValueInterface> ValueAccessor<V> for WrapperProjection<V> {
     async fn get(&self) -> Result<AccessorSnapshot<V>, Error> {
         let snap = self.parent.get().await?;
         let (part, fingerprint) = self.part(&snap)?;
+        self.remember(fingerprint);
         Ok(AccessorSnapshot {
             state: State::from_value_and_metadata(part, Arc::new(Metadata::new())),
             fingerprint,
@@ -270,7 +299,9 @@ impl<V: ValueInterface> ValueAccessor<V> for WrapperProjection<V> {
         })
     }
     async fn set(&self, value: V, options: SetOptions) -> Result<AccessorSnapshot<V>, Error> {
-        self.put(value, None, options).await
+        // Unchecked until the first read or write, as a hub node is.
+        let expected = self.last_seen().map(Some);
+        self.put(value, expected, options).await
     }
     async fn set_if(
         &self,
@@ -312,15 +343,15 @@ impl<V: ValueInterface> ValueAccessor<V> for WrapperProjection<V> {
         step: Arc<dyn ProjectionStep<V>>,
         address: Query,
     ) -> Result<Arc<dyn ValueAccessor<V>>, Error> {
-        Ok(Arc::new(WrapperProjection {
-            parent: Arc::new(WrapperProjection {
-                parent: self.parent.clone(),
-                step: self.step.clone(),
-                address: self.address.clone(),
-            }),
+        Ok(Arc::new(WrapperProjection::new(
+            Arc::new(WrapperProjection::new(
+                self.parent.clone(),
+                self.step.clone(),
+                self.address.clone(),
+            )),
             step,
             address,
-        }))
+        )))
     }
     fn set_invalidation_sink(&self, sink: Arc<dyn InvalidationSink>) {
         self.parent.set_invalidation_sink(sink)
