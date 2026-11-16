@@ -3,6 +3,44 @@
 //! A wrapper is an accessor of its own around another one. Its projections go through
 //! [`WrapperProjection`], which puts the part into the wrapper's value and sets that through the
 //! wrapper, so the wrapper's rule also holds for every part.
+//!
+//! # Main components
+//!
+//! - [`read_only`]: every set refused with `NotSupported`; `capabilities().write` is false.
+//! - [`validated`]: every set checked by a [`ValueCheck`] first.
+//! - [`WrapperProjection`]: a projection of any accessor that is not a hub node.
+//!
+//! # Where it is used
+//!
+//! - `liquers-lib` hands a read-only accessor out for an asset that cannot be written.
+//! - An application wraps an accessor with [`validated`] to enforce a rule on a shared value.
+//!
+//! # Related concepts
+//!
+//! - [`super::AccessorHub`]: the accessor a wrapper usually wraps; its projections are hub nodes.
+//! - [`super::ProjectionStep`]: the lens a [`WrapperProjection`] applies.
+//!
+//! # Examples
+//!
+//! ```
+//! # futures::executor::block_on(async {
+//! # use std::sync::Arc;
+//! # use liquers_core::accessor::{memory_accessor, validated, SetOptions, ValueAccessor};
+//! # use liquers_core::{error::Error, query::Query, value::Value};
+//! let positive = validated(
+//!     memory_accessor::<Value>(None, Query::new()),
+//!     Arc::new(|v: &Value| match v {
+//!         Value::I32(n) if *n > 0 => Ok(()),
+//!         _ => Err(Error::general_error("must be positive".to_string())),
+//!     }),
+//! );
+//! assert!(positive.set(Value::I32(-1), SetOptions::default()).await.is_err());
+//! assert!(positive.set(Value::I32(1), SetOptions::default()).await.is_ok());
+//! # });
+//! ```
+//!
+//! - [`hub` tests](https://github.com/orest-d/liquers/blob/main/liquers-core/src/accessor/hub.rs):
+//!   `read_only_and_validated_refuse_sets`.
 
 use std::fmt::Debug;
 use std::sync::Arc;

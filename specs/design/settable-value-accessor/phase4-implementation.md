@@ -11,9 +11,9 @@ only; the wasm, Python and axum loops run at their own steps, each after `cargo 
 short (`CLAUDE.md` §Building and testing).
 
 ## Progress
-- [ ] Step 1: Core contract types and the conflict error
-- [ ] Step 2: The hub, the memory root and the wrappers
-- [ ] Step 3: The store, keyed-asset and asset roots
+- [x] Step 1: Core contract types and the conflict error (89959099)
+- [x] Step 2: The hub, the memory root and the wrappers (89959099)
+- [x] Step 3: The store, keyed-asset and asset roots (see Execution Notes)
 - [ ] Step 4: Document, recipe, query, action and argument steps
 - [ ] Step 5: `ValueInterface` accessor hooks
 - [ ] Step 6: `ExtValue::Accessor` in lib and in liquers-web's matches
@@ -193,6 +193,31 @@ and a `reviewed:` bump; the values chapters and `e-web-api.md` of the three user
 documents join `affects_docs` in Phase 5. Regenerated: `specs/command_registry.yaml` (Step 7),
 `specs/index.csv` and `specs/index.md` (`python3 scripts/docs_index.py`). Updated by hand:
 `specs/README.md` (the reference and the guide).
+
+## Execution Notes
+
+Deviations from Phases 2 and 3 found while implementing, each kept small:
+
+- **The writer's node also gets `Changed`.** Phase 1 Q4 said an unchanged part includes the one
+  being edited. Handles are shared (an `Arc` clone is the same node), so another holder of the
+  writer's own handle must hear of the set; every node whose content changed gets `Changed`.
+- **Every live node is derived on a change**, not only the subscribed ones. Only a cost: a node
+  with no subscriber still has its last-seen fingerprint, which a later `set` needs.
+- **`AccessorRoot::write` returns the state as written** with its version (`(State<V>, Version)`),
+  not only the version, so the hub caches the status the root chose (`Source`, `Override`) rather
+  than the reset `None` it passed in. The hub resets the status before the write; roots do not.
+- **The hub's watcher ends with the hub**: a `watch` channel dropped with the hub is raced against
+  the root's wait, so a watcher blocked on a quiet asset does not outlive its accessors.
+- **An asset-backed root relays the latest message on (re)subscription** (`mark_changed`), because
+  the asset may have moved on between `AssetManager::get` and the subscription. Its info takes the
+  secondary progress and the log length from the live asset's metadata, falling back to the last
+  relayed secondary progress.
+- **A new key written through the binary view** is described as the bytes value's own type and
+  default format (`Bytes`, `b`), not the key's extension: opaque bytes cannot be checked against
+  the extension's format. The value view uses the extension as Phase 2 says.
+- **`StoreView::parse`** (`binary` / `metadata` / `value`) was added for the `acc/store` argument.
+- **Tests compare fingerprints, not `Changed`**, after an evaluation: the new asset's later status
+  events replace `Changed` in the channel, which is the holder contract (§Events) at work.
 
 ## Phase 5 Entry Criteria
 - [ ] Implementation finished and validated

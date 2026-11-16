@@ -84,7 +84,10 @@ pub mod steps;
 pub mod wrap;
 
 pub use hub::AccessorHub;
-pub use root::{memory_accessor, MemoryRoot};
+pub use root::{
+    asset_accessor, key_accessor, memory_accessor, store_accessor, AssetRefRoot, KeyRoot, MemoryRoot,
+    StoreRoot, StoreView,
+};
 pub use wrap::{read_only, validated};
 
 /// What a set was based on: where the part sits (`anchor`) and what it held (`content`).
