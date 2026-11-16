@@ -5,11 +5,17 @@
 An accessor is **a root plus a chain of synchronous projection steps**, shared through one **hub**
 per root.
 - **Root.** The root is asynchronous, and it is **source-agnostic**: anything that can read, and
-  optionally write and notify, can be a root (`AccessorRoot`). Assets and resources have
-  first-class roots that follow the asset lifecycle:
-  - a key, which covers both stored resources and recipe assets, through the asset manager;
-  - an `AssetRef` that the holder already has, managed or unmanaged.
-  An in-memory value is a third kind of root.
+  optionally write and notify, can be a root (`AccessorRoot`). Four roots are first-class, and they
+  follow the asset lifecycle:
+  - **store**: the data in the store under a key, in one of three views: the binary data, the
+    metadata, or the value deserialized from the data. All three are writable. The key need not
+    exist: its status is then `None`, a read fails, and a set creates it (AC-20);
+  - **keyed asset**: the asset of a key, evaluated on read. A set makes it `Override` when the key
+    has a recipe and `Source` when it has none, and creates it when it does not exist (AC-21);
+  - **other assets**: an `AssetRef` the holder already has, a query asset or an unmanaged one. It
+    is read-only, because nothing can write it (AC-21);
+  - **memory**: a variable in memory. Holders share it by cloning the accessor (AC-22).
+  A value that does not exist is a normal state of a root, not an error: its status is `None`.
 - **Step.** A step is a lens over a value that is already in memory: `get(parent) -> part` and
   `put(parent, part) -> parent`. Each step also gives an **anchor**, a cheap structural fingerprint
   of where its part sits in the parent.
@@ -32,11 +38,18 @@ type (converting the value on `set`), or read-only access. Any of these can sit 
 step, or in a wrapper around another accessor (`read_only`, `validated`).
 
 **Lifecycle relay.** An accessor passes on what its source reports: status changes (`Submitted`,
-`Processing`, `Ready`, `Error`, `Expired`, `Cancelled`), new versions (`Changed`) and removal. The
-contract for holders is: on `Changed`, redraw from `get`; on `Expired`, call `get`. For an
-asset-manager value, that `get` re-evaluates the asset, and the new value arrives as `Changed`.
-A holder with nobody to react, such as a headless service, can ask the hub to do this itself
-(`ExpiryPolicy::Reload`).
+`Processing`, `Ready`, `Error`, `Expired`, `Cancelled`), progress (primary and secondary), new log
+messages, new versions (`Changed`) and removal (AC-23). The contract for holders is: on `Changed`,
+redraw from `get`; on `Expired`, call `get`. For an asset-manager value, that `get` re-evaluates
+the asset, and the new value arrives as `Changed`. A holder with nobody to react, such as a
+headless service, can ask the hub to do this itself (`ExpiryPolicy::Reload`).
+
+Events are wake-ups, not a record, as for `AssetRef` (a `watch` channel keeps only the latest).
+The state they point to is in `info()`: status, message, progress, the number of log messages,
+and the current fingerprint. So a holder that may have missed an event calls `info()` and redraws
+when the fingerprint differs from the one it drew; it reads new messages with `log(since)`. A
+projection shares its root's status, progress and messages, except that a projection whose slot is
+gone has status `None`.
 
 **Q3 cost check: option C stands.** Each change costs one root read, plus one derive and hash per
 *subscribed* node. Unsubscribed nodes are only marked dirty. When the root version is unchanged,
@@ -68,6 +81,7 @@ Rejected alternatives:
 | `VALUE-ACCESSOR-CANNOT-LOCK` | draft | P3 | Locking is deferred (question 6) | No | No | `SetOptions` is reserved, `#[non_exhaustive]` |
 | `UI-ELEMENT-KEEPS-AN-EXPIRED-VALUE-AND-NEVER-RE-REQUESTS` | draft | P3 | An element holding an invalidated accessor keeps it | No | No | Left to the UI designs that consume accessors |
 | `CORE-QUERY-EDITOR-ACCEPTS-AN-UNKNOWN-COMMAND`, `EDITOR-UNSET-OF-A-MIDDLE-POSITIONAL-ARGUMENT-SAYS-NOT-SET` | draft | P3 | `ArgumentStep` relies on `ActionEditor` refusals (AC-3) | No | No | Phase 3 edge cases avoid both |
+| `ASSET-EVENT-STREAM-CARRIES-ONLY-EXPIRATIONS` (designs `external-index-sync`, `asset-event-kinds`, not implemented) | draft | P3 | There is no manager-level stream of new versions and removals. A store root, and a keyed-asset root whose key has no live asset (for example a key that does not exist yet), cannot be told of another writer's change (AC-6) | No | No | Such roots detect outside changes on `get` and `refresh`, by comparing versions. They subscribe to the stream when those designs land |
 | `CORE-TOKIO-REMOVAL`, `ASSET-EVENTS-ARE-NOT-DELIVERED-OUT-OF-PROCESS`, `STORE-HANDLER-FIELD-ACCESS-HARDCODED` | — | P3 | Same `watch` primitive as `AssetRef`; out-of-process changes are a non-goal; question 7 overlap | No | No | None |
 
 Command namespaces involved: `acc` (new). No existing namespace changes.
@@ -83,8 +97,15 @@ uses the `cfg_attr` pair of `data_node.rs` (`?Send` on wasm).
 pub struct Fingerprint { pub anchor: u64, pub content: Version }
 impl Fingerprint { pub fn token(&self) -> String; pub fn from_token(s: &str) -> Result<Self, Error>; }
 pub struct AccessorSnapshot<V> { pub state: State<V>, pub fingerprint: Fingerprint, pub root_version: Version }
-/// Relayed from the source (Status) or produced by the hub (Changed, Invalidated). Removed is terminal.
-pub enum AccessorEvent { Initial, Status(Status), Changed(Fingerprint), Invalidated, Removed }
+/// Wake-ups relayed from the source (Status, progress, Log, Removed) or produced by the hub
+/// (Changed, Invalidated). Log carries the new number of messages; read them with `log`.
+pub enum AccessorEvent { Initial, Status(Status), PrimaryProgress(ProgressEntry),
+    SecondaryProgress(ProgressEntry), Log(usize), Changed(Fingerprint), Invalidated, Removed }
+/// The current state behind the events. `status` is `None` when the value does not exist.
+#[derive(Serialize, Deserialize)]
+pub struct AccessorInfo { pub status: Status, pub message: String,
+    pub primary_progress: Option<ProgressEntry>, pub secondary_progress: Option<ProgressEntry>,
+    pub log_len: usize, pub fingerprint: Option<Fingerprint> /* None when the value does not exist */ }
 #[derive(Default)] pub enum ExpiryPolicy { #[default] Relay, Reload }
 pub struct Capabilities { pub write: bool, pub notify: bool }
 #[derive(Default)] #[non_exhaustive] pub struct SetOptions {}
@@ -97,7 +118,10 @@ pub struct PartDescription { pub step: String, pub type_identifier: String,
     fn address(&self) -> &Query;
     async fn get(&self) -> Result<AccessorSnapshot<V>, Error>;
     async fn set(&self, value: V, options: SetOptions) -> Result<AccessorSnapshot<V>, Error>;  // vs. last-seen fingerprint
-    async fn set_if(&self, value: V, expected: Fingerprint, options: SetOptions) -> Result<AccessorSnapshot<V>, Error>;
+    /// `expected: None` means the value must not exist yet: a conditional create.
+    async fn set_if(&self, value: V, expected: Option<Fingerprint>, options: SetOptions) -> Result<AccessorSnapshot<V>, Error>;
+    async fn info(&self) -> Result<AccessorInfo, Error>;                   // never evaluates
+    async fn log(&self, since: usize) -> Result<Vec<LogEntry>, Error>;      // messages from index `since`
     async fn describe(&self) -> Result<PartDescription, Error>;
     fn capabilities(&self) -> Capabilities;
     async fn refresh(&self) -> Result<(), Error>;            // pull root events (wasm has no watcher task)
@@ -115,21 +139,27 @@ pub trait ProjectionStep<V>: MaybeSend + MaybeSync + Debug {
 #[async_trait] pub trait InvalidationSink: MaybeSend + MaybeSync { async fn invalidated(&self); }
 /// What a custom source implements. The hub supplies everything else.
 #[async_trait] pub trait AccessorRoot<V>: MaybeSend + MaybeSync + Debug {
-    async fn read(&self) -> Result<(State<V>, Version), Error>;
-    async fn write(&self, state: State<V>) -> Result<Version, Error> {   // default: read-only
+    async fn read(&self) -> Result<Option<(State<V>, Version)>, Error>;   // None: the value does not exist
+    async fn write(&self, state: State<V>) -> Result<Version, Error> {   // default: read-only; creates when absent
         Err(Error::not_supported("this accessor is read-only".into())) }
+    async fn info(&self) -> Result<AccessorInfo, Error>;                 // status, progress, log length
+    async fn log(&self, since: usize) -> Result<Vec<LogEntry>, Error> { Ok(Vec::new()) }
     fn capabilities(&self) -> Capabilities;
     async fn poll_event(&self) -> Option<RootEvent> { None }            // non-blocking; default: no notifications
     fn watch(&self) -> Option<Pin<Box<dyn Future<Output = ()> + Send>>> { None } // native watcher; see the hub
 }
-pub enum RootEvent { Status(Status), Changed(Version), Removed }
+pub enum RootEvent { Status(Status), PrimaryProgress(ProgressEntry), SecondaryProgress(ProgressEntry),
+    Log(usize), Changed(Version), Removed }
 pub struct AccessorHub<V> { /* root, write lock, projection tree, policy */ }
 impl<V: ValueInterface> AccessorHub<V> {
     pub fn new(root: Arc<dyn AccessorRoot<V>>, address: Query, policy: ExpiryPolicy) -> Arc<dyn ValueAccessor<V>>;
 }
+pub enum StoreView { Binary, Metadata, Value }
+pub fn store_accessor<E: Environment>(envref: EnvRef<E>, key: Key, view: StoreView, address: Query) -> Arc<dyn ValueAccessor<E::Value>>;
 pub fn key_accessor<E: Environment>(envref: EnvRef<E>, key: Key, address: Query) -> Arc<dyn ValueAccessor<E::Value>>;
 pub fn asset_accessor<E: Environment>(asset: AssetRef<E>, address: Query) -> Arc<dyn ValueAccessor<E::Value>>;
-pub fn memory_accessor<V: ValueInterface>(initial: State<V>, address: Query) -> Arc<dyn ValueAccessor<V>>;
+/// `None`: an empty variable (status `None`) until the first set. Clone the returned Arc to share it.
+pub fn memory_accessor<V: ValueInterface>(initial: Option<State<V>>, address: Query) -> Arc<dyn ValueAccessor<V>>;
 pub fn read_only<V>(inner: Arc<dyn ValueAccessor<V>>) -> Arc<dyn ValueAccessor<V>>;
 pub fn validated<V>(inner: Arc<dyn ValueAccessor<V>>, check: Arc<dyn Fn(&V) -> Result<(), Error> + Send + Sync>) -> Arc<dyn ValueAccessor<V>>;
 /// Type-erased carrier, so a value can return its accessor through generic impls.
@@ -138,23 +168,63 @@ pub trait ErasedAccessor: MaybeSend + MaybeSync + Debug { fn as_any(&self) -> &d
 ```
 
 `V: ValueInterface` bounds go on the impls, not on the traits. Concrete core types:
-- **`KeyRoot<E>`** is the first-class root for resources and keyed assets.
+- **`StoreRoot<E>`** is the root for data in the store (AC-20). It never evaluates anything: a key
+  that only a recipe could make does not exist for it.
+  - **Reads** use `AsyncStore::get` (the binary and value views) or `get_metadata` (the metadata
+    view). A key the store does not contain reads as `None`, so the status is `None`. The views are:
+    - `Binary`: `V::from_bytes`;
+    - `Metadata`: `V::from_metadata` of the `MetadataRecord` (legacy metadata is a
+      `conversion_error`);
+    - `Value`: `DefaultValueSerializer::deserialize_from_bytes` with the metadata's
+      `type_identifier` and `data_format`, the format defaulting to the key's extension.
+  - **Version:** the metadata's `version`, or else `Version::from_content` of the data. The
+    metadata view uses `Version::from_bytes` of the record's canonical JSON.
+  - **Writes** all go through `AssetManager::set_binary`, so a live asset of the key is replaced and
+    its dependents are invalidated, exactly as for any other write of the key:
+    - `Binary`: the new bytes with the current metadata, or new metadata for a new key;
+    - `Value`: the value serialized with `as_bytes` in the format above, and metadata naming its
+      type identifier;
+    - `Metadata`: the current bytes with the new record, read back from the value through
+      `try_into_json_value` and serde. A key that does not exist cannot be created from the metadata
+      view alone (`Error::key_not_found`): there are no data to describe.
+
+    `set_binary` decides the status (`Source`, or `Override` when the key has a recipe), so the
+    metadata view cannot set it.
+  - **Info:** the status and message come from the stored metadata, and `None` when the key is
+    missing. There is no progress, and the stored log is the metadata's `log`.
+  - **Notifications:** none pushed in v1 (preflight). Writes through the hub notify the hub's own
+    accessors at once; other writers are found on `get` and `refresh`.
+- **`KeyRoot<E>`** is the root for keyed assets (AC-21).
   - **Reads** go through `AssetManager::get(key)` → `AssetRef::get`. For an expired or not yet
-    evaluated asset, that read is the re-evaluation. The version comes from `get_asset_info`; a
-    missing version counts as *changed* on every check, never as equal.
-  - **Writes** use `set_state`, which gives `Override` with a recipe and `Source` without (AC-8). It
-    then reads the new version back.
-  - **Notifications** come from `subscribe_to_notifications`:
+    evaluated asset, that read is the re-evaluation. A key for which `can_make` is false reads as
+    `None`. The version comes from `get_asset_info`. A missing version counts as *changed* on every
+    check, never as equal.
+  - **Writes** use `set_state`, which gives `Override` with a recipe and `Source` without (AC-8). On
+    a key that does not exist it creates the asset as `Source`. It then reads the new version back,
+    and subscribes to the new asset.
+  - **Info** uses `get_asset_info`, which does not evaluate: status, message and primary progress.
+    `AssetNotFound` there gives status `None`. The secondary progress is the last one relayed. The
+    log comes from `AssetRef::get_metadata` of the live asset, or the stored metadata otherwise.
+  - **Notifications** come from `subscribe_to_notifications` of the live asset:
     - `StatusChanged`, `JobSubmitted`, `JobStarted`, `ErrorOccurred` and `Expired` are relayed as
       `Status`.
+    - `PrimaryProgressUpdated` and `SecondaryProgressUpdated` are relayed as progress.
+    - `LogMessage` becomes `Log`, with the new count from the asset's metadata.
     - `ValueProduced` becomes `Changed`.
     - `Removed` becomes `Changed` while `can_make(key)` is still true, because a replacement also
-      sends `Removed`. Otherwise it becomes `Removed`.
+      sends `Removed`; the root then subscribes to the new asset. Otherwise it becomes `Removed`,
+      and the status is `None`. The root accessor stays valid: a later set creates the key again.
+      Projections are invalidated, because their slots are gone.
 - **`AssetRefRoot<E>`** wraps an `AssetRef` the holder already has: a query asset, or an unmanaged
-  one (an `apply` result, a `ClosureAsset`). It relays the same notifications. It is read-only,
-  because the asset manager has no write for a non-keyed asset.
-- **`MemoryRoot<V>`** holds a value and a counter version. A UI element would use it for its own
-  query (AC-10). Wiring an element to it belongs to the UI designs.
+  one (an `apply` result, a `ClosureAsset`). It relays the same notifications, progress and log. It
+  is read-only (AC-21), because the asset manager has no write for a non-keyed asset. Its `Removed`
+  is final.
+- **`MemoryRoot<V>`** is a variable (AC-22): a value, or none, behind a `std::sync::Mutex`, and a
+  counter version. Its status is `Source` when it holds a value and `None` when it does not. It has
+  no progress and no log. Holders share the variable by cloning the `Arc` that `memory_accessor`
+  returns, because every clone is the same hub, and a set through one clone sends `Changed` to all
+  of them. A UI element would use it for its own query (AC-10). Wiring an element to it belongs to
+  the UI designs.
 - **`AccessorHub<V>`** (private) holds a `tokio::sync::Mutex` *write lock*. A set holds it across
   read → derive → compare → put → write, which serialises writers on one hub. The projection tree
   sits behind a separate `std::sync::Mutex` that is never held across an `.await`. The hub collects
@@ -164,6 +234,13 @@ pub trait ErasedAccessor: MaybeSend + MaybeSync + Debug { fn as_any(&self) -> &d
     The task holds the hub weakly and ends when the hub is dropped.
   - **wasm:** there is no task. `get`, `set` and `refresh` drain `poll_event` first. A holder that needs
     push-style updates, such as a UI runner, calls `refresh` on its own tick.
+
+  **A value that does not exist.** When `read` gives `None`, `get` fails (the root's not-found
+  error), `info` reports status `None` with no fingerprint, and projections of it are invalidated.
+  A `set` on the root writes through `write`, which creates the value, provided the accessor last
+  saw it absent; `set_if(…, None, …)` makes the same check explicitly, and fails as a conflict when
+  the value exists. A `set` on a projection of an absent root fails with `not_available`, because
+  there is no parent to put the part into.
 - **Steps**, each capturing `Arc<CommandMetadataRegistry>` (`Context::command_metadata_snapshot`) at
   construction where it edits queries:
   - `RecipeStep(usize)` and `FieldStep(String)` / `ItemStep(usize)` work on a
@@ -215,7 +292,7 @@ at the position the parser reports. Nothing here precludes it.
 
 ## Integration Points
 
-- **`liquers-core`:** `accessor/` (the hub, `KeyRoot`, `AssetRefRoot`, `MemoryRoot`, the steps,
+- **`liquers-core`:** `accessor/` (the hub, `StoreRoot`, `KeyRoot`, `AssetRefRoot`, `MemoryRoot`, the steps,
   `read_only`, `validated`), `lib.rs`, `value.rs` (the hooks), `error.rs` (`accessor_conflict`).
 - **`liquers-lib`:**
   - `value/mod.rs`: the variant, its `TypeInfo`, and an arm in every `ExtValue` match;
@@ -236,7 +313,10 @@ at the position the parser reports. Nothing here precludes it.
 | Case | Constructor |
 |---|---|
 | Stale fingerprint (AC-5) | `Error::accessor_conflict(address, current)` (new, `ErrorType::StatusConflict`) |
-| Root key removed | `Error::asset_not_found` with the key attached |
+| `get` of a value that does not exist: store root, keyed-asset root | `Error::key_not_found`, `Error::asset_not_found` |
+| `get` of an empty memory variable | `Error::not_available().with_query(address)` |
+| A create (`set_if` with `None`) when the value exists, or a set based on an absent value that now exists | `Error::accessor_conflict(address, current)` |
+| A metadata-view set on a key that does not exist (AC-20) | `Error::key_not_found` |
 | Projected slot gone | `Error::not_available().with_query(address)` |
 | A step cannot parse its parent (not YAML, not a recipe list) | `Error::conversion_error` |
 | An argument refused by the editor (AC-3) | the `ActionEditor` error, passed through unchanged |
@@ -253,11 +333,14 @@ shared handle, and none is stored. The projection commands are `async`. Each one
 - calls `project`;
 - registers a sink that expires that asset (held weakly).
 
-`accessor` also registers a sink on its root, so the root accessor expires when the key is
-`Removed` (AC-15).
+`accessor` and `store` register no sink: a root accessor stays valid when its key is removed, and
+reports status `None` (AC-15). There is no command for a memory accessor: a variable is made in
+Rust, by its owner, and shared by cloning. An accessor of any other query is made by
+`asset_accessor` in Rust, or by the web API (below).
 
 ```rust
-register_command!(cr, async fn accessor(state, context) -> result namespace: "acc" label: "Accessor" doc: "A settable accessor of the key given as state (-R-key/…)")?;
+register_command!(cr, async fn accessor(state, context) -> result namespace: "acc" label: "Accessor" doc: "A settable accessor of the keyed asset given as state (-R-key/…)")?;
+register_command!(cr, async fn store(state, view: String = "value", context) -> result namespace: "acc" label: "Store accessor" doc: "A settable accessor of the stored data (view: binary, metadata or value) of the key given as state")?;
 register_command!(cr, async fn recipe(state, index: usize, context) -> result namespace: "acc" label: "Recipe")?;
 register_command!(cr, async fn query(state, context) -> result namespace: "acc" label: "Recipe query")?;
 register_command!(cr, async fn pipeline(state, context) -> result namespace: "acc" label: "Recipe pipeline")?;
@@ -268,20 +351,31 @@ register_command!(cr, async fn item(state, index: usize, context) -> result name
 register_command!(cr, async fn get(state) -> result namespace: "acc" label: "Accessor value" volatile: true)?;
 ```
 
-Building the root from `-R-key/` gives a `UseKeyValue` step with no dependency (`plan.rs`). So
+For example `-R-key/reports/new.yaml/-/ns-acc/store-binary` is the binary data of a key that may
+not exist yet. Building the root from `-R-key/` gives a `UseKeyValue` step with no dependency (`plan.rs`). So
 writing the file never expires the accessor itself, and every root accessor of one key is one
 query asset with one hub. `get` is volatile, so it reads the current value every time.
 
 ## Web Endpoints
 
 These routes come from `AccessorApiBuilder<E>`, mounted at `/api/acc` by default:
-- `GET {base}/{*query}`: the part's value, in the requested format, with `ETag: <token>`.
+The `{*query}` is evaluated. When its value is an accessor, that accessor is used. Otherwise the
+query's own asset is wrapped by `asset_accessor`, so any query can be read and watched, read-only
+(AC-21).
+- `GET {base}/{*query}`: the part's value, in the requested format, with `ETag: <token>`. A value
+  that does not exist answers `404`, with the info as the body.
+- `GET {base}/info/{*query}`: the `AccessorInfo` as JSON (status, message, progress, log length,
+  `etag`). It does not evaluate the value.
+- `GET {base}/log/{*query}?since=<n>`: the log messages from index `n`, as JSON.
 - `GET {base}/describe/{*query}`: the `PartDescription` as JSON.
-- `PUT {base}/{*query}` with `If-Match`: `set_if`. It answers `200` with the new `ETag`, `412` with
-  the current `ETag` on a conflict, or `428` when `If-Match` is missing.
+- `PUT {base}/{*query}`: `set_if`. `If-Match: <token>` sets a value that exists, and
+  `If-None-Match: *` creates one that does not (AC-20, AC-21). It answers `200` with the new `ETag`,
+  `412` with the current `ETag` on a conflict, `428` when neither header is given, and `405` for a
+  read-only accessor.
 - `GET {base}/ws/{*query}`: a WebSocket that relays the accessor's events as JSON
-  (`{"event": "status", "status": "Expired"}`, `{"event": "changed", "etag": …}`, `invalidated`,
-  `removed`). It follows the connection handling, limits and close codes of the asset event socket
+  (`{"event": "status", "status": "Expired"}`, `{"event": "progress", "primary": …}`,
+  `{"event": "progress", "secondary": …}`, `{"event": "log", "count": 3}`,
+  `{"event": "changed", "etag": …}`, `invalidated`, `removed`). It follows the connection handling, limits and close codes of the asset event socket
   (`liquers-axum/src/assets/websocket.rs`, `ws_query_handler`). The `ui-split-elements` protocol
   can carry the same event shape.
 
@@ -313,9 +407,11 @@ These routes come from `AccessorApiBuilder<E>`, mounted at `/api/acc` by default
 | Assessment | Finding |
 |---|---|
 | Compatibility / data | Additive. **Phase 1 AC-2 is narrowed (accepted for v1):** rewriting through a `serde_yaml::Value` tree keeps every key and its order, but drops comments and formatting (`YAML-DOCUMENT-EDIT-DROPS-COMMENTS`) |
-| Concurrency | First-writer-wins only within one hub. Other writers are last-writer-wins until `store-conditional-write`. `watch` delivers only the latest event |
+| Concurrency | First-writer-wins only within one hub. Other writers are last-writer-wins until `store-conditional-write`. `watch` delivers only the latest event, so a burst of progress can hide a `Changed`: holders check the fingerprint in `info()` on every event (Overview) |
+| Change detection | A store root, and a keyed-asset root with no live asset, see other writers only on `get` and `refresh` until the manager event stream exists (preflight) |
 | Performance | One root read per change. Derive and hash run only for subscribed nodes, and nothing is derived when the root version is unchanged |
 | Security | The `PUT` route is opt-in and for trusted servers only (preflight) |
 | Build | `ExtValue` arms in lib and web, the `records` gating of the lib steps, and the wasm watcher path: `check-build-matrix.sh` |
 | Tests likely to change | `registry_export` (new commands) |
-| Decided at the gate (2026-11-16) | the variant is in `ExtValue`; AC-2's comment loss is accepted for v1 and tracked in `YAML-DOCUMENT-EDIT-DROPS-COMMENTS` |
+| Decided at the gate (2026-11-16) | the variant is in `ExtValue`; AC-2's comment loss is accepted for v1 and tracked in `YAML-DOCUMENT-EDIT-DROPS-COMMENTS`; the four first-class roots, a missing value as status `None` with create-on-set, and the progress and message relay (second round) |
+| For the gate | A metadata-view set cannot create a key, and cannot choose the status, which `set_binary` decides. A memory variable has no command, so it cannot be named by a query |

@@ -66,7 +66,8 @@ reads the new value.
   THEN every accessor on it receives a change notification, and a read returns the new content
 - **AC-7** Expiry and removal are reported
   WHEN the asset behind an accessor expires, or the key is removed
-  THEN the accessor reports `Expired` or `Removed`, and a read after removal is a not-found error
+  THEN the accessor reports `Expired` or `Removed`. After removal its status is `None`, a read is a
+  not-found error, and a set creates the value again (AC-21)
 - **AC-8** Writing an asset accessor overrides the asset
   WHEN an accessor of a key that has a recipe is set
   THEN the asset's status becomes `Override` (`specs/reference/ASSET_SET_OPERATION.md`), and its
@@ -102,8 +103,8 @@ reads the new value.
   changes an argument of action 2
   THEN the other receives `Changed` and both accessors stay valid. When a step is instead inserted
   before action 2, the action accessor is invalidated (its asset expires), and evaluating its query
-  again gives an accessor of whatever is step 2 now. The root accessor expires only when its key is
-  removed
+  again gives an accessor of whatever is step 2 now. The root accessor never expires: when its key is
+  removed it reports `Removed` and status `None`, and stays usable
 
 - **AC-16** An accessor relays its source's lifecycle
   WHEN the asset behind an accessor of an asset-manager value expires, and the holder reacts by
@@ -122,6 +123,25 @@ reads the new value.
 - **AC-19** A custom source gets the shared machinery
   WHEN an application implements only a root for its own source and wraps it in the hub
   THEN projections, conflicts and notifications work on it as they do for an asset root
+- **AC-20** Store accessors read and write data, metadata or the value, and may point at nothing yet
+  WHEN a store accessor of `reports/new.yaml` is made in the binary, metadata or value view, and the
+  key is not in the store
+  THEN its status is `None` and a read fails as not found. A set through the binary or value view
+  creates the key (the value view serializes it in the key's format), after which every view reads
+  it. A set through any view of an existing key replaces that view's content and keeps the rest
+- **AC-21** Keyed assets are writable and can be created; other assets are read-only
+  WHEN a keyed-asset accessor is set, and its key has a recipe, has none, or does not exist yet
+  THEN the asset becomes `Override`, becomes `Source`, or is created as `Source`, respectively.
+  WHEN an accessor of a query asset or an unmanaged asset is set
+  THEN the set fails as not supported and nothing changes
+- **AC-22** A memory accessor is a shared variable
+  WHEN a memory accessor is cloned and handed to two holders, and one of them sets it
+  THEN the other receives `Changed` and reads the new value. A memory accessor made without an
+  initial value has status `None` until the first set
+- **AC-23** Progress and messages are relayed
+  WHEN the asset behind an accessor reports progress or logs a message while it is evaluated
+  THEN the accessor relays the progress and announces the message, and its holder (in process or
+  over the web API) can read the current status, progress and messages of the accessor
 
 Non-goals: locking (a later design, which this one must not preclude: `VALUE-ACCESSOR-CANNOT-LOCK`);
 query accessors over template links (they must remain implementable as a projection); the editor widgets and
@@ -135,9 +155,10 @@ client and server (`ui-split-elements`).
 - **Value types**: an accessor is a handle value, like `ExtValue::Widget`. That is the justified
   exception that `VALUE_TYPE_SYSTEM.md` §"What a value variant may hold" requires. It is never
   serialized as data, only by address.
-- **Store / Assets**: store-data and asset roots read and write through the asset manager
-  (`set_binary` / `set_state`), and watch its per-asset notifications (`AssetNotificationMessage`:
-  `ValueProduced`, `Expired`, `Removed`).
+- **Store / Assets**: store roots read the store directly and write through the asset manager's
+  `set_binary`; keyed-asset roots read and write through `get` / `set_state`. Asset roots relay the
+  per-asset notifications (`AssetNotificationMessage`: status, progress, log, `ValueProduced`,
+  `Expired`, `Removed`).
 - **Query / Pipelines**: query, pipeline, action and argument projections apply edits through
   `QueryEditor` / `PipelineEditor`, and describe arguments from the `CommandMetadataRegistry`.
 - **Data nodes**: document projections read through `DataNode`. This design needs a write side,
@@ -228,6 +249,17 @@ in scope.
   - The hub is a reusable building block for custom accessors (AC-19).
 
   It stays one design. Phases 1 and 2 are updated, and approval is pending at the Phase 2 gate.
+- **2026-11-16, at the Phase 2 gate (Orest), second round.** The first-class roots are:
+  - **store** accessors over the data, the metadata or the deserialized value of a key, all
+    writable, which may point at a key that does not exist yet (status `None`; a set creates it)
+    (AC-20);
+  - **keyed-asset** accessors, writable as `Override` or `Source`, created by a set when the key
+    does not exist (AC-21);
+  - **other assets** (query and unmanaged), read-only (AC-21);
+  - **memory** accessors, a variable shared by cloning the accessor (AC-22).
+
+  Progress and messages are relayed where the source has them (AC-23). AC-7 and AC-15 change
+  accordingly: a removed root reports status `None` and stays usable, instead of expiring.
 
 ## Design Dependencies
 
