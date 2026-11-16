@@ -155,7 +155,9 @@ composite editors themselves (separate UI designs that use accessors); detecting
 outside the environment, for example a file edited on disk (`ASSET-EVENTS-ARE-NOT-DELIVERED-OUT-OF-PROCESS`);
 merging concurrent edits (a conflicting set fails); the transport of addresses and edits between
 client and server (`ui-split-elements`); implementing a new accessor root or step in Python or
-JavaScript (`ACCESSOR-CANNOT-BE-IMPLEMENTED-IN-PYTHON-OR-JAVASCRIPT`).
+JavaScript (`ACCESSOR-CANNOT-BE-IMPLEMENTED-IN-PYTHON-OR-JAVASCRIPT`); serializing an accessor on
+a server and using it on a client (`ACCESSOR-CANNOT-BE-SENT-TO-A-CLIENT`: addresses and the
+`/api/acc` routes must stay usable as its protocol).
 
 ## Core Interactions
 
