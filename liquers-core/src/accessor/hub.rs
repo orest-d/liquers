@@ -389,6 +389,30 @@ impl<V: ValueInterface> Node<V> {
         out
     }
 
+    /// Why [`derive_chain`](Self::derive_chain) gave no part: the first step that could not read
+    /// its parent reports its own error, so a step's failure is not mistaken for an absent part.
+    fn missing_part_error(self: &Arc<Self>, root: Option<(&V, Version)>) -> Error {
+        let chain = self.chain();
+        let derived = self.derive_chain(root);
+        for (i, node) in chain.iter().enumerate() {
+            if derived[i].is_some() {
+                continue;
+            }
+            if let (Some(step), Some(Some(parent))) =
+                (&node.step, i.checked_sub(1).map(|p| &derived[p]))
+            {
+                if let Err(e) = step.get(&parent.value) {
+                    return e;
+                }
+                if let Err(e) = step.anchor(&parent.value) {
+                    return e;
+                }
+            }
+            break;
+        }
+        unavailable(&self.address, "the part does not exist")
+    }
+
     /// Classifies this node and its subtree against a new root value.
     fn classify(&self, root: Option<(&V, Version)>, parent: Option<&Derived<V>>, fire: &mut Fire) {
         if self.is_invalidated() {
@@ -615,7 +639,9 @@ impl<V: ValueInterface> ValueAccessor<V> for HubAccessor<V> {
                 if self.node.step.is_none() {
                     Err(hub.root.not_found())
                 } else {
-                    Err(unavailable(&self.node.address, "the part does not exist"))
+                    Err(self
+                        .node
+                        .missing_part_error(root_view.as_ref().map(|(x, v)| (x.as_ref(), *v))))
                 }
             }
         }
@@ -1089,9 +1115,10 @@ mod tests {
         empty.set_if(Value::from(1), None, SetOptions::default()).await.unwrap();
         let err = empty.set_if(Value::from(2), None, SetOptions::default()).await.unwrap_err();
         assert_eq!(err.error_type, ErrorType::StatusConflict);
-        // A parent the step cannot read: the part does not exist.
+        // A parent the step cannot read: the step's own error, not "the part does not exist".
         let text = memory_accessor(Some(state(Value::from("text"))), Query::new());
         let field = text.project(Arc::new(Field("a")), Query::new()).unwrap();
-        assert!(field.get().await.is_err());
+        let err = field.get().await.unwrap_err();
+        assert!(!err.message.contains("the part does not exist"), "{err}");
     }
 }

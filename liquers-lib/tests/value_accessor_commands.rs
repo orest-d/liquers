@@ -304,3 +304,73 @@ async fn ext_value_accessor_hooks_round_trip() {
     );
 }
 
+#[cfg(feature = "records")]
+#[tokio::test]
+async fn record_row_column_and_cell_projections() {
+    use liquers_lib::records::accessor::{CellStep, ColumnStep, RowStep};
+    use liquers_lib::value::ExtValueInterface;
+    use liquers_records::{
+        Buffer, Column, FieldSchema, FieldType, RecordBatch, RecordSchema, RecordView,
+    };
+
+    let schema = Arc::new(
+        RecordSchema::new(vec![
+            FieldSchema::new("n", FieldType::Int),
+            FieldSchema::new("x", FieldType::Float),
+        ])
+        .unwrap(),
+    );
+    let n = Column::Int {
+        validity: None,
+        values: Buffer::from_slice(&[1i64, 2, 3]),
+    };
+    let x = Column::Float {
+        validity: None,
+        values: Buffer::from_slice(&[0.5f64, 1.5, 2.5]),
+    };
+    let batch = RecordBatch::new(schema, vec![n, x], None, None, vec![]).unwrap();
+    let table = memory_accessor::<Value>(
+        Some(State::from_value_and_metadata(
+            Value::from_record_view(Arc::new(batch)),
+            Arc::new(Metadata::new()),
+        )),
+        Query::new(),
+    );
+    let row = table.project(Arc::new(RowStep(1)), Query::new()).unwrap();
+    let column = table
+        .project(Arc::new(ColumnStep::new("x")), Query::new())
+        .unwrap();
+    let cell = table
+        .project(Arc::new(CellStep::new(2, "n")), Query::new())
+        .unwrap();
+    assert_eq!(json(&value_of(&row).await), serde_json::json!({"n": 2, "x": 1.5}));
+    assert_eq!(json(&value_of(&column).await), serde_json::json!([0.5, 1.5, 2.5]));
+    assert_eq!(json(&value_of(&cell).await), serde_json::json!(3));
+
+    within(cell.set(Value::from(30i64), SetOptions::default()))
+        .await
+        .unwrap();
+    within(row.set(
+        Value::try_from_json_value(&serde_json::json!({"x": 9.0})).unwrap(),
+        SetOptions::default(),
+    ))
+    .await
+    .unwrap();
+    within(column.get()).await.unwrap();
+    assert_eq!(json(&value_of(&column).await), serde_json::json!([0.5, 9.0, 2.5]));
+
+    let view = value_of(&table).await.as_record_view().unwrap();
+    let cells: Vec<String> = (0..view.len())
+        .flat_map(|r| (0..2).map(move |c| (r, c)))
+        .map(|(r, c)| format!("{:?}", view.value(r, c).unwrap()))
+        .collect();
+    // Only the two edited cells changed; row 1's `n` kept its value.
+    assert_eq!(
+        cells,
+        ["Int(1)", "Float(0.5)", "Int(2)", "Float(9.0)", "Int(30)", "Float(2.5)"]
+    );
+    // A column of the wrong length is refused and writes nothing.
+    let short = Value::try_from_json_value(&serde_json::json!([1.0])).unwrap();
+    assert!(within(column.set(short, SetOptions::default())).await.is_err());
+    assert_eq!(json(&value_of(&cell).await), serde_json::json!(30));
+}

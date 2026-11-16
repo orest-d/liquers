@@ -18,7 +18,7 @@ short (`CLAUDE.md` §Building and testing).
 - [x] Step 5: `ValueInterface` accessor hooks
 - [x] Step 6: `ExtValue::Accessor` in lib and in liquers-web's matches
 - [x] Step 7: The `acc` commands and the registry
-- [ ] Step 8: Record steps
+- [x] Step 8: Record steps
 - [ ] Step 9: The `/api/acc` routes and socket
 - [ ] Step 10: The Python wrapper
 - [ ] Step 11: The JavaScript wrapper
@@ -237,6 +237,11 @@ Deviations from Phases 2 and 3 found while implementing, each kept small:
   registry export lists no format for it.
 - **Tests compare fingerprints, not `Changed`**, after an evaluation: the new asset's later status
   events replace `Changed` in the channel, which is the holder contract (§Events) at work.
+- **A step's own error is reported** when a part cannot be derived (`missing_part_error`): the hub
+  used to answer every failed derivation with "the part does not exist", which hid a step that
+  failed to read its parent. A part that is simply absent (`Ok(None)`) still gets that message.
+- **Record rows and columns are built as JSON** (`try_from_json_value`): `liquers-lib`'s `Value`
+  has no `from_object` / `from_array`, so a row is a JSON object and a column a JSON array.
 
 ## Phase 5 Entry Criteria
 - [ ] Implementation finished and validated
