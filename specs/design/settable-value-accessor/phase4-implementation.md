@@ -22,7 +22,7 @@ short (`CLAUDE.md` §Building and testing).
 - [x] Step 9: The `/api/acc` routes and socket
 - [x] Step 10: The Python wrapper
 - [x] Step 11: The JavaScript wrapper
-- [ ] Step 12: Whole-change checks
+- [x] Step 12: Whole-change checks
 
 ## Implementation Steps
 
@@ -274,6 +274,6 @@ Deviations from Phases 2 and 3 found while implementing, each kept small:
   environment has no store at the root.
 
 ## Phase 5 Entry Criteria
-- [ ] Implementation finished and validated
-- [ ] User and review comments answered
-- [ ] Documentation checkable against implemented and tested behaviour
+- [x] Implementation finished and validated
+- [x] User and review comments answered
+- [x] Documentation checkable against implemented and tested behaviour

@@ -123,7 +123,7 @@ def test_ACCESSOR04_conflict_is_status_conflict(env):
     with pytest.raises(lq.StatusConflictError):
         acc.set_if("New", None)
     # A conflict from elsewhere has no token.
-    assert lq.StatusConflictError.token is None
+    assert lq.StatusConflictError("conflict").token is None
 
 
 def test_ACCESSOR05_memory_accessor_is_shared(env):

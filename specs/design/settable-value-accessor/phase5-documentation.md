@@ -181,11 +181,19 @@ Nothing remains in this design. Every deferral has an issue.
 
 ## Validation
 
-- `python3 scripts/docs_index.py --check`: passes.
-- `cargo run -p liquers-docs -- check`: `0 errors, 0 warnings`.
-- `cargo test -p liquers-docs`: the Rust guide examples agree with their test files.
-- `liquers-web/scripts/test-guide-examples.sh`: the `JAVASCRIPT_GUIDE.md` and Web guide examples
-  run under Node, the new accessor examples included.
-- `bash scripts/test-liquers-py.sh`: the full Python suite, the user guide examples included.
+Run on 2026-11-16, after a `cargo clean`:
+
+- `cargo test -p liquers-core --lib --tests` and `cargo test -p liquers-lib --lib --tests`: pass.
+- `bash scripts/check-build-matrix.sh`: all 49 configurations OK.
+- `cargo test -p liquers-axum`: the accessor tests pass.
+- `bash scripts/test-liquers-py.sh`: the full Python suite, the guide examples included, passes
+  after two fixes found here: the second Python guide example now builds its own accessor, and
+  `StatusConflictError.token` is a documented property, which DOCS04 requires on CPython 3.10 and
+  3.11, where `None` has no docstring. Stubtest (mypy 2.4.1) reports no issues.
+- `liquers-web/scripts/test-guide-examples.sh`: 83 passed, 0 failed; the `JAVASCRIPT_GUIDE.md` and
+  Web guide examples run under Node, the new accessor examples included.
+- `cargo test -p liquers-docs` and `cargo run -p liquers-docs -- check`: pass, `0 errors, 0 warnings`.
+- rustdoc with `-D rustdoc::broken_intra_doc_links` on the crates CI documents: passes.
+- `python3 scripts/docs_index.py --check`: 0 errors.
 - `liquers-validate` accepts every accessor query quoted in the documents: 8 queries, 8 ok.
-- `python3 scripts/check_api_docs.py` passes on every module listed above.
+- `python3 scripts/check_api_docs.py` on the 14 modules listed above: `0 warnings, 0 errors`.

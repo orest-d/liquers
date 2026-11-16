@@ -1308,6 +1308,13 @@ messages. Any query that is not an accessor gives a read-only one (`capabilities
 Events are delivered on your thread, when you ask for them:
 
 ```python
+import liquers as lq
+
+env = lq.Environment()
+env.store_set("config.yaml", "title: Dashboard\nrows: 3\n")
+title = env.accessor("-R-key/config.yaml/-/ns-acc/accessor/field-title")
+title.get()                                  # read once, so the wrapper has a token
+
 with title.on(lambda e: print(e.kind)):      # "changed", "status", "log", …
     title.set("Q3")
     title.wait_event(10)                     # runs the callback; process_events() does not wait
