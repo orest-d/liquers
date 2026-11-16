@@ -14,7 +14,7 @@ short (`CLAUDE.md` §Building and testing).
 - [x] Step 1: Core contract types and the conflict error (89959099)
 - [x] Step 2: The hub, the memory root and the wrappers (89959099)
 - [x] Step 3: The store, keyed-asset and asset roots (see Execution Notes)
-- [ ] Step 4: Document, recipe, query, action and argument steps
+- [x] Step 4: Document, recipe, query, action and argument steps
 - [ ] Step 5: `ValueInterface` accessor hooks
 - [ ] Step 6: `ExtValue::Accessor` in lib and in liquers-web's matches
 - [ ] Step 7: The `acc` commands and the registry
@@ -216,6 +216,17 @@ Deviations from Phases 2 and 3 found while implementing, each kept small:
   default format (`Bytes`, `b`), not the key's extension: opaque bytes cannot be checked against
   the extension's format. The value view uses the extension as Phase 2 says.
 - **`StoreView::parse`** (`binary` / `metadata` / `value`) was added for the `acc/store` argument.
+- **`ProjectionStep::overridden_arguments`** (defaulted, empty) lets `RecipeStep` name the
+  arguments its recipe's `arguments` and `links` override; the hub's `describe` checks every
+  ancestor, because an argument step sees only its action, never the recipe.
+- **`PipelineEditor::argument_source`** (and the `QueryEditor` delegate) was added: the editor
+  could set and unset an argument but not read one. A variadic argument reads as the plain JSON
+  array of its items; a link or placeholder in its tagged JSON form; an argument the action does
+  not give reads as `none`, and setting `none` unsets it.
+- **The argument step works on the first action** of its parent (the one-element pipeline of an
+  action step, or any query), and an action part keeps the parent's realm.
+- **`hub_error_cases`** stays on the test steps of `hub.rs`; the real steps' error paths are in
+  `refused_argument_set_writes_nothing`.
 - **Tests compare fingerprints, not `Changed`**, after an evaluation: the new asset's later status
   events replace `Changed` in the channel, which is the holder contract (§Events) at work.
 

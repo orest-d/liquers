@@ -495,3 +495,217 @@ async fn accessor_does_not_keep_the_environment_alive() {
     assert!(within(keyed.get()).await.is_err());
     assert!(within(stored.get()).await.is_err());
 }
+
+// ---------------------------------------------------------------------------------------------
+// Recipe, query, action and argument steps
+// ---------------------------------------------------------------------------------------------
+
+mod steps {
+    use super::*;
+    use liquers_core::accessor::steps::{ActionStep, ArgumentStep, QueryFieldStep, RecipeStep};
+    use liquers_core::accessor::{memory_accessor, ProjectionStep};
+    use liquers_core::command_metadata::{ArgumentGUIInfo, ArgumentType, CommandMetadataRegistry};
+    use liquers_core::context::Context;
+    use liquers_core::error::Error;
+    use liquers_macro::register_command;
+
+    type CommandEnvironment = Env;
+
+    fn from_csv(_state: &State<Value>) -> Result<Value, Error> {
+        Ok(Value::from("table"))
+    }
+    fn is_in(_state: &State<Value>, _column: String, _values: Vec<String>) -> Result<Value, Error> {
+        Ok(Value::from("filtered"))
+    }
+    fn head(_state: &State<Value>, n: i64) -> Result<Value, Error> {
+        Ok(Value::from(format!("head {n}")))
+    }
+
+    const QUERY: &str = "-R/data/sales.csv/-/ns-pl/from_csv/is_in-region-EU-US/head-10/top.csv";
+
+    fn recipes_yaml() -> String {
+        format!(
+            "title: Reports\nrecipes:\n- query: {QUERY}\n  title: Top\n- query: -R/data/sales.csv/-/ns-pl/from_csv/head-3/few.csv\n  title: Few\n  arguments:\n    n: 5\n"
+        )
+    }
+
+    async fn env() -> EnvRef<Env> {
+        let mut env: Env = SimpleEnvironment::new();
+        let cr = &mut env.command_registry;
+        register_command!(cr, fn from_csv(state) -> result namespace: "pl").unwrap();
+        register_command!(cr, fn is_in(state, column: String, values: Vec<String> multiple) -> result namespace: "pl").unwrap();
+        register_command!(cr, fn head(state, n: i64 = 10 (gui: IntegerField)) -> result namespace: "pl").unwrap();
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
+        env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
+        let envref = env.to_ref();
+        let mut record = text_record();
+        record.title = "the report recipes".to_string();
+        envref
+            .get_asset_manager()
+            .set_binary(&key("reports/recipes.yaml"), recipes_yaml().as_bytes(), record)
+            .await
+            .unwrap();
+        envref
+    }
+
+    fn step(s: impl ProjectionStep<Value> + 'static) -> Arc<dyn ProjectionStep<Value>> {
+        Arc::new(s)
+    }
+
+    /// `recipe-<i>/query/action-<a>/argument-<arg>` of the stored `reports/recipes.yaml`.
+    fn chain(
+        envref: &EnvRef<Env>,
+        recipe: usize,
+        action: usize,
+        argument: &str,
+    ) -> (Arc<dyn ValueAccessor<Value>>, Arc<dyn ValueAccessor<Value>>) {
+        let registry: Arc<CommandMetadataRegistry> = envref.command_metadata_snapshot();
+        let root = key_accessor(
+            envref.clone(),
+            key("reports/recipes.yaml"),
+            address("-R-key/reports/recipes.yaml/-/ns-acc/accessor"),
+        );
+        let part = root
+            .project(step(RecipeStep(recipe)), address("recipe"))
+            .unwrap()
+            .project(step(QueryFieldStep), address("query"))
+            .unwrap()
+            .project(step(ActionStep::new(action, registry.clone())), address("action"))
+            .unwrap()
+            .project(step(ArgumentStep::new(argument, registry)), address("argument"))
+            .unwrap();
+        (root, part)
+    }
+
+    async fn stored_yaml(envref: &EnvRef<Env>) -> serde_yaml::Value {
+        let bytes = envref
+            .get_async_store()
+            .get_bytes(&key("reports/recipes.yaml"))
+            .await
+            .unwrap();
+        serde_yaml::from_slice(&bytes).unwrap()
+    }
+
+    #[tokio::test]
+    async fn recipe_argument_projection_reads_part_and_hints() {
+        let envref = env().await;
+        let (_root, n) = chain(&envref, 0, 3, "n");
+        assert_eq!(*within(n.get()).await.unwrap().state.value().unwrap(), Value::from(10i64));
+        let part = within(n.describe()).await.unwrap();
+        assert_eq!(part.type_identifier, "I64");
+        let argument = part.argument.expect("an argument part");
+        assert_eq!(argument.argument_type, ArgumentType::Integer);
+        assert_eq!(argument.gui_info, ArgumentGUIInfo::IntegerField);
+        let command = part.command.expect("the command");
+        assert_eq!((command.namespace.as_str(), command.name.as_str()), ("pl", "head"));
+        assert!(!part.overridden);
+        // The second recipe's `arguments` overrides its `n`.
+        let (_root, overridden) = chain(&envref, 1, 2, "n");
+        assert_eq!(
+            *within(overridden.get()).await.unwrap().state.value().unwrap(),
+            Value::from(3i64)
+        );
+        assert!(within(overridden.describe()).await.unwrap().overridden);
+    }
+
+    #[tokio::test]
+    async fn recipe_argument_set_writes_through() {
+        let envref = env().await;
+        let (root, n) = chain(&envref, 0, 3, "n");
+        within(n.get()).await.unwrap();
+        within(n.set(Value::from(20i64), SetOptions::default()))
+            .await
+            .unwrap();
+        let yaml = stored_yaml(&envref).await;
+        assert_eq!(yaml["title"], serde_yaml::Value::from("Reports"));
+        assert_eq!(
+            yaml["recipes"][0]["query"],
+            serde_yaml::Value::from(QUERY.replace("head-10", "head-20"))
+        );
+        assert_eq!(yaml["recipes"][0]["title"], serde_yaml::Value::from("Top"));
+        assert_eq!(yaml["recipes"][1]["title"], serde_yaml::Value::from("Few"));
+        assert_eq!(*within(n.get()).await.unwrap().state.value().unwrap(), Value::from(20i64));
+        assert_eq!(within(root.info()).await.unwrap().status, Status::Source);
+        // The recipe provider reads the edited recipe.
+        let recipe = envref
+            .get_recipe_provider()
+            .recipe_opt(&key("reports/top.csv"), envref.clone())
+            .await
+            .unwrap()
+            .expect("the edited recipe");
+        assert!(recipe.query.contains("head-20"));
+    }
+
+    #[tokio::test]
+    async fn refused_argument_set_writes_nothing() {
+        let envref = env().await;
+        let before = envref
+            .get_async_store()
+            .get_metadata(&key("reports/recipes.yaml"))
+            .await
+            .unwrap()
+            .version();
+        let (root, n) = chain(&envref, 0, 3, "n");
+        within(n.get()).await.unwrap();
+        // A value of the wrong type.
+        assert!(within(n.set(Value::from("abc"), SetOptions::default())).await.is_err());
+        // An argument the command does not have.
+        let (_root, bogus) = chain(&envref, 0, 3, "bogus");
+        assert!(within(bogus.set(Value::from(1i64), SetOptions::default())).await.is_err());
+        // An action part that is not one action.
+        let action = root
+            .project(step(RecipeStep(0)), address("recipe"))
+            .unwrap()
+            .project(step(QueryFieldStep), address("query"))
+            .unwrap()
+            .project(
+                step(ActionStep::new(3, envref.command_metadata_snapshot())),
+                address("action"),
+            )
+            .unwrap();
+        within(action.get()).await.unwrap();
+        let two = Value::from_query(&address("ns-pl/head-1/head-2"));
+        assert!(within(action.set(two, SetOptions::default())).await.is_err());
+        let after = envref
+            .get_async_store()
+            .get_metadata(&key("reports/recipes.yaml"))
+            .await
+            .unwrap()
+            .version();
+        assert_eq!(before, after);
+    }
+
+    #[tokio::test]
+    async fn query_steps_work_on_any_query_root() {
+        let envref = env().await;
+        let registry = envref.command_metadata_snapshot();
+        let query = memory_accessor(
+            Some(State::from_value_and_metadata(
+                Value::from_query(&address(QUERY)),
+                Arc::new(Metadata::new()),
+            )),
+            Query::new(),
+        );
+        let head = query
+            .project(step(ActionStep::new(3, registry.clone())), address("action"))
+            .unwrap();
+        let n = head
+            .project(step(ArgumentStep::new("n", registry.clone())), address("argument"))
+            .unwrap();
+        assert_eq!(*within(n.get()).await.unwrap().state.value().unwrap(), Value::from(10i64));
+        let values = query
+            .project(step(ActionStep::new(2, registry.clone())), address("action"))
+            .unwrap()
+            .project(step(ArgumentStep::new("values", registry)), address("argument"))
+            .unwrap();
+        assert_eq!(
+            within(values.get()).await.unwrap().state.value().unwrap().try_into_json_value().unwrap(),
+            serde_json::json!(["EU", "US"])
+        );
+        within(n.set(Value::from(20i64), SetOptions::default()))
+            .await
+            .unwrap();
+        let root = within(query.get()).await.unwrap().state.value().unwrap();
+        assert_eq!(root.try_into_query().unwrap().encode(), QUERY.replace("head-10", "head-20"));
+    }
+}

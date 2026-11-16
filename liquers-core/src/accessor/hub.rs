@@ -717,6 +717,18 @@ impl<V: ValueInterface> ValueAccessor<V> for HubAccessor<V> {
                     }
                 }
                 description.read_only = description.read_only || read_only;
+                if let Some(argument) = &description.argument {
+                    let nodes = self.node.chain();
+                    description.overridden = description.overridden
+                        || nodes.iter().zip(chain.iter()).any(|(node, derived)| {
+                            match (&node.step, derived) {
+                                (Some(step), Some(derived)) => step
+                                    .overridden_arguments(&derived.value)
+                                    .contains(&argument.name),
+                                (Some(_), None) | (None, _) => false,
+                            }
+                        });
+                }
                 Ok(description)
             }
         }

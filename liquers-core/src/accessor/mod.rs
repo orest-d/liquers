@@ -353,6 +353,11 @@ pub trait ProjectionStep<V: ValueInterface>: MaybeSend + MaybeSync + Debug {
         Ok(self.get(parent)?.map(|_| 0))
     }
     fn describe(&self, parent: &V) -> Result<PartDescription, Error>;
+    /// Names of arguments whose query value `part` supersedes (a recipe's `arguments` and
+    /// `links`), so a projection further down reports them as `overridden`.
+    fn overridden_arguments(&self, _part: &V) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 /// Told when a structural change invalidates an accessor (the `acc` commands expire its asset).
