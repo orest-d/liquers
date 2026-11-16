@@ -102,9 +102,15 @@ the tree and any other editor bound to the same recipe show it.
 - **AC-12** Old state loads
   WHEN an app state saved before this change is loaded
   THEN it loads unchanged
+- **AC-13** Controllers drive numeric arguments
+  WHEN an outside event source (a MIDI knob, a shortcut, a script) sets "numeric argument 2 of the
+  edited action" to a value in its own range
+  THEN the value is scaled to the argument (an integer as is, a float into its slider range or 0-1),
+  written through the same validated edit and binding, and the editor and any view of the query's
+  result update
 
 Non-goals: per-keystroke planning diagnostics in the text field (`query-editor-live-validation`);
-evaluating or previewing the query (the console does that); placeholders and command-definition
+evaluating the query inside the editor (a view bound to the same query or recipe re-evaluates because the binding expires it, as in AC-13); the MIDI input itself (AC-13 defines only the numeric-argument addressing an event source uses); placeholders and command-definition
 mode (`WEB-PIPELINE-EDITOR-HAS-NO-DEFINITION-MODE`); drag and drop; a date picker (`DateField` is a
 text field); Python and JavaScript constructors for the elements beyond what the `lui` commands give.
 
@@ -174,10 +180,29 @@ missing from `PipelineEditor` (Phase 2 lists them; `liquers-core` stays UI-free)
 5. **Proposed resolution - split mode timing.** Recommended: Phase 2 fixes the tree model as plain serializable data (what
    the client half renders) and implements monolithic mode first; the split halves are a Phase 4
    step that starts when `ui-split-elements` Phase 2 is approved.
-6. **Open design (input for Phase 2) - the proof of concept.** I could not read `orest-d/egui-midi-test` `src/editor.rs` (the
-   repository is not reachable from this session and the web page was rate limited). Phase 2 should
-   take ideas from it: please add the repository to the project or copy the file into the project
-   files.
+6. **Proposed resolution - controllers (AC-13).** In scope as the numeric-argument addressing and
+   scaling only, taken from the proof of concept; recommended yes. Alternative: drop AC-13 and leave
+   controllers to a later design.
+
+## Proof of Concept
+
+`orest-d/egui-midi-test` `src/editor.rs` (`edit_query`, `ExtendedQuery`, `ActionEditorRecord`), read
+on 2026-11-16. Each frame it parses a text field, builds a two-column `egui::Grid` (label, widget)
+for the **last** action from its `CommandMetadata`, and picks the widget from `gui_info`: text
+fields sized from the width hint, sliders for `IntegerRange` / `IntegerSlider` / `FloatSlider`,
+`t`/`f` checkboxes and radio pairs, and a colour picker that writes `RRGGBBAA` for `ColorString`.
+Any change re-encodes the query and re-evaluates it. MIDI control changes address "the n-th numeric
+parameter" of that action and scale 0-127 to an integer or to 0-1 (`find_numeric_parameter`,
+`set_numeric_parameter_value_in_query`).
+
+Kept here: the label-widget grid and the `gui_info` widget mapping (AC-2), the text field above the
+form kept in step (AC-4), re-evaluation on change (through the binding), and numeric-argument
+addressing for controllers (AC-13). Changed: any action rather than the last one (AC-1, AC-8);
+parameters map to arguments through `PipelineEditor` rather than by position, so defaults,
+variadic and link arguments and named parameters work and excess parameters are not an error;
+an invalid entry is refused (AC-5) rather than read as `0` by `unwrap_or`; enum widgets and `Hide`
+are implemented instead of `todo!()`; a radio pair writes only when clicked; diagnostics go to the
+editor, not `println!`.
 
 ## References
 
