@@ -21,7 +21,7 @@ short (`CLAUDE.md` §Building and testing).
 - [x] Step 8: Record steps
 - [x] Step 9: The `/api/acc` routes and socket
 - [x] Step 10: The Python wrapper
-- [ ] Step 11: The JavaScript wrapper
+- [x] Step 11: The JavaScript wrapper
 - [ ] Step 12: Whole-change checks
 
 ## Implementation Steps
@@ -264,6 +264,14 @@ Deviations from Phases 2 and 3 found while implementing, each kept small:
   queue of at most 256 (the oldest dropped); callbacks registered with `on` run only inside
   `process_events`, `wait_event` or the `events()` iterator, never on a runtime thread. A stored
   file's accessor reports status `Source`, not `Ready`.
+- **A JavaScript handle spawns the accessor's driver when it is created**, not at its first
+  subscription: `driver()` hands the watcher out once, and a handle that is only read and written
+  still needs it for other handles' events. The driver ends with the hub.
+- **JavaScript statuses are lowercase names** (`"source"`, `"none"`), as `LiquersAsset.status`
+  gives them, in `info()` and in `"status"` events alike; the WebSocket keeps the serde names.
+- **`Environment.accessor` / `memoryAccessor`** were added beside the module-level functions, as
+  `evaluate` has both. The Node tests seed a memory store at `d`, because the default web
+  environment has no store at the root.
 
 ## Phase 5 Entry Criteria
 - [ ] Implementation finished and validated

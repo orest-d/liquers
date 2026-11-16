@@ -75,6 +75,10 @@ impl JsExtensionBridge for ExtValue {
         if let Some(value) = crate::ui::ui_element_value(js)? {
             return Ok(Some(ExtValue::UIElement { value }));
         }
+        // An accessor handle crosses back as the same accessor `Arc`.
+        if let Some(value) = crate::accessor::accessor_value(js)? {
+            return Ok(Some(ExtValue::Accessor { value }));
+        }
         Ok(None)
     }
 
@@ -86,9 +90,14 @@ impl JsExtensionBridge for ExtValue {
             ExtValue::UIElement { value } => {
                 Ok(Some(crate::ui::LiquersUIElement::new(value.clone()).into()))
             }
-            // Crosses as a handle once the JavaScript wrapper exists (the accessor design's
-            // Step 11); until then nothing to convert.
-            ExtValue::Accessor { .. } => Ok(None),
+            // An accessor crosses as a handle, so it comes back as the same Rust accessor.
+            ExtValue::Accessor { value } => Ok(Some(
+                crate::accessor::LiquersAccessor::new(
+                    value.clone(),
+                    crate::bridge::conversion_env::<crate::environment::WebEnvironment>(),
+                )
+                .into(),
+            )),
             #[cfg(feature = "polars")]
             ExtValue::PolarsDataFrame { .. } => Ok(None),
             #[cfg(feature = "egui")]

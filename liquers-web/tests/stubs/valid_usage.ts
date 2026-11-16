@@ -253,6 +253,30 @@ async function main(): Promise<void> {
     run: async (context: liquers.Context) => context.expand('{{x}}', { x: 1 }),
   });
 
+  // Settable value accessors: get, set with a token, project, events.
+  const acc: liquers.Accessor = await liquers.accessor('-R-key/config.yaml/-/ns-acc/accessor');
+  const writable: boolean = acc.capabilities.write;
+  const snap: liquers.AccessorSnapshot = await acc.snapshot();
+  const newToken: string = await acc.setIf(snap.value(), snap.token);
+  const title: liquers.Accessor = await acc.project('field-title');
+  const accInfo: liquers.AccessorInfo = await title.info();
+  const part: liquers.PartDescription = await title.describe();
+  const accSub: liquers.AccessorSubscription = title.subscribe((e: liquers.AccessorEventObject) => {
+    if (e.event === 'changed') void e.etag;
+  });
+  accSub.dispose();
+  const counter: liquers.Accessor = liquers.memoryAccessor(1, 'counter');
+  await counter.set(2);
+  try {
+    await acc.setIf('stale', null);
+  } catch (e) {
+    if (e instanceof liquers.LiquersError && e.errorType === 'status_conflict') void e.token;
+  }
+  void writable;
+  void newToken;
+  void accInfo.logLen;
+  void part.readOnly;
+
   // Parameter encoding, and the module-level odds and ends.
   const param: string = liquers.encodeParam('two words');
   const ready: boolean = liquers.isInitialized();

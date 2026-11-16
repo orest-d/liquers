@@ -910,6 +910,26 @@ impl LiquersEnvironment {
         ))
     }
 
+    /// Resolves a query on **this** environment to its settable value `Accessor`; see the
+    /// module-level `accessor`.
+    #[wasm_bindgen(unchecked_return_type = "Promise<Accessor>")]
+    pub fn accessor(&self, query: &str) -> js_sys::Promise {
+        match self.resolve() {
+            Ok(envref) => crate::accessor::accessor_promise(envref, query),
+            Err(e) => js_sys::Promise::reject(&liquers_error_to_js(e)),
+        }
+    }
+
+    /// A new in-memory `Accessor` on this environment; see the module-level `memoryAccessor`.
+    #[wasm_bindgen(js_name = memoryAccessor)]
+    pub fn memory_accessor(
+        &self,
+        value: Option<JsValue>,
+        address: Option<String>,
+    ) -> Result<crate::accessor::LiquersAccessor, JsValue> {
+        crate::accessor::memory_accessor_handle(self.resolve().ok(), value, address)
+    }
+
     /// Evaluates a query on **this** environment, returning a `Promise`.
     pub fn evaluate(&self, query: &str) -> js_sys::Promise {
         let envref = match self.resolve() {
