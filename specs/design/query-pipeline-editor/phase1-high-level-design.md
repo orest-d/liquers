@@ -33,7 +33,7 @@ see the change.
 
 ```
 [ -R/data/sales.csv/-/ns-pl/from_csv/is_in-region-EU-US/head-~X~…~E ]   ← highlighted text
-▾ resource   (•) data ( ) key ( ) dir …   [data/sales.csv     ][📁]
+▾ resource   [      ▾][data/sales.csv     ][📁]
 ▸ ns         pl
 ▸ from_csv                                         [presets ▾][next ▾][filename]
 ▾ is_in      Filter rows where column equals one of the values      [presets ▾][next ▾]
@@ -84,9 +84,10 @@ the tree and any other editor bound to the same recipe show it.
   THEN the query changes accordingly, through the same validated edits as AC-5. Moving a node up or
   down is optional (Phase 2 decides whether the first version has it)
 - **AC-7** Resource editor
-  WHEN a resource node (anywhere in a query or pipeline) is edited: its header, chosen with radio
-  buttons from every resource header the planner accepts (the asset `-R`, `key`, `cwd`, `binary`,
-  `metadata`, `recipe`, `dir`, `sdir`, `stored_binary`, `stored_metadata`), and its key
+  WHEN a resource node (anywhere in a query or pipeline) is edited: its header, chosen from a
+  dropdown placed before the key field (as the header precedes the key in the query), which lists
+  every header the planner accepts without the `-R` (empty for the asset, then `key`, `dir`,
+  `recipe`, `cwd`, `binary`, `metadata`, `sdir`, `stored_binary`, `stored_metadata`), and its key
   THEN the resource changes and the rest of the query is kept. The header changes the element kind
   where it must: `key` passes the key itself (`UseKeyValue`) and `cwd` sets the working directory,
   neither reads anything, and the editor says so
@@ -243,17 +244,14 @@ moving optional (AC-6).
 Answered by Orest later on 2026-11-16: no key gui hint is needed, because a `-R-key/…` link acts as
 a key (old question 5, now in AC-15); the Default filename button is hidden when the last command
 declares no filename, because the query is never executed to learn its type (old question 6, now
-in AC-22); argument presets get a menu (old question 8, now AC-24).
+in AC-22); argument presets get a menu (old question 8, now AC-24); the resource header is a
+dropdown before the key field, showing the header word without `-R` and nothing for the asset
+(old question 7, now AC-7).
 
-5. **Proposed resolution - laying out the resource header (AC-7).** The header is the word after
-   `-R-` in a resource query (`-R-key/…`, `-R-dir/…`, `-R-recipe/…`); plain `-R/…` reads the asset.
-   The planner accepts ten of them (`liquers-core/src/plan.rs`, the resource header match). Ten is a
-   long radio row, so show the common ones (asset, `key`, `dir`, `cwd`) as radios and the other six
-   (`binary`, `metadata`, `recipe`, `sdir`, `stored_binary`, `stored_metadata`) under "more".
-6. **Implementation detail - argument presets in practice.** No command in the workspace or in the
+5. **Implementation detail - argument presets in practice.** No command in the workspace or in the
    proof of concept declares argument presets yet (the proof of concept's colour is a `ColorString`
    widget, not a preset), so a test registers one.
-7. **Implementation detail - moving nodes (AC-6).** Recommended: include up and down, since
+6. **Implementation detail - moving nodes (AC-6).** Recommended: include up and down, since
    `PipelineEditor::move_to` exists; leave drag and drop out.
 
 ## Salvaged from command-parameter-editor
