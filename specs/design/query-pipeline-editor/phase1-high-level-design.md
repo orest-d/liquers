@@ -78,9 +78,11 @@ the tree and any other editor bound to the same recipe show it.
   first), removes one, or moves one up or down
   THEN the query changes accordingly, through the same validated edits as AC-5
 - **AC-7** Resource editor
-  WHEN the resource node is edited (its key, and whether it reads the data or the asset, `-R` or
-  `-R-key`)
-  THEN the query's resource segment changes and the rest of the query is kept
+  WHEN the resource node is edited: its key, and what it reads, chosen from the pipeline's `Read`
+  modes (the asset's value `-R`, its binary, metadata or recipe, a directory listing, or the stored
+  bytes `-R-stored_binary`)
+  THEN the query's resource segment changes and the rest of the query is kept; `-R-key`, which
+  passes the key itself rather than reading anything, is shown as a key node and is not a read mode
 - **AC-8** Standalone action editor
   WHEN an action editor is opened on an action accessor (`…/query/action-2`)
   THEN it shows that action's form only (AC-2, AC-3), and its edits are written to where the query
