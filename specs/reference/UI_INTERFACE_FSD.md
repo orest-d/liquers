@@ -3,7 +3,7 @@ title: UI Interface Specification
 kind: reference
 audience: internal
 area: [lib/ui]
-reviewed: 2026-11-11
+reviewed: 2026-11-16
 ---
 # UI Interface Specification
 
@@ -308,6 +308,14 @@ fn render_table(state: &State<Value>) -> Result<Value, Error> {
     }))
 }
 ```
+
+### Element-owned values
+
+A value an element owns, with no home in the store or in an asset (a form field's draft, a
+selection), is a memory accessor (`liquers_core::accessor::memory_accessor`,
+[`VALUE_ACCESSORS.md`](VALUE_ACCESSORS.md)): a variable every clone of the handle shares, with
+conflicts, projections and change events like any other accessor. Binding an element to an accessor
+(redrawing on `Changed`, writing on an edit) is not specified here; it belongs to the UI designs.
 
 ## Event Handling
 
@@ -769,3 +777,4 @@ Candidate universal operations identified across use cases:
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |
 | 2026-10-30 | Event Handling: implemented UI events (`UIEvent`, `data-lq-*` markup, keyboard precedence, limits). Only that section was reviewed against the implementation. | ui-events |
 | 2026-11-11 | Hosts: the native driver, the egui window and the Python host; reviewed against the implementation (that section only). | `design/egui-native-app/`, `design/liquers-py-ui/`, `design/liquers-py-ui-window/` |
+| 2026-11-16 | Value Integration: element-owned values are memory accessors; binding is left to the UI designs. Only that subsection was reviewed. | `design/settable-value-accessor/` |

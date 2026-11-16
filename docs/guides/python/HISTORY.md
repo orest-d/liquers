@@ -60,3 +60,6 @@ have a row here (`specs/guides/USER_DOCS_EDITING_GUIDE.md`, maintenance).
 | 2026-11-15 | 10-templates.md | reviewed against the package layout of `design/py-package-submodules/`: its examples use only entry points of `liquers as lq` (`Environment`, `evaluate`, the decorators, the error classes), unchanged; no change |
 | 2026-11-15 | 11-ui.md | reviewed against the package layout of `design/py-package-submodules/`: its examples use only entry points of `liquers as lq` (`Environment`, `evaluate`, the decorators, the error classes), unchanged; no change |
 | 2026-11-15 | 14-testing.md | reviewed against the package layout of `design/py-package-submodules/`: its examples use only entry points of `liquers as lq` (`Environment`, `evaluate`, the decorators, the error classes), unchanged; no change |
+| 2026-11-16 | 04-values.md | reviewed against `design/settable-value-accessor/`: new 4.6 on editing a value through `lq.Accessor` (tokens, conflicts, projections, events); example runs |
+| 2026-11-16 | 12-serving.md | reviewed against `design/settable-value-accessor/`: the shared settings table names the opt-in `accessors` API |
+| 2026-11-16 | e-web-api.md | reviewed against `design/settable-value-accessor/`: new E.10, the Accessor API (routes, `ETag` preconditions, the WebSocket), from `_shared/web-api.md` |

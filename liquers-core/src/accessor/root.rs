@@ -12,11 +12,14 @@
 //! - [`KeyRoot`] / [`key_accessor`]: a keyed asset, evaluated when read; a set is an `Override`
 //!   with a recipe and a `Source` without one; status, progress and log are relayed.
 //! - [`AssetRefRoot`] / [`asset_accessor`]: an asset the holder already has, read-only.
+//! - [`resolve_accessor`]: the accessor a query names.
 //!
 //! # Where it is used
 //!
 //! - The `acc` commands of `liquers-lib` build these roots from queries.
-//! - The `/api/acc` routes of `liquers-axum` wrap a query's own asset with [`asset_accessor`].
+//! - [`resolve_accessor`] gives the accessor a query names, wrapping any other query's asset with
+//!   [`asset_accessor`]; the `/api/acc` routes of `liquers-axum` and the Python and JavaScript
+//!   wrappers resolve queries with it.
 //!
 //! # Related concepts
 //!

@@ -3,7 +3,7 @@ title: Python Integration
 kind: reference
 audience: both
 area: [py, core/value, core/error, lib/value, core/store, store/config, core/assets, lib/ui, lib/egui]
-reviewed: 2026-11-15
+reviewed: 2026-11-16
 ---
 # Python Integration
 
@@ -56,6 +56,7 @@ once more, as the same object (`liquers.Key is liquers.query.Key`):
 | `liquers.records` | `RecordView`, `RecordSource`, `RecordStream`, `RecordChunk`, `RecordColumn`, `RecordBuffer`, `RecordSchema`, `FieldSchema`, `FieldType`, `KeyRole`, `ChunkOrigin` | `liquers-records` |
 | `liquers.server` | `serve`, `serve_async`, `Server` | `liquers-axum` |
 | `liquers.lui` | `ui`, `UI`, `UIElement`, `UIElementInfo`, `UIStatusEvent`, `UISubscription` | `liquers_lib::ui` |
+| `liquers.accessors` | `Accessor`, `AccessorCapabilities`, `AccessorSnapshot`, `AccessorInfo`, `AccessorEvent`, `PartDescription`, `AccessorSubscription` | `liquers_core::accessor` |
 
 Two modules differ from the Rust name on purpose: `lui` (Liquers UI) and `data_nodes`, because a
 submodule `liquers.ui` or `liquers.data_node` would replace the functions `liquers.ui` and
@@ -117,6 +118,7 @@ frozen; the others hold their own copy of the value.
 | `RenderResult`, `Diagnostic`, `Link`, `link` | a render's text with its warnings, a template problem, and a default link argument (§15) |
 | `Pipeline`, `PipelineEditor`, `QueryEditor`, `ActionEditor` | `liquers_core::pipeline`: a pipeline and the editors (§16) |
 | `RecordView`, `RecordColumn`, `RecordBuffer`, `RecordSchema`, `FieldSchema`, `FieldType`, `KeyRole`, `ChunkOrigin`, `RecordSource`, `RecordStream`, `RecordChunk` | `liquers_records` views, sources and schema types (§11) |
+| `Accessor`, `AccessorCapabilities`, `AccessorSnapshot`, `AccessorInfo`, `AccessorEvent`, `PartDescription`, `AccessorSubscription` | a settable value accessor (`Arc<dyn ValueAccessor<Value>>`) and its results (§19) |
 
 `Plan.to_json` / `to_yaml` and `Plan.from_json` / `from_yaml` round-trip within one version
 only: a serialized plan is an inspection format, not a stable schema (`RECIPES_AND_PLANS.md`
@@ -419,6 +421,11 @@ the error becomes a plain `Exception` with the rendered message.
 
 A JSON or YAML failure in a wrapper method (`from_json`, `to_yaml`, …) raises `SerializationError`; a
 bad constructor argument raises the error its core constructor returns.
+
+`StatusConflictError` has one extra attribute, `token`: for a conflict from an accessor's `set` or
+`set_if`, the accessor's current token (read with `liquers_core::accessor::conflict_token`), else
+`None`. It is a class attribute defaulting to `None` (`_errors._VARIANT_ATTRIBUTES`), set on the
+instance by `error_to_pyerr` (§19).
 
 **Python to Liquers** (`pyerr_to_error`):
 
@@ -1145,10 +1152,49 @@ task (up to 5 s) and releases the callbacks; every later call raises "the UI has
 stop. A collected `lq.UI` signals its task without waiting. A callback that refers to its `UI`
 keeps it alive until `dispose()`.
 
+## 19. Accessors
+
+`lq.Accessor` wraps an existing settable value accessor, `Arc<dyn ValueAccessor<Value>>`
+([`VALUE_ACCESSORS.md`](VALUE_ACCESSORS.md)). `liquers-py/src/accessor.rs` and
+`python/liquers/accessors.py`; design `design/settable-value-accessor/`. Python cannot define a root
+or a step (`ACCESSOR-CANNOT-BE-IMPLEMENTED-IN-PYTHON-OR-JAVASCRIPT`).
+
+**Making one.** `env.accessor(query)` (and `accessor_async`) resolves a query with
+`resolve_accessor`: an `acc` query's accessor, or a read-only accessor of any other query's asset.
+`env.memory_accessor(value=None, address=None)` makes a variable holding `value` (empty when `None`)
+named `address`. An accessor value returned by a command converts to an `lq.Accessor`, and an
+`lq.Accessor` returned from a command or passed as an argument converts back to the **same** Rust
+`Arc`, never a copy.
+
+**Methods.** `address` (an `lq.Query`) and `capabilities` (`AccessorCapabilities(write, notify)`);
+`get()` (the value) and `snapshot()` (`AccessorSnapshot`: `value`, converted on first access,
+`state`, `token`, `root_version`); `set(value)` and `set_if(value, token)`, each returning the new
+token; `info()` (`AccessorInfo`: `status`, `message`, `primary_progress`, `secondary_progress`,
+`log_len`, `token`), `log(since=0)` (a list of `lq.LogEntry`), `describe()` (`PartDescription`:
+`step`, `type_identifier`, `argument`, `command`, `overridden`, `read_only`), `refresh()`, and
+`project(actions)`, which appends `actions` to the address and resolves the result. `get`,
+`snapshot`, `set`, `set_if`, `info`, `refresh`, `project` and `wait_event` have `_async` forms.
+Blocking calls release the interpreter lock while they wait (§7).
+
+**Tokens.** Each wrapper keeps the token it last read or wrote, so its `set` is
+`set_if(value, that token)`: two wrappers of one accessor conflict with each other, as two holders
+should, although the Rust handle is shared. `set_if(value, None)` creates a value that must not exist
+yet. A mismatch raises `StatusConflictError` with the current `token` (§6), and writes nothing.
+
+**Events.** The first `on`, `wait_event` or `events()` of a wrapper starts forwarding the accessor's
+events into a queue of at most 256 `AccessorEvent`s (`kind`, `status`, `primary`, `secondary`,
+`count`, `token`); when it is full the oldest is dropped. Callbacks registered with
+`on(callback)` (it returns an `AccessorSubscription`, also a context manager that disposes on exit)
+run only on the caller's thread, inside `process_events()` (every queued event, without waiting),
+`wait_event(timeout=None)` (one event, or `None` on timeout) or the `events()` async iterator; never
+on a runtime thread. `process_events` returns how many events it ran. A callback's exception does not
+stop the others: it goes to `sys.unraisablehook`.
+
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-16 | §19 Accessors: `lq.Accessor` and its results in `liquers.accessors`; per-wrapper tokens; where events and callbacks run. §1, §2: the module and its classes. §6: `StatusConflictError.token`. | `design/settable-value-accessor/`; `liquers-py/tests/test_ACCESSOR_use.py` |
 | 2026-11-15 | §1: the native extension is the private package `_liquers`, reached only through `liquers/_backend.py`; sixteen public submodules mirror the Rust modules; every class reports its submodule. §6: `liquers.error` installs the error classes. §13: one stub per submodule; stubtest and mypy cover `_liquers`. §14, §18: `liquers.data_nodes`, `liquers.lui`. | `design/py-package-submodules/`; `liquers-py/tests/test_LAYOUT_submodules.py` |
 | 2026-11-14 | §18 Idle: `wait_idle` and `wait_idle_async` are refused inside any Python command, `async def` ones included (a Codex review of PR #268 found an async command's `wait_idle_async` deadlocked). §1: `_ui.py` holds the mark. | `liquers-py/tests/test_UIUSE_model.py` `test_UIUSE_wait_idle_async_inside_an_async_command_raises` |
 | 2026-11-11 | §18 User interface: `env.ui()`, `lq.UI`, status events and who delivers them, the window (`run`, `close`), lifetime. §3: the UI payload and the `lui` built-ins; `Context.element`. §1: `_ui.py`, the `gui` feature. §2: the UI classes. §7: UI models are disposed at exit after the servers. §8: UI limitations. §12: the wheels carry egui, and the Windows allow-list names the window's system DLLs. | `design/liquers-py-ui/`, `design/liquers-py-ui-window/` |

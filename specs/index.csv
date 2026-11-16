@@ -397,6 +397,7 @@ RECIPE-TO-PLAN-IGNORES-RECIPE-LEVEL-VOLATILE-AND-EXPIRES,issue,Recipe to_plan ig
 RECIPE-WITHOUT-FILENAME-SILENTLY-OMITTED-FROM-LISTING,issue,A recipe with no valid filename is silently left out of the recipe listing and lookup,draft,local,,needs-decision,not-eligible,P3,S,core/assets;core/validate,,,,unnamed-recipe-diagnostics,,2026-10-20,specs/issues/RECIPE-WITHOUT-FILENAME-SILENTLY-OMITTED-FROM-LISTING.md
 RECIPES-CANNOT-DESCRIBE-A-SELF-CONTAINED-ASSET-TREE,feature,"A recipes folder cannot be used as a self-contained, editable tree of assets",draft,local,,,,P2,XL,core/assets;core/store;core/validate,,,,,,2026-11-02,specs/issues/RECIPES-CANNOT-DESCRIBE-A-SELF-CONTAINED-ASSET-TREE.md
 RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES,issue,Every recipes.yaml read error is treated as an empty recipe list,closed,local,,ready,eligible,P2,S,core/assets,,,,recipes-yaml-read-errors-propagate,,2026-10-20,specs/issues/RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES.md
+RECORD-ACCESSOR-STEPS-HAVE-NO-COMMANDS,feature,"Record rows, columns and cells cannot be projected from a query",draft,local,,,,P3,S,lib/value;records,,,,,,2026-11-16,specs/issues/RECORD-ACCESSOR-STEPS-HAVE-NO-COMMANDS.md
 RECORD-AND-POLARS-COMMANDS-NOT-INTEROPERABLE,feature,"Record and polars commands differ in names and inputs, so a query cannot move between them",closed,local,,ready,not-eligible,P2,L,records,,,,record-filter-commands,,2026-10-11,specs/issues/RECORD-AND-POLARS-COMMANDS-NOT-INTEROPERABLE.md
 RECORD-BATCH-FIELDS-CAN-BE-MUTATED-PAST-VALIDATION,issue,"RecordBatch validates its columns in new, but its public fields can be changed afterwards; InMemorySource's materialize exposes a placeholder chunk id",draft,local,,needs-decision,not-eligible,P3,M,records,,,,record-batch-private-fields,,2026-09-27,specs/issues/RECORD-BATCH-FIELDS-CAN-BE-MUTATED-PAST-VALIDATION.md
 RECORD-FIELD-TYPE-HAS-NO-DECIMAL,feature,"Record fields have no exact Decimal type, so decimal columns are refused or lose precision",draft,local,,needs-decision,not-eligible,P3,L,records;lib/polars;web,,,,record-decimal-field-type,,2026-10-21,specs/issues/RECORD-FIELD-TYPE-HAS-NO-DECIMAL.md
@@ -939,7 +940,7 @@ SERDE-DERIVE-FEATURE-DECLARED,design,Every crate that uses serde's derive macros
 SERIALIZATION-LOSSY-WRITE-WARNINGS,design,A lossy serialization is recorded as a warning in the asset's metadata log,in_review,local,implementation,needs-decision,not-eligible,P2,M,core/value;core/assets,,,,serialization-lossy-write-warnings,,2026-10-19,specs/design/serialization-lossy-write-warnings/DESIGN.md
 SERIALIZED-BINARY-DISPOSAL-POLICY,design,A serialized binary is released once the store holds it,in_review,local,implementation,needs-decision,not-eligible,P2,M,core/assets,,,,serialized-binary-disposal-policy,,2026-10-19,specs/design/serialized-binary-disposal-policy/DESIGN.md
 SET-BINARY-REPLACES-DEPENDENCY-EDGES,design,set_binary replaces a key's incoming dependency edges with the records it writes,in_review,local,implementation,needs-decision,not-eligible,P3,S,core/assets,,,,set-binary-replaces-dependency-edges,,2026-10-20,specs/design/set-binary-replaces-dependency-edges/DESIGN.md
-SETTABLE-VALUE-ACCESSOR,design,Settable value accessor,approved,local,implementation,,,,,core/value;core/assets;core/query;lib/ui;lib/value;records;axum;py;web,,,,settable-value-accessor,,2026-11-15,specs/design/settable-value-accessor/DESIGN.md
+SETTABLE-VALUE-ACCESSOR,design,Settable value accessor,approved,local,documentation,,,,,core/value;core/assets;core/query;lib/ui;lib/value;records;axum;py;web,,,,settable-value-accessor,,2026-11-15,specs/design/settable-value-accessor/DESIGN.md
 SHARED-METADATA-AND-BYTES,design,Share metadata records and stored bytes instead of deep-copying them,in_review,local,implementation,needs-decision,not-eligible,P3,L,core/value;core/store;core/assets;axum,,,,shared-metadata-and-bytes,,2026-10-20,specs/design/shared-metadata-and-bytes/DESIGN.md
 SIDECAR-COLLIDING-KEYS,design,Sidecar-colliding keys refused by the path builders,complete,local,,,,,,core/store;store/backends;docs,,60,,sidecar-colliding-keys,,2026-09-03,specs/design/sidecar-colliding-keys/DESIGN.md
 SIMPLE-VALUE-I32-JSON-READ,design,liquers-lib's base value reads an I32 written as JSON back as I32,complete,local,,ready,eligible,P3,S,lib/value,,210,,simple-value-i32-json-read,,2026-10-26,specs/design/simple-value-i32-json-read/DESIGN.md
@@ -1070,19 +1071,20 @@ PIPELINES,reference,Pipelines,current,local,,,,,,core/commands;core/plan;core/qu
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,,lib/polars,,,,,2026-11-03,,specs/reference/POLARS_COMMAND_LIBRARY.md
 POSITIONING,reference,Positioning and Marketing Plan (draft),current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/POSITIONING.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-11-04,,specs/reference/PROJECT_OVERVIEW.md
-PYTHON_INTEGRATION,reference,Python Integration,current,local,,,,,,py;core/value;core/error;lib/value;core/store;store/config;core/assets;lib/ui;lib/egui,,,,,2026-11-15,,specs/reference/PYTHON_INTEGRATION.md
+PYTHON_INTEGRATION,reference,Python Integration,current,local,,,,,,py;core/value;core/error;lib/value;core/store;store/config;core/assets;lib/ui;lib/egui,,,,,2026-11-16,,specs/reference/PYTHON_INTEGRATION.md
 REALMS,reference,Realms,current,local,,,,,,core/plan;core/commands;store/config,,,,,2026-11-04,,specs/reference/REALMS.md
-RECIPES_AND_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/query;core/assets;core/context,,,,,2026-11-04,,specs/reference/RECIPES_AND_PLANS.md
+RECIPES_AND_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/query;core/assets;core/context,,,,,2026-11-16,,specs/reference/RECIPES_AND_PLANS.md
 RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-11-03,,specs/reference/RECORD_STREAMS.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,,macro;core/commands,,,,,2026-10-20,,specs/reference/REGISTER_COMMAND_FSD.md
 SEARCH,reference,Search,current,local,,,,,,records;lib/commands,,,,,2026-10-17,,specs/reference/SEARCH.md
 STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,,store/config,,,,,2026-11-01,,specs/reference/STORE_CONFIG_FSD.md
 STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-27,,specs/reference/STORE_SEMANTICS.md
 TEMPLATE_LANGUAGE,reference,Template Language,current,local,,,,,,core/query;lib/commands,,,,,2026-11-04,,specs/reference/TEMPLATE_LANGUAGE.md
-UI_INTERFACE_FSD,reference,UI Interface Specification,current,local,,,,,,lib/ui,,,,,2026-11-11,,specs/reference/UI_INTERFACE_FSD.md
-VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-11-04,,specs/reference/VALUE_TYPE_SYSTEM.md
+UI_INTERFACE_FSD,reference,UI Interface Specification,current,local,,,,,,lib/ui,,,,,2026-11-16,,specs/reference/UI_INTERFACE_FSD.md
+VALUE_ACCESSORS,reference,Value Accessors,current,local,,,,,,core/value;core/assets;core/query;lib/value;axum;py;web,,,,,2026-11-16,,specs/reference/VALUE_ACCESSORS.md
+VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-11-16,,specs/reference/VALUE_TYPE_SYSTEM.md
 VISION,reference,Liquers Vision and Strategy,current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/VISION.md
-WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,,axum;web,,,,,2026-11-10,,specs/reference/WEB_API_SPECIFICATION.md
+WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,,axum;web,,,,,2026-11-16,,specs/reference/WEB_API_SPECIFICATION.md
 AGENT_MEMORY_MIGRATION_GUIDE,guide,Agent Memory Migration Guide,current,local,,,,,,lib/commands;docs,,,,,2026-10-19,,specs/guides/AGENT_MEMORY_MIGRATION_GUIDE.md
 API_DOCUMENTATION_GUIDE,guide,API Documentation Guide,current,local,,,,,,docs,,,,,2026-11-15,,specs/guides/API_DOCUMENTATION_GUIDE.md
 ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,current,local,,,,,,core/assets,,,,,2026-10-22,,specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md
@@ -1093,11 +1095,11 @@ COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,c
 DEPENDENCY_CONSISTENCY_GUIDE,guide,Dependency Consistency Guide,current,local,,,,,,core/assets,,,,,2026-10-08,,specs/guides/DEPENDENCY_CONSISTENCY_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,,core/context;core/assets;core/store,,,,,2026-11-09,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
 GITHUB_ACTIONS_GUIDE,guide,GitHub Actions Guide,current,local,,,,,,build;docs,,,,,2026-11-11,,specs/guides/GITHUB_ACTIONS_GUIDE.md
-JAVASCRIPT_GUIDE,guide,Using Liquers from JavaScript in the browser,current,local,,,,,,web,,,,,2026-11-04,,specs/guides/JAVASCRIPT_GUIDE.md
-LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store;core/value;lib/commands,,,,,2026-11-15,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
+JAVASCRIPT_GUIDE,guide,Using Liquers from JavaScript in the browser,current,local,,,,,,web,,,,,2026-11-16,,specs/guides/JAVASCRIPT_GUIDE.md
+LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store;core/value;lib/commands,,,,,2026-11-16,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 PIPELINE_GUIDE,guide,Pipeline Guide,current,local,,,,,,core/commands;core/plan;core/query;core/validate,,,,,2026-11-04,,specs/guides/PIPELINE_GUIDE.md
 PROJECT_SITE_GUIDE,guide,Project Site Guide,current,local,,,,,,docs;build,,,,,2026-11-10,,specs/guides/PROJECT_SITE_GUIDE.md
-PYTHON_GUIDE,guide,Using Liquers from Python,current,local,,,,,,py,,,,,2026-11-15,,specs/guides/PYTHON_GUIDE.md
+PYTHON_GUIDE,guide,Using Liquers from Python,current,local,,,,,,py,,,,,2026-11-16,,specs/guides/PYTHON_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,,core/query,,,,,2026-11-04,,specs/guides/QUERY_ESCAPING_GUIDE.md
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,,records;lib/value,,,,,2026-10-30,,specs/guides/RECORD_STREAM_GUIDE.md
 SEARCH_GUIDE,guide,Search Guide,current,local,,,,,,lib/commands;records,,,,,2026-10-17,,specs/guides/SEARCH_GUIDE.md
@@ -1109,11 +1111,12 @@ TEMPLATE_GUIDE,guide,Template Guide,current,local,,,,,,core/query;lib/commands,,
 TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,,core/value;lib/value,,,,,2026-11-04,,specs/guides/TYPE_SYSTEM_GUIDE.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,,build;core/assets,,,,,2026-10-20,,specs/guides/UNITTEST_GUIDE.md
 USER_DOCS_EDITING_GUIDE,guide,User Documentation Editing Guide,current,local,,,,,,docs,,,,,2026-11-14,,specs/guides/USER_DOCS_EDITING_GUIDE.md
+VALUE_ACCESSOR_GUIDE,guide,Value Accessor Guide,current,local,,,,,,core/value;core/assets;lib/value;axum;py;web,,,,,2026-11-16,,specs/guides/VALUE_ACCESSOR_GUIDE.md
 WEB_API_GUIDE,guide,Web API Guide,current,local,,,,,,axum;web,,,,,2026-11-09,,specs/guides/WEB_API_GUIDE.md
 python/01-introduction,chapter,Introduction,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/python/01-introduction.md
 python/02-installing,chapter,Installing and setting up,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/02-installing.md
 python/03-queries,chapter,Queries,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/03-queries.md
-python/04-values,chapter,"Values, state and metadata",ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/04-values.md
+python/04-values,chapter,"Values, state and metadata",ready,local,,,,,,docs,,,,,2026-11-16,,docs/guides/python/04-values.md
 python/05-commands,chapter,Commands,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/05-commands.md
 python/06-stores,chapter,Stores,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/06-stores.md
 python/07-assets,chapter,"Recipes, assets and caching",ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/07-assets.md
@@ -1121,7 +1124,7 @@ python/08-environment,chapter,The environment,ready,local,,,,,,docs,,,,,2026-11-
 python/09-data,chapter,Working with data,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/09-data.md
 python/10-templates,chapter,Templates,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/10-templates.md
 python/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/11-ui.md
-python/12-serving,chapter,Serving and embedding,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/python/12-serving.md
+python/12-serving,chapter,Serving and embedding,ready,local,,,,,,docs,,,,,2026-11-16,,docs/guides/python/12-serving.md
 python/13-records,chapter,Records,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/13-records.md
 python/14-testing,chapter,Testing,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/14-testing.md
 python/15-troubleshooting,chapter,Troubleshooting,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/15-troubleshooting.md
@@ -1129,12 +1132,12 @@ python/a-query-syntax,chapter,Query syntax,ready,local,,,,,,docs,,,,,2026-11-09,
 python/b-command-library,chapter,Command library,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/b-command-library.md
 python/c-glossary,chapter,Glossary,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/c-glossary.md
 python/d-sister-guides,chapter,Sister guides,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/python/d-sister-guides.md
-python/e-web-api,chapter,Web API reference,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/python/e-web-api.md
+python/e-web-api,chapter,Web API reference,ready,local,,,,,,docs,,,,,2026-11-16,,docs/guides/python/e-web-api.md
 python/index,chapter,Preface,ready,local,,,,,,docs,,,,,2026-11-09,,docs/guides/python/index.md
 rust/01-introduction,chapter,Introduction,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/01-introduction.md
 rust/02-installing,chapter,Installing and setting up,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/02-installing.md
 rust/03-queries,chapter,Queries,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/03-queries.md
-rust/04-values,chapter,"Values, state and metadata",ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/04-values.md
+rust/04-values,chapter,"Values, state and metadata",ready,local,,,,,,docs,,,,,2026-11-16,,docs/guides/rust/04-values.md
 rust/05-commands,chapter,Commands,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/05-commands.md
 rust/06-stores,chapter,Stores,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/06-stores.md
 rust/07-assets,chapter,"Recipes, assets and caching",ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/07-assets.md
@@ -1142,7 +1145,7 @@ rust/08-environment,chapter,The environment,ready,local,,,,,,docs,,,,,2026-11-10
 rust/09-data,chapter,Working with data,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/09-data.md
 rust/10-templates,chapter,Templates,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/10-templates.md
 rust/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/11-ui.md
-rust/12-serving,chapter,Serving and embedding,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/12-serving.md
+rust/12-serving,chapter,Serving and embedding,ready,local,,,,,,docs,,,,,2026-11-16,,docs/guides/rust/12-serving.md
 rust/13-records,chapter,Records,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/13-records.md
 rust/14-testing,chapter,Testing,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/14-testing.md
 rust/15-troubleshooting,chapter,Troubleshooting,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/15-troubleshooting.md
@@ -1150,12 +1153,12 @@ rust/a-query-syntax,chapter,Query syntax,ready,local,,,,,,docs,,,,,2026-11-10,,d
 rust/b-command-library,chapter,Command library,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/b-command-library.md
 rust/c-glossary,chapter,Glossary,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/c-glossary.md
 rust/d-sister-guides,chapter,Sister guides,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/d-sister-guides.md
-rust/e-web-api,chapter,Web API reference,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/e-web-api.md
+rust/e-web-api,chapter,Web API reference,ready,local,,,,,,docs,,,,,2026-11-16,,docs/guides/rust/e-web-api.md
 rust/index,chapter,Preface,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/index.md
 web/01-introduction,chapter,Introduction,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/01-introduction.md
 web/02-installing,chapter,Installing and setting up,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/02-installing.md
 web/03-queries,chapter,Queries,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/03-queries.md
-web/04-values,chapter,"Values, state and metadata",ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/04-values.md
+web/04-values,chapter,"Values, state and metadata",ready,local,,,,,,docs,,,,,2026-11-16,,docs/guides/web/04-values.md
 web/05-commands,chapter,Commands,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/05-commands.md
 web/06-stores,chapter,Stores,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/06-stores.md
 web/07-assets,chapter,"Recipes, assets and caching",ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/07-assets.md
@@ -1163,7 +1166,7 @@ web/08-environment,chapter,The environment,ready,local,,,,,,docs,,,,,2026-11-10,
 web/09-data,chapter,Working with data,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/09-data.md
 web/10-templates,chapter,Templates,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/10-templates.md
 web/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/11-ui.md
-web/12-serving,chapter,Serving and embedding,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/12-serving.md
+web/12-serving,chapter,Serving and embedding,ready,local,,,,,,docs,,,,,2026-11-16,,docs/guides/web/12-serving.md
 web/13-records,chapter,Records,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/13-records.md
 web/14-testing,chapter,Testing,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/14-testing.md
 web/15-troubleshooting,chapter,Troubleshooting,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/15-troubleshooting.md
@@ -1171,5 +1174,5 @@ web/a-query-syntax,chapter,Query syntax,ready,local,,,,,,docs,,,,,2026-11-10,,do
 web/b-command-library,chapter,Command library,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/b-command-library.md
 web/c-glossary,chapter,Glossary,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/c-glossary.md
 web/d-sister-guides,chapter,Sister guides,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/d-sister-guides.md
-web/e-web-api,chapter,Web API reference,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/e-web-api.md
+web/e-web-api,chapter,Web API reference,ready,local,,,,,,docs,,,,,2026-11-16,,docs/guides/web/e-web-api.md
 web/index,chapter,Preface,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/index.md

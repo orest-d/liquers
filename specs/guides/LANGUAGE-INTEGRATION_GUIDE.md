@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets, core/store, core/value, lib/commands]
-reviewed: 2026-11-15
+reviewed: 2026-11-16
 ---
 # Liquers Language Integration Guide
 
@@ -215,6 +215,7 @@ This risk concentrates where a section did **not** warn about difficulty. The th
 | `ASYNCQ` | Async query execution | Profile | `EVAL`, `RUNTIME` |
 | `ASYNCCMD` | Async language commands | Optional | `COMMAND`, `ASYNCQ`, `RUNTIME` |
 | `DATANODE` | Language data as `DataNode` | Optional | `VALUE`, `ERROR`, `RUNTIME`, `ASYNCQ` (soft) |
+| `ACCESSOR` | Settable value accessors: use existing ones, or define roots and steps | Optional | `VALUE`, `EVAL`, `ERROR`, `RUNTIME`, `ASYNCQ` (soft) |
 | `TEMPLATE` | Templates: template commands and programmatic rendering | Optional | `ENVIRON`, `EVAL`, `VALUE`, `ERROR`, `RUNTIME`, `COMMAND` (soft), `DATANODE` (soft), `ASYNCQ` (soft) |
 | `PIPELINE` | Pipelines: evaluate, convert and edit pipelines, register pipeline commands | Optional | `ENVIRON`, `EVAL`, `VALUE`, `ERROR`, `COMMAND` (soft) |
 | `STORE` | Language-defined async store | Optional | `OBJECT`, `ENVIRON`, `ERROR`, `RUNTIME` |
@@ -242,6 +243,7 @@ Dependencies are *hard* unless marked `(soft)`. The soft cases are those where L
 - `DOCS` → `PACKAGE`: the user guide's installation section and the published API reference describe the artifact `PACKAGE` produces. Without it, the guide documents building from the repository.
 - `DOCS` → `STUBS`: where the *language* has declaration files, the API reference is generated from them. Without `STUBS`, it is generated from the *language*'s docstrings or equivalent.
 - `DATANODE` → `ASYNCQ`: only the outbound view of an *async* node needs awaitables. Without `ASYNCQ`, the design must state that such a node is refused, not blocked on.
+- `ACCESSOR` → `ASYNCQ`: every accessor method is async in Rust, but a blocking wrapper over a controlled runtime bridge is enough to read, write and wait for events. Without `ASYNCQ`, the design must state how a wait is bounded and where callbacks run.
 - `TEMPLATE` → `COMMAND`: needed to declare template commands and to render from inside a *language command*. Without it, the design offers top-level rendering only and states that template commands are registered from Rust.
 - `TEMPLATE` → `DATANODE`: lets a native structure be template data in place. Without it, data is structurally converted to the *value type* first, and the design must state the cost and what conversion refuses (§DATANODE explains why that is more than a copy).
 - `PIPELINE` → `COMMAND`: a pipeline command has no callable, so it can be registered from the *language* without `COMMAND`; `COMMAND` is needed only when a body calls *language commands*, which it then does like any query.
@@ -250,9 +252,9 @@ Dependencies are *hard* unless marked `(soft)`. The soft cases are those where L
 Recommended minimum profiles:
 
 - **General baseline**: `OBJECT ERROR RUNTIME VALUE ENVIRON EVAL COMMAND`
-- **Browser JavaScript**: baseline plus `ASYNCQ`; `STORE`, `RECIPE`, `DATANODE`, `TEMPLATE`, `UIUSE`, `UIDEF`, and web features are selected as needed
+- **Browser JavaScript**: baseline plus `ASYNCQ`; `STORE`, `RECIPE`, `DATANODE`, `ACCESSOR`, `TEMPLATE`, `UIUSE`, `UIDEF`, and web features are selected as needed
 - **Starlark baseline**: baseline with a deliberately restricted `VALUE`; `ASYNCQ` and `ASYNCCMD` may initially be `NA`
-- **Python baseline**: general baseline; later milestones should add `ASYNCQ`, `ASYNCCMD`, `STORE`, `RECIPE`, `DATANODE`, `TEMPLATE`, and selected UI/web features
+- **Python baseline**: general baseline; later milestones should add `ASYNCQ`, `ASYNCCMD`, `STORE`, `RECIPE`, `DATANODE`, `ACCESSOR`, `TEMPLATE`, and selected UI/web features
 
 `STUBS`, `PACKAGE` and `DOCS` are delivery features rather than capabilities: they describe how the *integration* is declared to tooling, shipped and explained to users, not what it can do. Any *integration* consumed outside this repository should select `PACKAGE` and `DOCS`, and `STUBS` wherever the *integrated language* has a stub format at all.
 
@@ -1097,6 +1099,79 @@ whole value, and an async node is awaited or refused.
 def test_DATANODE05_partial_structure_still_reads(env):
     d = {"name": "Ann", "when": datetime.now()}   # conversion makes the whole dict py.Object
     assert lq.data_node(d)["name"] == "Ann"       # the adapter still reads `name`
+```
+
+### ACCESSOR — Settable value accessors
+
+**Contract.** Let the *language* hold a live handle on the place a value lives (data in the store, a
+keyed asset, a part of a document or of a recipe's query, a variable in memory), read and write the
+value through it, and watch it change. The accessor is `liquers_core::accessor::ValueAccessor`
+([`reference/VALUE_ACCESSORS.md`](../reference/VALUE_ACCESSORS.md)); it travels through Liquers as a
+value (`ValueInterface::try_into_accessor`, `ExtValue::Accessor` in `liquers-lib`) and is never
+stored. How to use one is [`VALUE_ACCESSOR_GUIDE.md`](VALUE_ACCESSOR_GUIDE.md).
+
+Two directions, as for `DATANODE`, and a selected `ACCESSOR` includes the first:
+
+1. **Use — an outbound wrapper.** A *language* object over an existing Rust accessor, made from a
+   query (`resolve_accessor`: an `acc` query gives its accessor, any other query a read-only accessor
+   of its asset), as a memory variable (`memory_accessor`), or received as a value from a command.
+   It exposes `get` / `snapshot`, `set` / `set_if`, `info`, `log`, `describe`, `capabilities`,
+   `refresh`, `project` and events. This is what Python and JavaScript select.
+2. **Define — an inbound adapter.** A *language* object as an `AccessorRoot` or a
+   `ProjectionStep`, so a page or a script supplies a new place or a new lens. Python and JavaScript
+   mark it `NA`, with `ACCESSOR-CANNOT-BE-IMPLEMENTED-IN-PYTHON-OR-JAVASCRIPT` as the reversing
+   condition. A design that selects it must say how `ProjectionStep`'s *synchronous* methods call
+   the *language* (a step runs while the hub holds no lock but inside a set, and must not block on
+   the *language* thread waiting for that set), and how a root's watcher future owns what it waits
+   on.
+
+**What a wrapper must keep:**
+
+- **One token per wrapper.** A Rust handle is shared by every holder (one query asset is one
+  handle), so `ValueAccessor::set` catches other handles but not another holder of the same one.
+  The wrapper keeps the token it last read or wrote and implements its own `set` as
+  `set_if(value, that token)`. Two wrappers of one accessor then conflict with each other, as two
+  holders should.
+- **Conflicts carry the current token.** A `StatusConflict` (from `Error::accessor_conflict`) maps to
+  the *language*'s conflict error through `ERROR`, with the current token read by
+  `accessor::conflict_token` (`None` for a conflict that did not come from an accessor). A
+  conditional create is `set_if(value, None)`.
+- **The same `Arc` back.** An accessor value crosses into the *language* as a wrapper and back as the
+  same Rust accessor, never a copy: a write through either side is seen by the other, and the hub,
+  projections and events stay shared. Recognize a wrapper by a marker the *language* cannot forge
+  from data, as for UI element and record handles.
+- **Events where the *language* expects them.** `subscribe` is a `tokio::sync::watch` receiver: it
+  keeps the latest event only, so a wrapper forwards events into its own bounded queue or calls back
+  per event, and states which. Callbacks never run while a Liquers lock or a `RefCell` borrow is
+  held, and an exception in one is reported, not propagated into Liquers. Disposing a subscription
+  stops its callbacks.
+- **The driver.** On a target where the hub cannot spawn its watcher (`wasm32`), the integration
+  spawns `ValueAccessor::driver()` itself; it is handed out once and ends with the hub.
+- **Statuses and tokens as the *language* names them.** Status names follow the integration's asset
+  status (`EVAL`); a token is an opaque string.
+
+**Design questions:** Is every method a blocking call, an awaitable, or both, and how is a blocking
+wait bounded? Where do callbacks run, and what happens to events nobody reads? How does `project`
+take its step: a query suffix evaluated in the accessor's environment (both integrations), or a step
+object? Which statuses does the *language* see?
+
+**Meaningful tests:** `ACCESSOR01` get, then `set_if` with the snapshot's token and `set` with the
+wrapper's own, the stored document updated; `ACCESSOR02` `project` and `describe`, and a query that is
+not an accessor gives a read-only one; `ACCESSOR03` events reach a callback, and stop after it is
+disposed; `ACCESSOR04` a stale token is the *language*'s conflict error with the current token, and so
+is creating a value that exists; `ACCESSOR05` a memory accessor is shared by every handle of it, and
+an empty one fails `get` until a create; `ACCESSOR06` an accessor crosses into a command and back as
+the same accessor, each wrapper keeping its own token; `ACCESSOR07` `info` and `log`, and a missing
+key's status is `None` with no token. Direction 2 has no tests until a design selects it.
+
+```python
+def test_ACCESSOR04_conflict_is_status_conflict(env):
+    acc = env.accessor("-R-key/config.yaml/-/ns-acc/accessor/field-title")
+    old = acc.snapshot().token
+    acc.set_if("Sales", old)
+    with pytest.raises(lq.StatusConflictError) as caught:
+        acc.set_if("Stale", old)
+    assert caught.value.token == acc.info().token
 ```
 
 ### TEMPLATE — Templates: template commands and programmatic rendering
@@ -2065,6 +2140,16 @@ adapter would read own enumerable data properties
 (`Object.getOwnPropertyDescriptor`, skipping accessors and symbols), map `Array` to a list and a
 `Map` with string keys to a map, and run on the one wasm thread inside the render's poll.
 
+**Accessors in the browser** (`ACCESSOR`, direction 1, `specs/design/settable-value-accessor/`).
+`liquers.accessor(query)` and `memoryAccessor(value?, address?)` (also on `Environment`) give an
+`Accessor` handle in a `thread_local` registry, recognized by a `__liquersAccessorHandle` getter on
+the prototype. Every method that reaches the accessor returns a `Promise`. `subscribe(callback)` runs
+a `spawn_local` task per subscription, stopped by a oneshot when `dispose()` is called; an exception
+in the callback is logged with `console.error`. A handle spawns the accessor's `driver()` when it is
+created, since the hub cannot spawn on wasm. Events use the WebSocket's shape with the status named as
+`LiquersAsset.status` names it (`"source"`). A conflict rejects with `LiquersError`
+(`errorType === "status_conflict"`) whose `token` getter is the current token.
+
 ### Starlark
 
 Treat sandboxing and determinism as product requirements. Prefer copied Liquers primitives for ordinary *language values*. `starlark::values::Value<'v>` belongs to a `Heap`; values retained after evaluation must be frozen/owned or converted. Host functions registered through Starlark globals are a natural `COMMAND` adapter. Document whether evaluation budgets, cancellation, filesystem/network access, and async features are intentionally unavailable.
@@ -2194,6 +2279,14 @@ settled on, and the list after them is what cost time. Its contract is
   `env.data_node(state)` runs each async read as a closure asset (`ASSETS.md` §Closure assets),
   cancelled at shutdown or when the awaiting task is cancelled. `State.value` became lazy, so
   `DATANODE11` reads a polars cell without importing polars.
+- **Accessors** (`ACCESSOR`, direction 1, `specs/design/settable-value-accessor/`). `lq.Accessor`
+  (module `liquers.accessors`) comes from `env.accessor(query)`, `env.memory_accessor(value,
+  address=…)` or a command's result; each method blocks with the interpreter lock released, and has
+  an `_async` form. Events are forwarded into a queue of at most 256 per wrapper (the oldest
+  dropped); a callback registered with `on` (a context manager) runs only inside `process_events`,
+  `wait_event` or the `events()` async iterator, on the caller's thread, never on a runtime thread.
+  `StatusConflictError.token` is the current token; it is a class attribute defaulting to `None`,
+  so a conflict from elsewhere has none.
 
 What cost time:
 
@@ -3149,6 +3242,84 @@ def test_DATANODE11_outbound_view_reads_without_converting(env):
     assert e.value.error_type == lq.ErrorType.NotSupported
 ```
 
+### ACCESSOR
+
+```python
+# Store content: config.yaml = "title: Dashboard\nrows: 3\n" (store_set).
+TITLE = "-R-key/config.yaml/-/ns-acc/accessor/field-title"
+
+def test_ACCESSOR01_get_and_set_with_a_token(env):
+    acc = env.accessor(TITLE)
+    snap = acc.snapshot()
+    assert snap.value == "Dashboard"
+    new = acc.set_if("Sales", snap.token)
+    assert new != snap.token and acc.get() == "Sales"
+    assert env.evaluate("-R/config.yaml") == "title: Sales\nrows: 3\n"
+    assert acc.set("Report") != new           # `set` uses this wrapper's own token
+
+def test_ACCESSOR02_project_and_describe(env):
+    title = env.accessor("-R-key/config.yaml/-/ns-acc/accessor").project("field-title")
+    assert title.address.encode() == TITLE and title.get() == "Dashboard"
+    assert title.describe().type_identifier == "Text"
+    assert not env.accessor("-R/config.yaml").capabilities.write
+
+def test_ACCESSOR03_events_reach_callbacks(env):
+    acc, seen = env.accessor(TITLE), []
+    with acc.on(lambda e: seen.append(e.kind)):
+        new = acc.set_if("Sales", acc.snapshot().token)
+        while "changed" not in seen:
+            assert acc.wait_event(10) is not None
+    count = len(seen)
+    acc.set_if("Again", new); acc.wait_event(10); acc.process_events()
+    assert len(seen) == count                 # disposed
+
+def test_ACCESSOR04_conflict_is_status_conflict(env):
+    acc = env.accessor(TITLE)
+    old = acc.snapshot().token
+    acc.set_if("Sales", old)
+    with pytest.raises(lq.StatusConflictError) as caught:
+        acc.set_if("Stale", old)
+    assert caught.value.token == acc.info().token
+    with pytest.raises(lq.StatusConflictError):
+        acc.set_if("New", None)               # creating a value that exists
+
+def test_ACCESSOR05_memory_accessor_is_shared(env):
+    counter = env.memory_accessor(1, address="counter")
+    @env.command
+    def shared():
+        return counter
+    env.evaluate("shared").set(2)
+    assert counter.get() == 2
+    empty = env.memory_accessor()
+    with pytest.raises(lq.LiquersError):
+        empty.get()
+    empty.set_if("first", None)
+
+def test_ACCESSOR06_accessor_crosses_back_unchanged(env):
+    acc, holder = env.accessor(TITLE), {}
+    @env.command
+    def give():
+        return acc
+    @env.command
+    def address_of(state):
+        holder["crossed"] = state.value
+        return state.value.address.encode()
+    assert env.evaluate("give/address_of") == TITLE
+    first = acc.snapshot().token
+    crossed = holder["crossed"]
+    crossed.set_if("Sales", crossed.snapshot().token)
+    assert acc.get() == "Sales"
+    with pytest.raises(lq.StatusConflictError):
+        acc.set_if("Stale", first)
+
+def test_ACCESSOR07_info_and_log(env):
+    acc = env.accessor(TITLE)
+    snap, info = acc.snapshot(), acc.info()
+    assert info.token == snap.token and acc.log(since=info.log_len) == []
+    missing = env.accessor("-R-key/none.txt/-/ns-acc/store").info()
+    assert missing.status == "None" and missing.token is None
+```
+
 ### TEMPLATE
 
 ```python
@@ -4055,6 +4226,7 @@ def test_DOCS04_every_public_name_is_documented():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-16 | New feature `ACCESSOR`: settable value accessors from the *language*, in two directions (use an existing accessor, define a root or step), with the wrapper rules (one token per wrapper, conflicts carrying the current token, the same `Arc` back, where events run, the driver), design questions and tests `ACCESSOR01`–`07`. §4 row, soft dependency and profiles; §6 Browser JavaScript and Python entries (direction 1; direction 2 `NA`, `ACCESSOR-CANNOT-BE-IMPLEMENTED-IN-PYTHON-OR-JAVASCRIPT`); Appendix A blueprints. | `design/settable-value-accessor/` |
 | 2026-11-15 | §6 Python lessons: stubs follow the module a class reports; maturin needs the extension inside a package (`_liquers`). | `design/py-package-submodules/` |
 | 2026-11-11 | §6 Python: a Liquers UI (`UIUSE`): the UI payload, the native driver in the background and in a window, delivery on threads that ask, unreturnable waits refused, the main-thread window with Ctrl-C. | `design/liquers-py-ui/`, `design/liquers-py-ui-window/` |
 | 2026-11-09 | §6 Python: the web server (an `EnvSource` over the current build without the GIL, settings from the configuration document, servers stop first at shutdown and exit). | phase-5, `design/liquers-py-web-server/` |
