@@ -105,6 +105,24 @@ reads the new value.
   again gives an accessor of whatever is step 2 now. The root accessor expires only when its key is
   removed
 
+- **AC-16** An accessor relays its source's lifecycle
+  WHEN the asset behind an accessor of an asset-manager value expires, and the holder reacts by
+  calling `get`
+  THEN the holder first receives the `Expired` status, the `get` re-evaluates the asset, and the new
+  value arrives as `Changed`. With the reload policy, the accessor makes that `get` itself
+- **AC-17** Notifications over the web API
+  WHEN a client subscribes to an accessor defined by a query through the web API, and the part
+  changes or expires
+  THEN the client receives the same events (status, changed, invalidated, removed) that an
+  in-process holder receives
+- **AC-18** Accessors can restrict and check what they accept
+  WHEN a value is set through a read-only accessor, or through a validating accessor whose check
+  refuses it
+  THEN the set fails with an error, and nothing is written
+- **AC-19** A custom source gets the shared machinery
+  WHEN an application implements only a root for its own source and wraps it in the hub
+  THEN projections, conflicts and notifications work on it as they do for an asset root
+
 Non-goals: locking (a later design, which this one must not preclude: `VALUE-ACCESSOR-CANNOT-LOCK`);
 query accessors over template links (they must remain implementable as a projection); the editor widgets and
 composite editors themselves (separate UI designs that use accessors); detecting a change made
@@ -156,8 +174,8 @@ in scope.
 ## Open Questions
 
 1. **Value variant.** *Decided (Orest, 2026-11-15):* the accessor belongs in `liquers-core`. The
-   trait and the core accessors live there. Phase 2 confirms whether core's `Value` carries the
-   variant as well, or whether only `ExtValue` does.
+   trait and the core accessors live there. *Decided (2026-11-16):* the variant is in `ExtValue`
+   (a `dyn` trait object), not in core `Value`.
 2. **Version of a root.** *Decided (Orest, 2026-11-15):* the asset's version where there is an
    asset, otherwise a counter held by the root. Every set carries the version it was based on, and
    a stale one is a conflict (AC-5).
@@ -197,6 +215,19 @@ in scope.
    template-link query projection can be added later as one more root-to-query projection.
 9. **Command namespace.** *Decided (Orest, 2026-11-15):* `acc`, for example
    `-R-key/some/recipes.yaml/-/ns-acc/recipe_query-1/action-2`.
+
+## Scope Changes
+
+- **2026-11-16, at the Phase 2 gate (Orest).** Added:
+  - Accessors are source-agnostic, with first-class roots for assets (managed and unmanaged) and
+    for resources, aligned with the asset lifecycle.
+  - Accessors relay their source's notifications, and the holder's reactions are defined
+    (AC-16).
+  - The web API gains notifications (AC-17).
+  - Accessors may validate, convert or be read-only (AC-18).
+  - The hub is a reusable building block for custom accessors (AC-19).
+
+  It stays one design. Phases 1 and 2 are updated, and approval is pending at the Phase 2 gate.
 
 ## Design Dependencies
 

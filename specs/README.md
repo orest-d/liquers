@@ -726,6 +726,7 @@ deliberately folded behind a broader line.
 - feature `WEB-PAGE-CANNOT-PASS-A-PIPELINE-VALUE`
 - feature `WEB-PIPELINE-EDITOR-HAS-NO-DEFINITION-MODE`
 - feature `WEB-QUERY-EDITOR-NOT-LIVE`
+- feature `YAML-DOCUMENT-EDIT-DROPS-COMMENTS`
 <!-- END generated: unplaced -->
 
 ## Guides

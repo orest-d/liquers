@@ -4,8 +4,12 @@
 
 An accessor is **a root plus a chain of synchronous projection steps**, shared through one **hub**
 per root.
-- **Root.** The root is asynchronous. It reads and writes the value where it lives: a key through
-  the asset manager, or an in-memory value owned by its holder.
+- **Root.** The root is asynchronous, and it is **source-agnostic**: anything that can read, and
+  optionally write and notify, can be a root (`AccessorRoot`). Assets and resources have
+  first-class roots that follow the asset lifecycle:
+  - a key, which covers both stored resources and recipe assets, through the asset manager;
+  - an `AssetRef` that the holder already has, managed or unmanaged.
+  An in-memory value is a third kind of root.
 - **Step.** A step is a lens over a value that is already in memory: `get(parent) -> part` and
   `put(parent, part) -> parent`. Each step also gives an **anchor**, a cheap structural fingerprint
   of where its part sits in the parent.
@@ -18,6 +22,21 @@ per root.
 
 A set is conditional on the part's own fingerprint (Phase 1 question 3, option C). Values are never
 mutated in place: a set builds a new root value and writes it through the root.
+
+**The hub is reusable.** `AccessorHub::new(root)` turns any `AccessorRoot` into a full accessor:
+projections, fingerprints, conflicts, notification relay and the web routes all come with it. A
+custom accessor therefore needs only a root, or a step. `ValueAccessor` stays a `dyn` trait, so an
+accessor that needs nothing from the hub can implement it directly and still travel in
+`ExtValue::Accessor`. Accessors can add behaviour of their own: validation, support for one data
+type (converting the value on `set`), or read-only access. Any of these can sit in the root or in a
+step, or in a wrapper around another accessor (`read_only`, `validated`).
+
+**Lifecycle relay.** An accessor passes on what its source reports: status changes (`Submitted`,
+`Processing`, `Ready`, `Error`, `Expired`, `Cancelled`), new versions (`Changed`) and removal. The
+contract for holders is: on `Changed`, redraw from `get`; on `Expired`, call `get`. For an
+asset-manager value, that `get` re-evaluates the asset, and the new value arrives as `Changed`.
+A holder with nobody to react, such as a headless service, can ask the hub to do this itself
+(`ExpiryPolicy::Reload`).
 
 **Q3 cost check: option C stands.** Each change costs one root read, plus one derive and hash per
 *subscribed* node. Unsubscribed nodes are only marked dirty. When the root version is unchanged,
@@ -64,7 +83,10 @@ uses the `cfg_attr` pair of `data_node.rs` (`?Send` on wasm).
 pub struct Fingerprint { pub anchor: u64, pub content: Version }
 impl Fingerprint { pub fn token(&self) -> String; pub fn from_token(s: &str) -> Result<Self, Error>; }
 pub struct AccessorSnapshot<V> { pub state: State<V>, pub fingerprint: Fingerprint, pub root_version: Version }
-pub enum AccessorEvent { Initial, Changed(Fingerprint), Invalidated, Expired, Removed }
+/// Relayed from the source (Status) or produced by the hub (Changed, Invalidated). Removed is terminal.
+pub enum AccessorEvent { Initial, Status(Status), Changed(Fingerprint), Invalidated, Removed }
+#[derive(Default)] pub enum ExpiryPolicy { #[default] Relay, Reload }
+pub struct Capabilities { pub write: bool, pub notify: bool }
 #[derive(Default)] #[non_exhaustive] pub struct SetOptions {}
 #[derive(Serialize, Deserialize)]
 pub struct PartDescription { pub step: String, pub type_identifier: String,
@@ -77,6 +99,7 @@ pub struct PartDescription { pub step: String, pub type_identifier: String,
     async fn set(&self, value: V, options: SetOptions) -> Result<AccessorSnapshot<V>, Error>;  // vs. last-seen fingerprint
     async fn set_if(&self, value: V, expected: Fingerprint, options: SetOptions) -> Result<AccessorSnapshot<V>, Error>;
     async fn describe(&self) -> Result<PartDescription, Error>;
+    fn capabilities(&self) -> Capabilities;
     async fn refresh(&self) -> Result<(), Error>;            // pull root events (wasm has no watcher task)
     fn subscribe(&self) -> watch::Receiver<AccessorEvent>;
     fn project(&self, step: Arc<dyn ProjectionStep<V>>, address: Query) -> Result<Arc<dyn ValueAccessor<V>>, Error>;
@@ -90,26 +113,46 @@ pub trait ProjectionStep<V>: MaybeSend + MaybeSync + Debug {
     fn describe(&self, parent: &V) -> Result<PartDescription, Error>;
 }
 #[async_trait] pub trait InvalidationSink: MaybeSend + MaybeSync { async fn invalidated(&self); }
+/// What a custom source implements. The hub supplies everything else.
 #[async_trait] pub trait AccessorRoot<V>: MaybeSend + MaybeSync + Debug {
     async fn read(&self) -> Result<(State<V>, Version), Error>;
-    async fn write(&self, state: State<V>) -> Result<Version, Error>;
-    async fn poll_event(&self) -> Option<RootEvent>;                    // non-blocking
+    async fn write(&self, state: State<V>) -> Result<Version, Error> {   // default: read-only
+        Err(Error::not_supported("this accessor is read-only".into())) }
+    fn capabilities(&self) -> Capabilities;
+    async fn poll_event(&self) -> Option<RootEvent> { None }            // non-blocking; default: no notifications
+    fn watch(&self) -> Option<Pin<Box<dyn Future<Output = ()> + Send>>> { None } // native watcher; see the hub
 }
-pub enum RootEvent { Changed(Version), Expired, Removed }
+pub enum RootEvent { Status(Status), Changed(Version), Removed }
+pub struct AccessorHub<V> { /* root, write lock, projection tree, policy */ }
+impl<V: ValueInterface> AccessorHub<V> {
+    pub fn new(root: Arc<dyn AccessorRoot<V>>, address: Query, policy: ExpiryPolicy) -> Arc<dyn ValueAccessor<V>>;
+}
 pub fn key_accessor<E: Environment>(envref: EnvRef<E>, key: Key, address: Query) -> Arc<dyn ValueAccessor<E::Value>>;
+pub fn asset_accessor<E: Environment>(asset: AssetRef<E>, address: Query) -> Arc<dyn ValueAccessor<E::Value>>;
 pub fn memory_accessor<V: ValueInterface>(initial: State<V>, address: Query) -> Arc<dyn ValueAccessor<V>>;
+pub fn read_only<V>(inner: Arc<dyn ValueAccessor<V>>) -> Arc<dyn ValueAccessor<V>>;
+pub fn validated<V>(inner: Arc<dyn ValueAccessor<V>>, check: Arc<dyn Fn(&V) -> Result<(), Error> + Send + Sync>) -> Arc<dyn ValueAccessor<V>>;
 /// Type-erased carrier, so a value can return its accessor through generic impls.
 pub struct AccessorBox<V>(pub Arc<dyn ValueAccessor<V>>);
 pub trait ErasedAccessor: MaybeSend + MaybeSync + Debug { fn as_any(&self) -> &dyn std::any::Any; }
 ```
 
 `V: ValueInterface` bounds go on the impls, not on the traits. Concrete core types:
-- **`KeyRoot<E>`** reads with `AssetManager::get(key)` → `AssetRef::get`, and gets the version
-  from `get_asset_info`. A missing version counts as *changed* on every check, never as equal. It
-  writes with `set_state`, which gives `Override` with a recipe and `Source` without (AC-8), then
-  reads the new version back. Asset notifications reach it through `subscribe_to_notifications`.
-  `Removed` with `can_make(key)` still true becomes `Changed`, because a replacement also sends
-  `Removed`. Otherwise it becomes `Removed`.
+- **`KeyRoot<E>`** is the first-class root for resources and keyed assets.
+  - **Reads** go through `AssetManager::get(key)` → `AssetRef::get`. For an expired or not yet
+    evaluated asset, that read is the re-evaluation. The version comes from `get_asset_info`; a
+    missing version counts as *changed* on every check, never as equal.
+  - **Writes** use `set_state`, which gives `Override` with a recipe and `Source` without (AC-8). It
+    then reads the new version back.
+  - **Notifications** come from `subscribe_to_notifications`:
+    - `StatusChanged`, `JobSubmitted`, `JobStarted`, `ErrorOccurred` and `Expired` are relayed as
+      `Status`.
+    - `ValueProduced` becomes `Changed`.
+    - `Removed` becomes `Changed` while `can_make(key)` is still true, because a replacement also
+      sends `Removed`. Otherwise it becomes `Removed`.
+- **`AssetRefRoot<E>`** wraps an `AssetRef` the holder already has: a query asset, or an unmanaged
+  one (an `apply` result, a `ClosureAsset`). It relays the same notifications. It is read-only,
+  because the asset manager has no write for a non-keyed asset.
 - **`MemoryRoot<V>`** holds a value and a counter version. A UI element would use it for its own
   query (AC-10). Wiring an element to it belongs to the UI designs.
 - **`AccessorHub<V>`** (private) holds a `tokio::sync::Mutex` *write lock*. A set holds it across
@@ -117,8 +160,8 @@ pub trait ErasedAccessor: MaybeSend + MaybeSync + Debug { fn as_any(&self) -> &d
   sits behind a separate `std::sync::Mutex` that is never held across an `.await`. The hub collects
   the senders and sinks to fire while holding the tree lock, and fires them after releasing it.
   Driving the hub:
-  - **Native:** `key_accessor` spawns one watcher task (`tokio::spawn`), which holds the hub weakly
-    and ends when the hub is dropped.
+  - **Native:** the hub spawns one watcher task (`tokio::spawn`) for a root that offers `watch`.
+    The task holds the hub weakly and ends when the hub is dropped.
   - **wasm:** there is no task. `get`, `set` and `refresh` drain `poll_event` first. A holder that needs
     push-style updates, such as a UI runner, calls `refresh` on its own tick.
 - **Steps**, each capturing `Arc<CommandMetadataRegistry>` (`Context::command_metadata_snapshot`) at
@@ -154,10 +197,11 @@ pub trait ErasedAccessor: MaybeSend + MaybeSync + Debug { fn as_any(&self) -> &d
   when `Self` is lib's `Value`, which is the only accessor type `ExtValue` holds.
 
 **Where the variant lives (Phase 1 question 1).** The traits, roots, steps and hooks are in core, as
-decided. The variant goes in **`ExtValue` only**: `ExtValue::Accessor { value: Arc<dyn ValueAccessor<crate::value::Value>> }`.
-This follows the `UIElement` variant's precedent for `Debug`, `Clone` and `Send`. Core `Value`
-derives `PartialEq` and untagged `Deserialize`, and a trait-object variant would force hand-written
-impls of both. *For confirmation at the gate.* Its `TypeInfo::new("accessor")` declares no formats,
+decided. *Decided (Orest, 2026-11-16):* the accessor lives in core and is used through
+**`ExtValue`**: `ExtValue::Accessor { value: Arc<dyn ValueAccessor<crate::value::Value>> }`, a
+`dyn` trait object so that any custom accessor fits. Core `Value` gets no variant. It derives
+`PartialEq` and untagged `Deserialize`, and a trait object would force hand-written impls of both.
+The variant follows `UIElement`'s precedent for `Debug`, `Clone` and `Send`. Its `TypeInfo::new("accessor")` declares no formats,
 so persisting it yields `NonSerializable` and it is never stored (AC-11). Its `data_node` is opaque.
 
 **Records (lib):** `RowStep`, `ColumnStep` and `CellStep` live in `liquers-lib/src/records/accessor.rs`,
@@ -171,8 +215,8 @@ at the position the parser reports. Nothing here precludes it.
 
 ## Integration Points
 
-- **`liquers-core`:** `accessor/`, `lib.rs`, `value.rs` (the hooks), `error.rs`
-  (`accessor_conflict`).
+- **`liquers-core`:** `accessor/` (the hub, `KeyRoot`, `AssetRefRoot`, `MemoryRoot`, the steps,
+  `read_only`, `validated`), `lib.rs`, `value.rs` (the hooks), `error.rs` (`accessor_conflict`).
 - **`liquers-lib`:**
   - `value/mod.rs`: the variant, its `TypeInfo`, and an arm in every `ExtValue` match;
   - `value/extended.rs`: the hooks;
@@ -182,7 +226,8 @@ at the position the parser reports. Nothing here precludes it.
   - `specs/command_registry.yaml`, regenerated.
 - **`liquers-axum`:**
   - a new `accessor/` module with `AccessorApiBuilder<E>`, mounted like `AssetsApiBuilder`;
-  - `api_core/error.rs`: conflicts from accessor routes map to `412`.
+  - `api_core/error.rs`: conflicts from accessor routes map to `412`;
+  - the accessor WebSocket, reusing the connection handling of `assets/websocket.rs`.
 - **`liquers-web`:** `src/default_value.rs` gets an arm in its exhaustive `ExtValue` match.
   `liquers-py` changes only if an exhaustive `ExtValue` match exists there; Phase 4 checks.
 
@@ -197,6 +242,8 @@ at the position the parser reports. Nothing here precludes it.
 | An argument refused by the editor (AC-3) | the `ActionEditor` error, passed through unchanged |
 | The state is not a key, or not an accessor | `Error::conversion_error` |
 | A root write fails | the `set_state` error, with the key attached |
+| A set through a read-only root or wrapper (AC-18) | `Error::not_supported` |
+| A validating wrapper refuses the value (AC-18) | the check's own error, unchanged |
 
 ## Relevant Commands
 
@@ -232,6 +279,11 @@ These routes come from `AccessorApiBuilder<E>`, mounted at `/api/acc` by default
 - `GET {base}/describe/{*query}`: the `PartDescription` as JSON.
 - `PUT {base}/{*query}` with `If-Match`: `set_if`. It answers `200` with the new `ETag`, `412` with
   the current `ETag` on a conflict, or `428` when `If-Match` is missing.
+- `GET {base}/ws/{*query}`: a WebSocket that relays the accessor's events as JSON
+  (`{"event": "status", "status": "Expired"}`, `{"event": "changed", "etag": …}`, `invalidated`,
+  `removed`). It follows the connection handling, limits and close codes of the asset event socket
+  (`liquers-axum/src/assets/websocket.rs`, `ws_query_handler`). The `ui-split-elements` protocol
+  can carry the same event shape.
 
 ## Documentation Architecture
 
@@ -260,10 +312,10 @@ These routes come from `AccessorApiBuilder<E>`, mounted at `/api/acc` by default
 
 | Assessment | Finding |
 |---|---|
-| Compatibility / data | Additive. **Phase 1 AC-2 is narrowed:** rewriting through a `serde_yaml::Value` tree keeps every key and its order, but **drops comments and formatting**. This is a gate decision (below) |
+| Compatibility / data | Additive. **Phase 1 AC-2 is narrowed (accepted for v1):** rewriting through a `serde_yaml::Value` tree keeps every key and its order, but drops comments and formatting (`YAML-DOCUMENT-EDIT-DROPS-COMMENTS`) |
 | Concurrency | First-writer-wins only within one hub. Other writers are last-writer-wins until `store-conditional-write`. `watch` delivers only the latest event |
 | Performance | One root read per change. Derive and hash run only for subscribed nodes, and nothing is derived when the root version is unchanged |
 | Security | The `PUT` route is opt-in and for trusted servers only (preflight) |
 | Build | `ExtValue` arms in lib and web, the `records` gating of the lib steps, and the wasm watcher path: `check-build-matrix.sh` |
 | Tests likely to change | `registry_export` (new commands) |
-| Open, for the gate | (a) the variant in `ExtValue` only; (b) AC-2's comment loss. A lossless rewrite needs a YAML editor that preserves comments, which is not a dependency today |
+| Decided at the gate (2026-11-16) | the variant is in `ExtValue`; AC-2's comment loss is accepted for v1 and tracked in `YAML-DOCUMENT-EDIT-DROPS-COMMENTS` |
