@@ -32,10 +32,13 @@ short (`CLAUDE.md` §Building and testing).
   `PartDescription`, `ValueAccessor`, `ProjectionStep`, `InvalidationSink`, `AccessorRoot`,
   `RootEvent`, `AccessorBox`, `ErasedAccessor`); `lib.rs` (`pub mod accessor`); `error.rs`
   `Error::accessor_conflict(address: &Query, current: Option<&Fingerprint>)`.
-- Change: the Phase 2 signatures; `Fingerprint::token` is the anchor and content as 16 + 32 hex
-  digits joined by `-`, and `from_token` parses it back.
+- Change: the Phase 2 signatures (`V: ValueInterface` on the traits, `BoxFuture` from
+  `maybe_send.rs`); `Fingerprint::token` is the anchor and content as 16 + 32 hex digits joined by
+  `-`, and `from_token` parses it back; the conflict message ends `current token: <token>`. The
+  module doc of `accessor/mod.rs` is written here, to `API_DOCUMENTATION_GUIDE.md`.
 - Depends on: none.
-- Proof: `cargo test -p liquers-core accessor --lib` (`fingerprint_token_round_trips`).
+- Proof: `cargo test -p liquers-core accessor --lib` (`fingerprint_token_round_trips` in
+  `accessor/mod.rs`); `python3 scripts/check_api_docs.py liquers-core/src/accessor/mod.rs`.
 - Rollback: delete the module and the constructor.
 
 ### Step 2: The hub, the memory root and the wrappers
@@ -47,34 +50,40 @@ short (`CLAUDE.md` §Building and testing).
   `tokio::runtime::Handle::try_current()` succeeds; otherwise it falls back to pull, as on wasm.
 - Depends on: Step 1.
 - Proof: the eight `hub.rs` unit tests of Phase 3 (AC-4, AC-5, AC-14, AC-15, AC-18, AC-19, AC-22).
-  Step 2 uses a test `FieldStep` over `Value::Object`; Step 4 replaces it with the real one.
-- Rollback: as Step 1.
+  They use test `FieldStep` / `ItemStep` over `Value::Object` / `Value::Array`; Step 4 replaces
+  them with the real ones.
+- Rollback: delete `hub.rs`, `wrap.rs` and `MemoryRoot` in `root.rs`.
 
 ### Step 3: The store, keyed-asset and asset roots
 - Files / symbols: `accessor/root.rs` `StoreRoot`, `StoreView`, `store_accessor`, `KeyRoot`,
   `key_accessor`, `AssetRefRoot`, `asset_accessor`.
-- Change: Phase 2's read, write, info, log and notification rules; `KeyRoot` re-subscribes after a
-  replacement. Uses `AssetManager::{get, set_state, set_binary, get_asset_info, can_make}`,
+- Change: Phase 2's read, write, info, log and notification rules: a weak environment, the
+  status reset and `State::from_value_and_metadata` on every write, the version from
+  `AssetRef::get_metadata`, and re-subscription when `AssetRef::id()` changes. Uses `AssetManager::{get, set_state, set_binary, get_asset_info, can_make}`,
   `AsyncStore::{get, get_metadata, contains}`, `AssetRef::{subscribe_to_notifications,
   get_metadata}`.
 - Depends on: Step 2.
 - Proof: `cargo test -p liquers-core --test value_accessor` for `outside_writer_is_detected`,
   `expiry_and_removal_are_reported`, `keyed_asset_set_overrides_sources_or_creates`,
   `expired_asset_get_re_evaluates`, `store_views_and_a_missing_key`,
-  `progress_and_log_are_relayed`.
+  `store_root_sees_a_direct_write_on_refresh`, `progress_and_log_are_relayed`,
+  `accessor_does_not_keep_the_environment_alive`.
 - Rollback: remove the three roots; Step 2 stands alone.
 
 ### Step 4: Document, recipe, query, action and argument steps
 - Files / symbols: `accessor/steps.rs` `FieldStep`, `ItemStep`, `RecipeStep`, `QueryFieldStep`,
   `PipelineFieldStep`, `ActionStep`, `ArgumentStep`.
-- Change: documents parse from `Value::Text` / `Value::Bytes` (YAML or JSON, chosen by the
-  parent's `data_format` or by content) and from `Value::Object` / `Value::Array`, and write back
-  in the parent's representation. The action part is a `Value::Pipeline` of one element; the
-  argument part is the argument's JSON as a `Value`. Steps hold the registry from
-  `command_metadata_snapshot`.
+- Change: documents parse from text or bytes (YAML or JSON, chosen by the value's `identifier()`
+  and content) and from objects and arrays, and write back in the parent's representation. A
+  recipe goes through `try_into_json_value` and serde, and back with `from_recipe`. The action part
+  is a one-element `Value::Pipeline`; the argument part is the argument's JSON as a `Value`. A query
+  is written back through `QueryEditor` (lenient). Steps share the hub's registry snapshot
+  (`get_envref().command_metadata_snapshot()`). The module doc of `pipeline/editor.rs` gains its
+  use by accessors.
 - Depends on: Steps 2 and 3.
 - Proof: `recipe_argument_projection_reads_part_and_hints`, `recipe_argument_set_writes_through`,
-  `refused_argument_set_writes_nothing`, `query_steps_work_on_any_query_root`.
+  `refused_argument_set_writes_nothing`, `query_steps_work_on_any_query_root`, `hub_error_cases`
+  (with the real steps).
 - Rollback: remove the steps.
 
 ### Step 5: `ValueInterface` accessor hooks
@@ -86,57 +95,70 @@ short (`CLAUDE.md` §Building and testing).
 - Rollback: remove the two defaulted methods.
 
 ### Step 6: `ExtValue::Accessor` in lib and in liquers-web's matches
-- Files / symbols: `liquers-lib/src/value/mod.rs` (variant, `TypeInfo::new("accessor")` with no
-  formats, every `ExtValue` match, `data_node` opaque), `value/extended.rs`
-  (`ValueExtension::{erased_accessor, from_erased_accessor}` and `CombinedValue`'s forwarding),
-  `liquers-web/src/default_value.rs` (arms returning `None` until Step 11).
+- Files / symbols: `liquers-lib/src/value/mod.rs` (variant, `TypeInfo::new("Accessor")` with no
+  formats, every `ExtValue` match, `data_node` opaque, module doc), `value/extended.rs`
+  (`ValueExtension::{erased_accessor, from_erased_accessor}` and `CombinedValue`'s forwarding,
+  module doc), the other exhaustive matches (`egui/mod.rs`, `ui/web/html.rs`,
+  `tests/value_type_system.rs` `samples`), `liquers-web/src/default_value.rs` (arms returning
+  `None` until Step 11).
 - Depends on: Step 5.
 - Proof: `ext_value_accessor_hooks_round_trip`, `accessor_value_is_never_stored`;
-  `cargo test -p liquers-lib --test value_type_system`.
+  `cargo test -p liquers-lib --test value_type_system`;
+  `cargo check -p liquers-lib --no-default-features --features webui`;
+  `cargo check -p liquers-web --target wasm32-unknown-unknown`.
 - Rollback: remove the variant; every match arm goes with it.
 
 ### Step 7: The `acc` commands and the registry
-- Files / symbols: new `liquers-lib/src/accessor/mod.rs` (`register_commands`; `accessor`,
-  `store`, `recipe`, `query`, `pipeline`, `action`, `argument`, `field`, `item`, `get`), wired
-  where `mem/` and `markdown/` register; `specs/command_registry.yaml` regenerated with a
-  CHANGELOG line.
+- Files / symbols: new `liquers-lib/src/accessor/mod.rs` (the ten commands and
+  `#[macro_export] register_accessor_commands!`, module doc), called from `commands.rs`
+  (`register_all_commands!`), `bin/export_command_registry.rs` (`Group::Accessor`),
+  `tests/registry_export.rs`, `liquers-py/src/builtins.rs` and `liquers-web/src/builtins.rs`;
+  `specs/command_registry.yaml` regenerated with a CHANGELOG line.
 - Depends on: Steps 4 and 6.
-- Proof: `accessor_query_projects_recipe_argument`, `accessor_address_resolves_in_a_second_environment`,
+- Proof: `accessor_query_projects_recipe_argument`, `accessor_value_is_never_stored`,
+  `accessor_address_resolves_in_a_second_environment`, `structural_edit_expires_action_accessor_asset`,
   `document_field_projection`, `store_command_views`; `cargo test -p liquers-lib --test registry_export`.
 - Rollback: unregister the namespace and regenerate the registry.
 
 ### Step 8: Record steps
 - Files / symbols: `liquers-lib/src/records/accessor.rs` `RowStep`, `ColumnStep`, `CellStep`
-  (`#[cfg(feature = "records")]`).
+  (`#[cfg(feature = "records")]`), with its module doc.
 - Depends on: Step 6. Can run in parallel with Step 7.
-- Proof: `record_cell_projection`; `cargo test -p liquers-lib --no-default-features --features records --lib --tests`.
+- Proof: `record_row_column_and_cell_projections`; `cargo test -p liquers-lib --no-default-features --features records --lib --tests`.
 - Rollback: remove the file.
 
 ### Step 9: The `/api/acc` routes and socket
-- Files / symbols: new `liquers-axum/src/accessor/` (`AccessorApiBuilder<E>`, handlers, socket
-  reusing `assets/websocket.rs`), `api_core/error.rs` (`412`, `428`, `405` for accessor routes),
-  the router assembly where `AssetsApiBuilder` is mounted.
+- Files / symbols: new `liquers-axum/src/accessor/` (`AccessorApiBuilder<E>`, handlers under the
+  `q/`, `info/`, `log/`, `describe/` and `ws/` prefixes, socket reusing `assets/websocket.rs`,
+  module doc); the handlers answer `412`, `428` and `405` themselves; the router assembly where
+  `AssetsApiBuilder` is mounted.
 - Depends on: Step 7.
 - Proof: `cargo test -p liquers-axum --test accessor_api` (needs `libssl-dev`, `CLAUDE.md`).
 - Rollback: unmount the builder.
 
 ### Step 10: The Python wrapper
-- Files / symbols: new `liquers-py/src/accessor.rs`, `lib.rs`, `value.rs`, `environment.rs`;
-  `liquers-py/python/liquers/accessors.py` and `.pyi`; `liquers-py/README.md` conformance rows;
-  `tests/test_ACCESSOR_use.py`.
+- Files / symbols: new `liquers-py/src/accessor.rs` (module doc; per-wrapper token; the conflict
+  `token` parsed from the message), `lib.rs`, `value.rs`, `environment.rs`, `builtins.rs` (Step 7's
+  macro); `liquers-py/python/liquers/accessors.py` and `.pyi`; `liquers-py/README.md` conformance
+  rows; `tests/test_ACCESSOR_use.py`; `tests/test_LAYOUT_submodules.py` (`accessors`).
 - Depends on: Step 7. Can run in parallel with Steps 9 and 11.
 - Proof: `bash scripts/test-liquers-py.sh` (`test_ACCESSOR01`–`07`, `test_STUBS_declarations.py`).
 - Rollback: remove the module and its registration.
 
 ### Step 11: The JavaScript wrapper
-- Files / symbols: new `liquers-web/src/accessor.rs`, `default_value.rs` arms, `environment.rs`
-  (`accessor`, `memoryAccessor`), `typescript.rs`; `tests/accessor_ACCESSOR.rs`.
+- Files / symbols: new `liquers-web/src/accessor.rs` (module doc; spawns `driver()` with
+  `spawn_local` on the first subscription), `default_value.rs` arms, `environment.rs`
+  (`accessor`, `memoryAccessor`), `builtins.rs` (Step 7's macro), `typescript.rs`;
+  `tests/accessor_ACCESSOR.rs`.
 - Depends on: Step 7. Can run in parallel with Steps 9 and 10.
 - Proof: after `cargo clean`: `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles --test accessor_ACCESSOR`
   and `./liquers-web/scripts/check-stubs.sh --build`.
 - Rollback: remove the class; the `default_value.rs` arms return `None` again.
 
 ### Step 12: Whole-change checks
+- Files / symbols: none: checks only.
+- Depends on: Steps 1–11.
+- Rollback: none needed.
 - Proof: `cargo test -p liquers-core --lib --tests`, `cargo test -p liquers-lib --lib --tests`,
   `bash scripts/check-build-matrix.sh`, `python3 scripts/check_api_docs.py` on every touched module.
 
@@ -163,8 +185,10 @@ update `VALUE_TYPE_SYSTEM.md`, `PYTHON_INTEGRATION.md`, `PYTHON_GUIDE.md`, `JAVA
 `RECIPES_AND_PLANS.md`, `WEB_API_SPECIFICATION.md`, `UI_INTERFACE_FSD.md`, each with a History row
 and a `reviewed:` bump; the values chapters and `e-web-api.md` of the three user guides
 (`cargo run -p liquers-docs -- check`). Module docs per `API_DOCUMENTATION_GUIDE.md`, checked with
-`scripts/check_api_docs.py`. Regenerated: `specs/command_registry.yaml` (Step 7), `specs/index.csv`
-and `specs/index.md` (`python3 scripts/docs_index.py`), `specs/README.md`.
+`scripts/check_api_docs.py` at each step that writes them and again at Step 12. The two new
+documents join `affects_docs` in Phase 5. Regenerated: `specs/command_registry.yaml` (Step 7),
+`specs/index.csv` and `specs/index.md` (`python3 scripts/docs_index.py`). Updated by hand:
+`specs/README.md` (the reference and the guide).
 
 ## Phase 5 Entry Criteria
 - [ ] Implementation finished and validated

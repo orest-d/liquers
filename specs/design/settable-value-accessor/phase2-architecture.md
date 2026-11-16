@@ -89,7 +89,7 @@ Command namespaces involved: `acc` (new). No existing namespace changes.
 
 ## Interfaces
 
-**Core, `liquers-core/src/accessor/`** (`mod.rs`, `hub.rs`, `root.rs`, `steps.rs`). It is generic
+**Core, `liquers-core/src/accessor/`** (`mod.rs`, `hub.rs`, `root.rs`, `steps.rs`, `wrap.rs`). It is generic
 over the value `V`, because the value variant cannot name an environment. Every `async_trait` below
 uses the `cfg_attr` pair of `data_node.rs` (`?Send` on wasm).
 
@@ -97,7 +97,7 @@ uses the `cfg_attr` pair of `data_node.rs` (`?Send` on wasm).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Fingerprint { pub anchor: u64, pub content: Version }
 impl Fingerprint { pub fn token(&self) -> String; pub fn from_token(s: &str) -> Result<Self, Error>; }
-pub struct AccessorSnapshot<V> { pub state: State<V>, pub fingerprint: Fingerprint, pub root_version: Version }
+pub struct AccessorSnapshot<V: ValueInterface> { pub state: State<V>, pub fingerprint: Fingerprint, pub root_version: Version }
 /// Wake-ups relayed from the source (Status, progress, Log, Removed) or produced by the hub
 /// (Changed, Invalidated). Log carries the new number of messages; read them with `log`.
 pub enum AccessorEvent { Initial, Status(Status), PrimaryProgress(ProgressEntry),
@@ -115,10 +115,13 @@ pub struct PartDescription { pub step: String, pub type_identifier: String,
     pub argument: Option<ArgumentInfo>, pub command: Option<CommandKey>,
     pub overridden: bool /* a recipe argument or link override supersedes the query's value */, pub read_only: bool }
 
-#[async_trait] pub trait ValueAccessor<V>: MaybeSend + MaybeSync + Debug {
+#[async_trait] pub trait ValueAccessor<V: ValueInterface>: MaybeSend + MaybeSync + Debug {
     fn address(&self) -> &Query;
     async fn get(&self) -> Result<AccessorSnapshot<V>, Error>;
-    async fn set(&self, value: V, options: SetOptions) -> Result<AccessorSnapshot<V>, Error>;  // vs. last-seen fingerprint
+    /// Checked against this handle's last-seen fingerprint. One query asset is one handle shared by
+    /// all its holders, so this catches other handles and outside writers, not another holder of
+    /// the same handle: a holder that needs that keeps its own token and uses `set_if`.
+    async fn set(&self, value: V, options: SetOptions) -> Result<AccessorSnapshot<V>, Error>;
     /// `expected: None` means the value must not exist yet: a conditional create.
     async fn set_if(&self, value: V, expected: Option<Fingerprint>, options: SetOptions) -> Result<AccessorSnapshot<V>, Error>;
     async fn info(&self) -> Result<AccessorInfo, Error>;                   // never evaluates
@@ -129,6 +132,9 @@ pub struct PartDescription { pub step: String, pub type_identifier: String,
     fn subscribe(&self) -> watch::Receiver<AccessorEvent>;
     fn project(&self, step: Arc<dyn ProjectionStep<V>>, address: Query) -> Result<Arc<dyn ValueAccessor<V>>, Error>;
     fn set_invalidation_sink(&self, sink: Arc<dyn InvalidationSink>);
+    /// The watcher future for a host that spawns it itself (wasm); `None` when there is nothing to
+    /// watch or the hub already runs it. A projection returns its hub's.
+    fn driver(&self) -> Option<BoxFuture<'static, ()>> { None }
 }
 pub trait ProjectionStep<V>: MaybeSend + MaybeSync + Debug {
     fn name(&self) -> Cow<'_, str>;
@@ -139,7 +145,7 @@ pub trait ProjectionStep<V>: MaybeSend + MaybeSync + Debug {
 }
 #[async_trait] pub trait InvalidationSink: MaybeSend + MaybeSync { async fn invalidated(&self); }
 /// What a custom source implements. The hub supplies everything else.
-#[async_trait] pub trait AccessorRoot<V>: MaybeSend + MaybeSync + Debug {
+#[async_trait] pub trait AccessorRoot<V: ValueInterface>: MaybeSend + MaybeSync + Debug {
     async fn read(&self) -> Result<Option<(State<V>, Version)>, Error>;   // None: the value does not exist
     async fn write(&self, state: State<V>) -> Result<Version, Error> {   // default: read-only; creates when absent
         Err(Error::not_supported("this accessor is read-only".into())) }
@@ -147,7 +153,9 @@ pub trait ProjectionStep<V>: MaybeSend + MaybeSync + Debug {
     async fn log(&self, since: usize) -> Result<Vec<LogEntry>, Error> { Ok(Vec::new()) }
     fn capabilities(&self) -> Capabilities;
     async fn poll_event(&self) -> Option<RootEvent> { None }            // non-blocking; default: no notifications
-    fn watch(&self) -> Option<Pin<Box<dyn Future<Output = ()> + MaybeSend>>> { None } // watcher; see the hub
+    /// A `'static` future (`maybe_send.rs` `BoxFuture`, Send on native only) that completes when
+    /// `poll_event` has something; it owns what it waits on, such as a cloned `watch::Receiver`.
+    fn watch(&self) -> Option<BoxFuture<'static, ()>> { None }
 }
 pub enum RootEvent { Status(Status), PrimaryProgress(ProgressEntry), SecondaryProgress(ProgressEntry),
     Log(usize), Changed(Version), Removed }
@@ -168,7 +176,13 @@ pub struct AccessorBox<V>(pub Arc<dyn ValueAccessor<V>>);
 pub trait ErasedAccessor: MaybeSend + MaybeSync + Debug { fn as_any(&self) -> &dyn std::any::Any; }
 ```
 
-`V: ValueInterface` bounds go on the impls, not on the traits. Concrete core types:
+`V: ValueInterface` is a bound of the traits and of `AccessorSnapshot`, because `State<V>` requires
+it. Roots that need the environment hold it **weakly** and upgrade on each call, as the asset
+manager does since `environment-manager-reference-cycle`: an accessor lives in a cached asset, and a
+strong `EnvRef` there would make environment → manager → asset → hub → root → environment a cycle.
+Every write builds its state with `State::from_value_and_metadata` and resets the status to `None`
+first, so a status read back (`Expired`, `Error`) never leaks into `set_binary` / `set_state`
+(`written_status` keeps a supplied `Expired` or `Error`). Concrete core types:
 - **`StoreRoot<E>`** is the root for data in the store (AC-20). It never evaluates anything: a key
   that only a recipe could make does not exist for it.
   - **Reads** use `AsyncStore::get` (the binary and value views) or `get_metadata` (the metadata
@@ -198,8 +212,10 @@ pub trait ErasedAccessor: MaybeSend + MaybeSync + Debug { fn as_any(&self) -> &d
 - **`KeyRoot<E>`** is the root for keyed assets (AC-21).
   - **Reads** go through `AssetManager::get(key)` → `AssetRef::get`. For an expired or not yet
     evaluated asset, that read is the re-evaluation. A key for which `can_make` is false reads as
-    `None`. The version comes from `get_asset_info`. A missing version counts as *changed* on every
-    check, never as equal.
+    `None`. The version comes from `AssetRef::get_metadata().version()` (`AssetInfo` has none). A
+    missing version counts as *changed* on every check, never as equal. `get` builds a new
+    `AssetRef` for an expired entry without sending `Removed`, so the root compares
+    `AssetRef::id()` on every read and re-subscribes when it differs.
   - **Writes** use `set_state`, which gives `Override` with a recipe and `Source` without (AC-8). On
     a key that does not exist it creates the asset as `Source`. It then reads the new version back,
     and subscribes to the new asset.
@@ -232,7 +248,9 @@ pub trait ErasedAccessor: MaybeSend + MaybeSync + Debug { fn as_any(&self) -> &d
   the senders and sinks to fire while holding the tree lock, and fires them after releasing it.
   Driving the hub:
   - **Native:** the hub spawns one watcher task (`tokio::spawn`) for a root that offers `watch`.
-    The task holds the hub weakly and ends when the hub is dropped.
+    The task holds the hub weakly and ends when the hub is dropped. It is spawned only when
+    `tokio::runtime::Handle::try_current()` succeeds (`cfg(not(target_arch = "wasm32"))`; wasm's
+    tokio has only `sync`); otherwise `driver()` hands the future out, as on wasm.
   - **wasm:** the hub spawns nothing, because core has no wasm executor. `get`, `set` and `refresh`
     drain `poll_event` first. `AccessorHub::driver()` hands out the watcher future instead, and the
     host spawns it: `liquers-web` does so with `spawn_local` when the first JavaScript subscriber
@@ -244,23 +262,31 @@ pub trait ErasedAccessor: MaybeSend + MaybeSync + Debug { fn as_any(&self) -> &d
   saw it absent; `set_if(…, None, …)` makes the same check explicitly, and fails as a conflict when
   the value exists. A `set` on a projection of an absent root fails with `not_available`, because
   there is no parent to put the part into.
-- **Steps**, each capturing `Arc<CommandMetadataRegistry>` (`Context::command_metadata_snapshot`) at
-  construction where it edits queries:
+- **Steps**, sharing one `Arc<CommandMetadataRegistry>` taken once per hub
+  (`context.get_envref().command_metadata_snapshot()`, which clones the registry) where they edit
+  queries. Steps see only the parent value, not its metadata, so they choose by the value's
+  `identifier()` and content:
   - `RecipeStep(usize)` and `FieldStep(String)` / `ItemStep(usize)` work on a
     **`serde_yaml::Value` tree** parsed from the document's text or bytes. They keep unknown keys and
     key order, and write back in the parent's representation and format. `RecipeStep` yields
     `Value::Recipe`. Its anchor is the list length plus `Recipe::filename`, or the position when there
     is none.
-  - `QueryFieldStep` and `PipelineFieldStep` take a recipe to its query or pipeline.
+    A recipe goes to and from the tree through `try_into_json_value` and serde, and back to a value
+    with `from_recipe`.
+  - `QueryFieldStep` and `PipelineFieldStep` take a recipe to its query or pipeline. A query is
+    written back through `QueryEditor`, whose conversion is lenient about commands the registry does
+    not know (the strict `Query::try_from(&PipelineEditor)` is not used).
   - `ActionStep(usize)` uses `PipelineEditor` element indices, where 0 is the resource
     (`pipeline/convert.rs`). Its anchor is the element count plus the action's `CommandKey`.
   - `ArgumentStep(ArgRef)` puts through `ActionEditor::set` / `unset`, whose refusals give AC-3.
     `describe` reports `overridden` when `Recipe.arguments` or `links` names the argument.
-- **Fingerprint content:** the root version when the root is unchanged (no derive). Otherwise
-  `Version::from_bytes` of the part's canonical JSON. A part with no JSON form uses the root version,
-  which reads as *changed* and is never wrongly *unchanged*. There is no pointer-identity shortcut:
-  `ValueInterface` has no identity hook.
-- **Errors:** `Error::accessor_conflict(address, current: Fingerprint)` is a new constructor on the
+- **Fingerprint content:** always `Version::from_bytes` of the part's canonical JSON, so a disjoint
+  edit never changes a part's token (AC-14). The root version is only a cache key: when it is
+  unchanged, the hub reuses the fingerprints it has and derives nothing. A part with no JSON form
+  uses the root version, which reads as *changed* and is never wrongly *unchanged*. There is no
+  pointer-identity shortcut: `ValueInterface` has no identity hook.
+- **Errors:** `Error::accessor_conflict(address: &Query, current: Option<&Fingerprint>)` (`None`
+  when the value no longer exists: the conflict then carries no token and HTTP sends no `ETag`) is a new constructor on the
   existing **`ErrorType::StatusConflict`**, as `store-conditional-write` proposes for its
   `write_conflict`. So no `ErrorType` variant is added, and the error enums of py and web are
   untouched. The current token is carried in the message and, over HTTP, in the response's `ETag`.
@@ -306,9 +332,12 @@ Constructing a new root or step in a language is out of scope
   async. A callback runs from the driver task (`spawn_local`), never while a `RefCell` is borrowed,
   as in `ui.rs`. Disposing the last subscription stops the driver.
 - **Errors** map through each integration's error bridge. A conflict is
-  `ErrorType::StatusConflict` (`lq.StatusConflictError`; `error.type === "StatusConflict"` in
-  JavaScript), and its message carries the current token, which is also the error's `token`
-  attribute.
+  `ErrorType::StatusConflict` (`lq.StatusConflictError`; `errorType === "status_conflict"` in
+  JavaScript). Its message carries the current token in a fixed form (`current token: <token>`),
+  which each wrapper parses into a `token` attribute, because `Error` has no field for it.
+- **Per-holder tokens.** A wrapper object keeps the token it last read or wrote, and its `set`
+  sends `set_if` with that token. So two Python or JavaScript holders of one accessor conflict with
+  each other as AC-5 says, although they share one Rust handle.
 - **Declarations.** `liquers/accessors.pyi` and the TypeScript declarations (`typescript.rs`) list
   every member above (`STUBS`).
 
@@ -328,7 +357,7 @@ decided. *Decided (Orest, 2026-11-16):* the accessor lives in core and is used t
 **`ExtValue`**: `ExtValue::Accessor { value: Arc<dyn ValueAccessor<crate::value::Value>> }`, a
 `dyn` trait object so that any custom accessor fits. Core `Value` gets no variant. It derives
 `PartialEq` and untagged `Deserialize`, and a trait object would force hand-written impls of both.
-The variant follows `UIElement`'s precedent for `Debug`, `Clone` and `Send`. Its `TypeInfo::new("accessor")` declares no formats,
+The variant follows `UIElement`'s precedent for `Debug`, `Clone` and `Send`. Its `TypeInfo::new("Accessor")` (CamelCase, as `UIElement` and `RecordView`) declares no formats,
 so persisting it yields `NonSerializable` and it is never stored (AC-11). Its `data_node` is opaque.
 
 **Records (lib):** `RowStep`, `ColumnStep` and `CellStep` live in `liquers-lib/src/records/accessor.rs`,
@@ -345,15 +374,20 @@ at the position the parser reports. Nothing here precludes it.
 - **`liquers-core`:** `accessor/` (the hub, `StoreRoot`, `KeyRoot`, `AssetRefRoot`, `MemoryRoot`, the steps,
   `read_only`, `validated`), `lib.rs`, `value.rs` (the hooks), `error.rs` (`accessor_conflict`).
 - **`liquers-lib`:**
-  - `value/mod.rs`: the variant, its `TypeInfo`, and an arm in every `ExtValue` match;
+  - `value/mod.rs`: the variant, its `TypeInfo`, and an arm in every `ExtValue` match, including
+    `egui/mod.rs`, `ui/web/html.rs` (`webui`) and `tests/value_type_system.rs` (`samples`);
   - `value/extended.rs`: the hooks;
   - `records/accessor.rs`;
-  - a new `accessor/` module holding the `acc` commands, registered beside the other namespace
-    modules (`mem/`, `markdown/`);
+  - a new `accessor/` module holding the `acc` commands and a `#[macro_export]
+    register_accessor_commands!`, called wherever the other groups are listed:
+    `commands.rs` (`register_all_commands!`), `bin/export_command_registry.rs` (a
+    `Group::Accessor`), `tests/registry_export.rs`, `liquers-py/src/builtins.rs` and
+    `liquers-web/src/builtins.rs`;
   - `specs/command_registry.yaml`, regenerated.
 - **`liquers-axum`:**
   - a new `accessor/` module with `AccessorApiBuilder<E>`, mounted like `AssetsApiBuilder`;
-  - `api_core/error.rs`: conflicts from accessor routes map to `412`;
+  - accessor handlers map `StatusConflict` to `412` themselves (`api_core/error.rs` maps it to `409`
+    for every other route);
   - the accessor WebSocket, reusing the connection handling of `assets/websocket.rs`.
 - **`liquers-py`:** a new `src/accessor.rs` (`Accessor`, `AccessorSnapshot`, `AccessorInfo`,
   `AccessorEvent`, `PartDescription`, `AccessorSubscription`), registered in `lib.rs`; `value.rs`
@@ -418,16 +452,17 @@ query asset with one hub. `get` is volatile, so it reads the current value every
 ## Web Endpoints
 
 These routes come from `AccessorApiBuilder<E>`, mounted at `/api/acc` by default:
-The `{*query}` is evaluated. When its value is an accessor, that accessor is used. Otherwise the
+Every route has a fixed prefix (`q/`, `info/`, `log/`, `describe/`, `ws/`), as the assets API
+does, so no key is shadowed by a route name. The `{*query}` is evaluated. When its value is an accessor, that accessor is used. Otherwise the
 query's own asset is wrapped by `asset_accessor`, so any query can be read and watched, read-only
 (AC-21).
-- `GET {base}/{*query}`: the part's value, in the requested format, with `ETag: <token>`. A value
+- `GET {base}/q/{*query}`: the part's value, in the requested format, with `ETag: <token>`. A value
   that does not exist answers `404`, with the info as the body.
 - `GET {base}/info/{*query}`: the `AccessorInfo` as JSON (status, message, progress, log length,
   `etag`). It does not evaluate the value.
 - `GET {base}/log/{*query}?since=<n>`: the log messages from index `n`, as JSON.
 - `GET {base}/describe/{*query}`: the `PartDescription` as JSON.
-- `PUT {base}/{*query}`: `set_if`. `If-Match: <token>` sets a value that exists, and
+- `PUT {base}/q/{*query}`: `set_if`. `If-Match: <token>` sets a value that exists, and
   `If-None-Match: *` creates one that does not (AC-20, AC-21). It answers `200` with the new `ETag`,
   `412` with the current `ETag` on a conflict, `428` when neither header is given, and `405` for a
   read-only accessor.
@@ -506,5 +541,4 @@ HEAD):
 | Security | The `PUT` route is opt-in and for trusted servers only (preflight) |
 | Build | `ExtValue` arms in lib, py and web, the `records` gating of the lib steps, and the wasm driver path: `check-build-matrix.sh`, `scripts/test-liquers-py.sh`, the liquers-web Node loop and `check-stubs.sh` |
 | Tests likely to change | `registry_export` (new commands) |
-| Decided at the gate (2026-11-16) | the variant is in `ExtValue`; AC-2's comment loss is accepted for v1 and tracked in `YAML-DOCUMENT-EDIT-DROPS-COMMENTS`; the four first-class roots, a missing value as status `None` with create-on-set, and the progress and message relay (second round) |
-| For the gate | A metadata-view set cannot create a key, and cannot choose the status, which `set_binary` decides. A memory variable has no command, so it cannot be named by a query |
+| Decided at the gate (2026-11-16) | the variant is in `ExtValue`; AC-2's comment loss is accepted for v1 and tracked in `YAML-DOCUMENT-EDIT-DROPS-COMMENTS`; the four first-class roots, a missing value as status `None` with create-on-set, and the progress and message relay (second round); a metadata-view set cannot create a key or choose the status (`set_binary` decides); a memory variable has no command |

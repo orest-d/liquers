@@ -13,10 +13,12 @@ command metadata registry, wherever the query comes from.
 
 ## Design Readiness
 
-- **Readiness:** ready
+- **Readiness:** needs-decision
 - **Automatic fixing:** not-eligible: an `L`/`XL` cross-crate feature with new public APIs, not a
   bounded fix.
-- **Leading issue:** None.
+- **Leading issue:** item 5, the shape of the `set` contract for holders that share one handle.
+- **Records:** `DESIGN.md` carries no `readiness` or `autofix` field, because the design has no
+  source issue (§5.1.1); this section is the `proceed all` decision log.
 - **Explanation:** every Phase 1 question is decided, and the second and third Phase 2 rounds were
   accepted with `proceed all`. The proposals Orest saw at that gate are kept as recorded
   resolutions below.
@@ -28,6 +30,26 @@ command metadata registry, wherever the query comes from.
      Phase 5, once the code exists.
   4. *Implementation detail:* the action part is a one-element `Value::Pipeline`, the argument part
      the argument's JSON as a `Value` (Phase 4 Step 4).
+
+  Found by the Phase 3–4 reviews (2026-11-16), for the pre-implementation stop:
+
+  5. *Proposed resolution:* one query is one cached handle shared by all its holders, so a Rust
+     `set` (checked against the handle's last-seen fingerprint) catches other handles and outside
+     writers but not another holder of the same handle. Holders that need AC-5 between themselves
+     keep their own token and use `set_if`. The Python and JavaScript wrappers, and HTTP clients,
+     do this for you: each wrapper object keeps its own token. Alternative: give every evaluation
+     its own handle over a shared hub, which costs one wrapper per holder.
+  6. *Proposed resolution:* the web routes take a fixed prefix, `/api/acc/q/{*query}` for get and
+     put, as the assets API does, so a key named `info`, `log`, `describe` or `ws` is not shadowed.
+  7. *Proposed resolution:* a part's fingerprint is always the hash of its JSON form, and the root
+     version is only a cache key. Without this, an edit of one recipe could change another recipe's
+     token and break AC-14.
+  8. *Proposed resolution:* the type identifier is `Accessor` (CamelCase, as `UIElement`,
+     `RecordView`).
+  9. *Implementation details, applied:* roots hold the environment weakly (no reference cycle);
+     writes reset a read-back status; the keyed-asset root re-subscribes when `get` replaces an
+     expired asset; the commands register through a `register_accessor_commands!` macro listed in
+     the five places that list command groups; accessor routes map conflicts to `412` themselves.
 
 ## Problem Example
 
@@ -81,7 +103,10 @@ reads the new value.
 - **AC-6** Changes from other writers are detected
   WHEN the root changes through the environment's store or asset manager without going through an
   accessor
-  THEN every accessor on it receives a change notification, and a read returns the new content
+  THEN every accessor on it receives a change notification, and a read returns the new content.
+  *Narrowed in Phase 2 (accepted for v1):* a store root, and a keyed-asset root with no live asset,
+  see such a change on their next `get` or `refresh`, not by notification, until the manager event
+  stream exists (`ASSET-EVENT-STREAM-CARRIES-ONLY-EXPIRATIONS`)
 - **AC-7** Expiry and removal are reported
   WHEN the asset behind an accessor expires, or the key is removed
   THEN the accessor reports `Expired` or `Removed`. After removal its status is `None`, a read is a
@@ -116,8 +141,8 @@ reads the new value.
   the same root version
   THEN both sets apply. A set conflicts only when the part it was based on has changed since
 - **AC-15** A content change keeps a projection, a structural change invalidates it
-  WHEN a specialised editor holds `-R-key/some/recipes.yaml/-/recipe_query_accessor-1/action_accessor-2`
-  and a query editor holds `-R-key/some/recipes.yaml/-/recipe_query_accessor-1`, and one of them
+  WHEN a specialised editor holds `-R-key/some/recipes.yaml/-/ns-acc/accessor/recipe-1/query/action-2`
+  and a query editor holds `-R-key/some/recipes.yaml/-/ns-acc/accessor/recipe-1/query`, and one of them
   changes an argument of action 2
   THEN the other receives `Changed` and both accessors stay valid. When a step is instead inserted
   before action 2, the action accessor is invalidated (its asset expires), and evaluating its query
@@ -188,8 +213,8 @@ a server and using it on a client (`ACCESSOR-CANNOT-BE-SENT-TO-A-CLIENT`: addres
   `Expired`, `Removed`).
 - **Query / Pipelines**: query, pipeline, action and argument projections apply edits through
   `QueryEditor` / `PipelineEditor`, and describe arguments from the `CommandMetadataRegistry`.
-- **Data nodes**: document projections read through `DataNode`. This design needs a write side,
-  which `store-handler-field-access` also proposes (`DataNodeMut`).
+- **Data nodes**: none in the end. Document projections parse a `serde_yaml::Value` tree (Phase 2,
+  following question 7); `DataNode` is unchanged.
 - **Commands**: an accessor-creating command and projection commands.
 - **Web/API**: `liquers-axum` routes that read and write an accessor defined by a query, with the
   version token as an entity tag.
@@ -201,10 +226,9 @@ a server and using it on a client (`ACCESSOR-CANNOT-BE-SENT-TO-A-CLIENT`: addres
 The accessor contract, addresses, versions, change notifications, and the store, asset, document,
 query, pipeline and recipe accessors go in `liquers-core` (a new `accessor` module). That way axum,
 web and py can resolve addresses without `liquers-lib`. Record-table projections go in
-`liquers-records`, which depends on core only. A later template-link projection would go in
-`liquers-template` the same way.
-The value variant and the commands go in `liquers-lib`, along with polars projections if they are
-in scope. The Python wrapper goes in `liquers-py`, and the JavaScript wrapper in `liquers-web`.
+`liquers-lib/src/records/` (Phase 2), because they need `ExtValue::RecordView`. A later
+template-link projection would go in `liquers-template`, which depends on core only.
+The value variant and the commands go in `liquers-lib`. Polars projections are out of scope. The Python wrapper goes in `liquers-py`, and the JavaScript wrapper in `liquers-web`.
 
 ## Documentation Intent
 
@@ -225,8 +249,7 @@ in scope. The Python wrapper goes in `liquers-py`, and the JavaScript wrapper in
   (new commands).
 - API docs: the new `liquers-core/src/accessor/` modules; `liquers-core/src/value.rs` (the Value
   module doc gains the accessor hooks and a section on handle values);
-  `liquers-core/src/pipeline/editor.rs` and `liquers-core/src/data_node.rs` (their role under
-  accessors); `liquers-lib/src/value/mod.rs` (the new variant); the Python and JavaScript wrapper
+  `liquers-core/src/pipeline/editor.rs` (its role under accessors); `liquers-lib/src/value/mod.rs` (the new variant); the Python and JavaScript wrapper
   modules.
 
 ## Open Questions
@@ -240,10 +263,9 @@ in scope. The Python wrapper goes in `liquers-py`, and the JavaScript wrapper in
 3. **Conflict rule.** *Chosen with Orest, 2026-11-15, subject to Phase 2's cost check:* option C.
    A set conflicts only when the part it was based on has changed (AC-14). There is no forced set in
    v1. Projections are arbitrary commands, so there is no general path. The proposed mechanism is a
-   fingerprint of the part's content that each accessor remembers in place of a copy. A pointer-equality
-   check comes first (an unchanged part keeps its `Arc`), and a content hash is the fallback.
-   Structural steps (field, index, action argument) may also declare a path, so a whole subtree can
-   be skipped without deriving it.
+   fingerprint of the part's content that each accessor remembers in place of a copy. *Phase 2:*
+   the fingerprint is the root version when the root is unchanged, otherwise a content hash; there
+   is no pointer-equality shortcut, and declaring a path to skip a subtree is deferred.
 4. **Structural edits.** *Decided (Orest, 2026-11-15):* an accessor is an asset named by its
    query, and a projection is a longer query. After the root changes, each projection is
    **unchanged** (same fingerprint, nothing happens; this includes the editor that made the edit),
@@ -272,7 +294,7 @@ in scope. The Python wrapper goes in `liquers-py`, and the JavaScript wrapper in
 8. **Template links.** *Decided (Orest, 2026-11-15):* not in this design. Phase 2 checks that a
    template-link query projection can be added later as one more root-to-query projection.
 9. **Command namespace.** *Decided (Orest, 2026-11-15):* `acc`, for example
-   `-R-key/some/recipes.yaml/-/ns-acc/recipe_query-1/action-2`.
+   `-R-key/some/recipes.yaml/-/ns-acc/accessor/recipe-1/query/action-2` (Phase 2's command names).
 
 ## Scope Changes
 

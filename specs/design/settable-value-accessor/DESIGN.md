@@ -16,7 +16,7 @@ A handle to the place a value lives: read it, write it, watch it, and project it
 recipe, a query step, an argument, a document field, a table cell). Supersedes `value-accessor`.
 
 Phase 1 approved by Orest on 2026-11-15. Phase 2 approved, and Phases 3 and 4 pre-approved
-(`proceed all`), by Orest on 2026-11-16: Pre-approved after Phase 2 on 2026-11-16.
+(`proceed all`): Pre-approved after Phase 2 on 2026-11-16.
 
 ## Phases
 
