@@ -154,6 +154,10 @@ and `pl/head(n: i64 = 10)` registered with `register_command!`):
 **Axum, `liquers-axum/tests/accessor_api.rs`:**
 - `get_returns_value_and_etag` (AC-13); `put_preconditions_and_conflicts` (AC-13, AC-20, AC-21):
   `200`, `412` with the current `ETag`, `428`, `If-None-Match: *` create, `405` read-only.
+- `accessors_api_is_opt_in_and_configurable` (AC-13): a default `ServerConfig` mounts no
+  `/api/acc`; `apis: [..., accessors]` mounts it under the configured prefix; `read_only` answers
+  `405` to `PUT`; a core-`Value` environment refuses `accessors` at `bind` with a configuration
+  error.
 - `info_log_and_describe_routes` (AC-23); `websocket_relays_accessor_events` (AC-17): status,
   changed, invalidated and removed frames in the asset socket's shape.
 

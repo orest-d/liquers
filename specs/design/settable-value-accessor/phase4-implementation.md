@@ -130,10 +130,14 @@ short (`CLAUDE.md` §Building and testing).
 ### Step 9: The `/api/acc` routes and socket
 - Files / symbols: new `liquers-axum/src/accessor/` (`AccessorApiBuilder<E>`, handlers under the
   `q/`, `info/`, `log/`, `describe/` and `ws/` prefixes, socket reusing `assets/websocket.rs`,
-  module doc); the handlers answer `412`, `428` and `405` themselves; the router assembly where
-  `AssetsApiBuilder` is mounted.
+  module doc); the handlers answer `412`, `428` and `405` themselves; `server/config.rs`
+  `Api::Accessors`, `Api::defaults()` (the default of `apis`); `server/builder.rs` `with_api`, the
+  `{prefix}/api/acc` mounting with `read_only` and `without_websocket`, and the type-registry check
+  in `bind`; `api_core` docs and the server module doc.
 - Depends on: Step 7.
-- Proof: `cargo test -p liquers-axum --test accessor_api` (needs `libssl-dev`, `CLAUDE.md`).
+- Proof: `cargo test -p liquers-axum --test accessor_api` (needs `libssl-dev`, `CLAUDE.md`),
+  including `accessors_api_is_opt_in_and_configurable`; `cargo test -p liquers-axum --lib server`
+  and `--test server_config_document` (the default `apis` unchanged).
 - Rollback: unmount the builder.
 
 ### Step 10: The Python wrapper

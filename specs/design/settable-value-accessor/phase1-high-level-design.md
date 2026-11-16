@@ -50,6 +50,9 @@ command metadata registry, wherever the query comes from.
      writes reset a read-back status; the keyed-asset root re-subscribes when `get` replaces an
      expired asset; the commands register through a `register_accessor_commands!` macro listed in
      the five places that list command groups; accessor routes map conflicts to `412` themselves.
+  10. *Decided (Orest, 2026-11-16):* the accessor web API is a configurable, **opt-in** service:
+     `Api::Accessors` in the server config and builder, mounted at `{prefix}/api/acc`, not in the
+     default `apis`, and refused at `bind` when the value type has no accessor variant.
 
 ## Problem Example
 

@@ -386,6 +386,8 @@ at the position the parser reports. Nothing here precludes it.
   - `specs/command_registry.yaml`, regenerated.
 - **`liquers-axum`:**
   - a new `accessor/` module with `AccessorApiBuilder<E>`, mounted like `AssetsApiBuilder`;
+  - `server/config.rs`: `Api::Accessors` (`accessors` in `apis:`), not in the default list;
+    `server/builder.rs`: `with_api`, and the mounting and support check below;
   - accessor handlers map `StatusConflict` to `412` themselves (`api_core/error.rs` maps it to `409`
     for every other route);
   - the accessor WebSocket, reusing the connection handling of `assets/websocket.rs`.
@@ -451,7 +453,22 @@ query asset with one hub. `get` is volatile, so it reads the current value every
 
 ## Web Endpoints
 
-These routes come from `AccessorApiBuilder<E>`, mounted at `/api/acc` by default:
+**Configuration.** The accessor API is a service like the others, and it is **opt-in**:
+- `AccessorApiBuilder::<E>::new(base)` mounts it at any path, like `AssetsApiBuilder::new`, with
+  `read_only()` (no `PUT`) and `without_websocket()`.
+- In a server it is `Api::Accessors`, mounted at `{prefix}/api/acc` under the server's
+  configurable `prefix`, exactly as `Api::Assets` is at `{prefix}/api/assets`. It is **not** in the
+  default `apis` list (`Api::defaults()` keeps the four existing APIs; `Api::all()` lists all
+  five): a configuration enables it with `apis: [query, store, assets, recipes, accessors]`, and the
+  builder with `with_api(Api::Accessors)`. The server's `read_only` leaves out `PUT`, and
+  `without_websocket` its socket.
+- It only makes sense when accessors are a value variant. `bind` therefore refuses to mount it when
+  the environment's type registry has no `Accessor` type (`Error::configuration_error`
+  "server.apis: accessors needs a value type with accessors"), so a core-`Value` server cannot
+  enable it by mistake. `AccessorApiBuilder` itself has no such check: a host that mounts it by
+  hand decides.
+
+These routes come from `AccessorApiBuilder<E>`, mounted at `{prefix}/api/acc` in a server:
 Every route has a fixed prefix (`q/`, `info/`, `log/`, `describe/`, `ws/`), as the assets API
 does, so no key is shadowed by a route name. The `{*query}` is evaluated. When its value is an accessor, that accessor is used. Otherwise the
 query's own asset is wrapped by `asset_accessor`, so any query can be read and watched, read-only
