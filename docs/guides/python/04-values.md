@@ -1,8 +1,8 @@
 ---
 title: Values, state and metadata
 status: ready
-sources: [reference/VALUE_TYPE_SYSTEM.md, guides/PYTHON_GUIDE.md, reference/PYTHON_INTEGRATION.md]
-reviewed: 2026-11-15
+sources: [reference/VALUE_TYPE_SYSTEM.md, guides/PYTHON_GUIDE.md, reference/PYTHON_INTEGRATION.md, reference/VALUE_ACCESSORS.md]
+reviewed: 2026-11-16
 ---
 # 4. Values, state and metadata
 
@@ -206,3 +206,40 @@ or `__float__`.
 A folder of the store and a table that is read in chunks are read on demand, so their nodes are
 used with `await`. Make such a node with `env.data_node(state)`, or `context.data_node(state)`
 inside a command, and use `await node.get_async(name)` and `await node.to_json_async()`.
+
+## 4.6 Editing a value in place
+
+An *accessor* is a handle on the place a value lives: a stored file, a result, or one part of
+either, such as a field of a YAML document. You read and write through it, and Liquers keeps
+everyone who holds the same place in step. The `acc` commands make one from a key:
+
+```python
+import liquers as lq
+
+env = lq.Environment()
+env.store_set("config.yaml", "title: Dashboard\nrows: 3\n")
+
+title = env.accessor("-R-key/config.yaml/-/ns-acc/accessor/field-title")
+snap = title.snapshot()
+assert snap.value == "Dashboard"
+title.set_if("Sales", snap.token)            # write, if nobody changed it since you read it
+assert env.evaluate("-R/config.yaml") == "title: Sales\nrows: 3\n"
+
+try:
+    title.set_if("Stale", snap.token)        # that token is out of date now
+except lq.StatusConflictError as conflict:
+    assert conflict.token == title.info().token
+env.shutdown()
+```
+
+The *token* says which version you read. `set_if` writes only if the value is still that version,
+so two people editing the same field cannot overwrite each other without noticing: the second one
+gets a `StatusConflictError`, nothing is written, and they read again. `set(value)` uses the token
+this accessor last saw, and `set_if(value, None)` creates a value that must not exist yet.
+
+Other parts of the same file are one `project` away: `title.project(...)` appends steps, and
+`env.accessor("-R-key/config.yaml/-/ns-acc/accessor").project("field-rows")` is the `rows` field.
+`env.memory_accessor(value)` is a variable of your own that commands can share. To react to
+changes, register a callback with `on` and let `wait_event` or `process_events` run it, or iterate
+`events()` in async code; callbacks always run in your own thread. A query that is not an accessor
+gives a read-only one, whose `capabilities.write` is false.

@@ -47,6 +47,9 @@ tokio-tungstenite = "0.23"
 futures = "0.3.34"
 tower = { version = "0.5.3", features = ["util"] }
 tempfile = "3.27.0"
+# `tests/accessor_api.rs`: a value type with accessors and the `acc` commands.
+liquers-lib = { path = "../liquers-lib", default-features = false }
+liquers-macro = { path = "../liquers-macro" }
 
 [features]
 default=["async_store"]

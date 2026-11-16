@@ -990,7 +990,7 @@ impl Environment {
                     .map(|name| {
                         serde_json::from_value::<liquers_axum::Api>(serde_json::Value::String(name.clone())).map_err(|_| {
                             Error::configuration_error(format!(
-                                "unknown API '{name}' (known: query, store, assets, recipes)"
+                                "unknown API '{name}' (known: query, store, assets, recipes, accessors)"
                             ))
                         })
                     })
@@ -1383,8 +1383,9 @@ impl Environment {
     ///
     /// Settings come from the configuration's `server:` section; each keyword given overrides it
     /// (`host`, `port`, `prefix`, `apis` — a list of `"query"`, `"store"`, `"assets"`,
-    /// `"recipes"` —, `read_only`, and `web`: `True`, `False` or a store folder). The defaults
-    /// serve every API under `/liquer` on `127.0.0.1:8080`, with writes enabled and the store's
+    /// `"recipes"` and the opt-in `"accessors"` —, `read_only`, and `web`: `True`, `False` or a
+    /// store folder). The defaults serve every API but `accessors` under `/liquer` on
+    /// `127.0.0.1:8080`, with writes enabled and the store's
     /// `web/` folder at `/liquer/web/`. Binds before returning (`port=0` picks a free port). With
     /// `background=False` it serves until the server is stopped or Ctrl-C, which stops it and
     /// raises `KeyboardInterrupt`.
@@ -1613,6 +1614,73 @@ impl Environment {
             async move { Ok((envref.evaluate(query).await?, shut, scope)) },
             ToPy::Asset,
         )
+    }
+
+    /// The `lq.Accessor` that `query` names: its value when that is an accessor (an `acc` command,
+    /// `-R-key/config.yaml/-/ns-acc/accessor/field-title`), otherwise a read-only accessor of the
+    /// query's asset.
+    fn accessor(&self, py: Python<'_>, query: &Bound<'_, PyAny>) -> PyResult<crate::accessor::Accessor> {
+        refuse_pipeline(query)?;
+        check_blocking_call(py, "accessor")?;
+        let result = (|| -> Result<_, PyFailure> {
+            let query = to_query(query)?;
+            let envref = self.cell.envref(py)?;
+            let scope = Scope::from_envref(&envref, self.cell.shut.clone());
+            let inner = block_on(py, &self.cell.shut, async move {
+                crate::accessor::resolve(&envref, &query).await
+            })?;
+            Ok(crate::accessor::Accessor::new(inner, scope, self.cell.conversion, self.cell.pickle))
+        })();
+        result.map_err(|e| e.into_pyerr(py))
+    }
+
+    /// Awaitable `accessor`.
+    fn accessor_async<'py>(&self, py: Python<'py>, query: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+        refuse_pipeline(query)?;
+        let (query, envref) = self.query_and_envref(py, query)?;
+        let scope = Scope::from_envref(&envref, self.cell.shut.clone());
+        let (conversion, pickle) = (self.cell.conversion, self.cell.pickle);
+        awaitable(
+            py,
+            &self.cell.shut,
+            async move { Ok((crate::accessor::resolve(&envref, &query).await?, scope, conversion, pickle)) },
+            |result| {
+                ToPy::With(result.map(|(inner, scope, conversion, pickle)| -> crate::aio::PyConvert {
+                    Box::new(move |py| {
+                        Py::new(py, crate::accessor::Accessor::new(inner, scope, conversion, pickle))
+                            .map(Py::into_any)
+                            .map_err(|e| pyerr_to_error(py, &e))
+                    })
+                }))
+            },
+        )
+    }
+
+    /// A new accessor of a variable in memory, holding `value` (none when omitted), named by
+    /// `address`. Every holder of it, or of a value it crossed into, shares the variable.
+    #[pyo3(signature = (value = None, address = None))]
+    fn memory_accessor(
+        &self,
+        py: Python<'_>,
+        value: Option<&Bound<'_, PyAny>>,
+        address: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<crate::accessor::Accessor> {
+        let result = (|| -> Result<_, PyFailure> {
+            let state = match value {
+                Some(value) => {
+                    let value = py_to_value(value, self.cell.conversion, self.cell.pickle)?;
+                    Some(State::from_value_and_metadata(value, Arc::new(Metadata::new())))
+                }
+                None => None,
+            };
+            let address = address.map(to_query).transpose()?.unwrap_or_default();
+            // The hub's watcher is spawned on the runtime it is made in.
+            let _inside = runtime()?.enter();
+            let inner = liquers_core::accessor::memory_accessor(state, address);
+            let scope = Scope::env(py, &self.cell);
+            Ok(crate::accessor::Accessor::new(inner, scope, self.cell.conversion, self.cell.pickle))
+        })();
+        result.map_err(|e| e.into_pyerr(py))
     }
 
     /// Awaitable `store_set`. The value is converted and serialized at call time.

@@ -159,6 +159,13 @@ impl LiquersError {
         self.inner.message.clone()
     }
 
+    /// For a `"status_conflict"` from an accessor's `set` or `setIf`, the accessor's current token,
+    /// to retry with; null otherwise.
+    #[wasm_bindgen(getter)]
+    pub fn token(&self) -> Option<String> {
+        liquers_core::accessor::conflict_token(&self.inner).map(|f| f.token())
+    }
+
     /// The query being evaluated when the error occurred, if any.
     #[wasm_bindgen(getter)]
     pub fn query(&self) -> Option<String> {

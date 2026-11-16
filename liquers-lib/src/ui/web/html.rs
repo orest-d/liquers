@@ -111,6 +111,10 @@ fn ext_to_html(ext: &ExtValue, app_state: &dyn AppState) -> String {
         #[cfg(feature = "polars")]
         ExtValue::PolarsDataFrame { value } => super::dataframe::dataframe_to_html(value, 100),
         ExtValue::UIElement { value } => value.render_web(app_state),
+        ExtValue::Accessor { value } => format!(
+            "<div class=\"lq-accessor\">accessor {}</div>",
+            escape_html(&value.address().encode())
+        ),
         #[cfg(feature = "egui")]
         ExtValue::UiCommand { .. } => {
             "<div class=\"lq-egui-only\">egui command (no web rendering)</div>".to_string()

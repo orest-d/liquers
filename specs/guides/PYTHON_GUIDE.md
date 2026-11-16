@@ -3,7 +3,7 @@ title: Using Liquers from Python
 kind: guide
 audience: user
 area: [py]
-reviewed: 2026-11-15
+reviewed: 2026-11-16
 ---
 # Using Liquers from Python
 
@@ -82,6 +82,7 @@ same class. Use the submodules to find your way around the API; both spellings s
 | `liquers.records` | `RecordView`, `RecordSource`, the schema classes, … | `liquers-records` |
 | `liquers.server` | `serve`, `serve_async`, `Server` | `liquers-axum` |
 | `liquers.lui` | `ui`, `UI`, `UIElement`, … | `liquers_lib::ui` |
+| `liquers.accessors` | `Accessor`, `AccessorSnapshot`, `AccessorInfo`, `AccessorEvent`, … | `liquers_core::accessor` |
 
 Two modules are named so that they cannot shadow a function: `liquers.lui` holds `ui()` and
 `liquers.data_nodes` holds `data_node()`, so `lq.ui` and `lq.data_node` stay functions after
@@ -102,6 +103,7 @@ The public names, by purpose:
 | Templates | `Environment.render` / `expand` / `template_command`, `RenderResult`, `Diagnostic` |
 | Pipelines | `Pipeline`, `Environment.pipeline_editor` / `query_editor` / `pipeline_command`, `PipelineEditor`, `QueryEditor`, `ActionEditor` |
 | Reading data in place | `data_node`, `DataNode`, `NodeKind` |
+| Editing values in place | `Environment.accessor` / `memory_accessor`, `Accessor`, `AccessorSnapshot`, `AccessorInfo`, `AccessorEvent`, `AccessorCapabilities`, `PartDescription`, `AccessorSubscription` |
 | Errors | `LiquersError`, `KeyNotFoundError`, `ExecutionError`, … (one per `ErrorType`), `ErrorType` |
 | Results' metadata | `Metadata`, `MetadataRecord`, `AssetInfo`, `Status`, `LogEntry`, `LogEntryKind`, `Version` |
 | The query language | `parse`, `parse_key`, `Query`, `Key`, `ActionRequest`, `ActionParameter`, the segment classes, `Position` |
@@ -1276,6 +1278,56 @@ environment, and stops with `GeneralError` once the environment is shut down. A 
 returns a view: one returning CSV bytes cannot be a chunk yet
 (`BYTES-VALUE-HAS-NO-NAMED-DATA-FORMAT`).
 
+### Editing values through accessors
+
+An accessor is a live handle on the place a value lives: a stored file, a keyed asset, a field of a
+document, an argument of a recipe's query. Read and write through it, and it keeps every other
+holder in step. The `acc` commands make one from a key:
+
+```python
+import liquers as lq
+
+env = lq.Environment()
+env.store_set("config.yaml", "title: Dashboard\nrows: 3\n")
+
+title = env.accessor("-R-key/config.yaml/-/ns-acc/accessor/field-title")
+snap = title.snapshot()                 # snap.value == "Dashboard", snap.token
+title.set_if("Sales", snap.token)       # first writer wins; returns the new token
+assert env.evaluate("-R/config.yaml") == "title: Sales\nrows: 3\n"
+title.set("Report")                     # uses the token this wrapper last saw
+```
+
+A stale token raises `lq.StatusConflictError`, whose `token` is the current one: someone else wrote
+first and nothing was written, so read again and retry. `set_if(value, None)` creates a value that
+must not exist yet. `project("field-rows")` gives the accessor of another part, `describe()` says what
+a part is, `info()` gives the status (`"None"` for a value that does not exist) and `log()` its
+messages. Any query that is not an accessor gives a read-only one (`capabilities.write` is false).
+
+`env.memory_accessor(value)` is a variable: return it from a command and every holder shares it.
+
+Events are delivered on your thread, when you ask for them:
+
+```python
+import liquers as lq
+
+env = lq.Environment()
+env.store_set("config.yaml", "title: Dashboard\nrows: 3\n")
+title = env.accessor("-R-key/config.yaml/-/ns-acc/accessor/field-title")
+title.get()                                  # read once, so the wrapper has a token
+
+with title.on(lambda e: print(e.kind)):      # "changed", "status", "log", …
+    title.set("Q3")
+    title.wait_event(10)                     # runs the callback; process_events() does not wait
+
+async def watch():
+    async for event in title.events():
+        if event.kind == "changed":
+            return await title.get_async()
+```
+
+The guide to accessors in every language is [`VALUE_ACCESSOR_GUIDE.md`](VALUE_ACCESSOR_GUIDE.md);
+the Python contract, [`reference/PYTHON_INTEGRATION.md`](../reference/PYTHON_INTEGRATION.md) §19.
+
 ## 8. Errors
 
 Every Liquers error is raised as a subclass of `lq.LiquersError`, one per `ErrorType`, named for it:
@@ -1398,6 +1450,7 @@ What you will notice; the complete list, with the tracking issues, is
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-16 | §7 "Editing values through accessors"; §2: `liquers.accessors`. | `design/settable-value-accessor/` |
 | 2026-11-15 | §2 and §9 (one stub per submodule): the public submodules, `liquers.lui` and `liquers.data_nodes`, the private `_liquers` package. | `design/py-package-submodules/` |
 | 2026-11-14 | §6 "Showing a Liquers UI": `wait_idle_async` inside a command, `async def` ones included, raises too. | `liquers-py/tests/test_UIUSE_model.py` |
 | 2026-11-11 | §6 "Showing a Liquers UI": the model, status callbacks, opening a window. §1: the wheels open windows; a build without. §2: the UI names. §10: UI limits. | phase-5, `design/liquers-py-ui/`, `design/liquers-py-ui-window/` |

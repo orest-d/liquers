@@ -1,8 +1,8 @@
 ---
 title: Web API reference
 status: ready
-sources: [reference/WEB_API_SPECIFICATION.md]
-reviewed: 2026-11-14
+sources: [reference/WEB_API_SPECIFICATION.md, reference/VALUE_ACCESSORS.md]
+reviewed: 2026-11-16
 ---
 # E. Web API reference
 

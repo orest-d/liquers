@@ -25,6 +25,7 @@ REPO = pathlib.Path(__file__).resolve().parents[2]
 SUBMODULES = (
     "query", "commands", "metadata", "dependencies", "plan", "recipes", "store", "environment",
     "assets", "error", "data_nodes", "pipeline", "template", "records", "server", "lui",
+    "accessors",
 )
 
 # `liquers.__all__` before the submodules existed (89 names), without the generated error classes.
@@ -47,6 +48,9 @@ TOP_LEVEL_NAMES = {
     "RecordSource", "RecordStream", "RecordChunk", "default_environment", "evaluate",
     "evaluate_async", "serve", "serve_async", "ui", "command", "first_command", "require",
     "LiquersError",
+    # settable-value-accessor
+    "Accessor", "AccessorCapabilities", "AccessorSnapshot", "AccessorInfo", "AccessorEvent",
+    "PartDescription", "AccessorSubscription",
 }
 
 

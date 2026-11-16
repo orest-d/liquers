@@ -39,5 +39,7 @@ pub fn register_builtin_commands(env: &mut WebEnvironment) -> Result<(), Error> 
     // every template command a page declares (`crate::command::spec`, `template` in place of
     // `run`).
     liquers_lib::register_template_commands!(cr)?;
+    // The `acc` namespace: value accessors, which the JavaScript `Accessor` wraps.
+    liquers_lib::register_accessor_commands!(cr)?;
     Ok(())
 }

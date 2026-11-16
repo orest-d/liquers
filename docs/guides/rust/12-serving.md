@@ -2,7 +2,7 @@
 title: Serving and embedding
 status: ready
 sources: [guides/WEB_API_GUIDE.md, reference/WEB_API_SPECIFICATION.md, reference/ENVIRONMENT_CONFIG.md]
-reviewed: 2026-11-14
+reviewed: 2026-11-16
 ---
 # 12. Serving and embedding
 

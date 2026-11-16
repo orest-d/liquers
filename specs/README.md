@@ -126,7 +126,7 @@ simply stop being wanted.
 - **Environment, Context and evaluation** — documented → [`reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`](reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md)
 - **Recipe-provider fallback in the payload environment** — built → [`reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`](reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md) *(design: [`payload-env-recipe-provider-fallback`](design/payload-env-recipe-provider-fallback/))*
 - **Metadata format/type consistency** — designing → [`design/metadata-consistency/`](design/metadata-consistency/)
-- **Value accessor abstraction** — designing → [`design/value-accessor/`](design/value-accessor/)
+- **Settable value accessors** (read, write, watch and project a value where it lives: store, keyed asset, memory, document fields, recipes, query arguments; the `acc` commands, `/api/acc`, Python `lq.Accessor`, JavaScript `Accessor`; supersedes [`value-accessor`](design/value-accessor/)) — built → [`reference/VALUE_ACCESSORS.md`](reference/VALUE_ACCESSORS.md) *(how to: [`guides/VALUE_ACCESSOR_GUIDE.md`](guides/VALUE_ACCESSOR_GUIDE.md); design in [`design/settable-value-accessor/`](design/settable-value-accessor/); open: [`VALUE-ACCESSOR-CANNOT-LOCK`](issues/VALUE-ACCESSOR-CANNOT-LOCK.md), [`ACCESSOR-CANNOT-BE-SENT-TO-A-CLIENT`](issues/ACCESSOR-CANNOT-BE-SENT-TO-A-CLIENT.md), [`ACCESSOR-CANNOT-BE-IMPLEMENTED-IN-PYTHON-OR-JAVASCRIPT`](issues/ACCESSOR-CANNOT-BE-IMPLEMENTED-IN-PYTHON-OR-JAVASCRIPT.md), [`RECORD-ACCESSOR-STEPS-HAVE-NO-COMMANDS`](issues/RECORD-ACCESSOR-STEPS-HAVE-NO-COMMANDS.md))*
 - **`ValueInterface` capability split** — planned → [`issues/CORE-VALUE-INTERFACE-CAPABILITY-SPLIT.md`](issues/CORE-VALUE-INTERFACE-CAPABILITY-SPLIT.md)
 - **Auto-generated value descriptions** — planned → [`issues/VALUE-DESCRIPTION.md`](issues/VALUE-DESCRIPTION.md)
 - **Application-defined metadata attributes** — planned → [`issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md`](issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md)
@@ -728,6 +728,7 @@ deliberately folded behind a broader line.
 - feature `WEB-PAGE-CANNOT-PASS-A-PIPELINE-VALUE`
 - feature `WEB-PIPELINE-EDITOR-HAS-NO-DEFINITION-MODE`
 - feature `WEB-QUERY-EDITOR-NOT-LIVE`
+- feature `YAML-DOCUMENT-EDIT-DROPS-COMMENTS`
 <!-- END generated: unplaced -->
 
 ## Guides
@@ -757,6 +758,7 @@ deliberately folded behind a broader line.
 - [`TYPE_SYSTEM_GUIDE.md`](guides/TYPE_SYSTEM_GUIDE.md) — How to add a value type so the system can describe it, store it and read it back. For *why* the
 - [`UNITTEST_GUIDE.md`](guides/UNITTEST_GUIDE.md) — This guide explains how to write comprehensive unit tests for the Liquers query evaluation flow, covering environment setup, command registration, query evaluat
 - [`USER_DOCS_EDITING_GUIDE.md`](guides/USER_DOCS_EDITING_GUIDE.md) — How to write, check and maintain the public user guides in `docs/guides/`: *Liquers for Rust*,
+- [`VALUE_ACCESSOR_GUIDE.md`](guides/VALUE_ACCESSOR_GUIDE.md) — How to make a value accessor, read and write through it, project it to a part, react to its events,
 - [`WEB_API_GUIDE.md`](guides/WEB_API_GUIDE.md) — This guide shows how to use a Liquers server over HTTP and WebSocket: evaluating queries, running
 - [`autonomous_bulk_design.md`](guides/autonomous_bulk_design.md) — This is the binding procedure for a coding agent asked to create or finish design documents for
 - [`autonomous_issue_fixing.md`](guides/autonomous_issue_fixing.md) — This is the binding procedure for a coding agent asked to fix an issue autonomously. The words

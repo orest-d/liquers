@@ -86,6 +86,7 @@
 
 #![cfg(target_arch = "wasm32")]
 
+pub mod accessor;
 pub mod asset;
 pub mod bridge;
 pub mod builtins;
@@ -106,6 +107,7 @@ pub mod ui;
 pub mod ui_define;
 pub mod value;
 
+pub use accessor::{LiquersAccessor, LiquersAccessorSnapshot, LiquersAccessorSubscription};
 pub use asset::{LiquersAsset, LiquersState};
 pub use bridge::{ConversionPolicy, JsValueBridge};
 pub use encode::encode_param;
@@ -248,6 +250,28 @@ pub fn evaluate(query: &str) -> js_sys::Promise {
         Err(e) => return js_sys::Promise::reject(&error::liquers_error_to_js(e)),
     };
     eval::evaluate_to_promise(envref, parsed)
+}
+
+/// Resolves a query to its settable value [`LiquersAccessor`].
+///
+/// A query whose value is an accessor (`.../-/ns-acc/accessor/field-title`) gives that accessor;
+/// any other query gives a read-only accessor of its asset. See [`accessor`].
+#[wasm_bindgen(unchecked_return_type = "Promise<Accessor>")]
+pub fn accessor(query: &str) -> js_sys::Promise {
+    match environment::shared_env() {
+        Ok(envref) => accessor::accessor_promise(envref, query),
+        Err(e) => js_sys::Promise::reject(&error::liquers_error_to_js(e)),
+    }
+}
+
+/// A new in-memory accessor: a variable holding `value` (empty when omitted), shared by every
+/// handle of it, with `address` as its query (empty when omitted).
+#[wasm_bindgen(js_name = memoryAccessor)]
+pub fn memory_accessor(
+    value: Option<JsValue>,
+    address: Option<String>,
+) -> Result<LiquersAccessor, JsValue> {
+    accessor::memory_accessor_handle(environment::shared_env().ok(), value, address)
 }
 
 /// Resolves a query to an [`LiquersAsset`] without waiting for it to become ready.

@@ -2,7 +2,8 @@ EDITOR: shared fragment (the web API reference: every route of the standard serv
 
 ## E.1 Overview
 
-A Liquers server offers four APIs. With the default prefix `/liquer` they are at:
+A Liquers server offers four APIs, and a fifth you can switch on. With the default prefix
+`/liquer` they are at:
 
 | API | Base path | What it is for |
 |---|---|---|
@@ -10,6 +11,7 @@ A Liquers server offers four APIs. With the default prefix `/liquer` they are at
 | Store API | `/liquer/api/store/` | read and write the files of the store as they are |
 | Assets API | `/liquer/api/assets/` | evaluate, submit, watch and manage results; live updates over a WebSocket |
 | Recipes API | `/liquer/api/recipes/` | read the recipes |
+| Accessor API | `/liquer/api/acc/` | read and write one value, or one part of a value, safely when several clients edit it; live updates over a WebSocket. Off unless `apis` lists `accessors` (section E.10) |
 
 The prefix and the set of APIs are settings of the server (chapter 12). The paths
 in the tables below are relative to the base path of their API.
@@ -401,3 +403,58 @@ Not an API, but served by the same server: `GET /liquer/web/<path>` answers the 
 `web/<path>`, a path ending in `/` answers that folder's `index.html`, and `/` sends the browser
 to `/liquer/web/`. It serves stored files only and never evaluates a query. Chapter 12 describes
 it with the server's settings.
+
+## E.10 The Accessor API
+
+An *accessor* is a handle on the place a value lives: a stored file, a result, or one part of either,
+such as a field of a YAML document or an argument of a recipe's query. The Accessor API reads and
+writes through one, so that two clients editing the same value cannot overwrite each other without
+noticing. It is off by default: list `accessors` in the server's `apis` to offer it.
+
+Every route ends with a query. An *accessor query* names the place and the part with the `acc`
+commands; any other query can be read through these routes too, but not written.
+
+```text
+-R-key/config.yaml/-/ns-acc/accessor                   the file config.yaml, as a result
+-R-key/config.yaml/-/ns-acc/store                      the file as it is stored
+-R-key/config.yaml/-/ns-acc/accessor/field-title       the field title of that YAML document
+-R-key/recipes.yaml/-/ns-acc/accessor/recipe-0/query   the query of the first recipe
+```
+
+| Method and path | What it does |
+|---|---|
+| `GET q/<query>` | Answers the value, with an `ETag` header: a token for the version you read. `?format=` picks the format |
+| `PUT q/<query>` | Writes the value in the body, if the precondition holds (below). Answers the envelope with the new `etag` |
+| `GET info/<query>` | Answers the status, message, progress and number of log messages, as the envelope |
+| `GET log/<query>?since=n` | Answers the log messages from number `n` on |
+| `GET describe/<query>` | Answers what the part is: its type, and for an argument the command it belongs to |
+| `GET ws/<query>` | A WebSocket that sends one JSON message each time the value changes |
+
+A `PUT` must say what it is based on, so that it never overwrites a change it has not seen:
+
+| Header | Writes | When it does not hold |
+|---|---|---|
+| `If-Match: "<etag>"` | only if the value is still the version you read | `412`, with the current `ETag` |
+| `If-Match: *` | whatever the value is now, when it exists | `412` |
+| `If-None-Match: *` | only if the value does not exist yet | `412` |
+| none | nothing | `428` |
+
+On a `412`, read the value again, apply your change to it, and write with the new `ETag`. A value
+that cannot be written, such as a computed result, answers `405`. The body is read in the format of
+`?format=`, or of the `Content-Type` header (`application/json`, `text/plain`, YAML), or as JSON.
+
+```text
+GET /liquer/api/acc/q/-R-key/config.yaml/-/ns-acc/accessor/field-title
+→ 200  "Dashboard"           ETag: "8f2c…-3a91…"
+PUT /liquer/api/acc/q/-R-key/config.yaml/-/ns-acc/accessor/field-title
+    If-Match: "8f2c…-3a91…"   Content-Type: text/plain    body: Sales
+→ 200  {"status": "OK", "result": {"etag": "…"}, …}
+```
+
+The WebSocket first sends the latest event it has (`{"event": "initial"}` for a value nothing has
+happened to yet), then a message for each change:
+`{"event": "changed", "etag": "…"}` when the value changed, `status`, `progress` and `log` messages
+while a result is being made, and `{"event": "removed"}` when it is deleted. When the part no longer
+exists where it was (a step was inserted before an argument, a recipe was removed), the socket sends
+`{"event": "invalidated"}` and closes: open a new one for the query. Messages are not queued: a slow
+client sees the latest one. Changes made to the store outside Liquers are seen within a second.
