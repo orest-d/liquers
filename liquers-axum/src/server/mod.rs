@@ -11,11 +11,12 @@
 //! # Main components
 //!
 //! - [`ServerConfig`], [`Api`], [`WebSetting`] (`config.rs`): the `server` section. Defaults:
-//!   `127.0.0.1:8080`, prefix `/liquer`, all four APIs, writes enabled, web folder `web` on.
+//!   `127.0.0.1:8080`, prefix `/liquer`, the four default APIs ([`Api::defaults`]; the opt-in
+//!   `accessors` is not among them), writes enabled, web folder `web` on.
 //!   [`ServerConfig::from_document`] takes it from a
 //!   [`ConfigDocument`](liquers_core::environment_config::ConfigDocument).
 //! - [`LiquersServerBuilder`] (`builder.rs`): `new(prefix)` or `from_config`, the switches
-//!   `read_only`, `without_api`, `without_websocket`, `with_query_timeout`, `with_web`,
+//!   `read_only`, `with_api`, `without_api`, `without_websocket`, `with_query_timeout`, `with_web`,
 //!   `without_index`, `with_stop_deadline`; [`LiquersServerBuilder::router`] for a host that runs
 //!   its own loop and [`LiquersServerBuilder::bind`] to listen.
 //! - [`EnvSource`] (`source.rs`): the environment per request. A fixed `EnvRef` is one; a host
@@ -28,8 +29,9 @@
 //!   server running.
 //!
 //! The APIs mount at `{prefix}/q`, `{prefix}/api/store`, `{prefix}/api/assets`,
-//! `{prefix}/api/recipes` and `{prefix}/web`; `read_only` leaves the store API and the assets
-//! mutation routes out.
+//! `{prefix}/api/recipes`, `{prefix}/api/acc` (only when `apis` lists `accessors`) and
+//! `{prefix}/web`; `read_only` leaves the store API, the assets mutation routes and the accessor
+//! `PUT` out. `bind` refuses `accessors` when the environment's value type has no accessors.
 //!
 //! # Where it is used
 //!

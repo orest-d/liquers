@@ -19,7 +19,7 @@ short (`CLAUDE.md` §Building and testing).
 - [x] Step 6: `ExtValue::Accessor` in lib and in liquers-web's matches
 - [x] Step 7: The `acc` commands and the registry
 - [x] Step 8: Record steps
-- [ ] Step 9: The `/api/acc` routes and socket
+- [x] Step 9: The `/api/acc` routes and socket
 - [ ] Step 10: The Python wrapper
 - [ ] Step 11: The JavaScript wrapper
 - [ ] Step 12: Whole-change checks
@@ -242,6 +242,21 @@ Deviations from Phases 2 and 3 found while implementing, each kept small:
   failed to read its parent. A part that is simply absent (`Ok(None)`) still gets that message.
 - **Record rows and columns are built as JSON** (`try_from_json_value`): `liquers-lib`'s `Value`
   has no `from_object` / `from_array`, so a row is a JSON object and a column a JSON array.
+- **`PUT` bodies and `If-Match: *`.** A body is read in `?format=`, else the format its
+  `Content-Type` names (`application/json`, `text/plain`, YAML, `application/octet-stream`), else
+  JSON; `?type=` names its type identifier. `If-Match: *` (the value as it is now) was added: it
+  reads the part and sets against that token, and answers `412` when the value does not exist.
+- **`info` has no `etag` until the accessor has been read**, since it never reads the root: a
+  client that needs a token reads `q/` first, or uses `If-Match: *`.
+- **Resolving a route's query evaluates it**, for every route: only the value tells whether it is
+  an accessor. An accessor query is cheap (no root value is read); a plain query's `info/`
+  evaluates that query.
+- **The socket closes with 1000 after `invalidated`**: the accessor is dead, and its query builds a
+  new one. For a source that cannot notify (the store root) it refreshes once a second.
+- **`liquers-axum` gained `liquers-lib` (no default features) and `liquers-macro` as
+  dev-dependencies**, for a value type with accessors in `tests/accessor_api.rs`. The
+  `removed` frame is not covered there: a removal needs a keyed asset deleted under a live socket,
+  which the core tests cover (`expiry_and_removal_are_reported`).
 
 ## Phase 5 Entry Criteria
 - [ ] Implementation finished and validated

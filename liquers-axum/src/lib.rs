@@ -1,4 +1,4 @@
-//! The Liquers HTTP API for axum: query, store, assets and recipes routers, and a server that
+//! The Liquers HTTP API for axum: query, store, assets, recipes and accessor routers, and a server that
 //! assembles them.
 //!
 //! Each API is a builder that produces an axum `Router<EnvRef<E>>`; [`LiquersServerBuilder`] mounts
@@ -12,6 +12,8 @@
 //! - [`StoreApiBuilder`] ([`store`]): raw store access.
 //! - [`AssetsApiBuilder`] ([`assets`]): assets, their state and WebSocket notifications.
 //! - [`RecipesApiBuilder`] ([`recipes`]): the recipes the providers know.
+//! - [`AccessorApiBuilder`] ([`accessor`]): read, conditionally write and watch values through
+//!   settable accessors (opt-in).
 //! - [`web`]: the web folder and the index redirect.
 //!
 //! # Where it is used
@@ -43,6 +45,7 @@
 //!
 //! More: `examples/basic_server.rs`, `specs/guides/WEB_API_GUIDE.md`, and the suites in `tests/`.
 
+pub mod accessor;
 pub mod api_core;
 pub mod assets;
 pub mod axum_integration;
@@ -53,6 +56,7 @@ pub mod store;
 pub mod web;
 
 // Re-exports for convenience
+pub use accessor::AccessorApiBuilder;
 pub use api_core::{ApiResponse, BinaryResponse, DataEntry, ErrorDetail, SerializationFormat};
 pub use assets::AssetsApiBuilder;
 pub use query::QueryApiBuilder;

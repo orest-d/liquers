@@ -990,7 +990,7 @@ impl Environment {
                     .map(|name| {
                         serde_json::from_value::<liquers_axum::Api>(serde_json::Value::String(name.clone())).map_err(|_| {
                             Error::configuration_error(format!(
-                                "unknown API '{name}' (known: query, store, assets, recipes)"
+                                "unknown API '{name}' (known: query, store, assets, recipes, accessors)"
                             ))
                         })
                     })
@@ -1383,8 +1383,9 @@ impl Environment {
     ///
     /// Settings come from the configuration's `server:` section; each keyword given overrides it
     /// (`host`, `port`, `prefix`, `apis` — a list of `"query"`, `"store"`, `"assets"`,
-    /// `"recipes"` —, `read_only`, and `web`: `True`, `False` or a store folder). The defaults
-    /// serve every API under `/liquer` on `127.0.0.1:8080`, with writes enabled and the store's
+    /// `"recipes"` and the opt-in `"accessors"` —, `read_only`, and `web`: `True`, `False` or a
+    /// store folder). The defaults serve every API but `accessors` under `/liquer` on
+    /// `127.0.0.1:8080`, with writes enabled and the store's
     /// `web/` folder at `/liquer/web/`. Binds before returning (`port=0` picks a free port). With
     /// `background=False` it serves until the server is stopped or Ctrl-C, which stops it and
     /// raises `KeyboardInterrupt`.
