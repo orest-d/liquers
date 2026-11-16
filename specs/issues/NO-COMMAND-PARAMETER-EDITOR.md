@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: L
 area: [lib/ui, lib/egui]
-design: command-parameter-editor
+design: query-pipeline-editor
 created: 2026-10-21
 github:
 ---

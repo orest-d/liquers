@@ -8,7 +8,8 @@ description, a type, a default and a widget (`gui_info`) for every argument. Thi
 `UIElement` editors that use the registry and edit through value accessors
 (`settable-value-accessor`): a **query / pipeline editor** (a collapsible tree of steps beside the
 highlighted text), an **action editor** (one action's arguments with their declared widgets and
-documentation on hover) and a **resource editor** (the `-R/…` segment), for the egui app, the
+documentation on hover), a **resource editor** (a resource's header and key, with a store file
+selector) and a **key editor** (the key alone), for the egui app, the
 browser and the split UI of `ui-split-elements` (VISION: queries are the user interface).
 
 ## Problem Example
@@ -32,18 +33,21 @@ see the change.
 
 ```
 [ -R/data/sales.csv/-/ns-pl/from_csv/is_in-region-EU-US/head-~X~…~E ]   ← highlighted text
-▾ resource   data/sales.csv
-▸ from_csv                                   (pl)
-▾ is_in      Filter rows where column equals one of the values
-     column  [region      ]
-     values  [EU] [US] [+]
-▾ head       Return first N rows (default: 5)
-     n       ▾ link
+▾ resource   (•) data ( ) key ( ) dir …   [data/sales.csv     ][📁]
+▸ ns         pl
+▸ from_csv                                         [presets ▾][next ▾][filename]
+▾ is_in      Filter rows where column equals one of the values      [presets ▾][next ▾]
+     column  [region      ] [↺]
+     values  [EU] [US] [+]   [↺]
+▾ head       Return first N rows (default: 5)                         [presets ▾][next ▾]
+     n       ▾ link                                                    [value|link] [↺]
                ▸ resource  config/limit.txt
                ▸ to_text
+[+ action]
+filename     [                  ] [Default]
 ```
 
-Hovering `head` shows its `doc`; hovering `n` shows its description, type and default. Adding
+`[+ action]` opens a searchable tree of namespaces and their commands. Hovering `head` shows its `doc`; hovering `n` shows its description, type and default. Adding
 `APAC` to `values` writes `…/is_in-region-EU-US-APAC/…` back to `recipes.yaml`, and the text field,
 the tree and any other editor bound to the same recipe show it.
 
@@ -51,15 +55,16 @@ the tree and any other editor bound to the same recipe show it.
 
 - **AC-1** The query as a tree
   WHEN a query editor is opened on the problem example
-  THEN it shows a resource node `data/sales.csv` and action nodes `from_csv`, `is_in` and `head`, each
-  collapsible, and `head`'s argument `n` is a link node that expands into its own resource and
-  action nodes
+  THEN it shows a resource node `data/sales.csv`, an `ns` node `pl` and action nodes `from_csv`,
+  `is_in` and `head`, each collapsible, and `head`'s argument `n` is a link node that expands into
+  its own resource and action nodes
 - **AC-2** Widgets from the registry
   WHEN an action node is expanded
   THEN it shows one field per argument that is not injected and whose `gui_info` is not `Hide`, in
   declaration order, with the widget `gui_info` names; when `gui_info` is the default text field the
-  argument type picks the widget (checkbox, integer, float, enum selector), and a variadic argument
-  is an ordered list with add, remove and move
+  argument type picks the widget (checkbox, integer, float, enum selector); an enum writes the chosen
+  alternative's alias, a `GlobalEnum` lists its alternatives, and a variadic argument is an ordered
+  list with add, remove and move
 - **AC-3** Documentation on hover
   WHEN the user hovers an action header or an argument label
   THEN the command's label and `doc`, or the argument's label, description, type and default, are
@@ -73,16 +78,18 @@ the tree and any other editor bound to the same recipe show it.
   WHEN an edit is refused by the registry (`n` set to `abc`, an unknown argument, a step that would
   make the query unrepresentable)
   THEN the editor shows the reason at that field, and neither the query nor its source changes
-- **AC-6** Structural edits
-  WHEN the user adds an action after a node (picked from the registry, the command's `next` presets
-  first), removes one, or moves one up or down
-  THEN the query changes accordingly, through the same validated edits as AC-5
+- **AC-6** Insert, delete and append
+  WHEN the user deletes a node, inserts an action or a resource before or after a node, or appends an
+  action at the end
+  THEN the query changes accordingly, through the same validated edits as AC-5. Moving a node up or
+  down is optional (Phase 2 decides whether the first version has it)
 - **AC-7** Resource editor
-  WHEN the resource node is edited: its key, and what it reads, chosen from the pipeline's `Read`
-  modes (the asset's value `-R`, its binary, metadata or recipe, a directory listing, or the stored
-  bytes `-R-stored_binary`)
-  THEN the query's resource segment changes and the rest of the query is kept; `-R-key`, which
-  passes the key itself rather than reading anything, is shown as a key node and is not a read mode
+  WHEN a resource node (anywhere in a query or pipeline) is edited: its header, chosen with radio
+  buttons from every resource header the planner accepts (the asset `-R`, `key`, `cwd`, `binary`,
+  `metadata`, `recipe`, `dir`, `sdir`, `stored_binary`, `stored_metadata`), and its key
+  THEN the resource changes and the rest of the query is kept. The header changes the element kind
+  where it must: `key` passes the key itself (`UseKeyValue`) and `cwd` sets the working directory,
+  neither reads anything, and the editor says so
 - **AC-8** Standalone action editor
   WHEN an action editor is opened on an action accessor (`…/query/action-2`)
   THEN it shows that action's form only (AC-2, AC-3), and its edits are written to where the query
@@ -97,7 +104,7 @@ the tree and any other editor bound to the same recipe show it.
 - **AC-11** Two deployments
   WHEN the same editor element is used in the egui app, in a monolithic browser UI, and in a split
   (server engine, browser client) UI
-  THEN it behaves as AC-1 to AC-10 in each; in split mode the client renders without the command
+  THEN it behaves as the other criteria say in each; in split mode the client renders without the command
   registry, and every edit travels to the server as an event that the server validates
 - **AC-12** Old state loads
   WHEN an app state saved before this change is loaded
@@ -108,6 +115,46 @@ the tree and any other editor bound to the same recipe show it.
   THEN the value is scaled to the argument (an integer as is, a float into its slider range or 0-1),
   written through the same validated edit and binding, and the editor and any view of the query's
   result update
+- **AC-14** The key as a file selector
+  WHEN the user opens the key field of a resource editor or a key editor
+  THEN it browses the store's directory listing (folders to open, keys to pick), and also accepts any
+  key typed directly, including one that does not exist yet
+- **AC-15** Key editor
+  WHEN a key editor element is opened (on a key, or on a key argument)
+  THEN it is the resource editor's key field and file selector without the header choice
+- **AC-16** Directives
+  WHEN the query contains `ns`, `q` or `v`
+  THEN each is a node of its own: `ns` edits its namespace list, `q` and `v` can be inserted and
+  removed; the text shows the same directives
+- **AC-17** Searchable command tree
+  WHEN the user inserts or appends an action
+  THEN a searchable tree of namespaces and their commands (label, name, `doc` on hover) is offered,
+  and picking a command outside the active namespaces also inserts the `ns` directive it needs
+- **AC-18** Reset to default
+  WHEN the user resets an argument
+  THEN its parameter is removed when it is the last one written, otherwise the argument's default is
+  written in its place, and the field shows the default
+- **AC-19** A link as an argument
+  WHEN the user switches an argument from value to link
+  THEN it becomes a link node holding a query (a new resource or action subtree) and is written as
+  `~X~…~E`; switching back writes the argument's default
+- **AC-20** Action presets
+  WHEN the user picks an entry of the presets menu beside an action
+  THEN the action is replaced by that preset (`CommandMetadata::presets`)
+- **AC-21** Next presets
+  WHEN the user picks an entry of the next menu beside an action
+  THEN the preset action (`CommandMetadata::next`) is inserted right after that action, with its
+  `ns` when it needs one
+- **AC-22** Filename
+  WHEN the user presses the filename button beside an action that declares `filename`
+  THEN that filename is set as the query's filename; WHEN the user edits the filename field after the
+  last action, THEN the query's filename is that text; WHEN the user presses its Default button, THEN
+  it is the last command's `filename`, or a default filename when the command declares none
+- **AC-23** Excess parameters and unknown commands
+  WHEN an action has more parameters than its arguments take, or names a command the registry does
+  not know
+  THEN the extra parameters are shown read-only, or the node shows the action's text and the reason,
+  and edits elsewhere in the query still work
 
 Non-goals: per-keystroke planning diagnostics in the text field (`query-editor-live-validation`);
 evaluating the query inside the editor (a view bound to the same query or recipe re-evaluates because the binding expires it, as in AC-13); the MIDI input itself (AC-13 defines only the numeric-argument addressing an event source uses); placeholders and command-definition
@@ -117,13 +164,17 @@ text field); Python and JavaScript constructors for the elements beyond what the
 ## Core Interactions
 
 - **Commands:** `CommandMetadataRegistry` (`CommandMetadata::doc`, `ArgumentInfo` label,
-  description, type, default, `gui_info`, `next` presets), read only.
+  description, type, default, `gui_info`; `CommandMetadata::presets`, `next` and `filename`; the
+  namespaces for the command tree), read only.
+- **Store:** directory listings for the key selector (`listdir` through the asset manager, so
+  recipe-only keys are offered too; Phase 2 confirms the call).
 - **Query / pipeline:** `QueryEditor` / `PipelineEditor` (`liquers-core/src/pipeline/editor.rs`) for
-  every edit and its refusal; `Pipeline` and `Source` for the tree, `Source::Link` for subtrees.
+  every edit and its refusal; `Pipeline`, `ElementKind` (resource, key, cwd, action, `ns`, `q`, `v`)
+  and `Source` for the tree, `Source::Link` for subtrees; the query's filename.
 - **Value accessors:** the editor's binding (`liquers-core/src/accessor/`): a query, recipe or action
   accessor, `ActionStep` / `ArgumentStep` projections, `set_if` conflicts, `subscribe` for changes. A
   query that lives nowhere else is a memory accessor.
-- **UI:** three new `UIElement`s, their egui rendering (reusing `edit_query`), their `render_web`
+- **UI:** four new `UIElement`s (query / pipeline, action, resource, key editors), their egui rendering (reusing `edit_query`), their `render_web`
   markup and `ui-events` user events, and `lui` commands that create them.
 - **Split UI:** the server and client halves of `ui-split-elements`, once that design defines them.
 
@@ -143,8 +194,9 @@ missing from `PipelineEditor` (Phase 2 lists them; `liquers-core` stays UI-free)
   `gui_info` are now what users see in the editors.
 - Other documents: none.
 - Documents to update: the user guides' UI chapter if one lists the `lui` elements (Phase 5 runs
-  `scripts/docs_index.py chapters-for`); `NO-COMMAND-PARAMETER-EDITOR` and
-  `UI-VARIADIC-ARGUMENT-LIST-EDITOR` if question 1 is accepted.
+  `scripts/docs_index.py chapters-for`); `NO-COMMAND-PARAMETER-EDITOR` (closed in Phase 5);
+  `UI-VARIADIC-ARGUMENT-LIST-EDITOR` (its list widget is delivered here; the issue stays with
+  `variadic-argument-slots`).
 - API docs: the new element and tree-model modules under `liquers-lib/src/ui/widgets/`,
   `liquers-lib/src/ui/widgets/mod.rs`, and `liquers-lib/src/egui/widgets.rs` (new editor widgets).
 
@@ -155,10 +207,9 @@ missing from `PipelineEditor` (Phase 2 lists them; `liquers-core` stays UI-free)
 - **Required for AC-11 split mode:** `ui-split-elements` (Phase 1 in review, another thread). This
   design follows its Phase 1 decisions (the element knows its mode from `UIContext`; a server half
   and a client half; client messages are events). Monolithic mode does not wait for it.
-- **Strong overlap, proposed to be superseded:** `command-parameter-editor` (in review, not
-  implemented). Its last-action form is AC-2 to AC-5 here (T4), and its new `set_argument_parameter`
-  duplicates `ActionEditor::set` (T2; the accessor design already said the form should edit
-  through an argument accessor). Question 1.
+- **Supersedes:** `command-parameter-editor` (Orest, 2026-11-16; not implemented). It owned
+  `NO-COMMAND-PARAMETER-EDITOR`, which moves here. What is kept is under "Salvaged from
+  command-parameter-editor" below.
 - **Overlaps:** `query-editor-live-validation` (in review, not implemented): the registry in
   `UIContext` (its Step 3) is needed here too; whichever lands first adds it. `variadic-argument-slots`
   (in review): the list edits of AC-2 use `ActionEditor::push` / `unset` today, and Phase 2 checks
@@ -166,23 +217,51 @@ missing from `PipelineEditor` (Phase 2 lists them; `liquers-core` stays UI-free)
 
 ## Open Questions
 
-1. **Open design - supersede `command-parameter-editor`?** Recommended: yes. This design's action editor is that
-   form, generalised to any action and bound through accessors; its sources
-   (`NO-COMMAND-PARAMETER-EDITOR`, `UI-VARIADIC-ARGUMENT-LIST-EDITOR`) move here, and the query
-   console gets the action editor of its last action as a toggled panel (its AC-10) in Phase 2.
-2. **Open design - "an editor of an action and a resource query".** I read this as two smaller editors used inside
-   the query editor and on their own: the action editor (AC-8) and a resource editor (AC-7). If you
-   meant one editor for a whole query that starts with a resource, AC-7 shrinks to the resource node.
-3. **Proposed resolution - always bind through an accessor?** Recommended: yes. A query typed in place is a memory
+Answered by Orest on 2026-11-16: this design **replaces `command-parameter-editor`** (old question 1),
+and the resource editor is a part of the query and pipeline editor as well as an element of its own,
+with a header choice, a file selector and a key editor without the header (old question 2; now
+AC-7, AC-14, AC-15). His notes also added directives (AC-16), the command tree (AC-17), reset
+(AC-18), link arguments (AC-19), presets (AC-20), next (AC-21), the filename (AC-22) and made
+moving optional (AC-6).
+
+1. **Proposed resolution - always bind through an accessor.** A query typed in place is a memory
    accessor, so one code path handles editing, conflicts and change notification (AC-9).
-4. **Proposed resolution - link arguments in place.** Recommended: a link argument is a subtree of the same tree (AC-1),
-   edited with the same nodes, rather than a nested editor in a pop-up.
-5. **Proposed resolution - split mode timing.** Recommended: Phase 2 fixes the tree model as plain serializable data (what
-   the client half renders) and implements monolithic mode first; the split halves are a Phase 4
-   step that starts when `ui-split-elements` Phase 2 is approved.
-6. **Proposed resolution - controllers (AC-13).** In scope as the numeric-argument addressing and
-   scaling only, taken from the proof of concept; recommended yes. Alternative: drop AC-13 and leave
-   controllers to a later design.
+2. **Proposed resolution - link arguments in place.** A link argument is a subtree of the same tree
+   (AC-1, AC-19), edited with the same nodes, rather than a nested editor in a pop-up.
+3. **Proposed resolution - split mode timing.** Phase 2 fixes the tree model as plain serializable
+   data (what the client half renders) and implements monolithic mode first; the split halves are a
+   Phase 4 step that starts when `ui-split-elements` Phase 2 is approved.
+4. **Proposed resolution - controllers (AC-13).** In scope as the numeric-argument addressing and
+   scaling only, taken from the proof of concept. Alternative: drop AC-13 for a later design.
+5. **Open design - which arguments get the key editor (AC-15).** No `ArgumentType` or `gui_info`
+   says "this is a key" today; key arguments are strings, often with a `-R-key/.` link default.
+   Recommended: add `ArgumentGUIInfo::KeyField` (a registry and macro change, so Phase 2 designs it)
+   and also use the key editor for an argument whose default is a `-R-key/…` link.
+6. **Open design - the Default filename (AC-22) when the last command declares none.** Recommended:
+   the default filename of the value the query last produced (`ValueInterface::default_filename`)
+   when the editor knows it, otherwise the filename is cleared, which leaves the format to the value.
+7. **Proposed resolution - the header as radio buttons (AC-7).** Ten headers is a long radio row:
+   show the common ones (asset, `key`, `dir`, `cwd`) as radios and the rest under "more".
+8. **Proposed resolution - argument presets.** `ArgumentInfo::presets` exist too; give such an
+   argument the same small presets menu as an action (AC-20). Cheap, and the metadata is already
+   there.
+9. **Implementation detail - moving nodes (AC-6).** Recommended: include up and down, since
+   `PipelineEditor::move_to` exists; leave drag and drop out.
+
+## Salvaged from command-parameter-editor
+
+- The type-derived widget rule (its AC-5, here AC-2): 410 of 423 exported `gui_info` entries are the
+  default `TextField(40)`, so the argument type has to pick checkbox, number or enum widgets.
+- Its widget mapping over every `ArgumentGUIInfo` variant, egui and browser (`<input list>` with a
+  `<datalist>` for enums, `type=number` / `range` / `color` / `date`), enum aliases, `GlobalEnum`
+  resolution and free text when an enum allows others.
+- Read-only excess parameters (its AC-8) and "no form, with a reason" (its AC-7): AC-23.
+- Reset to default (its AC-4): AC-18.
+- The query console's toggled Parameters panel (its AC-10): the console embeds the action editor of
+  its last action (Phase 2).
+- Its finding that command resolution must follow the planner, aliases included, with the next-preset
+  lookup of `liquers-lib/src/utils.rs` (`find_next_presets`) as the fallback for a broken query.
+- Dropped: `set_argument_parameter`, which duplicates `ActionEditor::set`.
 
 ## Proof of Concept
 
