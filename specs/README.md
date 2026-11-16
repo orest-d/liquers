@@ -260,6 +260,7 @@ on wasm.
 - **Typed list values for `lui/children`** — built → [`design/value-list-support/`](design/value-list-support/)
 - **egui asset-manager adapter** — planned → [`issues/EGUI-ASSET-MANAGER-INTEGRATION.md`](issues/EGUI-ASSET-MANAGER-INTEGRATION.md)
 - **Native UI driver and egui window (`NativeDriver`, `spawn_headless`, `run_window`)** — built → [`design/egui-native-app/`](design/egui-native-app/)
+- **Query, pipeline, action and resource editors (tree view, `gui_info` widgets, accessor binding)** — in design → [`design/query-pipeline-editor/`](design/query-pipeline-editor/)
 - **Liquers UI from Python (the model, and an egui window)** — built → [`design/liquers-py-ui/`](design/liquers-py-ui/), [`design/liquers-py-ui-window/`](design/liquers-py-ui-window/)
 
 `design/ui-events/` built the interaction half of the browser backend — `webui-fixes` did the
