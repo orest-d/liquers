@@ -33,7 +33,7 @@
 //!
 //! - [`crate::data_node`]: a read-only view of a value's data; an accessor also writes, watches and
 //!   names its part by a query.
-//! - [`crate::pipeline::editor`]: validated edits of one query or pipeline in memory; the query
+//! - [`crate::pipeline::PipelineEditor`]: validated edits of one query or pipeline in memory; the query
 //!   steps here apply them and write the result back to where the query lives.
 //! - [`crate::assets::AssetRef`]: one evaluation and its notifications; a keyed-asset accessor
 //!   relays them and adds writing and projections.

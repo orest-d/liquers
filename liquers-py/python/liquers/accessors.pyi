@@ -20,7 +20,6 @@ __all__ = [
     "AccessorSubscription",
 ]
 
-EventKind = Literal["initial", "status", "progress", "log", "changed", "invalidated", "removed"]
 
 @final
 class Accessor:
@@ -91,7 +90,7 @@ class AccessorInfo:
 class AccessorEvent:
     def __repr__(self) -> str: ...
     @property
-    def kind(self) -> EventKind: ...
+    def kind(self) -> Literal["initial", "status", "progress", "log", "changed", "invalidated", "removed"]: ...
     @property
     def status(self) -> Status | None: ...
     @property
