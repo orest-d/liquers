@@ -19,6 +19,12 @@ approved, nothing implemented. It designs the reusable core of the source issue 
 steps 1 and 2). The list widget (step 3) has no in-tree parameter editor to live in and is filed as
 `NO-COMMAND-PARAMETER-EDITOR`.
 
+> **Note, 2026-11-17.** [`query-pipeline-editor`](../query-pipeline-editor/) (Phase 2, decision G5)
+> proposes the variadic item edits and the reset on `ActionEditor` in `liquers-core/src/pipeline/editor.rs`,
+> where the editors work on pipelines, instead of on `ActionRequest` in `plan.rs`. If that is
+> approved, this design's Steps 1-2 are needed only by code that edits `ActionRequest`s directly;
+> review its scope then.
+
 ## Phase 1: High-Level Design
 
 ### Purpose
