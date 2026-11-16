@@ -67,6 +67,16 @@ under `docs/` links into `specs/`. Read `specs/guides/USER_DOCS_EDITING_GUIDE.md
 chapter. Edit one only when asked or within a design; a design's Phase 5 reviews the chapters
 `python3 scripts/docs_index.py chapters-for <affects_docs>` lists.
 
+**New features: language integration and user docs.** When a completely new feature is
+implemented (not a fix or internal refactor), clarify up front whether the language integrations
+are impacted. Decide whether `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` needs a new or extended
+feature ID, and for each existing integration — Python (`liquers-py`) and JavaScript
+(`liquers-web`) — whether updating it is **in scope**, comes **later** (file an issue naming the
+guide's feature ID) or is **not needed** (say why). Also decide which user documentation changes:
+the chapters of `docs/guides/{rust,python,web}/`, and the specs reference and guide documents. A
+design records this in Phase 1 (`## Language Integration`, `User guides:` line;
+`liquers-project` skill); outside a design, ask the user when the answer is unclear.
+
 Also:
 - Never edit a file under `specs/archive/`. An issue or feature document owns its `status:` even
   when it has a `github:` number; the person or agent concluding work updates it under
