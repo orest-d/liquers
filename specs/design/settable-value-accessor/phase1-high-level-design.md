@@ -11,6 +11,24 @@ others (a new version, expiry, removal). Narrower accessors are made from wider 
 query and pipeline editor that shows each step and edits its arguments with the GUI hints of the
 command metadata registry, wherever the query comes from.
 
+## Design Readiness
+
+- **Readiness:** ready
+- **Automatic fixing:** not-eligible: an `L`/`XL` cross-crate feature with new public APIs, not a
+  bounded fix.
+- **Leading issue:** None.
+- **Explanation:** every Phase 1 question is decided, and the second and third Phase 2 rounds were
+  accepted with `proceed all`. The proposals Orest saw at that gate are kept as recorded
+  resolutions below.
+- **Open questions (decision log under `proceed all`):**
+  1. *Proposed resolution, accepted at the gate:* a metadata-view set cannot create a key, and the
+     status is chosen by `set_binary`.
+  2. *Proposed resolution, accepted at the gate:* a memory accessor has no `acc` command.
+  3. *Proposed resolution, accepted at the gate:* the new reference and guides are written in
+     Phase 5, once the code exists.
+  4. *Implementation detail:* the action part is a one-element `Value::Pipeline`, the argument part
+     the argument's JSON as a `Value` (Phase 4 Step 4).
+
 ## Problem Example
 
 `reports/recipes.yaml` in the store:
