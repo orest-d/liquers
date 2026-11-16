@@ -79,6 +79,7 @@ Rejected alternatives:
 | `STORE-WRITE-HAS-NO-PRECONDITION` (design `store-conditional-write`, in review) | draft | P3 | `AssetManager::set_state` has no base version. First-writer-wins (AC-5) holds only between accessors sharing a hub. Against any other writer (AC-6) it is last-writer-wins | No | No | Hub-serialised writes now. Adopt `set_if` when that design lands. Error type aligned with it (below) |
 | `CORE-SESSION-AND-KEY-ACL` (design `access-policy-at-entry-points`, in review) | accepted | P2 | `PUT /api/acc` can write any key the server can | No | No | Opt-in route builder, trusted server only. The policy check attaches where that design puts it |
 | `VALUE-ACCESSOR-CANNOT-LOCK` | draft | P3 | Locking is deferred (question 6) | No | No | `SetOptions` is reserved, `#[non_exhaustive]` |
+| `ACCESSOR-CANNOT-BE-IMPLEMENTED-IN-PYTHON-OR-JAVASCRIPT` (filed 2026-11-16) | draft | P3 | Python and JavaScript can use accessors, not define roots or steps | No | No | The guide marks direction 2 `NA` with this issue as the reversing condition |
 | `UI-ELEMENT-KEEPS-AN-EXPIRED-VALUE-AND-NEVER-RE-REQUESTS` | draft | P3 | An element holding an invalidated accessor keeps it | No | No | Left to the UI designs that consume accessors |
 | `CORE-QUERY-EDITOR-ACCEPTS-AN-UNKNOWN-COMMAND`, `EDITOR-UNSET-OF-A-MIDDLE-POSITIONAL-ARGUMENT-SAYS-NOT-SET` | draft | P3 | `ArgumentStep` relies on `ActionEditor` refusals (AC-3) | No | No | Phase 3 edge cases avoid both |
 | `ASSET-EVENT-STREAM-CARRIES-ONLY-EXPIRATIONS` (designs `external-index-sync`, `asset-event-kinds`, not implemented) | draft | P3 | There is no manager-level stream of new versions and removals. A store root, and a keyed-asset root whose key has no live asset (for example a key that does not exist yet), cannot be told of another writer's change (AC-6) | No | No | Such roots detect outside changes on `get` and `refresh`, by comparing versions. They subscribe to the stream when those designs land |
@@ -146,7 +147,7 @@ pub trait ProjectionStep<V>: MaybeSend + MaybeSync + Debug {
     async fn log(&self, since: usize) -> Result<Vec<LogEntry>, Error> { Ok(Vec::new()) }
     fn capabilities(&self) -> Capabilities;
     async fn poll_event(&self) -> Option<RootEvent> { None }            // non-blocking; default: no notifications
-    fn watch(&self) -> Option<Pin<Box<dyn Future<Output = ()> + Send>>> { None } // native watcher; see the hub
+    fn watch(&self) -> Option<Pin<Box<dyn Future<Output = ()> + MaybeSend>>> { None } // watcher; see the hub
 }
 pub enum RootEvent { Status(Status), PrimaryProgress(ProgressEntry), SecondaryProgress(ProgressEntry),
     Log(usize), Changed(Version), Removed }
@@ -232,8 +233,10 @@ pub trait ErasedAccessor: MaybeSend + MaybeSync + Debug { fn as_any(&self) -> &d
   Driving the hub:
   - **Native:** the hub spawns one watcher task (`tokio::spawn`) for a root that offers `watch`.
     The task holds the hub weakly and ends when the hub is dropped.
-  - **wasm:** there is no task. `get`, `set` and `refresh` drain `poll_event` first. A holder that needs
-    push-style updates, such as a UI runner, calls `refresh` on its own tick.
+  - **wasm:** the hub spawns nothing, because core has no wasm executor. `get`, `set` and `refresh`
+    drain `poll_event` first. `AccessorHub::driver()` hands out the watcher future instead, and the
+    host spawns it: `liquers-web` does so with `spawn_local` when the first JavaScript subscriber
+    attaches. A holder with no driver, such as a UI runner, calls `refresh` on its own tick.
 
   **A value that does not exist.** When `read` gives `None`, `get` fails (the root's not-found
   error), `info` reports status `None` with no fingerprint, and projections of it are invalidated.
@@ -261,6 +264,53 @@ pub trait ErasedAccessor: MaybeSend + MaybeSync + Debug { fn as_any(&self) -> &d
   existing **`ErrorType::StatusConflict`**, as `store-conditional-write` proposes for its
   `write_conflict`. So no `ErrorType` variant is added, and the error enums of py and web are
   untouched. The current token is carried in the message and, over HTTP, in the response's `ETag`.
+
+**Language wrappers (Phase 1 AC-24): using existing accessors.** Python and JavaScript get one
+wrapper class each over `Arc<dyn ValueAccessor<Value>>`. They follow the precedent of the UI
+element wrappers (`lq.UIElement`, `LiquersUIElement`): the value bridge turns
+`ExtValue::Accessor` into the wrapper, and the wrapper back into the *same* accessor, so an
+accessor passed to a command or returned from one is never copied. Each wrapper keeps the
+environment it came from, which `project` needs. Both are thin: every method calls the trait.
+Constructing a new root or step in a language is out of scope
+(`ACCESSOR-CANNOT-BE-IMPLEMENTED-IN-PYTHON-OR-JAVASCRIPT`).
+
+| Python `lq.Accessor` (`liquers.accessors`) | JavaScript `Accessor` | Trait call |
+|---|---|---|
+| `env.accessor(query)` | `liquers.accessor(query)` | evaluate; an accessor value is used as is, any other value's asset is wrapped by `asset_accessor` (read-only), as the web route does |
+| `env.memory_accessor(value=None, address=None)` | `liquers.memoryAccessor(value?, address?)` | `memory_accessor` |
+| `address`, `capabilities` (`.write`, `.notify`) | `address`, `capabilities` | `address`, `capabilities` |
+| `get()` → the converted value | `get()` → `Promise<value>` | `get` |
+| `snapshot()` → `lq.AccessorSnapshot` (`value`, converted lazily; `state`; `token`; `root_version`) | `snapshot()` → `Promise<AccessorSnapshot>` (`value()`, `state`, `token`) | `get` |
+| `set(value)` → the new token | `set(value)` → `Promise<string>` | `set` |
+| `set_if(value, token)`; `token=None` creates | `setIf(value, token \| null)` | `set_if` |
+| `info()` → `lq.AccessorInfo` (`status`, `message`, `primary_progress`, `secondary_progress`, `log_len`, `token`) | `info()` → `Promise<AccessorInfo>` | `info` |
+| `log(since=0)` → list of log entries | `log(since?)` → `Promise<LogEntry[]>` | `log` |
+| `describe()` → `lq.PartDescription` | `describe()` → `Promise<PartDescription>` | `describe` |
+| `refresh()` | `refresh()` → `Promise<void>` | `refresh` |
+| `project(actions)` → `lq.Accessor` | `project(actions)` → `Promise<Accessor>` | evaluates the address with `actions` appended (`…/-/ns-acc/recipe-0/query`) in the wrapper's environment |
+| `on(callback)` → `lq.AccessorSubscription` (`dispose()`, a context manager) | `subscribe(callback)` → `{ dispose() }` | `subscribe` |
+| `events()` (async iterator), `wait_event(timeout=None)`, `process_events()` | — | `subscribe` |
+
+- **Values.** A set converts the language value through the `VALUE` bridge, so a set accepts what
+  a command's return accepts. The event and info objects are plain data: `lq.AccessorEvent` has
+  `kind` (`"status"`, `"progress"`, `"log"`, `"changed"`, `"invalidated"`, `"removed"`) and the
+  event's data, and the JavaScript event is the WebSocket's JSON shape (Web Endpoints).
+- **Python waits and callbacks.** Each blocking method has an `_async` form (`get_async`,
+  `set_async`, …), and awaiting one never blocks the caller's loop (`aio.rs`). The blocking forms
+  release the GIL. Callbacks follow `lq.UI`: a background task only queues events (bounded, the
+  oldest dropped), and a callback runs only on a thread that asks for it (`wait_event`,
+  `process_events`, or iterating `events()` on the event loop), never under a lock. A raising
+  callback goes to `sys.unraisablehook`. The hub's watcher runs on liquers-py's runtime, which
+  `memory_accessor` enters (`runtime.rs`).
+- **JavaScript.** Every async method returns a `Promise`, as `Asset` does, because the trait is
+  async. A callback runs from the driver task (`spawn_local`), never while a `RefCell` is borrowed,
+  as in `ui.rs`. Disposing the last subscription stops the driver.
+- **Errors** map through each integration's error bridge. A conflict is
+  `ErrorType::StatusConflict` (`lq.StatusConflictError`; `error.type === "StatusConflict"` in
+  JavaScript), and its message carries the current token, which is also the error's `token`
+  attribute.
+- **Declarations.** `liquers/accessors.pyi` and the TypeScript declarations (`typescript.rs`) list
+  every member above (`STUBS`).
 
 **`ValueInterface` hooks** (`liquers-core/src/value.rs`), both defaulted:
 `fn from_accessor(a: Arc<dyn ValueAccessor<Self>>) -> Result<Self, Error>` (default
@@ -305,8 +355,15 @@ at the position the parser reports. Nothing here precludes it.
   - a new `accessor/` module with `AccessorApiBuilder<E>`, mounted like `AssetsApiBuilder`;
   - `api_core/error.rs`: conflicts from accessor routes map to `412`;
   - the accessor WebSocket, reusing the connection handling of `assets/websocket.rs`.
-- **`liquers-web`:** `src/default_value.rs` gets an arm in its exhaustive `ExtValue` match.
-  `liquers-py` changes only if an exhaustive `ExtValue` match exists there; Phase 4 checks.
+- **`liquers-py`:** a new `src/accessor.rs` (`Accessor`, `AccessorSnapshot`, `AccessorInfo`,
+  `AccessorEvent`, `PartDescription`, `AccessorSubscription`), registered in `lib.rs`; `value.rs`
+  converts `ExtValue::Accessor` both ways; `environment.rs` gains `accessor` and
+  `memory_accessor`; the Python package gains `liquers/accessors.py` and `accessors.pyi`; the
+  conformance matrix in `liquers-py/README.md` gains the `ACCESSOR` rows.
+- **`liquers-web`:** a new `src/accessor.rs` (the `Accessor` class and its subscriptions);
+  `src/default_value.rs` converts `ExtValue::Accessor` both ways in its exhaustive matches;
+  `environment.rs` gains `accessor` and `memoryAccessor`; `typescript.rs` the declarations, checked
+  by `check-stubs.sh`.
 
 ## Error Handling
 
@@ -324,6 +381,8 @@ at the position the parser reports. Nothing here precludes it.
 | A root write fails | the `set_state` error, with the key attached |
 | A set through a read-only root or wrapper (AC-18) | `Error::not_supported` |
 | A validating wrapper refuses the value (AC-18) | the check's own error, unchanged |
+| A Python or JavaScript value that the value bridge cannot convert, on `set` | the bridge's `conversion_error` |
+| A Python value of a non-accessor passed where an accessor is expected | `Error::conversion_error` |
 
 ## Relevant Commands
 
@@ -381,22 +440,56 @@ query's own asset is wrapped by `asset_accessor`, so any query can be read and w
 
 ## Documentation Architecture
 
-**Documents**
-- `specs/reference/VALUE_ACCESSORS.md` (new reference, internal, `core/value`): roots, steps, hub,
-  fingerprints, events, conflicts, commands, routes. It joins `affects_docs` once it exists.
-- `VALUE_TYPE_SYSTEM.md`: `ExtValue::Accessor` as a justified handle, and the `accessor` identifier.
+**Documents** (written in Phase 5, once the code exists, because a reference must be true at
+HEAD):
+- `specs/reference/VALUE_ACCESSORS.md` (new reference, internal, `core/value`):
+  - root versus projection: the root does I/O, a projection is a synchronous step over the root's
+    value, and one hub per root keeps every projection in step;
+  - the first-class accessors (store in its three views, keyed asset, other assets, memory), what
+    each reads, writes, creates and relays, and the status `None` of a value that does not exist;
+  - the API in detail: `ValueAccessor`, `AccessorRoot`, `ProjectionStep`, the hub, fingerprints
+    and tokens, events and `info` / `log`, conflicts, the wrappers, the `acc` commands, the web
+    routes, and the Python and JavaScript classes.
+  It joins `affects_docs` once it exists.
+- `specs/guides/VALUE_ACCESSOR_GUIDE.md` (new guide): making an accessor (from a query, in Rust, as
+  a memory variable) and getting and setting its value; projecting it; listening to events and the
+  holder contract (`Changed` → redraw, `Expired` → `get`, missed events → `info`); handling a
+  conflict; implementing a new root, step or wrapper with the hub. Each part with Rust, Python and
+  JavaScript examples where the language supports it.
+- `LANGUAGE-INTEGRATION_GUIDE.md`: a new feature `ACCESSOR` (Optional; depends on `VALUE`, `EVAL`,
+  `ERROR`, `RUNTIME`, and `ASYNCQ` soft) with two directions, in the way `DATANODE` has two:
+  1. **Use (outbound wrapper):** an object over an existing accessor, its waits, callbacks and
+     error mapping, and crossing back as the same accessor. Python and JavaScript select it.
+  2. **Define (inbound adapter):** a language object as an `AccessorRoot` or `ProjectionStep`.
+     Python and JavaScript mark it `NA`, with
+     `ACCESSOR-CANNOT-BE-IMPLEMENTED-IN-PYTHON-OR-JAVASCRIPT` as the reversing condition.
+  Phase 3 gives the feature its test IDs (`ACCESSOR01`…), and the guide's Appendix A its reference
+  tests.
+- `VALUE_TYPE_SYSTEM.md`: `ExtValue::Accessor` as a justified handle, the `accessor` identifier,
+  and why it is never stored.
+- `PYTHON_INTEGRATION.md`: `lq.Accessor` and its wait and callback rules. `PYTHON_GUIDE.md` and
+  `JAVASCRIPT_GUIDE.md`: a section each on editing through accessors.
 - `RECIPES_AND_PLANS.md`: editing `recipes.yaml` through accessors. Comments and formatting are not
   kept; unknown keys and order are.
 - `WEB_API_SPECIFICATION.md`: the `/api/acc` routes.
 - `UI_INTERFACE_FSD.md`: only that `MemoryRoot` is the root for an element-owned value. Binding an
   element is the UI designs' work.
+- User guides: the values chapter of each guide (`docs/guides/{rust,python,web}/04-values.md`)
+  gains a section on the accessor value, and `e-web-api.md` the routes. Phase 5 reviews every
+  chapter `chapters-for` lists for `affects_docs`.
 
 **API docs**
-- All five parts: `liquers-core/src/accessor/mod.rs`, `liquers-lib/src/accessor/mod.rs` and
-  `liquers-axum/src/accessor/mod.rs`.
-- Main components:
-  - `liquers-core/src/value.rs` (the hooks);
-  - `liquers-lib/src/value/mod.rs` (the variant);
+- All five parts: `liquers-core/src/accessor/mod.rs`, `liquers-lib/src/accessor/mod.rs`,
+  `liquers-axum/src/accessor/mod.rs`, `liquers-py/src/accessor.rs` and
+  `liquers-web/src/accessor.rs`.
+- The Value module docs are brought up to `API_DOCUMENTATION_GUIDE.md`:
+  - `liquers-core/src/value.rs`: the value layers, the conversion hooks with the accessor hooks
+    among them, and a section on handle values (what a variant may hold, why handles are not
+    stored);
+  - `liquers-lib/src/value/mod.rs`: the `ExtValue` variants grouped by kind, with the accessor as a
+    handle beside `UIElement` and `Widget`.
+- Main components only:
+  - `liquers-lib/src/value/extended.rs` (the hooks);
   - `liquers-lib/src/records/` (the steps);
   - `liquers-core/src/pipeline/editor.rs` (where used: accessors).
 
@@ -411,7 +504,7 @@ query's own asset is wrapped by `asset_accessor`, so any query can be read and w
 | Change detection | A store root, and a keyed-asset root with no live asset, see other writers only on `get` and `refresh` until the manager event stream exists (preflight) |
 | Performance | One root read per change. Derive and hash run only for subscribed nodes, and nothing is derived when the root version is unchanged |
 | Security | The `PUT` route is opt-in and for trusted servers only (preflight) |
-| Build | `ExtValue` arms in lib and web, the `records` gating of the lib steps, and the wasm watcher path: `check-build-matrix.sh` |
+| Build | `ExtValue` arms in lib, py and web, the `records` gating of the lib steps, and the wasm driver path: `check-build-matrix.sh`, `scripts/test-liquers-py.sh`, the liquers-web Node loop and `check-stubs.sh` |
 | Tests likely to change | `registry_export` (new commands) |
 | Decided at the gate (2026-11-16) | the variant is in `ExtValue`; AC-2's comment loss is accepted for v1 and tracked in `YAML-DOCUMENT-EDIT-DROPS-COMMENTS`; the four first-class roots, a missing value as status `None` with create-on-set, and the progress and message relay (second round) |
 | For the gate | A metadata-view set cannot create a key, and cannot choose the status, which `set_binary` decides. A memory variable has no command, so it cannot be named by a query |

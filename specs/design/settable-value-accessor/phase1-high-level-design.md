@@ -142,13 +142,20 @@ reads the new value.
   WHEN the asset behind an accessor reports progress or logs a message while it is evaluated
   THEN the accessor relays the progress and announces the message, and its holder (in process or
   over the web API) can read the current status, progress and messages of the accessor
+- **AC-24** Python and JavaScript use existing accessors
+  WHEN a Python script or a browser script evaluates an accessor query (for example the `head`
+  argument of AC-1), or makes a memory accessor
+  THEN it holds an accessor object with which it can get and set the value (with the version token),
+  project it, read its status, progress and messages, and react to its events. Passed to a command,
+  the object arrives as the same accessor
 
 Non-goals: locking (a later design, which this one must not preclude: `VALUE-ACCESSOR-CANNOT-LOCK`);
 query accessors over template links (they must remain implementable as a projection); the editor widgets and
 composite editors themselves (separate UI designs that use accessors); detecting a change made
 outside the environment, for example a file edited on disk (`ASSET-EVENTS-ARE-NOT-DELIVERED-OUT-OF-PROCESS`);
 merging concurrent edits (a conflicting set fails); the transport of addresses and edits between
-client and server (`ui-split-elements`).
+client and server (`ui-split-elements`); implementing a new accessor root or step in Python or
+JavaScript (`ACCESSOR-CANNOT-BE-IMPLEMENTED-IN-PYTHON-OR-JAVASCRIPT`).
 
 ## Core Interactions
 
@@ -177,20 +184,30 @@ web and py can resolve addresses without `liquers-lib`. Record-table projections
 `liquers-records`, which depends on core only. A later template-link projection would go in
 `liquers-template` the same way.
 The value variant and the commands go in `liquers-lib`, along with polars projections if they are
-in scope.
+in scope. The Python wrapper goes in `liquers-py`, and the JavaScript wrapper in `liquers-web`.
 
 ## Documentation Intent
 
-- Reference: new `specs/reference/VALUE_ACCESSORS.md` (the contract: get, set, projection,
-  versions, notifications, conflicts); extend `VALUE_TYPE_SYSTEM.md` (the handle exception) and
-  `UI_INTERFACE_FSD.md` (binding a field to an accessor).
-- Guide: none in this design; a UI guide section comes with the editor designs.
-- Other documents: none.
+- Reference: new `specs/reference/VALUE_ACCESSORS.md`: root versus projection, the first-class
+  accessors (store, keyed asset, other assets, memory), and the whole API (get, set, projection,
+  fingerprints, events, info and log, conflicts, commands, web routes, language wrappers). Extend
+  `VALUE_TYPE_SYSTEM.md` (the accessor value), `PYTHON_INTEGRATION.md` (`lq.Accessor`) and
+  `UI_INTERFACE_FSD.md` (the memory accessor as an element's root).
+- Guide: new `specs/guides/VALUE_ACCESSOR_GUIDE.md`: how to make and use accessors (get and set),
+  how to listen and react to their events, and how to implement a new root, step or wrapper.
+  `LANGUAGE-INTEGRATION_GUIDE.md` gains an `ACCESSOR` feature with two levels, using existing
+  accessors and constructing new ones; `PYTHON_GUIDE.md` and `JAVASCRIPT_GUIDE.md` gain accessor
+  sections.
+- User guides: the values chapter of each guide (`docs/guides/{rust,python,web}/04-values.md`)
+  explains the accessor value and how to edit through it.
 - Documents to update: `VALUE_TYPE_SYSTEM.md`, `UI_INTERFACE_FSD.md`, `RECIPES_AND_PLANS.md`
-  (recipes edited through accessors), `specs/command_registry.yaml` (new commands).
-- API docs: the new `liquers-core/src/accessor/` modules; `liquers-core/src/pipeline/editor.rs`
-  and `liquers-core/src/data_node.rs` (their role under accessors); `liquers-lib/src/value/mod.rs`
-  (the new variant).
+  (recipes edited through accessors), `WEB_API_SPECIFICATION.md`, `specs/command_registry.yaml`
+  (new commands).
+- API docs: the new `liquers-core/src/accessor/` modules; `liquers-core/src/value.rs` (the Value
+  module doc gains the accessor hooks and a section on handle values);
+  `liquers-core/src/pipeline/editor.rs` and `liquers-core/src/data_node.rs` (their role under
+  accessors); `liquers-lib/src/value/mod.rs` (the new variant); the Python and JavaScript wrapper
+  modules.
 
 ## Open Questions
 
@@ -260,6 +277,12 @@ in scope.
 
   Progress and messages are relayed where the source has them (AC-23). AC-7 and AC-15 change
   accordingly: a removed root reports status `None` and stays usable, instead of expiring.
+- **2026-11-16, at the Phase 2 gate (Orest), third round.** Language support has two levels:
+  using existing accessors, and constructing new ones. Using them is in scope for Python and
+  JavaScript (AC-24). Constructing them in a language is filed as
+  `ACCESSOR-CANNOT-BE-IMPLEMENTED-IN-PYTHON-OR-JAVASCRIPT`. The documentation grows: the language
+  integration guide describes both levels; a new reference and a new guide cover accessors; the
+  Value documentation and the user guides explain the accessor value.
 
 ## Design Dependencies
 

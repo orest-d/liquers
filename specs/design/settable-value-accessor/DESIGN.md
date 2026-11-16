@@ -5,9 +5,9 @@ title: Settable value accessor
 workflow: liquers-project
 status: in_review
 phase: architecture
-area: [core/value, core/assets, core/query, lib/ui, lib/value, records, axum]
+area: [core/value, core/assets, core/query, lib/ui, lib/value, records, axum, py, web]
 issues: []
-affects_docs: [VALUE_TYPE_SYSTEM, UI_INTERFACE_FSD, RECIPES_AND_PLANS, WEB_API_SPECIFICATION]
+affects_docs: [specs/reference/VALUE_TYPE_SYSTEM.md, specs/reference/UI_INTERFACE_FSD.md, specs/reference/RECIPES_AND_PLANS.md, specs/reference/WEB_API_SPECIFICATION.md, specs/reference/PYTHON_INTEGRATION.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, specs/guides/PYTHON_GUIDE.md, specs/guides/JAVASCRIPT_GUIDE.md]
 created: 2026-11-15
 ---
 # Settable value accessor
