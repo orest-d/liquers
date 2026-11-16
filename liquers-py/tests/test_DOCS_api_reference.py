@@ -33,6 +33,7 @@ def test_DOCS04_api_reference_lists_every_public_name(tmp_path):
 SUBMODULES = (
     "query", "commands", "metadata", "dependencies", "plan", "recipes", "store", "environment",
     "assets", "error", "data_nodes", "pipeline", "template", "records", "server", "lui",
+    "accessors",
 )
 
 

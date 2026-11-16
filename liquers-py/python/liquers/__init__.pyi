@@ -9,7 +9,7 @@ surface updates this file in the same change; ``tests/test_STUBS_declarations.py
 See ``specs/reference/PYTHON_INTEGRATION.md`` §Type declarations.
 """
 
-from liquers import error as error, query as query, commands as commands, metadata as metadata, dependencies as dependencies, plan as plan, recipes as recipes, store as store, environment as environment, assets as assets, data_nodes as data_nodes, pipeline as pipeline, template as template, records as records, server as server, lui as lui
+from liquers import error as error, query as query, commands as commands, metadata as metadata, dependencies as dependencies, plan as plan, recipes as recipes, store as store, environment as environment, assets as assets, accessors as accessors, data_nodes as data_nodes, pipeline as pipeline, template as template, records as records, server as server, lui as lui
 from liquers.error import Error as Error
 from liquers.error import ErrorType as ErrorType
 from liquers.error import LiquersError as LiquersError
@@ -100,6 +100,13 @@ from liquers.environment import evaluate_async as evaluate_async
 from liquers.environment import require as require
 from liquers.assets import State as State
 from liquers.assets import AssetRef as AssetRef
+from liquers.accessors import Accessor as Accessor
+from liquers.accessors import AccessorCapabilities as AccessorCapabilities
+from liquers.accessors import AccessorSnapshot as AccessorSnapshot
+from liquers.accessors import AccessorInfo as AccessorInfo
+from liquers.accessors import AccessorEvent as AccessorEvent
+from liquers.accessors import PartDescription as PartDescription
+from liquers.accessors import AccessorSubscription as AccessorSubscription
 from liquers.data_nodes import data_node as data_node
 from liquers.data_nodes import DataNode as DataNode
 from liquers.data_nodes import NodeKind as NodeKind
@@ -197,6 +204,13 @@ __all__ = [
     "QueryEditor",
     "ActionEditor",
     "AssetRef",
+    "Accessor",
+    "AccessorCapabilities",
+    "AccessorSnapshot",
+    "AccessorInfo",
+    "AccessorEvent",
+    "PartDescription",
+    "AccessorSubscription",
     "StoreArgumentInfo",
     "Store",
     "FieldType",

@@ -85,8 +85,8 @@ pub mod wrap;
 
 pub use hub::AccessorHub;
 pub use root::{
-    asset_accessor, key_accessor, memory_accessor, store_accessor, AssetRefRoot, KeyRoot, MemoryRoot,
-    StoreRoot, StoreView,
+    asset_accessor, key_accessor, memory_accessor, resolve_accessor, store_accessor, AssetRefRoot,
+    KeyRoot, MemoryRoot, StoreRoot, StoreView,
 };
 pub use wrap::{read_only, validated};
 

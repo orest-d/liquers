@@ -814,3 +814,18 @@ pub fn asset_accessor<E: Environment>(
         ExpiryPolicy::Relay,
     )
 }
+
+/// The accessor `query` names: the query is evaluated, and its value is used when it is an
+/// accessor (an `acc` command); any other value's asset is wrapped by [`asset_accessor`],
+/// read-only. The web routes and the Python and JavaScript wrappers resolve queries with it.
+pub async fn resolve_accessor<E: Environment>(
+    envref: &EnvRef<E>,
+    query: &Query,
+) -> Result<Arc<dyn ValueAccessor<E::Value>>, Error> {
+    let asset = envref.evaluate(query).await?;
+    let state = asset.get().await?;
+    match state.value()?.try_into_accessor() {
+        Ok(accessor) => Ok(accessor),
+        Err(_) => Ok(asset_accessor(asset, query.clone())),
+    }
+}

@@ -46,6 +46,7 @@ extern crate serde_derive;
 
 use pyo3::prelude::*;
 
+pub mod accessor;
 pub mod aio;
 pub mod command_metadata;
 pub mod context;
@@ -161,6 +162,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<crate::context::Context>()?;
     m.add_class::<crate::asset::State>()?;
     m.add_class::<crate::asset::AssetRef>()?;
+    crate::accessor::register(m)?;
     crate::records::register(m)?;
     crate::data_node::register(m)?;
     crate::template::register(m)?;

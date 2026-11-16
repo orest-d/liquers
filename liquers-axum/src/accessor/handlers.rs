@@ -43,7 +43,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use liquers_core::accessor::{
-    asset_accessor, conflict_token, AccessorInfo, AccessorSnapshot, Fingerprint, SetOptions,
+    conflict_token, resolve_accessor, AccessorInfo, AccessorSnapshot, Fingerprint, SetOptions,
     ValueAccessor,
 };
 use liquers_core::context::{EnvRef, Environment};
@@ -56,18 +56,12 @@ use serde::Serialize;
 
 use crate::assets::common::{error_response, error_with_metadata, ok_query, query_from_path};
 
-/// The accessor a query names: its value when that is an accessor, otherwise a read-only
-/// accessor of the query's own asset.
+/// The accessor a query names (`liquers_core::accessor::resolve_accessor`).
 pub(crate) async fn resolve<E: Environment>(
     env: &EnvRef<E>,
     query: &Query,
 ) -> Result<Arc<dyn ValueAccessor<E::Value>>, Error> {
-    let asset = env.evaluate(query).await?;
-    let state = asset.get().await?;
-    match state.value()?.try_into_accessor() {
-        Ok(accessor) => Ok(accessor),
-        Err(_) => Ok(asset_accessor(asset, query.clone())),
-    }
+    resolve_accessor(env, query).await
 }
 
 /// The parsed query and its accessor, or the error answer.

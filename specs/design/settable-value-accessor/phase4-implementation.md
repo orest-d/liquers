@@ -20,7 +20,7 @@ short (`CLAUDE.md` §Building and testing).
 - [x] Step 7: The `acc` commands and the registry
 - [x] Step 8: Record steps
 - [x] Step 9: The `/api/acc` routes and socket
-- [ ] Step 10: The Python wrapper
+- [x] Step 10: The Python wrapper
 - [ ] Step 11: The JavaScript wrapper
 - [ ] Step 12: Whole-change checks
 
@@ -257,6 +257,13 @@ Deviations from Phases 2 and 3 found while implementing, each kept small:
   dev-dependencies**, for a value type with accessors in `tests/accessor_api.rs`. The
   `removed` frame is not covered there: a removal needs a keyed asset deleted under a live socket,
   which the core tests cover (`expiry_and_removal_are_reported`).
+- **`resolve_accessor` is in `liquers-core`** (`accessor::root`): the axum routes, the Python
+  `Environment.accessor` and the JavaScript `accessor` all evaluate a query and take its accessor,
+  or a read-only accessor of its asset, so the three share one function.
+- **Python events are delivered on the caller's thread.** A wrapper forwards its events into a
+  queue of at most 256 (the oldest dropped); callbacks registered with `on` run only inside
+  `process_events`, `wait_event` or the `events()` iterator, never on a runtime thread. A stored
+  file's accessor reports status `Source`, not `Ready`.
 
 ## Phase 5 Entry Criteria
 - [ ] Implementation finished and validated

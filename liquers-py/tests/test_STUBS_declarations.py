@@ -60,6 +60,7 @@ def stubtest(cwd, env=None):
 SUBMODULES = (
     "query", "commands", "metadata", "dependencies", "plan", "recipes", "store", "environment",
     "assets", "error", "data_nodes", "pipeline", "template", "records", "server", "lui",
+    "accessors",
 )
 _NAMED = re.compile(
     r"^error: _?liquers\.(?:(?:" + "|".join(SUBMODULES) + r")\.)?(\w+)", re.M

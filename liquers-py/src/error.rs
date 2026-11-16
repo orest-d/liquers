@@ -246,7 +246,15 @@ pub fn error_to_pyerr(py: Python<'_>, error: &liquers_core::error::Error) -> PyE
         )
     });
     match built {
-        Ok(exception) => PyErr::from_value(exception),
+        Ok(exception) => {
+            if error.error_type == liquers_core::error::ErrorType::StatusConflict {
+                // An accessor conflict names the current token in its message; `token` exposes it
+                // (`None` for any other conflict, or when the value no longer exists).
+                let token = liquers_core::accessor::conflict_token(error).map(|t| t.token());
+                let _ = exception.setattr("token", token);
+            }
+            PyErr::from_value(exception)
+        }
         Err(_) => PyException::new_err(error.to_string()),
     }
 }

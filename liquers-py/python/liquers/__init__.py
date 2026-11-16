@@ -18,6 +18,7 @@ object. A name added to or removed from ``liquers-py/src/lib.rs`` is added to or
 | `liquers.store` | `Store`, `StoreArgumentInfo` | `liquers_core::store` |
 | `liquers.environment` | `Environment`, `Context`, `evaluate`, … | `liquers_core::context` |
 | `liquers.assets` | `State`, `AssetRef` | `liquers_core::assets` |
+| `liquers.accessors` | `Accessor` and its data classes | `liquers_core::accessor` |
 | `liquers.error` | `LiquersError` and its subclasses, `ErrorType` | `liquers_core::error` |
 | `liquers.data_nodes` | `data_node`, `DataNode`, `NodeKind` | `liquers_core::data_node` |
 | `liquers.pipeline` | `Pipeline` and its editors | `liquers_core::pipeline` |
@@ -84,6 +85,7 @@ from liquers import (
     store,
     environment,
     assets,
+    accessors,
     data_nodes,
     pipeline,
     template,
@@ -171,6 +173,15 @@ from liquers.environment import (
 from liquers.assets import (
     State,
     AssetRef,
+)
+from liquers.accessors import (
+    Accessor,
+    AccessorCapabilities,
+    AccessorSnapshot,
+    AccessorInfo,
+    AccessorEvent,
+    PartDescription,
+    AccessorSubscription,
 )
 from liquers.data_nodes import (
     data_node,
@@ -276,6 +287,13 @@ __all__ = [
     "Context",
     "State",
     "AssetRef",
+    "Accessor",
+    "AccessorCapabilities",
+    "AccessorSnapshot",
+    "AccessorInfo",
+    "AccessorEvent",
+    "PartDescription",
+    "AccessorSubscription",
     "NodeKind",
     "DataNode",
     "data_node",

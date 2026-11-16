@@ -95,6 +95,11 @@ def _variant_name(error_type: object) -> str:
     return repr(error_type).rsplit(".", 1)[-1]
 
 
+# Class attributes of particular variants. A `StatusConflictError` from an accessor carries the
+# current token, which the native side sets on the instance; any other has `token = None`.
+_VARIANT_ATTRIBUTES: dict[str, dict[str, Any]] = {"StatusConflict": {"token": None}}
+
+
 def _install(error_type_class: Any) -> dict[str, type["LiquersError"]]:
     """Generate one class per error category and one subclass per ErrorType variant.
 
@@ -126,6 +131,7 @@ def _install(error_type_class: Any) -> dict[str, type["LiquersError"]]:
             "_error_type": member,
             "__module__": "liquers.error",
             "__doc__": f"Raised for ErrorType.{name}.",
+            **_VARIANT_ATTRIBUTES.get(name, {}),
         }
         subclass = type(class_name, bases, namespace)
         _SUBCLASSES[name] = subclass

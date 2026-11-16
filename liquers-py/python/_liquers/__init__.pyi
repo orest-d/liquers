@@ -6,6 +6,13 @@ from liquers import ArgumentInfo as ArgumentInfo
 from liquers import ArgumentType as ArgumentType
 from liquers import AssetInfo as AssetInfo
 from liquers import AssetRef as AssetRef
+from liquers import Accessor as Accessor
+from liquers import AccessorCapabilities as AccessorCapabilities
+from liquers import AccessorSnapshot as AccessorSnapshot
+from liquers import AccessorInfo as AccessorInfo
+from liquers import AccessorEvent as AccessorEvent
+from liquers import PartDescription as PartDescription
+from liquers import AccessorSubscription as AccessorSubscription
 from liquers import ChunkOrigin as ChunkOrigin
 from liquers import CommandDefinition as CommandDefinition
 from liquers import CommandKey as CommandKey
@@ -143,6 +150,13 @@ __all__ = [
     "QueryEditor",
     "ActionEditor",
     "AssetRef",
+    "Accessor",
+    "AccessorCapabilities",
+    "AccessorSnapshot",
+    "AccessorInfo",
+    "AccessorEvent",
+    "PartDescription",
+    "AccessorSubscription",
     "FieldType",
     "KeyRole",
     "FieldSchema",
