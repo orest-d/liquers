@@ -13,10 +13,10 @@ command metadata registry, wherever the query comes from.
 
 ## Design Readiness
 
-- **Readiness:** needs-decision
+- **Readiness:** ready
 - **Automatic fixing:** not-eligible: an `L`/`XL` cross-crate feature with new public APIs, not a
   bounded fix.
-- **Leading issue:** item 5, the shape of the `set` contract for holders that share one handle.
+- **Leading issue:** None. Items 5–8 were accepted with `proceed` (Orest, 2026-11-16).
 - **Records:** `DESIGN.md` carries no `readiness` or `autofix` field, because the design has no
   source issue (§5.1.1); this section is the `proceed all` decision log.
 - **Explanation:** every Phase 1 question is decided, and the second and third Phase 2 rounds were
