@@ -86,6 +86,9 @@ impl JsExtensionBridge for ExtValue {
             ExtValue::UIElement { value } => {
                 Ok(Some(crate::ui::LiquersUIElement::new(value.clone()).into()))
             }
+            // Crosses as a handle once the JavaScript wrapper exists (the accessor design's
+            // Step 11); until then nothing to convert.
+            ExtValue::Accessor { .. } => Ok(None),
             #[cfg(feature = "polars")]
             ExtValue::PolarsDataFrame { .. } => Ok(None),
             #[cfg(feature = "egui")]
@@ -142,7 +145,7 @@ impl JsExtensionBridge for ExtValue {
             ExtValue::UiCommand { .. } => Ok(None),
             #[cfg(feature = "egui")]
             ExtValue::Widget { .. } => Ok(None),
-            ExtValue::UIElement { .. } => Ok(None),
+            ExtValue::UIElement { .. } | ExtValue::Accessor { .. } => Ok(None),
             // Neither is an opaque foreign value — `to_js_custom` is what converts these.
             #[cfg(feature = "records")]
             ExtValue::RecordView { .. } => Ok(None),

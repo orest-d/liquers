@@ -344,6 +344,7 @@ macro_rules! register_all_commands {
         $crate::register_mem_commands!($cr)?;
         $crate::register_markdown_commands!($cr)?;
         $crate::register_lui_commands!($cr)?;
+        $crate::register_accessor_commands!($cr)?;
         Ok::<(), liquers_core::error::Error>(())
     }};
 }

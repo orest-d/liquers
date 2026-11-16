@@ -128,6 +128,9 @@ impl UIValueExtension for Value {
             Self::Extended(ExtValue::UIElement { value }) => {
                 ui.label(format!("UIElement: {}", value.type_name()));
             }
+            Self::Extended(ExtValue::Accessor { value }) => {
+                ui.label(format!("Accessor: {}", value.address().encode()));
+            }
             // A value owned by an integrated language runtime. egui cannot render it natively,
             // so show its origin and type — enough to identify it while debugging.
             Self::Extended(ExtValue::Foreign { value }) => {

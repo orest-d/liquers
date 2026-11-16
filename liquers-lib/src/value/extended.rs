@@ -1,3 +1,46 @@
+//! `CombinedValue`: a value type made of a base value and an extension.
+//!
+//! An application's value type is usually a [`CombinedValue`] of `liquers-core`'s base value and
+//! an extension enum of its own (`liquers-lib`'s `ExtValue`). The base side carries data
+//! (scalars, text, objects); the extension carries richer or live values (images, data frames,
+//! UI elements, record views, foreign-language objects, value accessors). [`CombinedValue`]
+//! implements `ValueInterface` by delegating to whichever side holds the value.
+//!
+//! # Main components
+//!
+//! - [`ValueExtension`]: what an extension implements: conversions it supports, its type
+//!   descriptions, its data node, and the accessor hooks.
+//! - [`CombinedValue`]: `Base` or `Extended`, with `ValueInterface` delegated by arm.
+//!
+//! The accessor hooks [`ValueExtension::erased_accessor`] and
+//! [`ValueExtension::from_erased_accessor`] carry an accessor through a type-erased box, because a
+//! generic extension cannot name `ValueAccessor<CombinedValue<B, Self>>`; `CombinedValue`
+//! downcasts it back, which succeeds exactly when the accessor's value type is this one.
+//!
+//! # Where it is used
+//!
+//! - `liquers_lib::value::Value` is `CombinedValue<SimpleValue, ExtValue>`, the value type of
+//!   every `liquers-lib` environment, of `liquers-py` and of `liquers-web`.
+//!
+//! # Related concepts
+//!
+//! - `liquers_core::value::ValueInterface`: the trait `CombinedValue` implements.
+//! - `liquers_core::accessor`: the accessors `ExtValue::Accessor` holds.
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_core::accessor::memory_accessor;
+//! use liquers_core::{query::Query, value::ValueInterface};
+//! use liquers_lib::value::Value;
+//! let accessor = memory_accessor::<Value>(None, Query::new());
+//! let value = Value::from_accessor(accessor.clone()).unwrap();
+//! assert!(std::sync::Arc::ptr_eq(&value.try_into_accessor().unwrap(), &accessor));
+//! ```
+//!
+//! - [Tests](https://github.com/orest-d/liquers/blob/main/liquers-lib/tests/value_type_system.rs):
+//!   the identifiers and descriptions of every extended variant.
+
 use serde_json;
 
 use liquers_core::{
@@ -89,6 +132,18 @@ pub trait ValueExtension:
             Ok(json) => liquers_core::data_node::AnyNode::from_json(json),
             Err(_) => liquers_core::data_node::AnyNode::opaque(),
         }
+    }
+    /// The accessor this value holds, type-erased, so `CombinedValue` can return it as an
+    /// accessor of itself. Default: none.
+    fn erased_accessor(&self) -> Option<std::sync::Arc<dyn liquers_core::accessor::ErasedAccessor>> {
+        None
+    }
+    /// A value holding the erased accessor, when it is an accessor of the value type this
+    /// extension belongs to. Default: none.
+    fn from_erased_accessor(
+        _accessor: std::sync::Arc<dyn liquers_core::accessor::ErasedAccessor>,
+    ) -> Option<Self> {
+        None
     }
     /// Static self-description of every type this extension can hold.
     ///
@@ -228,6 +283,37 @@ impl<BaseValue: ValueInterface + Default, Ext: ValueExtension> ValueInterface
             CombinedValue::Base(base) => base.try_into_json_value(),
             CombinedValue::Extended(ext) => ext.try_into_json_value(),
         }
+    }
+
+    /// Through [`ValueExtension::from_erased_accessor`]: only an extension of the value type the
+    /// accessor reads and writes takes it.
+    fn from_accessor(
+        accessor: std::sync::Arc<dyn liquers_core::accessor::ValueAccessor<Self>>,
+    ) -> Result<Self, Error> {
+        let erased: std::sync::Arc<dyn liquers_core::accessor::ErasedAccessor> =
+            std::sync::Arc::new(liquers_core::accessor::AccessorBox(accessor));
+        Ext::from_erased_accessor(erased)
+            .map(CombinedValue::Extended)
+            .ok_or_else(|| {
+                Error::not_supported("this value type cannot hold a value accessor".to_string())
+            })
+    }
+
+    fn try_into_accessor(
+        &self,
+    ) -> Result<std::sync::Arc<dyn liquers_core::accessor::ValueAccessor<Self>>, Error> {
+        let erased = match self {
+            CombinedValue::Base(_) => None,
+            CombinedValue::Extended(ext) => ext.erased_accessor(),
+        };
+        erased
+            .and_then(|erased| {
+                erased
+                    .as_any()
+                    .downcast_ref::<liquers_core::accessor::AccessorBox<Self>>()
+                    .map(|boxed| boxed.0.clone())
+            })
+            .ok_or_else(|| Error::conversion_error(self.identifier(), "Accessor"))
     }
 
     /// Delegates by arm. The arm's payload is cloned into its own `Arc`, since the node must own

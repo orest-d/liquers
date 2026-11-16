@@ -15,9 +15,9 @@ short (`CLAUDE.md` §Building and testing).
 - [x] Step 2: The hub, the memory root and the wrappers (89959099)
 - [x] Step 3: The store, keyed-asset and asset roots (see Execution Notes)
 - [x] Step 4: Document, recipe, query, action and argument steps
-- [ ] Step 5: `ValueInterface` accessor hooks
-- [ ] Step 6: `ExtValue::Accessor` in lib and in liquers-web's matches
-- [ ] Step 7: The `acc` commands and the registry
+- [x] Step 5: `ValueInterface` accessor hooks
+- [x] Step 6: `ExtValue::Accessor` in lib and in liquers-web's matches
+- [x] Step 7: The `acc` commands and the registry
 - [ ] Step 8: Record steps
 - [ ] Step 9: The `/api/acc` routes and socket
 - [ ] Step 10: The Python wrapper
@@ -227,6 +227,14 @@ Deviations from Phases 2 and 3 found while implementing, each kept small:
   action step, or any query), and an action part keeps the parent's realm.
 - **`hub_error_cases`** stays on the test steps of `hub.rs`; the real steps' error paths are in
   `refused_argument_set_writes_nothing`.
+- **`SimpleValue` gained core `Value`'s JSON forms** for `Metadata`, `Recipe` and `Pipeline`. It
+  refused them, so in `liquers-lib` a recipe part could not be read as a document and a
+  metadata-view set could not read its record; core `Value` already had these forms.
+- **`accessor_value_is_never_stored`** checks the store and the registry rather than
+  `persistence_status`: `AssetManager::set_state` of a type with no formats writes the metadata
+  only and leaves the asset's persistence status `None`. A query asset is not persisted at all.
+- **The `Accessor` type info** has the defaults `accessor` / `value.accessor` and no formats, so the
+  registry export lists no format for it.
 - **Tests compare fingerprints, not `Changed`**, after an evaluation: the new asset's later status
   events replace `Changed` in the channel, which is the holder contract (§Events) at work.
 

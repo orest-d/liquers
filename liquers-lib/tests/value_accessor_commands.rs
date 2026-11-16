@@ -1,0 +1,306 @@
+//! The `acc` commands end to end through `EnvRef::evaluate`, and `ExtValue::Accessor`.
+//!
+//! Design: `specs/design/settable-value-accessor/` (Phase 3, lib tests).
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use liquers_core::accessor::{memory_accessor, SetOptions, ValueAccessor};
+use liquers_core::assets::AssetManager;
+use liquers_core::context::{EnvRef, Environment};
+use liquers_core::error::{Error, ErrorType};
+use liquers_core::metadata::{Metadata, MetadataRecord, Status};
+use liquers_core::parse::{parse_key, parse_query};
+use liquers_core::pipeline::ElementKind;
+use liquers_core::query::{Key, Query};
+use liquers_core::state::State;
+use liquers_core::store::AsyncMemoryStore;
+use liquers_core::value::ValueInterface;
+use liquers_macro::register_command;
+
+use liquers_lib::environment::{CommandRegistryAccess, DefaultEnvironment};
+use liquers_lib::value::{ExtValue, Value};
+
+// The `register_*_commands!` macros expand to code naming these unqualified.
+#[allow(unused_imports)]
+use liquers_core::{
+    command_metadata::{ArgumentType, CommandDefinition, CommandParameterValue},
+    context::Context,
+};
+
+type CommandEnvironment = DefaultEnvironment<Value>;
+
+fn from_csv(_state: &State<Value>) -> Result<Value, Error> {
+    Ok(Value::from("table"))
+}
+fn is_in(_state: &State<Value>, _column: String, _values: Vec<String>) -> Result<Value, Error> {
+    Ok(Value::from("filtered"))
+}
+fn head(_state: &State<Value>, n: i64) -> Result<Value, Error> {
+    Ok(Value::from(format!("head {n}")))
+}
+
+const QUERY: &str = "-R/data/sales.csv/-/ns-pl/from_csv/is_in-region-EU-US/head-10/top.csv";
+const ARGUMENT_N: &str =
+    "-R-key/reports/recipes.yaml/-/ns-acc/accessor/recipe-0/query/action-3/argument-n";
+
+async fn within<T>(future: impl std::future::Future<Output = T>) -> T {
+    tokio::time::timeout(Duration::from_secs(10), future)
+        .await
+        .expect("did not finish within 10 s")
+}
+
+fn key(text: &str) -> Key {
+    parse_key(text).unwrap()
+}
+
+fn text_record() -> MetadataRecord {
+    let mut record = MetadataRecord::new();
+    record.type_identifier = "Text".to_string();
+    record.type_name = "text".to_string();
+    record.data_format = Some("txt".to_string());
+    record
+}
+
+fn register(env: &mut CommandEnvironment) -> Result<(), Error> {
+    let cr = env.get_mut_command_registry();
+    liquers_lib::register_core_commands!(cr)?;
+    liquers_lib::register_accessor_commands!(cr)?;
+    register_command!(cr, fn from_csv(state) -> result namespace: "pl")?;
+    register_command!(cr, fn is_in(state, column: String, values: Vec<String> multiple) -> result namespace: "pl")?;
+    register_command!(cr, fn head(state, n: i64 = 10 (gui: IntegerField)) -> result namespace: "pl")?;
+    Ok(())
+}
+
+fn environment() -> EnvRef<CommandEnvironment> {
+    let mut env = CommandEnvironment::new();
+    register(&mut env).unwrap();
+    env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
+    env.to_ref()
+}
+
+fn json(value: &Value) -> serde_json::Value {
+    value.try_into_json_value().unwrap()
+}
+
+/// An environment whose store holds `reports/recipes.yaml` (a title and two recipes) and
+/// `config.yaml`.
+async fn fixture() -> EnvRef<CommandEnvironment> {
+    let envref = environment();
+    let manager = envref.get_asset_manager();
+    let recipes = format!(
+        "title: Reports\nrecipes:\n- query: {QUERY}\n  title: Top\n- query: -R/data/sales.csv/-/ns-pl/from_csv/head-3/few.csv\n  title: Few\n"
+    );
+    manager
+        .set_binary(&key("reports/recipes.yaml"), recipes.as_bytes(), text_record())
+        .await
+        .unwrap();
+    manager
+        .set_binary(&key("config.yaml"), b"title: Dashboard\nrows: 3\n", text_record())
+        .await
+        .unwrap();
+    envref
+}
+
+async fn evaluate_accessor(
+    envref: &EnvRef<CommandEnvironment>,
+    query: &str,
+) -> Arc<dyn ValueAccessor<Value>> {
+    let asset = within(envref.evaluate(&parse_query(query).unwrap()))
+        .await
+        .unwrap();
+    within(asset.get())
+        .await
+        .unwrap()
+        .value()
+        .unwrap()
+        .try_into_accessor()
+        .unwrap()
+}
+
+async fn value_of(accessor: &Arc<dyn ValueAccessor<Value>>) -> Value {
+    within(accessor.get())
+        .await
+        .unwrap()
+        .state
+        .value()
+        .unwrap()
+        .as_ref()
+        .clone()
+}
+
+async fn stored_text(envref: &EnvRef<CommandEnvironment>, k: &str) -> String {
+    String::from_utf8(envref.get_async_store().get_bytes(&key(k)).await.unwrap()).unwrap()
+}
+
+#[tokio::test]
+async fn accessor_query_projects_recipe_argument() {
+    let envref = fixture().await;
+    let n = evaluate_accessor(&envref, ARGUMENT_N).await;
+    assert_eq!(json(&value_of(&n).await), serde_json::json!(10));
+    let part = within(n.describe()).await.unwrap();
+    assert_eq!(part.type_identifier, "I64");
+    assert_eq!(
+        part.argument.expect("an argument").argument_type,
+        ArgumentType::Integer
+    );
+    assert_eq!(n.address().encode(), ARGUMENT_N);
+    within(n.set(Value::from(20i64), SetOptions::default()))
+        .await
+        .unwrap();
+    let yaml: serde_yaml::Value =
+        serde_yaml::from_str(&stored_text(&envref, "reports/recipes.yaml").await).unwrap();
+    assert_eq!(yaml["title"], serde_yaml::Value::from("Reports"));
+    assert_eq!(
+        yaml["recipes"][0]["query"],
+        serde_yaml::Value::from(QUERY.replace("head-10", "head-20"))
+    );
+    // The second evaluation is the same handle, not a copy.
+    let again = evaluate_accessor(&envref, ARGUMENT_N).await;
+    assert!(Arc::ptr_eq(&n, &again));
+    // `acc/get` reads the current value.
+    let current = within(envref.evaluate(&parse_query(&format!("{ARGUMENT_N}/get")).unwrap()))
+        .await
+        .unwrap();
+    assert_eq!(
+        json(&within(current.get()).await.unwrap().value().unwrap()),
+        serde_json::json!(20)
+    );
+}
+
+#[tokio::test]
+async fn accessor_value_is_never_stored() {
+    let envref = fixture().await;
+    let accessor = evaluate_accessor(&envref, "-R-key/config.yaml/-/ns-acc/accessor").await;
+    let manager = envref.get_asset_manager();
+    let handle = key("handle.accessor");
+    manager
+        .set_state(
+            &handle,
+            State::from_value_and_metadata(
+                Value::from_accessor(accessor).unwrap(),
+                Arc::new(Metadata::new()),
+            ),
+        )
+        .await
+        .unwrap();
+    // The `Accessor` type has no formats: only its metadata reaches the store, never data.
+    let store = envref.get_async_store();
+    let bytes = store.get_bytes(&handle).await;
+    assert!(bytes.map(|b| b.is_empty()).unwrap_or(true));
+    assert_eq!(
+        store.get_metadata(&handle).await.unwrap().type_identifier().unwrap(),
+        "Accessor"
+    );
+    let registry = envref.get_type_registry();
+    assert!(registry
+        .get("Accessor")
+        .expect("Accessor is registered")
+        .supported_data_formats
+        .is_empty());
+}
+
+#[tokio::test]
+async fn accessor_address_resolves_in_a_second_environment() {
+    let first = fixture().await;
+    let rows = evaluate_accessor(&first, "-R-key/config.yaml/-/ns-acc/accessor/field-rows").await;
+    assert_eq!(json(&value_of(&rows).await), serde_json::json!(3));
+    // Another environment with the same data: the address alone rebuilds the accessor.
+    let second = fixture().await;
+    let same = evaluate_accessor(&second, &rows.address().encode()).await;
+    assert!(!Arc::ptr_eq(&rows, &same));
+    assert_eq!(json(&value_of(&same).await), serde_json::json!(3));
+}
+
+#[tokio::test]
+async fn structural_edit_expires_action_accessor_asset() {
+    let envref = fixture().await;
+    let action_query = "-R-key/reports/recipes.yaml/-/ns-acc/accessor/recipe-0/query/action-3";
+    let action = evaluate_accessor(&envref, action_query).await;
+    within(action.get()).await.unwrap();
+    let query = evaluate_accessor(
+        &envref,
+        "-R-key/reports/recipes.yaml/-/ns-acc/accessor/recipe-0/query",
+    )
+    .await;
+    within(query.get()).await.unwrap();
+    // A step inserted before `head`: element 3 is now another action.
+    let inserted = QUERY.replace("is_in-region-EU-US/", "is_in-region-EU-US/is_in-region-CH/");
+    within(query.set(
+        Value::from_query(&parse_query(&inserted).unwrap()),
+        SetOptions::default(),
+    ))
+    .await
+    .unwrap();
+    let error = within(action.get()).await.unwrap_err();
+    assert_ne!(error.error_type, ErrorType::StatusConflict);
+    let asset = within(envref.evaluate(&parse_query(action_query).unwrap()))
+        .await
+        .unwrap();
+    // The invalidation expired the old asset, so this evaluation built a new handle.
+    let fresh = within(asset.get())
+        .await
+        .unwrap()
+        .value()
+        .unwrap()
+        .try_into_accessor()
+        .unwrap();
+    assert!(!Arc::ptr_eq(&action, &fresh));
+    let element = value_of(&fresh).await.try_into_pipeline().unwrap();
+    assert_eq!(element.elements.len(), 1);
+    match &element.elements[0].item {
+        ElementKind::Action(action) => assert_eq!(action.action, "is_in"),
+        other => panic!("element 3 is not an action: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn document_field_projection() {
+    let envref = fixture().await;
+    let title = evaluate_accessor(&envref, "-R-key/config.yaml/-/ns-acc/accessor/field-title").await;
+    assert_eq!(json(&value_of(&title).await), serde_json::json!("Dashboard"));
+    within(title.set(Value::from("Sales"), SetOptions::default()))
+        .await
+        .unwrap();
+    assert_eq!(
+        stored_text(&envref, "config.yaml").await,
+        "title: Sales\nrows: 3\n"
+    );
+}
+
+#[tokio::test]
+async fn store_command_views() {
+    let envref = fixture().await;
+    let binary = evaluate_accessor(&envref, "-R-key/config.yaml/-/ns-acc/store-binary").await;
+    assert_eq!(
+        value_of(&binary).await.try_into_bytes().unwrap(),
+        b"title: Dashboard\nrows: 3\n".to_vec()
+    );
+    let metadata = evaluate_accessor(&envref, "-R-key/config.yaml/-/ns-acc/store-metadata").await;
+    assert_eq!(value_of(&metadata).await.identifier(), "Metadata");
+    let value = evaluate_accessor(&envref, "-R-key/config.yaml/-/ns-acc/store").await;
+    assert_eq!(value_of(&value).await.try_into_string().unwrap(), "title: Dashboard\nrows: 3\n");
+    // A key that does not exist yet: status None, created by a set.
+    let fresh = evaluate_accessor(&envref, "-R-key/reports/new.txt/-/ns-acc/store").await;
+    assert_eq!(within(fresh.info()).await.unwrap().status, Status::None);
+    within(fresh.set(Value::from("new"), SetOptions::default()))
+        .await
+        .unwrap();
+    assert_eq!(stored_text(&envref, "reports/new.txt").await, "new");
+}
+
+#[tokio::test]
+async fn ext_value_accessor_hooks_round_trip() {
+    let accessor = memory_accessor::<Value>(None, Query::new());
+    let value = Value::from_accessor(accessor.clone()).unwrap();
+    assert!(matches!(value, Value::Extended(ExtValue::Accessor { .. })));
+    assert_eq!(value.identifier(), "Accessor");
+    assert!(Arc::ptr_eq(&value.try_into_accessor().unwrap(), &accessor));
+    assert!(Value::from("text").try_into_accessor().is_err());
+    let core = liquers_core::accessor::memory_accessor::<liquers_core::value::Value>(None, Query::new());
+    assert_eq!(
+        liquers_core::value::Value::from_accessor(core).unwrap_err().error_type,
+        ErrorType::NotSupported
+    );
+}
+
