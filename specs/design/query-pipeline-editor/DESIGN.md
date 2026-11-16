@@ -22,7 +22,7 @@ Phase 1 written on 2026-11-16 and revised the same day with Orest's notes; it su
 
 ## Phases
 
-- [Phase 1](./phase1-high-level-design.md): AC-1 to AC-23
+- [Phase 1](./phase1-high-level-design.md): AC-1 to AC-24
 - [Phase 2](./phase2-architecture.md)
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)

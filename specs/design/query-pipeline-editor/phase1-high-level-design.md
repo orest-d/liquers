@@ -120,8 +120,9 @@ the tree and any other editor bound to the same recipe show it.
   THEN it browses the store's directory listing (folders to open, keys to pick), and also accepts any
   key typed directly, including one that does not exist yet
 - **AC-15** Key editor
-  WHEN a key editor element is opened (on a key, or on a key argument)
-  THEN it is the resource editor's key field and file selector without the header choice
+  WHEN a key editor element is opened on a key, or an argument's link is a `-R-key/…` query
+  THEN it is the resource editor's key field and file selector without the header choice (a key
+  argument needs no gui hint of its own: the `-R-key` link is what makes it a key)
 - **AC-16** Directives
   WHEN the query contains `ns`, `q` or `v`
   THEN each is a node of its own: `ns` edits its namespace list, `q` and `v` can be inserted and
@@ -148,13 +149,19 @@ the tree and any other editor bound to the same recipe show it.
 - **AC-22** Filename
   WHEN the user presses the filename button beside an action that declares `filename`
   THEN that filename is set as the query's filename; WHEN the user edits the filename field after the
-  last action, THEN the query's filename is that text; WHEN the user presses its Default button, THEN
-  it is the last command's `filename`, or a default filename when the command declares none
+  last action, THEN the query's filename is that text; WHEN the last command declares `filename`,
+  THEN a Default button beside the field sets it, and WHEN it declares none, THEN there is no
+  Default button (the editor never evaluates the query to learn its result type)
 - **AC-23** Excess parameters and unknown commands
   WHEN an action has more parameters than its arguments take, or names a command the registry does
   not know
   THEN the extra parameters are shown read-only, or the node shows the action's text and the reason,
   and edits elsewhere in the query still work
+- **AC-24** Argument presets
+  WHEN an argument declares presets (`ArgumentInfo::presets`) and the user picks one from the small
+  presets menu beside its field
+  THEN the argument is set to that preset's value (a literal or a link), through the same validated
+  edit as AC-5
 
 Non-goals: per-keystroke planning diagnostics in the text field (`query-editor-live-validation`);
 evaluating the query inside the editor (a view bound to the same query or recipe re-evaluates because the binding expires it, as in AC-13); the MIDI input itself (AC-13 defines only the numeric-argument addressing an event source uses); placeholders and command-definition
@@ -233,19 +240,20 @@ moving optional (AC-6).
    Phase 4 step that starts when `ui-split-elements` Phase 2 is approved.
 4. **Proposed resolution - controllers (AC-13).** In scope as the numeric-argument addressing and
    scaling only, taken from the proof of concept. Alternative: drop AC-13 for a later design.
-5. **Open design - which arguments get the key editor (AC-15).** No `ArgumentType` or `gui_info`
-   says "this is a key" today; key arguments are strings, often with a `-R-key/.` link default.
-   Recommended: add `ArgumentGUIInfo::KeyField` (a registry and macro change, so Phase 2 designs it)
-   and also use the key editor for an argument whose default is a `-R-key/…` link.
-6. **Open design - the Default filename (AC-22) when the last command declares none.** Recommended:
-   the default filename of the value the query last produced (`ValueInterface::default_filename`)
-   when the editor knows it, otherwise the filename is cleared, which leaves the format to the value.
-7. **Proposed resolution - the header as radio buttons (AC-7).** Ten headers is a long radio row:
-   show the common ones (asset, `key`, `dir`, `cwd`) as radios and the rest under "more".
-8. **Proposed resolution - argument presets.** `ArgumentInfo::presets` exist too; give such an
-   argument the same small presets menu as an action (AC-20). Cheap, and the metadata is already
-   there.
-9. **Implementation detail - moving nodes (AC-6).** Recommended: include up and down, since
+Answered by Orest later on 2026-11-16: no key gui hint is needed, because a `-R-key/…` link acts as
+a key (old question 5, now in AC-15); the Default filename button is hidden when the last command
+declares no filename, because the query is never executed to learn its type (old question 6, now
+in AC-22); argument presets get a menu (old question 8, now AC-24).
+
+5. **Proposed resolution - laying out the resource header (AC-7).** The header is the word after
+   `-R-` in a resource query (`-R-key/…`, `-R-dir/…`, `-R-recipe/…`); plain `-R/…` reads the asset.
+   The planner accepts ten of them (`liquers-core/src/plan.rs`, the resource header match). Ten is a
+   long radio row, so show the common ones (asset, `key`, `dir`, `cwd`) as radios and the other six
+   (`binary`, `metadata`, `recipe`, `sdir`, `stored_binary`, `stored_metadata`) under "more".
+6. **Implementation detail - argument presets in practice.** No command in the workspace or in the
+   proof of concept declares argument presets yet (the proof of concept's colour is a `ColorString`
+   widget, not a preset), so a test registers one.
+7. **Implementation detail - moving nodes (AC-6).** Recommended: include up and down, since
    `PipelineEditor::move_to` exists; leave drag and drop out.
 
 ## Salvaged from command-parameter-editor
