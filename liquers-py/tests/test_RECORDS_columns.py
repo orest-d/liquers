@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 import liquers as lq
-from liquers import _native
+import _liquers as _native
 
 FIXTURE = Path(__file__).parent / "data" / "records_all_types.feather"
 

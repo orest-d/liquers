@@ -2,7 +2,7 @@
 title: Queries
 status: ready
 sources: [reference/PROJECT_OVERVIEW.md, guides/QUERY_ESCAPING_GUIDE.md, guides/PYTHON_GUIDE.md, reference/PIPELINES.md, guides/PIPELINE_GUIDE.md]
-reviewed: 2026-11-14
+reviewed: 2026-11-15
 ---
 # 3. Queries
 
@@ -53,13 +53,15 @@ uses `asyncio`, each call has a form to `await`: `await env.evaluate_async(query
 
 ## 3.8 Looking inside a query
 
-`lq.parse` turns the text of a query into an `lq.Query` object without running anything. It is
-the quickest check that a query is well formed, and it lets you take a query apart:
+`parse`, from the module `liquers.query`, turns the text of a query into a `Query` object
+without running anything. It is the quickest check that a query is well formed, and it lets you
+take a query apart:
 
 ```python
-import liquers as lq
+from liquers.error import ParseError
+from liquers.query import parse
 
-query = lq.parse("-R/data/sales.csv/-/ns-pl/from_csv/head-2/top.csv")
+query = parse("-R/data/sales.csv/-/ns-pl/from_csv/head-2/top.csv")
 
 assert query.filename() == "top.csv"
 assert query.extension() == "csv"
@@ -70,20 +72,21 @@ assert [segment.encode() for segment in query.segments] == [
 assert query.encode() == "-R/data/sales.csv/-/ns-pl/from_csv/head-2/top.csv"
 
 try:
-    lq.parse("hello world")
-except lq.ParseError as error:
+    parse("hello world")
+except ParseError as error:
     print(error.message)        # Can't parse query 'hello world': ...
 ```
 
 `encode()` gives the text of a query back, in its canonical form. Every function that takes a
-query accepts either the text or an `lq.Query`.
+query accepts either the text or a `Query`.
 
-A key has its own type, `lq.Key`, and its own parser:
+A key has its own type, `Key`, and its own parser, both in `liquers.query` too:
 
 ```python
-import liquers as lq
+from liquers.query import Key, parse_key
 
-key = lq.parse_key("data/sales.csv")
+key = parse_key("data/sales.csv")
+assert isinstance(key, Key)
 assert str(key) == "data/sales.csv"
 assert str(key.parent()) == "data"
 assert key.filename() == "sales.csv"
@@ -186,12 +189,12 @@ describe the command of a step and its arguments, which is what a form that edit
 to show.
 
 There is an older, lower-level way, which needs no environment and checks nothing:
-`lq.ActionRequest.from_arguments` builds one action from text values and escapes them.
+`ActionRequest.from_arguments` builds one action from text values and escapes them.
 
 ```python
-import liquers as lq
+from liquers.query import ActionRequest
 
-action = lq.ActionRequest.from_arguments("greet", ["Good morning", "a-b/c"])
+action = ActionRequest.from_arguments("greet", ["Good morning", "a-b/c"])
 assert action.encode() == "greet-Good~.morning-a~_b~/c"
 ```
 
@@ -199,8 +202,8 @@ It takes text only, so a number or a boolean has to be turned into its query spe
 and it cannot tell you that the command has no such argument. Use the editor unless you have no
 environment at hand.
 
-API reference: [`Environment.query_editor`](https://orest-d.github.io/liquers/api/python/liquers.html#Environment.query_editor),
-[`QueryEditor`](https://orest-d.github.io/liquers/api/python/liquers.html#QueryEditor) and [`ActionEditor`](https://orest-d.github.io/liquers/api/python/liquers.html#ActionEditor), the object that `action`
+API reference: [`Environment.query_editor`](https://orest-d.github.io/liquers/api/python/liquers/environment.html#Environment.query_editor),
+[`QueryEditor`](https://orest-d.github.io/liquers/api/python/liquers/pipeline.html#QueryEditor) and [`ActionEditor`](https://orest-d.github.io/liquers/api/python/liquers/pipeline.html#ActionEditor), the object that `action`
 and `edit_action` return.
 
 ## 3.10 Pipelines: queries as data
@@ -236,12 +239,13 @@ env.shutdown()
 `evaluate` and `evaluate_state` take a pipeline wherever they take a query. The argument
 `options` is a dictionary, which no query could carry.
 
-`lq.Pipeline` is the pipeline as an object. It reads and writes the JSON form, and converts to
-and from a query:
+`Pipeline`, from the module `liquers.pipeline`, is the pipeline as an object. It reads and
+writes the JSON form, and converts to and from a query:
 
 ```python
 import json
 import liquers as lq
+from liquers.pipeline import Pipeline
 
 env = lq.Environment()
 
@@ -257,17 +261,17 @@ def top(value, n: int = 1, descending: bool = True) -> list:
 def pick(value, options=None, n: int = 1) -> list:
     return sorted(value, reverse=options["descending"])[:n]
 
-pipeline = lq.Pipeline(["numbers", {"action": "top", "arguments": {"n": 2, "descending": False}}])
+pipeline = Pipeline(["numbers", {"action": "top", "arguments": {"n": 2, "descending": False}}])
 assert env.evaluate(pipeline) == [1, 2]
 assert pipeline.to_query(env).encode() == "numbers/top-2-false"       # it has a query form
 
 # Every query has a pipeline form; this is how to look inside a query.
-steps = json.loads(lq.Pipeline.from_query("numbers/top-2").to_json())["elements"]
+steps = json.loads(Pipeline.from_query("numbers/top-2").to_json())["elements"]
 assert [step["action"] for step in steps] == ["numbers", "top"]
 assert steps[1]["parameters"][0]["value"] == "2"
 
 # A pipeline with a dictionary as an argument has no query form.
-structured = lq.Pipeline(["numbers", {"action": "pick", "arguments": {"options": {"descending": True}}}])
+structured = Pipeline(["numbers", {"action": "pick", "arguments": {"options": {"descending": True}}}])
 try:
     structured.to_query(env)
 except lq.ParameterError as error:
@@ -323,6 +327,6 @@ In Python that means: `env.evaluate(pipeline)` computes every time, and `env.get
 a `TypeError` for a pipeline. Chapter 7 shows a pipeline in a recipe, and section 5.9 a pipeline
 registered as a command with `env.pipeline_command`.
 
-API reference: [`Pipeline`](https://orest-d.github.io/liquers/api/python/liquers.html#Pipeline), [`PipelineEditor`](https://orest-d.github.io/liquers/api/python/liquers.html#PipelineEditor) and
-[`Environment.pipeline_editor`](https://orest-d.github.io/liquers/api/python/liquers.html#Environment.pipeline_editor).
+API reference: [`Pipeline`](https://orest-d.github.io/liquers/api/python/liquers/pipeline.html#Pipeline), [`PipelineEditor`](https://orest-d.github.io/liquers/api/python/liquers/pipeline.html#PipelineEditor) and
+[`Environment.pipeline_editor`](https://orest-d.github.io/liquers/api/python/liquers/environment.html#Environment.pipeline_editor).
 

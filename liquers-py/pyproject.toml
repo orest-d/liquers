@@ -54,10 +54,13 @@ all = [
 ]
 
 [tool.maturin]
-# Mixed Rust/Python project: the pure-Python package `liquers` lives under `python/`, and the
-# Rust extension is built into it as `liquers._native`.
+# Mixed Rust/Python project. The Rust extension is the private package `_liquers` (the compiled
+# `_liquers._liquers` under `python/_liquers/`), and the pure-Python public package `liquers` lives
+# beside it under `python/`. maturin needs the extension inside a Python package when
+# `python-source` is set, hence the `_liquers/` package (design py-package-submodules, Phase 2 R1).
 python-source = "python"
-module-name = "liquers._native"
+module-name = "_liquers"
+python-packages = ["liquers"]
 features = ["pyo3/extension-module"]
 # No `profile` here: `maturin develop` would read it too. The release jobs pass `--profile wheel`
 # (the workspace's stripped, thin-LTO profile); an install from the sdist builds with `release`.

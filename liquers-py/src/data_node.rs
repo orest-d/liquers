@@ -528,7 +528,7 @@ impl DataNode for PyNode {
 // ------------------------------------------------------------------------------------------------
 
 /// The kind of a data node.
-#[pyclass(frozen, eq, eq_int, name = "NodeKind", module = "liquers")]
+#[pyclass(frozen, eq, eq_int, name = "NodeKind", module = "liquers.data_nodes")]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PyNodeKind {
     Null,
@@ -586,7 +586,7 @@ enum Root {
 /// The view is live: each read looks the data up again, so a `dict` changed between two reads
 /// shows the change. Children are views too. Data that is read on demand (a store folder, a record
 /// source) is read with the `_async` members; the sync ones raise `NotSupportedError` for it.
-#[pyclass(frozen, name = "DataNode", module = "liquers")]
+#[pyclass(frozen, name = "DataNode", module = "liquers.data_nodes")]
 pub struct DataNodeView {
     root: Arc<Root>,
     path: Arc<[Step]>,

@@ -56,7 +56,7 @@ use crate::records::Scope;
 use crate::value::{value_to_py, Value};
 
 /// A value and its metadata.
-#[pyclass(frozen, name = "State", module = "liquers")]
+#[pyclass(frozen, name = "State", module = "liquers.assets")]
 pub struct State {
     /// The core state; the value is read from it, converted at most once.
     core: CoreState<Value>,
@@ -149,7 +149,7 @@ impl State {
 }
 
 /// A handle on one evaluation.
-#[pyclass(frozen, name = "AssetRef", module = "liquers")]
+#[pyclass(frozen, name = "AssetRef", module = "liquers.assets")]
 pub struct AssetRef {
     inner: CoreAssetRef<PyEnvironment>,
     /// The shut signal of the environment that made it, so a wait ends when that is shut down.

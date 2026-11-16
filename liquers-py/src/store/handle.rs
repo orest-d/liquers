@@ -34,7 +34,7 @@ enum StoreSource {
 /// `bytes`, metadata `lq.Metadata` (`lq.MetadataRecord` and `dict` are accepted too). Every data
 /// method has an awaitable `_async` twin; `is_supported` and `is_read_only` do not. After the environment's `shutdown()`, or `close()` of a direct
 /// handle, every call raises. See `PYTHON_GUIDE.md`, "Stores".
-#[pyclass(frozen, name = "Store", module = "liquers")]
+#[pyclass(frozen, name = "Store", module = "liquers.store")]
 pub struct Store {
     source: StoreSource,
 }

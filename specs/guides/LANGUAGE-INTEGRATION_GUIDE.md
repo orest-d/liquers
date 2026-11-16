@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets, core/store, core/value, lib/commands]
-reviewed: 2026-11-11
+reviewed: 2026-11-15
 ---
 # Liquers Language Integration Guide
 
@@ -2213,12 +2213,15 @@ What cost time:
 - **An extra whose package has no wheel** for a platform would make pip build it from source.
   Exclude it with an environment marker, and have `require` say it is unavailable there; there is
   no marker for a free-threaded interpreter, so that case is documented.
-- **PyO3's `module = "liquers"` decides where the stubs go.** Every class is defined in the native
-  `liquers._native` but reports `__module__ == "liquers"`, so stubtest looks each one up in
-  `liquers/__init__.pyi`; declare it there and have `_native.pyi` re-export it, or stubtest
-  reports every class as missing.
-- **stubtest finds submodules itself**; naming `liquers._native` as well fails with "Duplicate
-  module". pyright needs the interpreter (`--pythonpath`) to find an installed package, and narrows
+- **PyO3's `module = "…"` decides where the stubs go.** stubtest looks a class up in the stub
+  of the module it reports, not where it is defined. Every class is defined in the private
+  native package `_liquers` but reports its public submodule (`liquers.query` for `Key`), so it is
+  declared in `liquers/query.pyi`, re-exported by `liquers/__init__.pyi`, and
+  `_liquers/__init__.pyi` re-exports it again; a class declared anywhere else is reported missing.
+- **maturin wants the extension inside a package.** A mixed project refuses a bare top-level
+  extension; name it `_liquers._liquers` and give `_liquers/` an `__init__.py` that re-exports it.
+- **stubtest finds submodules itself**; name the top-level packages (`liquers _liquers`) only.
+  pyright needs the interpreter (`--pythonpath`) to find an installed package, and narrows
   a property on assignment, so assert its declared type before setting it. pyarrow ships no type
   information, so declare its objects as `Any` rather than *Unknown*.
 - **Rust tests that load a Python module race.** Executing a module can release the GIL, so two
@@ -4052,6 +4055,7 @@ def test_DOCS04_every_public_name_is_documented():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-15 | §6 Python lessons: stubs follow the module a class reports; maturin needs the extension inside a package (`_liquers`). | `design/py-package-submodules/` |
 | 2026-11-11 | §6 Python: a Liquers UI (`UIUSE`): the UI payload, the native driver in the background and in a window, delivery on threads that ask, unreturnable waits refused, the main-thread window with Ctrl-C. | `design/liquers-py-ui/`, `design/liquers-py-ui-window/` |
 | 2026-11-09 | §6 Python: the web server (an `EnvSource` over the current build without the GIL, settings from the configuration document, servers stop first at shutdown and exit). | phase-5, `design/liquers-py-web-server/` |
 | 2026-11-04 | §PIPELINE: `liquers-py` implements the feature; §6 Python: *Pipelines* (the JSON walker, `apply_queued` at the top level and `apply_ad_hoc` in a command, editors committed from a clone, declared pipeline commands). | `design/liquers-py-pipelines/` |

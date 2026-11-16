@@ -190,7 +190,7 @@ jobs:
         run: |
           for wheel in dist/*.whl; do
             rm -rf unpacked && mkdir unpacked && python -m zipfile -e "$wheel" unpacked
-            for pyd in unpacked/liquers/*.pyd; do dumpbin //dependents "$pyd"; done > deps.txt
+            for pyd in unpacked/_liquers/*.pyd; do dumpbin //dependents "$pyd"; done > deps.txt
             cat deps.txt
             python scripts/check-wheel.py "$wheel" --deps deps.txt
           done

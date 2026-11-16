@@ -776,7 +776,7 @@ fn query_text(query: &Bound<'_, PyAny>) -> Result<String, Error> {
 /// Status callbacks (`on("status", …)`) run only on a thread that asks for them: `wait_idle`,
 /// `wait_idle_async`, `process_events()`, or a window's frames. A context manager: leaving the
 /// block disposes it. See `PYTHON_GUIDE.md` "Show a Liquers UI".
-#[pyclass(frozen, name = "UI", module = "liquers")]
+#[pyclass(frozen, name = "UI", module = "liquers.lui")]
 pub struct UI {
     pub(crate) model: Arc<UiModel>,
 }
@@ -1003,7 +1003,7 @@ impl UI {
 }
 
 /// One element, as `UI.elements()` lists it.
-#[pyclass(frozen, get_all, name = "UIElementInfo", module = "liquers")]
+#[pyclass(frozen, get_all, name = "UIElementInfo", module = "liquers.lui")]
 pub struct UIElementInfo {
     /// The element's handle.
     handle: u64,
@@ -1042,7 +1042,7 @@ impl UIElementInfo {
 }
 
 /// A status change of one element, as a status callback receives it.
-#[pyclass(frozen, get_all, name = "UIStatusEvent", module = "liquers")]
+#[pyclass(frozen, get_all, name = "UIStatusEvent", module = "liquers.lui")]
 pub struct UIStatusEvent {
     /// The element, or `None` for a root query that made no element.
     handle: Option<u64>,
@@ -1074,7 +1074,7 @@ impl UIStatusEvent {
 
 /// A status subscription, as `UI.on` returns it. `dispose()` (or leaving its `with` block) stops
 /// its callback and releases it.
-#[pyclass(frozen, name = "UISubscription", module = "liquers")]
+#[pyclass(frozen, name = "UISubscription", module = "liquers.lui")]
 pub struct UISubscription {
     model: Weak<UiModel>,
     id: u64,
@@ -1104,7 +1104,7 @@ impl UISubscription {
 ///
 /// A live handle on the element, not data: passing it back to Liquers gives the same element, and
 /// a store refuses to write it.
-#[pyclass(frozen, name = "UIElement", module = "liquers")]
+#[pyclass(frozen, name = "UIElement", module = "liquers.lui")]
 pub struct UIElement {
     pub(crate) value: Arc<dyn liquers_lib::ui::UIElement>,
 }

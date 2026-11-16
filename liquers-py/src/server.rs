@@ -186,7 +186,7 @@ impl Drop for StopOnDrop {
 ///
 /// The server keeps running when this handle is dropped; `shutdown()`, `env.shutdown()` or the
 /// interpreter's exit stops it. As a context manager it stops the server on leaving the block.
-#[pyclass(name = "Server", module = "liquers", frozen)]
+#[pyclass(name = "Server", module = "liquers.server", frozen)]
 pub struct Server {
     pub(crate) slot: Arc<ServerSlot>,
 }

@@ -14,9 +14,11 @@
 #   - otherwise it creates (or reuses) target/liquers-py-docs-venv and builds the package into
 #     it with `maturin develop` (no test-only features, so the reference shows the public API).
 #
-# It installs pdoc if absent, runs it, and fails when pdoc fails or when the written page does
-# not name every entry of the module's `__all__`. Nothing it writes is committed; the
-# documentation site (scripts/build-docs.sh) places it under api/python/.
+# It installs pdoc if absent, runs it on the module and on each of its public submodules (pdoc
+# follows only submodules named in `__all__`, and `liquers.__all__` names none), and fails when
+# pdoc fails or when a written page does not name every entry of its module's `__all__`.
+# Nothing it writes is committed; the documentation site (scripts/build-docs.sh) places it
+# under api/python/.
 # Design: specs/design/py-api-reference/.
 set -euo pipefail
 
@@ -28,7 +30,7 @@ module="liquers"
 while [ $# -gt 0 ]; do
     case "$1" in
         --out) out="$2"; shift ;;
-        -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
         -*) echo "build-liquers-py-docs.sh: unknown option $1" >&2; exit 2 ;;
         *) module="$1" ;;
     esac
@@ -57,20 +59,38 @@ fi
 python3 -c "import pdoc" >/dev/null 2>&1 \
     || python3 -m pip install --quiet --disable-pip-version-check pdoc
 
-echo "==> pdoc $module -> $out" >&2
+# The module and its public submodules (`liquers.query`, … `liquers.lui`); a module that cannot be
+# imported is passed on alone, so pdoc reports it.
+modules=$(python3 - "$module" <<'EOF' || echo "$module"
+import importlib, pkgutil, sys
+module = importlib.import_module(sys.argv[1])
+subs = [] if not hasattr(module, "__path__") else [
+    f"{module.__name__}.{info.name}" for info in pkgutil.iter_modules(module.__path__)
+    if not info.name.startswith("_")
+]
+print(" ".join([module.__name__, *sorted(subs)]))
+EOF
+)
+echo "==> pdoc $modules -> $out" >&2
 rm -rf "$out"
-python3 -m pdoc "$module" -o "$out" --docformat markdown
+# shellcheck disable=SC2086
+python3 -m pdoc $modules -o "$out" --docformat markdown
 
 page="$out/$module.html"
 [ -f "$page" ] || { echo "build-liquers-py-docs.sh: pdoc wrote no $page" >&2; exit 1; }
 
-# Every public name must have its own entry on the page (pdoc gives each an `id`).
-missing=$(python3 - "$module" "$page" <<'EOF'
-import importlib, sys
-module, page = sys.argv[1], sys.argv[2]
-text = open(page, encoding="utf-8").read()
-names = getattr(importlib.import_module(module), "__all__", [])
-print(" ".join(n for n in names if f'id="{n}"' not in text))
+# Every public name must have its own entry on its module's page (pdoc gives each an `id`).
+# shellcheck disable=SC2086
+missing=$(python3 - "$out" $modules <<'EOF'
+import importlib, pathlib, sys
+out, modules = pathlib.Path(sys.argv[1]), sys.argv[2:]
+gaps = []
+for name in modules:
+    page = out / (name.replace(".", "/") + ".html")
+    text = page.read_text(encoding="utf-8") if page.is_file() else ""
+    names = getattr(importlib.import_module(name), "__all__", [])
+    gaps += [f"{name}.{n}" for n in names if f'id="{n}"' not in text]
+print(" ".join(gaps))
 EOF
 )
 if [ -n "$missing" ]; then
