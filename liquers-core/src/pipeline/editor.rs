@@ -10,6 +10,10 @@
 //! [`QueryEditor::query`] always succeeds. After each edit it re-encodes and re-parses the query,
 //! so element positions and error positions point into the current query (AC-41).
 //!
+//! Value accessors use both: the query steps of [`crate::accessor::steps`] read an action or an
+//! argument ([`PipelineEditor::argument_source`]) and write a part back through these edits, so an
+//! edit the registry refuses is refused before anything is written to where the query lives.
+//!
 //! ```
 //! use std::sync::Arc;
 //! use liquers_core::command_metadata::{ArgumentInfo, CommandMetadata, CommandMetadataRegistry};
@@ -268,6 +272,32 @@ impl PipelineEditor {
     pub fn argument_info(&self, at: usize, arg: impl Into<ArgRef>) -> Result<&ArgumentInfo, Error> {
         let md = self.command_metadata(at)?;
         argument_info_of(md, &arg.into()).map_err(|e| self.annotate(e, Some(at)))
+    }
+    /// What the action at `at` gives for an argument (by position or by name), or `None` when it
+    /// gives nothing. A variadic argument given by position is the [`Source::Multiple`] of its
+    /// parameters.
+    pub fn argument_source(&self, at: usize, arg: impl Into<ArgRef>) -> Result<Option<Source>, Error> {
+        let action = self.action_at(at)?;
+        let md = self.command_metadata(at)?;
+        let arg = arg.into();
+        let info = argument_info_of(md, &arg).map_err(|e| self.annotate(e, Some(at)))?;
+        if let Some(given) = action.arguments.get(&info.name) {
+            return Ok(Some(given.item.clone()));
+        }
+        let slots = positional_arguments(md);
+        let Some(slot) = slots.iter().position(|s| s.name == info.name) else {
+            return Ok(None);
+        };
+        if info.multiple {
+            let items: Vec<Source> = action
+                .parameters
+                .iter()
+                .skip(slot)
+                .map(|p| p.item.clone())
+                .collect();
+            return Ok(if items.is_empty() { None } else { Some(Source::Multiple(items)) });
+        }
+        Ok(action.parameters.get(slot).map(|p| p.item.clone()))
     }
     /// The arguments of the action at `at` that are given neither by position nor by name.
     pub fn unset_arguments(&self, at: usize) -> Result<Vec<&ArgumentInfo>, Error> {
@@ -920,6 +950,10 @@ impl QueryEditor {
     /// See [`PipelineEditor::argument_info`].
     pub fn argument_info(&self, at: usize, arg: impl Into<ArgRef>) -> Result<&ArgumentInfo, Error> {
         self.0.argument_info(at, arg)
+    }
+    /// See [`PipelineEditor::argument_source`].
+    pub fn argument_source(&self, at: usize, arg: impl Into<ArgRef>) -> Result<Option<Source>, Error> {
+        self.0.argument_source(at, arg)
     }
     /// See [`PipelineEditor::unset_arguments`].
     pub fn unset_arguments(&self, at: usize) -> Result<Vec<&ArgumentInfo>, Error> {

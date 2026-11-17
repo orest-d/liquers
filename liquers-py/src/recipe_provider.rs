@@ -351,7 +351,7 @@ impl RecipeProviderFactory<PyEnvironment> for PyRecipeProviderFactory {
 /// as an evaluation does. Keys are `lq.Key` or key text. Every method has an awaitable `_async`
 /// twin; after the environment's `shutdown()` every call raises. See `PYTHON_GUIDE.md`, "Recipe
 /// providers".
-#[pyclass(frozen, name = "RecipeProviders", module = "liquers")]
+#[pyclass(frozen, name = "RecipeProviders", module = "liquers.recipes")]
 pub struct RecipeProviders {
     cell: Weak<EnvCell>,
 }

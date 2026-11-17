@@ -126,7 +126,7 @@ simply stop being wanted.
 - **Environment, Context and evaluation** — documented → [`reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`](reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md)
 - **Recipe-provider fallback in the payload environment** — built → [`reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`](reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md) *(design: [`payload-env-recipe-provider-fallback`](design/payload-env-recipe-provider-fallback/))*
 - **Metadata format/type consistency** — designing → [`design/metadata-consistency/`](design/metadata-consistency/)
-- **Value accessor abstraction** — designing → [`design/value-accessor/`](design/value-accessor/)
+- **Settable value accessors** (read, write, watch and project a value where it lives: store, keyed asset, memory, document fields, recipes, query arguments; the `acc` commands, `/api/acc`, Python `lq.Accessor`, JavaScript `Accessor`; supersedes [`value-accessor`](design/value-accessor/)) — built → [`reference/VALUE_ACCESSORS.md`](reference/VALUE_ACCESSORS.md) *(how to: [`guides/VALUE_ACCESSOR_GUIDE.md`](guides/VALUE_ACCESSOR_GUIDE.md); design in [`design/settable-value-accessor/`](design/settable-value-accessor/); open: [`VALUE-ACCESSOR-CANNOT-LOCK`](issues/VALUE-ACCESSOR-CANNOT-LOCK.md), [`ACCESSOR-CANNOT-BE-SENT-TO-A-CLIENT`](issues/ACCESSOR-CANNOT-BE-SENT-TO-A-CLIENT.md), [`ACCESSOR-CANNOT-BE-IMPLEMENTED-IN-PYTHON-OR-JAVASCRIPT`](issues/ACCESSOR-CANNOT-BE-IMPLEMENTED-IN-PYTHON-OR-JAVASCRIPT.md), [`RECORD-ACCESSOR-STEPS-HAVE-NO-COMMANDS`](issues/RECORD-ACCESSOR-STEPS-HAVE-NO-COMMANDS.md))*
 - **`ValueInterface` capability split** — planned → [`issues/CORE-VALUE-INTERFACE-CAPABILITY-SPLIT.md`](issues/CORE-VALUE-INTERFACE-CAPABILITY-SPLIT.md)
 - **Auto-generated value descriptions** — planned → [`issues/VALUE-DESCRIPTION.md`](issues/VALUE-DESCRIPTION.md)
 - **Application-defined metadata attributes** — planned → [`issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md`](issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md)
@@ -285,6 +285,7 @@ drop, focus, pointer) are `issues/UI-EVENTS-HAVE-NO-POINTER-DRAG-OR-CHANGE-KINDS
 - **Language-binding tests in CI (liquers-py on 3.10, 3.14, 3.14t; liquers-web under Node)** — built → `.github/workflows/liquers-py-tests.yml`, `.github/workflows/liquers-web-tests.yml`; [`reference/PYTHON_INTEGRATION.md`](reference/PYTHON_INTEGRATION.md) §8; design [`design/language-binding-tests-in-ci/`](design/language-binding-tests-in-ci/)
 - **Python pipelines, templates and data nodes (M6: evaluate, convert, edit and register pipelines; `env.render` / `expand`, template commands; `dict`s read in place as data nodes)** — built → [`reference/PYTHON_INTEGRATION.md`](reference/PYTHON_INTEGRATION.md) §14 Data nodes, §15 Templates, §16 Pipelines; [`guides/PYTHON_GUIDE.md`](guides/PYTHON_GUIDE.md) §6-§7 *(designs [`design/liquers-py-data-nodes/`](design/liquers-py-data-nodes/), [`design/liquers-py-templates/`](design/liquers-py-templates/), [`design/liquers-py-pipelines/`](design/liquers-py-pipelines/); core prerequisites [`design/ad-hoc-closure-asset/`](design/ad-hoc-closure-asset/) → [`reference/ASSETS.md`](reference/ASSETS.md) §Closure assets, [`design/template-render-in-env/`](design/template-render-in-env/) → [`guides/TEMPLATE_GUIDE.md`](guides/TEMPLATE_GUIDE.md), [`design/foreign-value-data-node/`](design/foreign-value-data-node/))*
 - **Python web server (M7 WEBSERV: `env.serve`, `serve_async`, `lq.Server`, served from a config file or keywords)** — built → [`reference/PYTHON_INTEGRATION.md`](reference/PYTHON_INTEGRATION.md) §3 and §17 Web server, [`guides/PYTHON_GUIDE.md`](guides/PYTHON_GUIDE.md) §Serving over HTTP *(design in [`design/liquers-py-web-server/`](design/liquers-py-web-server/))*
+- **Python package layout (public submodules `liquers.query` … `liquers.lui` mirroring the Rust modules; the private native package `_liquers` behind `liquers._backend`)** — built → [`reference/PYTHON_INTEGRATION.md`](reference/PYTHON_INTEGRATION.md) §1 Layout and §13 Type declarations, [`guides/PYTHON_GUIDE.md`](guides/PYTHON_GUIDE.md) §2 *(design in [`design/py-package-submodules/`](design/py-package-submodules/))*
 - **`repr` of `Key`, `Expires` and `ExpirationTime` evaluates back (`Key('data/a.txt')`)** — built → `liquers-py/src/query.rs` `quoted`; design [`design/py-encoded-reprs/`](design/py-encoded-reprs/) *(`Query` and the other classes: [`design/py-python-style-reprs/`](design/py-python-style-reprs/))*
 - **Executor-agnostic core** — planned → [`issues/CORE-TOKIO-REMOVAL.md`](issues/CORE-TOKIO-REMOVAL.md)
 - **Browser stores (localStorage, fetch, JS, routing)** — built → [`design/liquers-web-store/`](design/liquers-web-store/) *(conformance gaps closed: [`design/web-store-conformance-tests/`](design/web-store-conformance-tests/))*
@@ -679,8 +680,11 @@ deliberately folded behind a broader line.
 - feature `NO-SQL-ENGINE-IN-WASM-BUILDS`
 - feature `NO-TEMPLATE-EDITOR-UI`
 - feature `NO-WRITE-PATH-FROM-RECORDS-INTO-A-RELATIONAL-DATABASE`
+- feature `PIPELINE-RESULTS-ARE-NEVER-CACHED`
+- feature `PY-CANNOT-INSPECT-THE-DEPENDENCY-MANAGER`
 - feature `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`
 - feature `PY-COMMAND-DECORATOR-CANNOT-SET-REALM`
+- feature `PY-HAS-NO-PURE-PYTHON-FALLBACK`
 - feature `PY-WEB-SERVER-CANNOT-TAKE-PYTHON-HANDLERS`
 - feature `QUERY-BUILDER-NOT-IN-BINDINGS`
 - feature `QUERY-CANNOT-CHOOSE-A-DATA-FORMAT`
@@ -727,6 +731,7 @@ deliberately folded behind a broader line.
 - feature `WEB-PIPELINE-EDITOR-HAS-NO-DEFINITION-MODE`
 - feature `WEB-QUERY-EDITOR-NOT-LIVE`
 - feature `WEB-UI-CANNOT-BE-DRIVEN-BY-A-REMOTE-ENGINE`
+- feature `YAML-DOCUMENT-EDIT-DROPS-COMMENTS`
 <!-- END generated: unplaced -->
 
 ## Guides
@@ -756,6 +761,7 @@ deliberately folded behind a broader line.
 - [`TYPE_SYSTEM_GUIDE.md`](guides/TYPE_SYSTEM_GUIDE.md) — How to add a value type so the system can describe it, store it and read it back. For *why* the
 - [`UNITTEST_GUIDE.md`](guides/UNITTEST_GUIDE.md) — This guide explains how to write comprehensive unit tests for the Liquers query evaluation flow, covering environment setup, command registration, query evaluat
 - [`USER_DOCS_EDITING_GUIDE.md`](guides/USER_DOCS_EDITING_GUIDE.md) — How to write, check and maintain the public user guides in `docs/guides/`: *Liquers for Rust*,
+- [`VALUE_ACCESSOR_GUIDE.md`](guides/VALUE_ACCESSOR_GUIDE.md) — How to make a value accessor, read and write through it, project it to a part, react to its events,
 - [`WEB_API_GUIDE.md`](guides/WEB_API_GUIDE.md) — This guide shows how to use a Liquers server over HTTP and WebSocket: evaluating queries, running
 - [`autonomous_bulk_design.md`](guides/autonomous_bulk_design.md) — This is the binding procedure for a coding agent asked to create or finish design documents for
 - [`autonomous_issue_fixing.md`](guides/autonomous_issue_fixing.md) — This is the binding procedure for a coding agent asked to fix an issue autonomously. The words

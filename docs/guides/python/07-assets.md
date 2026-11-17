@@ -2,7 +2,7 @@
 title: Recipes, assets and caching
 status: ready
 sources: [reference/ASSETS.md, reference/ASSET_LIFECYCLE.md, reference/RECIPES_AND_PLANS.md, guides/DEPENDENCY_CONSISTENCY_GUIDE.md, reference/ENVIRONMENT_CONFIG.md, guides/PYTHON_GUIDE.md]
-reviewed: 2026-11-09
+reviewed: 2026-11-15
 ---
 # 7. Recipes, assets and caching
 
@@ -205,12 +205,50 @@ assert env.evaluate("-R/data/greeting.txt") == "hello"
 env.shutdown()
 ```
 
+A recipe with a pipeline (section 7.4) is written and read the same way. Here the pipeline
+passes a list of regions, which a query could not hold, and the query finishes the work:
+
+```python
+import time
+import liquers as lq
+
+env = lq.Environment()
+env.store.set("data/sales.csv", b"region,month,amount\nEU,jan,120\nUS,jan,80\nASIA,jan,300\nEU,feb,95\n")
+env.store.set("data/recipes.yaml", b"""
+recipes:
+  - pipeline:
+      - -R/data/sales.csv/-/ns-rec/to_record
+      - action: is_in
+        ns: rec
+        arguments: {column: region, values: [EU, US]}
+    query: ns-rec/sort-amount-f/head-2/top.csv
+    title: The two largest sales in the EU and the US
+""")
+
+top = env.evaluate("-R/data/top.csv")
+assert top.to_dict() == {"region": ["EU", "EU"], "month": ["jan", "feb"], "amount": [120, 95]}
+
+recipe = env.recipes.recipe("data/top.csv")
+assert recipe.query == "ns-rec/sort-amount-f/head-2/top.csv"
+assert isinstance(recipe.pipeline, lq.Pipeline)
+
+time.sleep(0.5)                                         # the result is stored like any other
+assert env.store.get("data/top.csv") == b"region,month,amount\nEU,jan,120\nEU,feb,95\n"
+env.shutdown()
+```
+
+The result has a key, so it is cached and stored, which a pipeline evaluated with
+`env.evaluate` is not (section 3.10).
+
+API reference: [`Recipe`](https://orest-d.github.io/liquers/api/python/liquers/recipes.html#Recipe).
+
 ## 7.9 Recipes from Python
 
 A `recipes.yaml` lists its results one by one. When the names follow a pattern instead, "for
 every file `x.csv` there is a summary `x.summary.txt`", write a *recipe provider*: an object
 whose `recipe_opt(key)` returns the recipe for a key, or `None` when the key is not its
-business. The recipe is an `lq.Recipe` or just the text of a query.
+business. The recipe is a `Recipe`, from the module `liquers.recipes`, or just the text of a
+query.
 
 As with a store, you register a factory under a type name. The `recipes` list of the
 configuration then names that type, and the other settings of the entry are passed to the
@@ -218,6 +256,7 @@ factory:
 
 ```python
 import liquers as lq
+from liquers.recipes import Recipe
 
 class Reports:
     def __init__(self, folder):
@@ -226,7 +265,7 @@ class Reports:
         if str(key.parent()) != self.folder:
             return None                                   # not mine: answer quickly
         if key.filename() == "fresh.txt":
-            return lq.Recipe("hello", volatile=True)
+            return Recipe("hello", volatile=True)
         return f"hello/{key.filename()}"
 
 env = lq.Environment(config={"recipes": ["recipes_yaml", {"type": "reports", "folder": "reports"}]})
@@ -258,8 +297,8 @@ A provider may be asked often, so `recipe_opt` should answer quickly for keys th
 own. It may be an `async def`. If its results should show up when a folder is listed, give it a
 method `assets_with_recipes(folder)` that returns the names it offers in that folder.
 
-`lq.Recipe(query, title="", description="", *, cwd=None, volatile=False, expires=None)` builds a
-recipe; `expires` is an `lq.Expires`.
+`Recipe(query, title="", description="", *, cwd=None, volatile=False, expires=None)` builds a
+recipe; `expires` is an `Expires`, from `liquers.metadata`.
 
 ## 7.10 Settings that change caching
 

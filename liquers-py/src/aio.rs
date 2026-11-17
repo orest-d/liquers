@@ -189,7 +189,12 @@ pub(crate) enum ToPy {
     /// An awaited render, and whether to return the full `lq.RenderResult`; `None` when the render
     /// was cancelled before it started (`CancelledError`).
     Rendered(Result<(Option<liquers_lib::template::Rendered>, bool), Error>),
+    /// Anything else: a conversion run with the GIL once the result is back (`accessor.rs`).
+    With(Result<PyConvert, Error>),
 }
+
+/// A conversion to a Python object, run on the caller's loop thread with the GIL.
+pub(crate) type PyConvert = Box<dyn FnOnce(Python<'_>) -> Result<Py<PyAny>, Error> + Send>;
 
 impl<'py> IntoPyObject<'py> for ToPy {
     type Target = PyAny;
@@ -244,6 +249,7 @@ impl<'py> IntoPyObject<'py> for ToPy {
                     .map_err(|e| pyerr_to_error(py, &e))
             }),
             ToPy::Node(result) => result.and_then(|answer| answer.into_py(py)),
+            ToPy::With(result) => result.and_then(|convert| convert(py)),
             ToPy::Rendered(result) => result.and_then(|(rendered, full)| {
                 let rendered = rendered.ok_or_else(crate::template::not_started)?;
                 crate::template::rendered_to_py(py, rendered, full).map_err(|e| pyerr_to_error(py, &e))

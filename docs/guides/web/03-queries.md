@@ -2,7 +2,7 @@
 title: Queries
 status: ready
 sources: [reference/PROJECT_OVERVIEW.md, guides/QUERY_ESCAPING_GUIDE.md, guides/JAVASCRIPT_GUIDE.md, reference/PIPELINES.md]
-reviewed: 2026-11-10
+reviewed: 2026-11-14
 ---
 # 3. Queries
 
@@ -123,11 +123,83 @@ assert.deepStrictEqual(head.pos, { offset: 27, line: 1, column: 28 });   // wher
 Each element and each argument carries its position in the text (`pos`), which is what an editor
 needs to underline the right part of a query.
 
-## 3.9 Building a query from values
+## 3.9 Building and editing a query
 
 A value that goes into a query as an argument may contain `-`, `/` or a space, which have a
 meaning in a query. Never paste such a value into the text by hand.
-`liquers.encodeParam(text)` writes one argument with its escapes, for any string:
+
+Use a `QueryEditor`. It knows the commands of the environment, so it sets arguments by name,
+takes each value as the JavaScript value it is, writes it into the query correctly, and checks
+every edit:
+
+<!-- example: needs records -->
+```js
+import init, * as liquers from "https://orest-d.github.io/liquers/pkg/liquers-web/liquers_web.js";
+
+await init();
+await liquers.init();
+
+const region = "North-West / 2";                    // from a form field, say
+const editor = new liquers.QueryEditor("-R/data/sales.csv");
+editor.action("to_record", "rec");                  // a command, and its namespace
+let at = editor.action("eq", "rec");                // appends an action, returns its index
+editor.set(at, "column", "region");
+editor.set(at, "value", region);                    // a text as it is; the editor escapes it
+at = editor.action("sort", "rec");
+editor.set(at, "column", "amount");
+editor.set(at, "ascending", false);                 // a boolean as a boolean
+at = editor.action("head", "rec");
+editor.set(at, "n", 10);                            // a number as a number
+assert.strictEqual(editor.query(),
+  "-R/data/sales.csv/-/ns-rec/to_record/eq-region-North~_West~.~/~.2/sort-amount-false/head-10");
+
+const before = editor.query();
+assert.throws(() => editor.set(at, "count", 3));    // head has no such argument
+assert.throws(() => editor.action("nosuch"));       // no such command
+assert.strictEqual(editor.query(), before);         // a refused edit changes nothing
+editor.free();
+```
+
+Pass numbers and booleans as they are, not as text. You do not need to know how a query spells
+`false` or a negative number; the editor does. `set` takes the name of an argument and puts the
+value in the right position. `pushParameter(at, value)` appends the next positional argument
+instead, which is what you use for a command that takes any number of arguments.
+
+The same editor changes a query that already exists. Give the constructor the query, and edit
+its steps by their position:
+
+<!-- example: needs records -->
+```js
+import init, * as liquers from "https://orest-d.github.io/liquers/pkg/liquers-web/liquers_web.js";
+
+await init();
+await liquers.init();
+
+const editor = new liquers.QueryEditor("-R/data/sales.csv/-/ns-rec/to_record/sort-amount/head-10");
+// The steps are counted from 0: the file, to_record, sort, head.
+editor.set(3, "n", 3);
+editor.set(2, "ascending", false);
+assert.strictEqual(editor.query(), "-R/data/sales.csv/-/ns-rec/to_record/sort-amount-false/head-3");
+
+editor.unset(2, "ascending");                       // back to the default
+assert.deepStrictEqual(editor.unsetArguments(2), ["ascending", "nulls_last"]);
+
+editor.remove(3);                                   // drop the step
+editor.setFilename("sorted.csv");
+assert.strictEqual(editor.query(), "-R/data/sales.csv/-/ns-rec/to_record/sort-amount/sorted.csv");
+editor.free();
+```
+
+The editor takes the index of an action rather than returning a sub-editor: `set`,
+`pushParameter`, `link`, `unset` and `setNamespace` edit the action at that index, and
+`resource`, `insert`, `remove`, `moveTo` and `setFilename` change the query's elements.
+`unsetArguments(at)` names the arguments of a step that still have their defaults, which is
+what a form for editing a query is built from. `editor.free()` releases the editor's memory
+inside the module; call it when you are done (section 4.5).
+
+For a single value, when you write the rest of the query yourself, there is the older way:
+`liquers.encodeParam(text)` writes one argument with its escapes. It knows nothing about the
+command, so it takes text only, and the position of the argument is yours to get right:
 
 ```js
 import init, * as liquers from "https://orest-d.github.io/liquers/pkg/liquers-web/liquers_web.js";
@@ -136,78 +208,95 @@ await init();
 await liquers.init();
 liquers.registerCommand({ name: "echo", arguments: [{ name: "text", type: "string" }], run: (t) => t });
 
-const text = "a-b c/d";                       // from a form field, say
+const text = "a-b c/d";
 assert.strictEqual(liquers.encodeParam(text), "a~_b~.c~/d");
 assert.strictEqual(await liquers.evaluate(`echo-${liquers.encodeParam(text)}`), text);
 ```
 
-For more than one argument, a `QueryEditor` is safer. It knows the commands of the environment,
-so it sets arguments by name, checks every edit, and escapes for you:
+Prefer the editor.
 
-```js
-import init, * as liquers from "https://orest-d.github.io/liquers/pkg/liquers-web/liquers_web.js";
-
-await init();
-await liquers.init();
-liquers.registerCommand({ name: "hello", run: () => "world" });
-liquers.registerCommand({
-  name: "greet",
-  state: "text",
-  arguments: [{ name: "greeting", type: "string", default: "Hello" }],
-  run: (text, greeting) => `${greeting}, ${text}!`,
-});
-
-const editor = new liquers.QueryEditor("hello");
-const at = editor.action("greet");                  // appends an action, returns its index
-editor.set(at, "greeting", "Good morning - all");
-assert.strictEqual(editor.query(), "hello/greet-Good~.morning~.~_~.all");
-
-assert.throws(() => editor.set(at, "greting", "Hi"));       // no such argument
-assert.throws(() => editor.action("nosuch"));               // no such command
-assert.strictEqual(editor.query(), "hello/greet-Good~.morning~.~_~.all");   // a refused edit changes nothing
-editor.free();
-
-assert.strictEqual(await liquers.evaluate("hello/greet-Good~.morning~.~_~.all"), "Good morning - all, world!");
-```
-
-The editor takes the index of an action rather than returning a sub-editor: `set`,
-`pushParameter`, `link`, `unset` and `setNamespace` edit the action at that index, and
-`resource`, `insert`, `remove`, `moveTo` and `setFilename` change the query's elements.
-`editor.free()` releases the editor's memory inside the module; call it when you are done
-(section 4.5).
+API reference: [`QueryEditor`](https://orest-d.github.io/liquers/api/js/classes/QueryEditor.html) and
+[`encodeParam`](https://orest-d.github.io/liquers/api/js/functions/encodeParam.html).
 
 ## 3.10 Pipelines: queries as data
 
-A *pipeline* is the structured form of a query: a plain array with one entry per step. An entry
-is a piece of query text, or an object naming an action and its arguments. In a pipeline an
-argument is a JSON value, so nothing needs escaping, and an argument can be something a query
-cannot spell, such as an object.
+{{> ../_shared/pipelines.md}}
 
+### Running a pipeline in a page
+
+In JavaScript a pipeline is a plain array. `evaluatePipeline` runs it as `evaluate` runs a
+query:
+
+<!-- example: needs records -->
 ```js
 import init, * as liquers from "https://orest-d.github.io/liquers/pkg/liquers-web/liquers_web.js";
 
 await init();
 await liquers.init();
-liquers.registerCommand({ name: "hello", run: () => "world" });
-liquers.registerCommand({
-  name: "greet",
-  state: "text",
-  arguments: [{ name: "greeting", type: "string", default: "Hello" }],
-  run: (text, greeting) => `${greeting}, ${text}!`,
-});
+const env = liquers.Environment.global();
+await env.configureStore({ stores: [{ type: "memory", prefix: "data" }] });
+const bytes = (s) => new TextEncoder().encode(s);
+await env.store().set("data/sales.csv", bytes("region,month,amount\nEU,jan,120\nUS,jan,80\nEU,feb,95\n"), {});
 
-const pipeline = ["hello", { action: "greet", arguments: { greeting: "a-b c" } }];
-assert.strictEqual(await liquers.evaluatePipeline(pipeline), "a-b c, world!");
-assert.strictEqual(liquers.pipelineToQuery(pipeline), "hello/greet-a~_b~.c");
+const pipeline = [
+  "-R/data/sales.csv/-/ns-rec/to_record",
+  { action: "eq", ns: "rec", parameters: ["region", "EU"] },
+  { action: "nrows", ns: "rec" },
+];
+assert.strictEqual(await liquers.evaluatePipeline(pipeline), 2);
+
+// A pipeline turns into a query, and a query into a pipeline.
+const query = liquers.pipelineToQuery(pipeline);
+assert.strictEqual(query, "-R/data/sales.csv/-/ns-rec/to_record/eq-region-EU/nrows");
+const steps = liquers.queryToPipeline(query).elements;      // how to look inside a query
+assert.strictEqual(steps[0].resource, "data/sales.csv");
+assert.strictEqual(steps[2].action, "eq");
+assert.deepStrictEqual(steps[2].parameters.map((p) => p.value), ["region", "EU"]);
 ```
 
-`evaluatePipeline` runs a pipeline as `evaluate` runs a query. `pipelineToQuery` gives the query
-text when there is one, and throws a `parameter_error` when an argument has no query form.
-`queryToPipeline` goes the other way (section 3.8). A pipeline is plain data, so it can be kept
-as JSON, sent to a server, or built by a form. `new liquers.PipelineEditor(pipeline)` edits one
-with the same methods as the `QueryEditor`.
+`queryToPipeline` answers an object with the steps in `elements`, each with its place in the
+query text. Both forms, the bare array and this object, are accepted wherever a pipeline is.
 
-A pipeline can also define a command (section 5.9).
+Here is a pipeline that no query can replace. Its first step is a value written in place, and
+one of its arguments is a list:
+
+<!-- example: needs records -->
+```js
+import init, * as liquers from "https://orest-d.github.io/liquers/pkg/liquers-web/liquers_web.js";
+
+await init();
+await liquers.init();
+
+const structured = [
+  { value: [{ region: "EU", amount: 120 }, { region: "US", amount: 80 }] },
+  { action: "to_record", ns: "rec" },
+  { action: "is_in", ns: "rec", arguments: { column: "region", values: ["EU", "ASIA"] } },
+  { action: "nrows", ns: "rec" },
+];
+assert.strictEqual(await liquers.evaluatePipeline(structured), 1);
+assert.throws(() => liquers.pipelineToQuery(structured), /not representable as a query/);
+
+// Editing: the same methods as the query editor, and values of any shape.
+const editor = new liquers.PipelineEditor(structured);
+editor.set(2, "values", ["US"]);
+editor.remove(3);
+const at = editor.action("select_columns", "rec");
+editor.pushParameter(at, "amount");
+editor.action("to_json", "rec");
+assert.deepStrictEqual(await liquers.evaluatePipeline(editor.pipeline()), [{ amount: 80 }]);
+editor.free();
+```
+
+A `PipelineEditor` is the query editor of section 3.9 without the limit to what a query can
+hold. `new liquers.PipelineEditor()` starts an empty pipeline. Because a pipeline is plain data,
+it can also be kept as JSON, sent to a server, or built by a form without any editor.
+
+API reference: [`PipelineEditor`](https://orest-d.github.io/liquers/api/js/classes/PipelineEditor.html),
+[`evaluatePipeline`](https://orest-d.github.io/liquers/api/js/functions/evaluatePipeline.html),
+[`pipelineToQuery`](https://orest-d.github.io/liquers/api/js/functions/pipelineToQuery.html) and
+[`queryToPipeline`](https://orest-d.github.io/liquers/api/js/functions/queryToPipeline.html).
+
+{{> ../_shared/pipeline-or-query.md}}
 
 ## 3.11 Queries in the address of a page
 

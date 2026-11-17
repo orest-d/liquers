@@ -140,13 +140,16 @@ environment, registering commands included, raises `lq.GeneralError`.
 ## Layout
 
 This is a mixed Rust/Python project. The Rust crate (`src/`) builds the native extension
-`liquers._native`; the Python package around it is `python/liquers/`, whose `__init__.py`
-re-exports every class and function of the extension by name. A class registered in
-`src/lib.rs` is not reachable as `liquers.<Name>` until it is added to `__init__.py` as well, and
-it must be declared in `__init__.pyi` (and re-exported from `_native.pyi`): the type declarations
-are written by hand, and `tests/test_STUBS_declarations.py` fails on a name, method or parameter
-that the runtime has and the declarations do not, or the other way round. `py.typed` marks the
-package as typed.
+`_liquers._liquers`, inside the private package `python/_liquers/`, whose `__init__.py` re-exports
+it. The public package is `python/liquers/`: one submodule per Rust module (`query.py`,
+`commands.py`, … `lui.py`), each importing its names from `liquers/_backend.py`, the only module
+that imports `_liquers`; `__init__.py` re-exports every name of every submodule. A class registered
+in `src/lib.rs` needs `module = "liquers.<sub>"` on its `#[pyclass]`, an import in `_backend.py`,
+an entry in that submodule's `__all__`, and a declaration in `liquers/<sub>.pyi` (re-exported by
+`liquers/__init__.pyi` and `_liquers/__init__.pyi`): the type declarations are written by hand, and
+`tests/test_STUBS_declarations.py` fails on a name, method or parameter that the runtime has and
+the declarations do not, or the other way round. `tests/test_LAYOUT_submodules.py` checks that
+each name has exactly one home. `py.typed` marks both packages as typed.
 
 ## Supported Python
 
@@ -155,8 +158,15 @@ reached its end of life in October 2025, so the floor is 3.10 (decided 2026-10-3
 `pyproject.toml` declares `requires-python = ">=3.10,<3.16"` to match CPython. That field cannot
 state a narrower range per implementation, so PyPy 3.10 is inside it but fails the build.
 
-No environment override is needed for any supported version, including the cloud dev
-environment's CPython 3.13.
+No environment override is needed when a supported interpreter is directly discoverable,
+including the cloud dev environment's CPython 3.13. On Windows, the Microsoft Store execution
+alias can shadow an installed interpreter. If `python` says it is not installed but `py -3` works,
+restart the terminal or editor after installation; for the current PowerShell session, select the
+real executable explicitly before running Cargo:
+
+```powershell
+$env:PYO3_PYTHON = py -3 -c "import sys; print(sys.executable)"
+```
 
 **Free-threaded CPython (3.14t)** is supported: the extension declares that it does not need the
 GIL, so importing `liquers` leaves it off, and the whole suite passes on 3.14t as well as on 3.13
@@ -245,7 +255,8 @@ test is named for its ID, in `tests/test_<FEATURE>_*.py`.
 | `PIPELINE` | Optional | COMPLETE | A pipeline is a Python list or dict in the JSON form, or an `lq.Pipeline`; `evaluate` (sync and `_async`, on `Environment` and `Context`) takes one, `get_asset` does not. Editors are wrapped (`pipeline_editor`, `query_editor`, `lq.ActionEditor`); `pipeline_command` is a declaration kept across rebuilds. Inside a command a relative key is refused by liquers-py (`CONTEXT-APPLY-AD-HOC-SKIPS-RELATIVE-PIPELINE-KEYS`). The design is `specs/design/liquers-py-pipelines/` | `PIPELINE01` `tests/test_PIPELINE_evaluate.py::test_pipeline_evaluates_as_its_query`; `02` `test_structured_argument_arrives_whole`; `03` `tests/test_PIPELINE_convert.py::test_not_representable_names_the_rule`; `04` `tests/test_PIPELINE_commands.py::test_pipeline_command_runs_as_the_long_query`; `05` `tests/test_PIPELINE_editors.py::test_refused_edit_changes_nothing` |
 | `WEBSERV` | Optional | PARTIAL | `WEBSERV01`–`05` pass: `env.serve()` starts liquers-axum's standard server from the configuration's `server` section, in the background (an owned `lq.Server`) or the foreground, with a graceful two-stage shutdown. `WEBSERV06`–`08` are `NS`: Python request handlers and middleware are not offered (`PY-WEB-SERVER-CANNOT-TAKE-PYTHON-HANDLERS`). No authentication, writes on by default (`SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED`). The design is `specs/design/liquers-py-web-server/` | `test_WEBSERV01`–`05` and the other tests of `tests/test_WEBSERV_server.py`; `tests/test_CONFIG_document.py` for the configuration document |
 | `UIUSE` | Optional | COMPLETE | `env.ui()` holds a model driven in the background; `ui.run()` opens the egui window (every wheel carries egui, feature `gui`). Deviations from Appendix A: `UIUSE01` is a foreground `ui.run()` on the main thread, not a background start; `UIUSE03` reads `context.element`, not `context.query`; `UIUSE04` observes statuses (`Processing`…`Ready`), not progress fractions; `UIUSE06` gives an element query B while A runs, not generations; `UIUSE08` allows `close()` from any thread and refuses `run()` off the main thread. Elements cannot be written in Python (`UIDEF`); a slow submitted action holds up the model (`WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS`). The designs are `specs/design/liquers-py-ui/` and `specs/design/liquers-py-ui-window/` | `UIUSE01` `tests/test_UIUSE_window.py::test_UIUSE_WINDOW01_*` and `tests/test_UIUSE_model.py::test_UIUSE_show_a_query_without_a_window`; `02`–`07` `tests/test_UIUSE_model.py::test_UIUSE02_*`…`test_UIUSE07_*`; `08` `test_UIUSE_WINDOW02_*`; the window tests (`gui`) run under a display, in CI under `xvfb-run` |
+| `ACCESSOR` | Optional | PARTIAL | Direction 1 (use) is complete: `env.accessor(query)` and `env.memory_accessor(value)` give an `lq.Accessor` over the Rust accessor, which crosses commands both ways as the same handle; each wrapper keeps its own token, a conflict is `StatusConflictError` with the current `token`, and callbacks run only on a thread that asks (`process_events`, `wait_event`, `events()`). Direction 2 (define a root or a step in Python) is `NA` (`ACCESSOR-CANNOT-BE-IMPLEMENTED-IN-PYTHON-OR-JAVASCRIPT`). The design is `specs/design/settable-value-accessor/` | `test_ACCESSOR01`–`07` (`tests/test_ACCESSOR_use.py`) |
 | `DOCS` | Optional | PASS | `DOCS04`: every public name has a docstring and a signature, and `scripts/build-liquers-py-docs.sh` renders them with pdoc (published on the documentation site) | `DOCS03` is `test_GUIDE_examples.py`; `DOCS04` is `test_DOCS04_*` (`tests/test_DOCS_docstrings.py`, `tests/test_DOCS_api_reference.py`) and the script, which `test-liquers-py.sh` runs; `DOCS01`, `02`, `05`–`07` reviewed |
 
-`ASYNCQ`, `ASYNCCMD`, `STORE`, `RECIPE`, `RECORDS`, `PACKAGE`, `STUBS`, `DATANODE`, `TEMPLATE`, `PIPELINE`, `WEBSERV`, `UIUSE` and `DOCS` are outside the baseline profile. Every Essential feature is `COMPLETE` and every required check passes; each `NA` item carries
+`ASYNCQ`, `ASYNCCMD`, `STORE`, `RECIPE`, `RECORDS`, `PACKAGE`, `STUBS`, `DATANODE`, `TEMPLATE`, `PIPELINE`, `WEBSERV`, `UIUSE`, `ACCESSOR` and `DOCS` are outside the baseline profile. Every Essential feature is `COMPLETE` and every required check passes; each `NA` item carries
 its reversing condition. The Python baseline profile is therefore `CONFORMANT`.

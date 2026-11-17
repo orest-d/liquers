@@ -9,7 +9,7 @@ use crate::{
 /// One step of a `Plan`: fetch a resource, run an action, set a filename, log a message, ...
 ///
 /// Inspect a plan's steps through its JSON or YAML form (`Plan.to_json()`).
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.plan")]
 #[derive(Debug, Clone)]
 pub struct Step(pub liquers_core::plan::Step);
 
@@ -53,7 +53,7 @@ impl Step {
 /// value, ...
 ///
 /// Part of `ResolvedParameterValues`.
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.plan")]
 #[derive(Debug, Clone)]
 pub struct ParameterValue(pub liquers_core::plan::ParameterValue);
 
@@ -84,7 +84,7 @@ impl ParameterValue {
 /// The arguments of one action step, in the order of the command's metadata.
 ///
 /// `ResolvedParameterValues()` is the empty list.
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.plan")]
 #[derive(Debug, Clone)]
 pub struct ResolvedParameterValues(pub liquers_core::plan::ResolvedParameterValues);
 
@@ -115,7 +115,7 @@ impl ResolvedParameterValues {
 ///
 /// Make one with `build_plan`; `Plan()` is the empty plan. Read it through `to_json()` or
 /// `to_yaml()`. See `PYTHON_GUIDE.md` §6, "Checking a query without running it".
-#[pyclass(module = "liquers")]
+#[pyclass(module = "liquers.plan")]
 pub struct Plan(pub liquers_core::plan::Plan);
 
 #[pymethods]

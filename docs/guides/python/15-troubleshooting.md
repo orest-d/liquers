@@ -2,7 +2,7 @@
 title: Troubleshooting
 status: ready
 sources: [guides/PYTHON_GUIDE.md, reference/PYTHON_INTEGRATION.md, reference/PROJECT_OVERVIEW.md]
-reviewed: 2026-11-11
+reviewed: 2026-11-15
 ---
 # 15. Troubleshooting
 
@@ -20,15 +20,18 @@ does not work yet.
 Every Liquers error is raised as a subclass of `lq.LiquersError`. There is one class for each
 type of section 15.1, named after it with `Error` at the end where it is not there already:
 `lq.ParseError`, `lq.KeyNotFoundError`, `lq.ActionNotRegisteredError`, `lq.ExecutionError`.
+The classes live in the module `liquers.error`, and `lq.ParseError` is the same class as
+`liquers.error.ParseError`.
 
 ```python
 import liquers as lq
+from liquers.error import AssetNotFoundError, LiquersError
 
 env = lq.Environment()
 try:
     env.evaluate("-R/data/missing.txt")
-except lq.LiquersError as error:
-    assert type(error) is lq.AssetNotFoundError
+except LiquersError as error:
+    assert type(error) is AssetNotFoundError
     assert error.key == "data/missing.txt"
     print(error.type, error.message)
 env.shutdown()

@@ -2,7 +2,7 @@
 title: Recipes, assets and caching
 status: ready
 sources: [reference/ASSETS.md, reference/RECIPES_AND_PLANS.md, guides/JAVASCRIPT_GUIDE.md, reference/PIPELINES.md]
-reviewed: 2026-11-10
+reviewed: 2026-11-14
 ---
 # 7. Recipes, assets and caching
 
@@ -176,6 +176,41 @@ assert.strictEqual(state.metadata().title, "Loud note");
 assert.strictEqual(await store.contains("data/loud.txt"), true);         // and the result was stored
 assert.strictEqual(new TextDecoder().decode(await store.get("data/loud.txt")), "MILK");
 ```
+
+A recipe with a pipeline (section 7.4) is written the same way. Here the pipeline passes a
+list of regions, which a query could not hold, and the query finishes the work:
+
+<!-- example: needs records -->
+```js
+import init, * as liquers from "https://orest-d.github.io/liquers/pkg/liquers-web/liquers_web.js";
+
+await init();
+await liquers.init();
+
+const env = liquers.Environment.global();
+await env.configureStore({ stores: [{ type: "memory", prefix: "data" }] });
+const store = env.store();
+const bytes = (s) => new TextEncoder().encode(s);
+await store.set("data/sales.csv", bytes("region,month,amount\nEU,jan,120\nUS,jan,80\nASIA,jan,300\nEU,feb,95\n"), {});
+await store.set("data/recipes.yaml", bytes(`
+recipes:
+  - pipeline:
+      - -R/./sales.csv/-/ns-rec/to_record
+      - action: is_in
+        ns: rec
+        arguments: {column: region, values: [EU, US]}
+    query: ns-rec/sort-amount-false/head-2/top.csv
+    title: The two largest sales in the EU and the US
+`), {});
+
+const top = await liquers.evaluate("-R/data/top.csv/-/ns-rec/to_json");
+assert.deepStrictEqual(top.map((row) => row.amount), [120, 95]);
+// The result is stored under its key, like the result of any recipe.
+assert.strictEqual(new TextDecoder().decode(await store.get("data/top.csv")), "region,month,amount\nEU,jan,120\nEU,feb,95\n");
+```
+
+The result has a key, so it is cached and stored, which a pipeline run with `evaluatePipeline`
+is not (section 3.10).
 
 What is particular to a page:
 

@@ -32,6 +32,7 @@ pub fn register(cr: &mut CommandRegistry<PyEnvironment>) -> Result<(), Error> {
     liquers_lib::register_search_commands!(cr)?;
     liquers_lib::register_template_commands!(cr)?;
     liquers_lib::register_lui_commands!(cr)?;
+    liquers_lib::register_accessor_commands!(cr)?;
     #[cfg(feature = "debug-handles")]
     register_test_commands(cr)?;
     Ok(())

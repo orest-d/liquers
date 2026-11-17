@@ -1,8 +1,8 @@
 ---
 title: Glossary
 status: ready
-sources: [reference/PROJECT_OVERVIEW.md, reference/PIPELINES.md]
-reviewed: 2026-11-10
+sources: [reference/PROJECT_OVERVIEW.md, reference/PIPELINES.md, reference/RECORD_STREAMS.md]
+reviewed: 2026-11-14
 ---
 # C. Glossary
 
@@ -43,6 +43,7 @@ PURPOSE: The words of Liquers, defined once.
 |---|---|
 | **Argument** | A value given to a command in a query, after the command's name |
 | **Builder** | The object on which an environment is configured before `build()` |
+| **Chunk** | One piece of a record source: a record view that is the result of one query |
 | **Command metadata** | The description of a command: its name, arguments, defaults and documentation, without the function |
 | **Data format** | The short name of the byte form of a value, such as `csv` or `png` |
 | **Data node** | A read-only view that reads a value field by field |
@@ -50,12 +51,18 @@ PURPOSE: The words of Liquers, defined once.
 | **Feature** | An optional part of a crate, chosen when the program is compiled |
 | **Kind** | The execution model of the asset manager: `Queued` or `Inline` |
 | **Link** | An argument that is the value of another query |
+| **Manifest** | A file `<name>.manifest.yaml` that describes a record source: its chunks and their schema |
 | **Mount** | One entry of the store configuration: a type of storage and the prefix of the keys it holds |
 | **Payload** | A value that travels with one evaluation, used by user interfaces |
 | **Pipeline command** | A command defined as a pipeline, with placeholders as its arguments |
 | **Placeholder** | A named gap in a pipeline, filled by an argument |
-| **Record view** | A table with named, typed columns |
+| **Query editor** | The object that builds or changes a query step by step, placing and escaping the arguments |
+| **Record source** | A table that is read in chunks, any number of times; it may be larger than memory |
+| **Record stream** | One pass over a record source, chunk by chunk |
+| **Record view** | A table in memory, with named, typed columns |
+| **Record** | One row of a table: a set of named, typed values |
+| **Schema** | The list of the fields of a table: their names, types and roles |
 | **Store factory** | The object that builds stores from a configuration |
-| **Template** | Text with tags that are replaced when it is rendered; a query tag holds a query |
 | **Template command** | A command whose result is a rendered template |
+| **Template** | Text with tags that are replaced when it is rendered; a query tag holds a query |
 | **Type identifier** | The name of a value type in metadata and in the store, such as `Text` or `polars.DataFrame` |

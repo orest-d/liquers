@@ -2,7 +2,7 @@
 title: Recipes, assets and caching
 status: ready
 sources: [reference/ASSETS.md, reference/ASSET_LIFECYCLE.md, reference/RECIPES_AND_PLANS.md, guides/DEPENDENCY_CONSISTENCY_GUIDE.md, guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md, guides/COMMAND_DESIGN_GUIDE.md]
-reviewed: 2026-11-10
+reviewed: 2026-11-14
 ---
 # 7. Recipes, assets and caching
 
@@ -209,8 +209,43 @@ asset manager's memory, a recipe's result is a file.
 The recipes in the example use `-R/./sales.csv`, a key relative to the folder of the
 `recipes.yaml`. A folder with its data and its recipes can then be copied or moved as a whole.
 
-A recipe may also carry a `pipeline`, which runs before its query and can pass structured
-values that a query cannot hold (section 3.10).
+A recipe with a pipeline (section 7.4) is written and read the same way. Here the pipeline
+passes a list of regions, which a query could not hold, and the query finishes the work:
+
+```rust
+use liquers_core::assets::AssetManager;
+
+let store = Arc::new(AsyncMemoryStore::new(&Key::new()));
+let recipes = b"
+recipes:
+  - pipeline:
+      - -R/./sales.csv/-/ns-rec/to_record
+      - action: is_in
+        ns: rec
+        arguments: {column: region, values: [EU, ASIA]}
+    query: ns-rec/sort-amount-false/head-1/top.csv
+    title: The largest sale in the EU and in Asia
+";
+store.set(&parse_key("data/sales.csv")?, SALES, &Metadata::new()).await?;
+store.set(&parse_key("data/recipes.yaml")?, recipes, &Metadata::new()).await?;
+let env = library_environment(store.clone())?;
+let assets = env.get_asset_manager();
+
+let recipe = assets.recipe_opt(&parse_key("data/top.csv")?).await?.expect("a recipe");
+assert!(recipe.pipeline.is_some());
+assert_eq!(recipe.query, "ns-rec/sort-amount-false/head-1/top.csv");
+
+// The pipeline runs, then the query; the result is stored under the key.
+let top = assets.get(&parse_key("data/top.csv")?).await?.get().await?;
+assert_eq!(top.value()?.as_record_view()?.len(), 1);
+let (bytes, _metadata) = store.get(&parse_key("data/top.csv")?).await?;
+assert_eq!(String::from_utf8_lossy(&bytes), "region,month,amount\nEU,jan,120\n");
+```
+
+The result has a key, so it is cached and stored, which a pipeline run with `evaluate_pipeline`
+is not (section 3.10).
+
+API reference: [`Recipe`](https://orest-d.github.io/liquers/api/rust/liquers_core/recipes/struct.Recipe.html).
 
 ## 7.9 Recipes from code
 

@@ -40,7 +40,7 @@ use pyo3::{prelude::*, types::PyDict};
 ///
 /// `Recipe(query, title, description)` raises an exception when `query` does not parse. See
 /// `PYTHON_GUIDE.md` §6, "Named results: recipes".
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.recipes")]
 #[derive(Debug, Clone)]
 pub struct Recipe {
     pub inner: CoreRecipe,
@@ -49,7 +49,7 @@ pub struct Recipe {
 /// A list of recipes, the form of a folder's `recipes.yaml`.
 ///
 /// `RecipeList()` is empty; `len(recipes)` is the number of recipes.
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.recipes")]
 #[derive(Debug, Clone)]
 pub struct RecipeList {
     pub inner: liquers_core::recipes::RecipeList,

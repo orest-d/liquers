@@ -75,7 +75,7 @@ fn statically_described(value: &ExtValue) -> bool {
         ExtValue::PolarsDataFrame { .. } => true,
         #[cfg(feature = "egui")]
         ExtValue::UiCommand { .. } | ExtValue::Widget { .. } => true,
-        ExtValue::UIElement { .. } => true,
+        ExtValue::UIElement { .. } | ExtValue::Accessor { .. } => true,
         // The identifier belongs to the integrating crate, which registers it itself with
         // `EnvironmentBuilder::with_type_registry`; it is deliberately absent from the static list.
         ExtValue::Foreign { .. } => false,
@@ -90,6 +90,9 @@ fn samples() -> Vec<ExtValue> {
     let mut samples: Vec<ExtValue> = vec![
         ExtValue::from_image(Arc::new(image::DynamicImage::new_rgb8(1, 1))),
         ExtValue::from_ui_element(Arc::new(liquers_lib::ui::element::Placeholder::new())),
+        ExtValue::Accessor {
+            value: liquers_core::accessor::memory_accessor(None, liquers_core::query::Query::new()),
+        },
     ];
     #[cfg(feature = "polars")]
     samples.push(ExtValue::from_polars_dataframe(

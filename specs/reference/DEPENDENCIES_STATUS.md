@@ -3,7 +3,7 @@ title: Status::Dependencies Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-11-03
+reviewed: 2026-11-17
 ---
 # Dependencies Status Specification
 
@@ -268,9 +268,24 @@ direct.
 | `GetAsset*` of key `K` | `-R/K` and, when a recipe serves `K`, `-R-recipe/K`. Nothing `K`'s recipe reads |
 | `GetAssetDirectory` of `D` | `-R-dir/D` |
 | `GetAssetRecipe` of `K` | `-R-recipe/K` |
+| a keyed asset `K`'s own evaluation | `-R-recipe/K`: its own recipe |
 | an action | its command's metadata and implementation keys, and each link parameter's query |
 | `Evaluate(query)`, nested `Step::Plan` | what *their* steps record (no key of their own; `Evaluate` children relabelled `StateArgument`), and the records its run added |
 | a command, at run time | what it records: `Context::get_dependency_state` / `submit` record the query, `Context::record_listing` records `-R-dir/D`, `Context::add_dependency` anything |
+
+**Recipe keys are versioned.** The version of `-R-recipe/K` is a content hash of `K`'s recipe
+(`recipes::recipe_version`): the recipe serialized to JSON with object keys sorted, every declared
+field counted (`title` and `description` included) except the provider-derived
+`has_circular_dependencies` / `circular_dependency_key`. No recipe hashes JSON `null`, so a removed
+recipe is a change too. It is registered (`assets::register_recipe_version`, which cascades with
+`Updated`) where a recipe is resolved: by the owner of `K` when it evaluates, by the plan walk for a
+read served by a recipe (and a `GetAssetRecipe`, found or not), and after a write the asset manager
+mediates into a folder, which re-resolves every recipe key the map holds under that folder
+(`refresh_listing_version`, first level). So editing `recipes.yaml` through Liquers expires the keys
+whose recipe changed and what read them, rooted at `-R-recipe/K`; a recipe edited outside Liquers is
+caught by the next `on_load` check or audit, where `-R-recipe/` keys are store-resolvable
+(`DependencyKey::is_store_resolvable`) and resolve to the provider's current recipe
+(`design/recipe-dependency-versions/`).
 
 **Run-time records cross non-keyed boundaries.** When `Context::wait_for_dependency_recording`
 receives the state of a **non-keyed** dependency (a cut predecessor's `Evaluate`, a link, a query a
@@ -658,6 +673,7 @@ priming cannot see (`INLINE-MANAGER-DYNAMIC-DEPENDENCY-CHAIN-NESTS`).
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-17 | Recipe keys are versioned: a keyed asset records its own recipe, `-R-recipe/K` carries a hash of the recipe, a write into a folder re-resolves its recipes, and recipe keys are store-resolvable for `on_load` and audits. | `design/recipe-dependency-versions/` |
 | 2026-11-03 | Folder-listing bullet: the root listing's dependency key is `-R-dir` (the root key's `-R`), and old `-R-dir/` / `-R/` records are mapped to it on load. | `design/root-listing-dependency-key-spelling/` |
 | 2026-10-27 | Stale-at-birth: a dependency recorded through `Context::add_dependency` is compared with the map at completion and again once the edges exist. | `design/runtime-dependency-record-superseded-check/` |
 | 2026-10-27 | An uncached keyed write re-checks its recorded inputs and expires the stored copy when one was superseded during the run. | `design/uncached-write-back-rechecks-dependency-versions/` |

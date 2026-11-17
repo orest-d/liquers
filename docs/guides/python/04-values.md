@@ -1,8 +1,8 @@
 ---
 title: Values, state and metadata
 status: ready
-sources: [reference/VALUE_TYPE_SYSTEM.md, guides/PYTHON_GUIDE.md, reference/PYTHON_INTEGRATION.md]
-reviewed: 2026-11-09
+sources: [reference/VALUE_TYPE_SYSTEM.md, guides/PYTHON_GUIDE.md, reference/PYTHON_INTEGRATION.md, reference/VALUE_ACCESSORS.md]
+reviewed: 2026-11-16
 ---
 # 4. Values, state and metadata
 
@@ -158,17 +158,18 @@ is a read-only view that reads a value one field at a time:
 
 ```python
 import datetime
-import liquers as lq
+from liquers.data_nodes import NodeKind, data_node
 
-node = lq.data_node({"name": "Ann", "when": datetime.datetime.now(), "tags": ["a", "b"]})
+node = data_node({"name": "Ann", "when": datetime.datetime.now(), "tags": ["a", "b"]})
 assert node["name"].scalar == "Ann"
-assert node["tags"].kind == lq.NodeKind.List and len(node["tags"]) == 2
-assert node["when"].kind == lq.NodeKind.Opaque          # no Liquers equivalent
+assert node["tags"].kind == NodeKind.List and len(node["tags"]) == 2
+assert node["when"].kind == NodeKind.Opaque             # no Liquers equivalent
 assert node.get("missing") is None
 ```
 
-`lq.data_node` accepts a Python value or a state. Given a state, it reads the value where it is,
-without converting it. The first cell of a table is then `lq.data_node(state)[0]["amount"].scalar`,
+`data_node`, from the module `liquers.data_nodes` (also `lq.data_node`), accepts a Python value
+or a state. Given a state, it reads the value where it is, without converting it. The first cell
+of a table is then `data_node(state)[0]["amount"].scalar`,
 and polars need not even be installed. Templates read their data in the same way (chapter 10),
 which is why a template can render a dictionary that holds a `datetime`.
 
@@ -177,7 +178,7 @@ never runs the code of a class it does not know, so an object of your own class 
 the class opts in:
 
 ```python
-import liquers as lq
+from liquers.data_nodes import data_node
 
 class Person:
     __liquers_data__ = True                 # read through keys() and __getitem__
@@ -194,8 +195,8 @@ class Wrapper:
     def __liquers_data__(self):             # or: return the data to read instead
         return self.data
 
-assert lq.data_node(Person())["name"].scalar == "Ann"
-assert lq.data_node(Wrapper({"a": 1}))["a"].scalar == 1
+assert data_node(Person())["name"].scalar == "Ann"
+assert data_node(Wrapper({"a": 1}))["a"].scalar == 1
 ```
 
 With `__liquers_data__ = True`, an object is read as a dictionary through `keys` and
@@ -205,3 +206,40 @@ or `__float__`.
 A folder of the store and a table that is read in chunks are read on demand, so their nodes are
 used with `await`. Make such a node with `env.data_node(state)`, or `context.data_node(state)`
 inside a command, and use `await node.get_async(name)` and `await node.to_json_async()`.
+
+## 4.6 Editing a value in place
+
+An *accessor* is a handle on the place a value lives: a stored file, a result, or one part of
+either, such as a field of a YAML document. You read and write through it, and Liquers keeps
+everyone who holds the same place in step. The `acc` commands make one from a key:
+
+```python
+import liquers as lq
+
+env = lq.Environment()
+env.store_set("config.yaml", "title: Dashboard\nrows: 3\n")
+
+title = env.accessor("-R-key/config.yaml/-/ns-acc/accessor/field-title")
+snap = title.snapshot()
+assert snap.value == "Dashboard"
+title.set_if("Sales", snap.token)            # write, if nobody changed it since you read it
+assert env.evaluate("-R/config.yaml") == "title: Sales\nrows: 3\n"
+
+try:
+    title.set_if("Stale", snap.token)        # that token is out of date now
+except lq.StatusConflictError as conflict:
+    assert conflict.token == title.info().token
+env.shutdown()
+```
+
+The *token* says which version you read. `set_if` writes only if the value is still that version,
+so two people editing the same field cannot overwrite each other without noticing: the second one
+gets a `StatusConflictError`, nothing is written, and they read again. `set(value)` uses the token
+this accessor last saw, and `set_if(value, None)` creates a value that must not exist yet.
+
+Other parts of the same file are one `project` away: `title.project(...)` appends steps, and
+`env.accessor("-R-key/config.yaml/-/ns-acc/accessor").project("field-rows")` is the `rows` field.
+`env.memory_accessor(value)` is a variable of your own that commands can share. To react to
+changes, register a callback with `on` and let `wait_event` or `process_events` run it, or iterate
+`events()` in async code; callbacks always run in your own thread. A query that is not an accessor
+gives a read-only one, whose `capabilities.write` is false.

@@ -128,6 +128,7 @@ pub mod command_declaration;
 pub mod command_metadata;
 #[macro_use]
 pub mod commands;
+pub mod accessor;
 pub mod assets;
 pub mod context;
 pub mod data_node;

@@ -628,6 +628,30 @@ impl Error {
         error
     }
 
+    /// A set through a value accessor refused because the part changed since the fingerprint it
+    /// was based on (first writer wins), or because a create found the value existing
+    /// (see `crate::accessor`). A [`ErrorType::StatusConflict`]; the message ends with
+    /// `current token: <token>` (or `none` when the value no longer exists), which
+    /// `crate::accessor::conflict_token` reads back.
+    pub fn accessor_conflict(
+        address: &crate::query::Query,
+        current: Option<&crate::accessor::Fingerprint>,
+    ) -> Self {
+        let token = current
+            .map(|fp| fp.token())
+            .unwrap_or_else(|| "none".to_string());
+        let mut error = Error::new(
+            ErrorType::StatusConflict,
+            format!(
+                "Accessor '{}' changed since it was read; {}{token}",
+                address.encode(),
+                crate::accessor::CURRENT_TOKEN_MARKER
+            ),
+        );
+        error.query = Some(address.encode());
+        error
+    }
+
     /// An operation refused because of the asset's current status (see
     /// [`ErrorType::StatusConflict`]).
     pub fn status_conflict(key: &Key, status: crate::metadata::Status, operation: &str) -> Self {
