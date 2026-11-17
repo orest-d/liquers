@@ -226,11 +226,10 @@ missing from `PipelineEditor` (Phase 2 lists them; `liquers-core` stays UI-free)
 - **Later:** `ui-split-elements` (Phase 1 in review, another thread; Orest expects a larger
   overhaul). Not required: this design is monolithic, and the editor touches its value only through
   the accessor.
-- **Requires for AC-26 with a recipe binding:** `recipe-dependency-versions` (in review, not
-  implemented; issue `RECIPE-DEPENDENCY-KEY-IS-NEVER-VERSIONED`, P2). Today a write of
-  `recipes.yaml` does not expire the assets computed from its recipes, so a view of the recipe's
-  result does not recalculate after an edit. The editor and other holders of the accessor do see
-  the change.
+- **Requires for AC-26 with a recipe binding:** `recipe-dependency-versions` (merged 2026-11-17,
+  PR #276; issue `RECIPE-DEPENDENCY-KEY-IS-NEVER-VERSIONED` closed). A write of `recipes.yaml`
+  now expires the assets computed from the edited recipes and their readers, so a view of the
+  recipe's result recalculates after an edit.
 - **Supersedes:** `command-parameter-editor` (Orest, 2026-11-16; not implemented). It owned
   `NO-COMMAND-PARAMETER-EDITOR`, which moves here. What is kept is under "Salvaged from
   command-parameter-editor" below.

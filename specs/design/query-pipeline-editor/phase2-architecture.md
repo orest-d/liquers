@@ -34,7 +34,7 @@ Rejected:
 
 | Issue | Status | Priority | Impact on this design | Fix first? | Blocking? | Action |
 |---|---|---|---|---|---|---|
-| `RECIPE-DEPENDENCY-KEY-IS-NEVER-VERSIONED` (design `recipe-dependency-versions`) | draft | P2 | AC-26 with a recipe binding: editing `recipes.yaml` does not expire what the recipe computed, so a result view does not recalculate | for that case | no | prerequisite, fixed first (G8) |
+| `RECIPE-DEPENDENCY-KEY-IS-NEVER-VERSIONED` (design `recipe-dependency-versions`) | closed | P2 | AC-26 with a recipe binding: editing `recipes.yaml` did not expire what the recipe computed | for that case | fixed | merged first, PR #276 (G8) |
 | `EDITOR-UNSET-OF-A-MIDDLE-POSITIONAL-ARGUMENT-SAYS-NOT-SET` | draft | P3 | AC-18 | no | no | fixed by `ActionEditor::reset` (Step 1) |
 | `CORE-QUERY-EDITOR-ACCEPTS-AN-UNKNOWN-COMMAND` | draft | P3 | AC-17, AC-23 | no | no | designed around; stays open |
 | `UI-EVENTS-HAVE-NO-POINTER-DRAG-OR-CHANGE-KINDS` | draft | — | browser change events and drag and drop | no | no | `Change` added here (G2); drag stays there, the browser gets buttons |
@@ -317,7 +317,7 @@ Module docs (`API_DOCUMENTATION_GUIDE.md` §3, all five parts): new `liquers-lib
 | Crates and workflows affected | `liquers-core`, `liquers-lib` (features `egui`, `webui`, none); the build matrix; the browser test loop |
 | Existing tests likely to change | `registry_export`; tests that build a `UIContext`; exhaustive matches over `AppMessage`, `UpdateMessage`, `UIEventKind`; pipeline tests expecting the query editor to refuse excess parameters |
 | New validation | `EditorState` unit tests per command; core tests of `namespace_impact` (same, changed, invalid); egui rendering tests; web markup and event decoding; a runner test with a stored `recipes.yaml` and two editors (AC-9) |
-| Compatibility / data / concurrency / performance / security | old app states load (AC-12); R1: `set_if` awaits inline in the runner like every query; R2: the tree is rebuilt on edits and snapshots only; R3: continuous mode keeps one write in flight; R4: a recipe edit does not recalculate its result until `recipe-dependency-versions`; a binding query runs with the UI's own rights |
+| Compatibility / data / concurrency / performance / security | old app states load (AC-12); R1: `set_if` awaits inline in the runner like every query; R2: the tree is rebuilt on edits and snapshots only; R3: continuous mode keeps one write in flight; R4: new awaits on the evaluation path (the runner's accessor writes) are boxed, since the wasm stack has little headroom (`WASM-EVALUATION-STACK-HAS-NO-HEADROOM`); a binding query runs with the UI's own rights |
 | Recovery | each step is additive; the element can stay unregistered while the core edits remain |
 | Certainty and open questions | high for the core edits and egui; medium for the browser change event and the namespace run rule in pipelines |
 
@@ -335,3 +335,4 @@ Module docs (`API_DOCUMENTATION_GUIDE.md` §3, all five parts): new `liquers-lib
 - **G7** Namespaces `lui` and `acc`. *(Agreed.)*
 - **G8** Decided by Orest on 2026-11-17: `recipe-dependency-versions` is fixed first, as a
   prerequisite of this design's implementation, so a recipe binding can be tested end to end.
+  Done: PR #276 merged 2026-11-17.
