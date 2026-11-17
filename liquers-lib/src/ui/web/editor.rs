@@ -467,11 +467,11 @@ mod tests {
     fn editor_html_marks_fields_and_events() {
         let html = editor_html(state().tree(), "Editor");
         assert!(html.contains("data-lq-field=\"text\""), "{html}");
-        assert!(html.contains("data-lq-field=\"f:2:column\""), "{html}");
-        assert!(html.contains("data-lq-field=\"f:2:values:0\""), "{html}");
-        assert!(html.contains("data-lq-event=\"ed:additem:2:values:1\""), "{html}");
+        assert!(html.contains("data-lq-field=\"f:1:column\""), "{html}");
+        assert!(html.contains("data-lq-field=\"f:1:values:0\""), "{html}");
+        assert!(html.contains("data-lq-event=\"ed:additem:1:values:1\""), "{html}");
         assert!(html.contains("type=\"checkbox\""), "{html}");
-        assert!(html.contains("data-lq-event=\"change:f:3:ascending\""), "{html}");
+        assert!(html.contains("data-lq-event=\"change:f:2:ascending\""), "{html}");
         assert!(html.contains("<select data-lq-field=\"header:0\""), "{html}");
         assert!(html.contains("title=\"column (String)"), "{html}");
     }
@@ -483,21 +483,21 @@ mod tests {
         let tree = state.tree().clone();
         let submit = UIEvent::new(UIEventKind::Submit)
             .with_field("text", Value::from(tree.text.clone()))
-            .with_field("f:2:column", Value::from("country".to_string()));
+            .with_field("f:1:column", Value::from("country".to_string()));
         let commands = EditorView::from_ui_event(&submit, &tree);
         assert_eq!(
             commands,
-            vec![EditorCommand::SetField { path: NodePath::element(2), arg: "column".into(), text: "country".into() }]
+            vec![EditorCommand::SetField { path: NodePath::element(1), arg: "column".into(), text: "country".into() }]
         );
-        let add = UIEvent::new(UIEventKind::Named("ed:additem:2:values:1".into()));
+        let add = UIEvent::new(UIEventKind::Named("ed:additem:1:values:1".into()));
         assert!(matches!(EditorView::from_ui_event(&add, &tree)[0], EditorCommand::InsertItem { at: 1, .. }));
-        let toggle = UIEvent::new(UIEventKind::Change("f:3:ascending".into()))
-            .with_field("f:3:ascending", Value::from("false".to_string()));
+        let toggle = UIEvent::new(UIEventKind::Change("f:2:ascending".into()))
+            .with_field("f:2:ascending", Value::from("false".to_string()));
         let commands = EditorView::from_ui_event(&toggle, &tree);
         assert_eq!(commands.len(), 1);
         for c in commands {
             state.apply(c).expect("apply");
         }
-        assert_eq!(state.tree().text, "-R/a.csv/-/ns-pl/is_in-region-EU/sort-f");
+        assert_eq!(state.tree().text, "-R/a.csv/-/ns-pl/is_in-region-EU/sort-false");
     }
 }
