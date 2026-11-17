@@ -174,6 +174,7 @@ impl UIElement for DelegatedElement {
             UpdateMessage::AssetNotification(_) => UpdateResponse::Unchanged,
             UpdateMessage::Timer { .. } => UpdateResponse::Unchanged,
             UpdateMessage::Custom(_) => UpdateResponse::Unchanged,
+            UpdateMessage::Accessor(_) | UpdateMessage::Directory(_) => UpdateResponse::Unchanged,
             UpdateMessage::AssetUpdate(_) => UpdateResponse::Unchanged,
         }
     }
@@ -225,7 +226,7 @@ mod tests {
                     let v = element.props["value"].as_i64().unwrap_or(0);
                     Ok(Some(json!({ "value": v + 1 })))
                 }
-                UIEventKind::Named(_) | UIEventKind::Submit => Ok(None),
+                UIEventKind::Named(_) | UIEventKind::Submit | UIEventKind::Change(_) => Ok(None),
             }
         }
     }

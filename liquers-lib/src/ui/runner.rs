@@ -56,20 +56,26 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use liquers_core::accessor::{memory_accessor, AccessorEvent, SetOptions, ValueAccessor};
+use liquers_core::command_metadata::CommandMetadataRegistry;
 use liquers_core::assets::{AssetManager, AssetNotificationMessage, AssetRef};
 use liquers_core::context::{EnvRef, Environment};
-use liquers_core::error::Error;
+use liquers_core::error::{Error, ErrorType};
 use liquers_core::metadata::{Metadata, Status};
-use liquers_core::parse::parse_query;
+use liquers_core::parse::{parse_key, parse_query};
 use liquers_core::recipes::Recipe;
 use liquers_core::state::State;
+use liquers_core::value::ValueInterface;
 
 use crate::value::{ExtValueInterface, Value};
 
 use super::app_state::{AppState, UIChange};
 use super::element::{AssetViewElement, ElementSource, UpdateMessage, UpdateResponse};
 use super::handle::UIHandle;
-use super::message::{AppMessage, AppMessageReceiver, AppMessageSender, AssetSnapshot};
+use super::editor::{DirectoryEntry, DirectoryListing, EditorBinding};
+use super::message::{
+    AccessorOp, AccessorUpdate, AppMessage, AppMessageReceiver, AppMessageSender, AssetSnapshot,
+};
 use super::payload::{SimpleUIPayload, UIPayload};
 use super::ui_context::UIContext;
 
@@ -98,6 +104,14 @@ pub struct RunnerEvent {
 /// examples) loses the oldest instead of growing without bound.
 const MAX_PENDING_EVENTS: usize = 1024;
 
+/// An editor's accessor (`AppMessage::Accessor`), with its event receiver.
+struct WatchedAccessor {
+    accessor: Arc<dyn ValueAccessor<Value>>,
+    events: tokio::sync::watch::Receiver<AccessorEvent>,
+    /// The source pushes no events: the runner calls `refresh` each tick instead.
+    pull: bool,
+}
+
 /// Result of pushing an update at an element.
 enum DeliveryOutcome {
     /// The element no longer exists — the caller stops monitoring it.
@@ -122,10 +136,15 @@ pub struct AppRunner<E: Environment> {
     /// meanwhile is evaluated again instead of receiving the stale result.
     evaluating: HashMap<UIHandle, (AssetRef<E>, String)>,
     monitoring: HashMap<UIHandle, MonitoredAsset<E>>,
+    /// The accessors of editor elements, by handle; removed with the element.
+    accessors: HashMap<UIHandle, WatchedAccessor>,
     message_rx: AppMessageReceiver,
     sender: AppMessageSender,
     events: Vec<RunnerEvent>,
     quit_requested: bool,
+    /// One snapshot of the command metadata registry, given to every `UIContext` this runner
+    /// builds (the editors read their widgets from it).
+    registry: Arc<CommandMetadataRegistry>,
 }
 
 impl<E> AppRunner<E>
@@ -143,10 +162,13 @@ where
         message_rx: AppMessageReceiver,
         sender: AppMessageSender,
     ) -> Self {
+        let registry = envref.command_metadata_snapshot();
         Self {
             envref,
+            registry,
             evaluating: HashMap::new(),
             monitoring: HashMap::new(),
+            accessors: HashMap::new(),
             message_rx,
             sender,
             events: Vec::new(),
@@ -157,7 +179,19 @@ where
     /// Uses `envref` for every evaluation started from now on. Evaluations already in flight keep
     /// the environment they started in.
     pub fn replace_envref(&mut self, envref: EnvRef<E>) {
+        self.registry = envref.command_metadata_snapshot();
         self.envref = envref;
+    }
+
+    /// The command metadata registry snapshot this runner gives to every `UIContext`.
+    pub fn command_registry(&self) -> &Arc<CommandMetadataRegistry> {
+        &self.registry
+    }
+
+    /// A context over `app_state` and this runner's channel, carrying the registry snapshot.
+    fn context(&self, app_state: &Arc<tokio::sync::Mutex<dyn AppState>>) -> UIContext {
+        UIContext::new(app_state.clone(), self.sender.clone())
+            .with_command_registry(self.registry.clone())
     }
 
     /// Whether an `AppMessage::Quit` arrived since the last call; clears the request.
@@ -236,6 +270,9 @@ where
         // Phase 4: Poll monitored assets, push snapshots
         self.poll_monitored_assets(app_state).await;
 
+        // Phase 5: Poll editor accessors, push their changes (boxed: the wasm stack is small).
+        Box::pin(self.poll_accessors(app_state)).await;
+
         Ok(())
     }
 
@@ -250,7 +287,7 @@ where
             match msg {
                 AppMessage::SubmitQuery { handle, query } => {
                     let ui_context =
-                        UIContext::new(app_state.clone(), self.sender.clone()).with_handle(handle);
+                        self.context(app_state).with_handle(handle);
 
                     // 1. Create payload with handle
                     let payload: E::Payload = SimpleUIPayload::new(ui_context.clone()).into();
@@ -305,6 +342,7 @@ where
                         UpdateMessage::UI(event),
                         app_state,
                         &self.sender,
+                        &self.registry,
                     )
                     .await;
                 }
@@ -320,6 +358,16 @@ where
                 AppMessage::Deserialize { path: _ } => {
                     // Deserialization is application-specific.
                     // The app layer should handle this.
+                }
+                AppMessage::Accessor {
+                    handle,
+                    binding,
+                    op,
+                } => {
+                    Box::pin(self.handle_accessor(handle, binding, op, app_state)).await;
+                }
+                AppMessage::ListDirectory { handle, folder } => {
+                    Box::pin(self.handle_list_directory(handle, folder, app_state)).await;
                 }
                 AppMessage::RequestAssetUpdates { handle, query } => {
                     self.handle_request_asset_updates(handle, query, app_state)
@@ -348,7 +396,7 @@ where
         app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
     ) {
         let ui_context =
-            UIContext::new(app_state.clone(), self.sender.clone()).with_handle(Some(handle));
+            self.context(app_state).with_handle(Some(handle));
         let payload: E::Payload = SimpleUIPayload::new(ui_context.clone()).into();
 
         let input_state = State::from_parts(
@@ -422,7 +470,7 @@ where
 
         for (handle, query) in pending {
             let ui_context =
-                UIContext::new(app_state.clone(), self.sender.clone()).with_handle(Some(handle));
+                self.context(app_state).with_handle(Some(handle));
 
             self.evaluating.remove(&handle);
 
@@ -493,7 +541,7 @@ where
                 None => continue,
             };
             let ui_context =
-                UIContext::new(app_state.clone(), self.sender.clone()).with_handle(Some(handle));
+                self.context(app_state).with_handle(Some(handle));
 
             // Poll state (already confirmed available above)
             let state = match asset_ref.poll_state().await {
@@ -555,6 +603,215 @@ where
         }
     }
 
+    /// Binds the accessor of `binding`: evaluates an accessor query and takes the accessor it
+    /// gives, or keeps a memory binding's value in a memory accessor.
+    async fn bind_accessor(&self, binding: &EditorBinding) -> Result<Arc<dyn ValueAccessor<Value>>, Error> {
+        match binding {
+            EditorBinding::Accessor(query) => {
+                let query = parse_query(query)?;
+                let state = self.envref.evaluate(&query).await?.get().await?;
+                state.value()?.try_into_accessor()
+            }
+            EditorBinding::Memory(text) => Ok(memory_accessor(
+                Some(State::new().with_data(Value::from(text.clone()))),
+                liquers_core::query::Query::new(),
+            )),
+        }
+    }
+
+    async fn deliver_accessor(
+        &self,
+        handle: UIHandle,
+        update: AccessorUpdate,
+        app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
+    ) -> DeliveryOutcome {
+        Self::deliver_update(
+            handle,
+            UpdateMessage::Accessor(update),
+            app_state,
+            &self.sender,
+            &self.registry,
+        )
+        .await
+    }
+
+    /// The accessor's current value, as an update.
+    async fn read_accessor(accessor: &Arc<dyn ValueAccessor<Value>>) -> AccessorUpdate {
+        match accessor.get().await {
+            Ok(snapshot) => AccessorUpdate::Snapshot {
+                value: snapshot.state.data_unchecked().clone(),
+                fingerprint: Some(snapshot.fingerprint),
+            },
+            Err(e) => AccessorUpdate::Failed(e),
+        }
+    }
+
+    /// Handle `AppMessage::Accessor`: bind, read or write an editor's accessor.
+    async fn handle_accessor(
+        &mut self,
+        handle: UIHandle,
+        binding: EditorBinding,
+        op: AccessorOp,
+        app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
+    ) {
+        let rebind = matches!(op, AccessorOp::Watch) || !self.accessors.contains_key(&handle);
+        if rebind {
+            match self.bind_accessor(&binding).await {
+                Ok(accessor) => {
+                    if let Some(driver) = accessor.driver() {
+                        super::spawn_ui_task(driver);
+                    }
+                    let mut events = accessor.subscribe();
+                    events.borrow_and_update();
+                    let capabilities = accessor.capabilities();
+                    let bound = AccessorUpdate::Bound {
+                        address: accessor.address().encode(),
+                        writable: capabilities.write,
+                    };
+                    self.accessors.insert(
+                        handle,
+                        WatchedAccessor {
+                            accessor: accessor.clone(),
+                            events,
+                            pull: cfg!(target_arch = "wasm32") || !capabilities.notify,
+                        },
+                    );
+                    if let DeliveryOutcome::Missing = self.deliver_accessor(handle, bound, app_state).await {
+                        self.accessors.remove(&handle);
+                        return;
+                    }
+                }
+                Err(e) => {
+                    self.record(Some(handle), Status::Error, Some(e.clone()));
+                    let _ = self.deliver_accessor(handle, AccessorUpdate::Failed(e), app_state).await;
+                    return;
+                }
+            }
+        }
+        let Some(accessor) = self.accessors.get(&handle).map(|w| w.accessor.clone()) else {
+            return;
+        };
+        let update = match op {
+            AccessorOp::Watch | AccessorOp::Get => Self::read_accessor(&accessor).await,
+            AccessorOp::SetIf { value, expected } => {
+                match accessor.set_if(value, expected, SetOptions::default()).await {
+                    Ok(snapshot) => {
+                        // The writer's own change event is not news to it.
+                        if let Some(w) = self.accessors.get_mut(&handle) {
+                            w.events.borrow_and_update();
+                        }
+                        AccessorUpdate::Written {
+                            fingerprint: snapshot.fingerprint,
+                        }
+                    }
+                    Err(e) if e.error_type == ErrorType::StatusConflict => match accessor.get().await {
+                        Ok(live) => AccessorUpdate::Conflict {
+                            value: live.state.data_unchecked().clone(),
+                            fingerprint: Some(live.fingerprint),
+                        },
+                        Err(_) => AccessorUpdate::Failed(e),
+                    },
+                    Err(e) => AccessorUpdate::Failed(e),
+                }
+            }
+        };
+        if let DeliveryOutcome::Missing = self.deliver_accessor(handle, update, app_state).await {
+            self.accessors.remove(&handle);
+        }
+    }
+
+    /// Handle `AppMessage::ListDirectory`: the asset manager's listing of `folder` (recipe keys
+    /// included), for an editor's file selector.
+    async fn handle_list_directory(
+        &mut self,
+        handle: UIHandle,
+        folder: String,
+        app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
+    ) {
+        let listing = match parse_key(&folder) {
+            Ok(key) => match self.envref.get_asset_manager().listdir_asset_info(&key).await {
+                Ok(infos) => DirectoryListing {
+                    folder: folder.clone(),
+                    entries: infos
+                        .into_iter()
+                        .map(|info| DirectoryEntry {
+                            name: info
+                                .filename
+                                .clone()
+                                .filter(|f| !f.is_empty())
+                                .or_else(|| info.key.as_ref().and_then(|k| k.filename().map(|f| f.to_string())))
+                                .unwrap_or_default(),
+                            is_dir: info.is_dir,
+                        })
+                        .collect(),
+                    error: None,
+                },
+                Err(e) => DirectoryListing {
+                    folder: folder.clone(),
+                    entries: vec![],
+                    error: Some(e.to_string()),
+                },
+            },
+            Err(e) => DirectoryListing {
+                folder: folder.clone(),
+                entries: vec![],
+                error: Some(e.to_string()),
+            },
+        };
+        let _ = Self::deliver_update(
+            handle,
+            UpdateMessage::Directory(listing),
+            app_state,
+            &self.sender,
+            &self.registry,
+        )
+        .await;
+    }
+
+    /// Phase 5: delivers each editor accessor's change as a fresh read, and drops the accessors
+    /// of elements that are gone.
+    async fn poll_accessors(&mut self, app_state: &Arc<tokio::sync::Mutex<dyn AppState>>) {
+        let handles: Vec<UIHandle> = self.accessors.keys().copied().collect();
+        let mut to_remove = Vec::new();
+        for handle in handles {
+            let exists = app_state.lock().await.node_exists(handle);
+            if !exists {
+                to_remove.push(handle);
+                continue;
+            }
+            let Some(watched) = self.accessors.get_mut(&handle) else {
+                continue;
+            };
+            if watched.pull {
+                let _ = watched.accessor.refresh().await;
+            }
+            if !watched.events.has_changed().unwrap_or(false) {
+                continue;
+            }
+            let event = watched.events.borrow_and_update().clone();
+            let accessor = watched.accessor.clone();
+            let update = match event {
+                AccessorEvent::Changed(_)
+                | AccessorEvent::Invalidated
+                | AccessorEvent::Status(Status::Expired) => Self::read_accessor(&accessor).await,
+                AccessorEvent::Removed => AccessorUpdate::Failed(Error::general_error(
+                    "the edited value was removed".to_string(),
+                )),
+                AccessorEvent::Initial
+                | AccessorEvent::Status(_)
+                | AccessorEvent::PrimaryProgress(_)
+                | AccessorEvent::SecondaryProgress(_)
+                | AccessorEvent::Log(_) => continue,
+            };
+            if let DeliveryOutcome::Missing = self.deliver_accessor(handle, update, app_state).await {
+                to_remove.push(handle);
+            }
+        }
+        for handle in to_remove {
+            self.accessors.remove(&handle);
+        }
+    }
+
     /// Handle RequestAssetUpdates: evaluate query, subscribe to notifications,
     /// build initial snapshot, deliver to widget, store in monitoring map.
     async fn handle_request_asset_updates(
@@ -580,6 +837,7 @@ where
                     UpdateMessage::AssetUpdate(snapshot),
                     app_state,
                     &self.sender,
+                    &self.registry,
                 )
                 .await;
                 match outcome {
@@ -616,6 +874,7 @@ where
                     UpdateMessage::AssetUpdate(error_snapshot),
                     app_state,
                     &self.sender,
+                    &self.registry,
                 )
                 .await;
                 match outcome {
@@ -652,6 +911,7 @@ where
                     UpdateMessage::AssetUpdate(snapshot),
                     app_state,
                     &self.sender,
+                    &self.registry,
                 )
                 .await;
                 match outcome {
@@ -720,6 +980,7 @@ where
         message: UpdateMessage,
         app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
         sender: &AppMessageSender,
+        registry: &Arc<CommandMetadataRegistry>,
     ) -> DeliveryOutcome {
         // Extract element from AppState (take_element errors if not found)
         let mut element = {
@@ -731,7 +992,9 @@ where
         }; // Lock released
 
         // Create UIContext and call update (lock not held)
-        let ctx = UIContext::new(app_state.clone(), sender.clone()).with_handle(Some(handle));
+        let ctx = UIContext::new(app_state.clone(), sender.clone())
+            .with_command_registry(registry.clone())
+            .with_handle(Some(handle));
         let response = element.update(&message, &ctx);
 
         // Put element back, and record the element's own repaint verdict.

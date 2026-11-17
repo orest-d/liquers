@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use liquers_core::command_metadata::CommandMetadataRegistry;
+
 use super::app_state::AppState;
 use super::handle::UIHandle;
 use super::message::{AppMessage, AppMessageSender};
@@ -19,6 +21,8 @@ pub struct UIContext {
     app_state: Arc<tokio::sync::Mutex<dyn AppState>>,
     sender: AppMessageSender,
     current_handle: Option<UIHandle>,
+    /// The command metadata registry the editors read (one shared snapshot per runner).
+    command_registry: Option<Arc<CommandMetadataRegistry>>,
 }
 
 impl UIContext {
@@ -27,7 +31,20 @@ impl UIContext {
             app_state,
             sender,
             current_handle: None,
+            command_registry: None,
         }
+    }
+
+    /// Return a new UIContext carrying the command metadata registry (builder pattern).
+    pub fn with_command_registry(mut self, registry: Arc<CommandMetadataRegistry>) -> Self {
+        self.command_registry = Some(registry);
+        self
+    }
+
+    /// The command metadata registry, when the host provided one: what the query, action,
+    /// resource and key editors read their widgets and documentation from.
+    pub fn command_registry(&self) -> Option<&Arc<CommandMetadataRegistry>> {
+        self.command_registry.as_ref()
     }
 
     /// Access the shared AppState mutex.

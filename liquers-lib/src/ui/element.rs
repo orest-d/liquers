@@ -40,6 +40,10 @@ pub enum UpdateMessage {
     AssetUpdate(super::message::AssetSnapshot),
     /// User interaction addressed to this element (backend-neutral; see `ui::event`).
     UI(super::event::UIEvent),
+    /// The runner's answer to an `AppMessage::Accessor` of this element.
+    Accessor(super::message::AccessorUpdate),
+    /// A directory listing an `AppMessage::ListDirectory` of this element asked for.
+    Directory(super::editor::DirectoryListing),
 }
 
 /// Element's response to an update.
@@ -545,6 +549,7 @@ impl UIElement for AssetViewElement {
             }
             UpdateMessage::Timer { .. } => UpdateResponse::Unchanged,
             UpdateMessage::Custom(_) => UpdateResponse::Unchanged,
+            UpdateMessage::Accessor(_) | UpdateMessage::Directory(_) => UpdateResponse::Unchanged,
             UpdateMessage::AssetUpdate(_) => UpdateResponse::Unchanged,
             UpdateMessage::UI(_) => UpdateResponse::Unchanged,
         }

@@ -80,6 +80,8 @@ web-sys = { version = "0.3", optional = true, features = [
   "HtmlCollection",
   # NodeList: query_selector_all for data-lq-field / data-lq-shortcut; HtmlTextAreaElement: field values.
   "NodeList", "HtmlTextAreaElement",
+  # HtmlSelectElement: the value of a <select> in a change event (query-pipeline-editor).
+  "HtmlSelectElement",
 ] }
 
 tokio = { version = "1.53.1", features = ["sync", "rt", "macros", "time"] }

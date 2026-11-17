@@ -54,6 +54,7 @@ pub mod app;
 pub mod commands;
 #[cfg(feature = "polars")]
 pub mod dataframe;
+pub mod editor;
 pub mod widgets;
 
 type UiClosure = Box<dyn FnMut(&mut egui::Ui) -> Result<(), Error> + Send>;

@@ -45,7 +45,7 @@ pub fn field_attr(name: &str) -> String {
 /// ` data-lq-event="…"` — the UI event a click (or Enter, on a single-line field) sends to the
 /// owning element.
 pub fn event_attr(kind: &crate::ui::event::UIEventKind) -> String {
-    format!(" data-lq-event=\"{}\"", escape_html(kind.name()))
+    format!(" data-lq-event=\"{}\"", escape_html(&kind.name()))
 }
 
 /// ` data-lq-shortcut="…"` — a keyboard shortcut that activates this node's `data-lq-action`.

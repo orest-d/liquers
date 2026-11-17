@@ -130,7 +130,7 @@ impl QueryConsoleElement {
                 self.submit_query(ctx);
                 UpdateResponse::NeedsRepaint
             }
-            UIEventKind::Named(_) => UpdateResponse::Unchanged,
+            UIEventKind::Named(_) | UIEventKind::Change(_) => UpdateResponse::Unchanged,
         }
     }
 
@@ -443,6 +443,7 @@ impl UIElement for QueryConsoleElement {
             UpdateMessage::AssetNotification(_) => UpdateResponse::Unchanged,
             UpdateMessage::Timer { .. } => UpdateResponse::Unchanged,
             UpdateMessage::Custom(_) => UpdateResponse::Unchanged,
+            UpdateMessage::Accessor(_) | UpdateMessage::Directory(_) => UpdateResponse::Unchanged,
             UpdateMessage::UI(event) => self.handle_ui_event(event, ctx),
         }
     }

@@ -9,10 +9,10 @@ renderers, then the commands. Each layer is tested before the next one uses it. 
 
 ## Progress
 
-- [ ] Step 1: the query editor keeps excess parameters
-- [ ] Step 2: argument edits on `ActionEditor`
-- [ ] Step 3: safe namespace edits
-- [ ] Step 4: presets and conversions
+- [x] Step 1: the query editor keeps excess parameters — 84445478
+- [x] Step 2: argument edits on `ActionEditor` — 84445478
+- [x] Step 3: safe namespace edits — 84445478
+- [x] Step 4: presets and conversions — 84445478
 - [ ] Step 5: registry in `UIContext`, `Change` events, `type_name`
 - [ ] Step 6: the editor core and its tree
 - [ ] Step 7: the editor element and its messages
