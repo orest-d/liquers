@@ -156,6 +156,7 @@ where
     /// `render_element` and a host submitting queries need.
     pub fn ui_context(&self) -> UIContext {
         UIContext::new(self.app_state.clone(), self.sender.clone())
+            .with_command_registry(self.runner.command_registry().clone())
     }
 
     /// The counter a host increments after each change it makes to the model from outside a

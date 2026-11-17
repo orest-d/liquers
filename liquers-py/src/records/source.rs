@@ -38,7 +38,7 @@ fn detached_shut() -> &'static Arc<Shut> {
 }
 
 /// A chunked table whose chunks are read on demand.
-#[pyclass(frozen, module = "liquers")]
+#[pyclass(frozen, module = "liquers.records")]
 pub struct RecordSource {
     pub inner: Arc<dyn CoreRecordSource>,
     origin: Option<SourceOrigin>,
@@ -192,7 +192,7 @@ enum StreamState {
 
 /// One pass over a source's chunks. A step takes the stream out of its state and puts it back
 /// when it ends, so a second step while one waits fails at once instead of blocking.
-#[pyclass(frozen, module = "liquers")]
+#[pyclass(frozen, module = "liquers.records")]
 pub struct RecordStream {
     state: Arc<Mutex<StreamState>>,
     shut: Arc<Shut>,
@@ -307,7 +307,7 @@ impl RecordStream {
 
 /// One entry of `RecordSource.chunks()`: its position, how it is identified, and whether it can
 /// be evaluated on its own.
-#[pyclass(frozen, module = "liquers")]
+#[pyclass(frozen, module = "liquers.records")]
 #[derive(Clone)]
 pub struct RecordChunk {
     index: usize,

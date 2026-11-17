@@ -46,3 +46,20 @@ have a row here (`specs/guides/USER_DOCS_EDITING_GUIDE.md`, maintenance).
 | 2026-11-14 | e-web-api.md | new appendix: the web API reference, from the shared fragment `_shared/web-api.md` (written from `reference/WEB_API_SPECIFICATION.md`, example answers taken from a running server); `ready` |
 | 2026-11-14 | 11-ui.md | adds 11.6, the reference for UI specs and the `ns-lui` commands, from the shared fragment `_shared/ui-reference.md` |
 | 2026-11-14 | 11-ui.md | restructured to go from a first application to the details: 11.1 is a complete window (or page) built from a UI spec, followed by what the user interface is and is not, from the shared fragment `_shared/ui-idea.md` |
+| 2026-11-15 | 02-installing.md | §2.4: the submodules (`liquers.query`, …, `liquers.lui`, `liquers.data_nodes`) and the private `_liquers`, from `guides/PYTHON_GUIDE.md` §2; example runs |
+| 2026-11-15 | 03-queries.md | 3.8 and 3.10: the examples import `parse`, `parse_key`, `Key`, `ActionRequest` from `liquers.query` and `Pipeline` from `liquers.pipeline`; the API links point to the submodule pages. Examples run |
+| 2026-11-15 | 04-values.md | 4.5: the examples import `data_node` and `NodeKind` from `liquers.data_nodes`. Examples run |
+| 2026-11-15 | 06-stores.md | the `Store.from_object` example imports `Store` from `liquers.store`. Examples run |
+| 2026-11-15 | 07-assets.md | 7.9: `Recipe` from `liquers.recipes`, `Expires` named with `liquers.metadata`; the API link points to the submodule page. Examples run |
+| 2026-11-15 | 09-data.md | 9.2-9.5: the examples import `RecordView` and `FieldType` from `liquers.records`. Examples run |
+| 2026-11-15 | 13-records.md | the examples import the record classes from `liquers.records`, and 13.6 says so; the API links point to the submodule page. Examples run |
+| 2026-11-15 | 15-troubleshooting.md | 15.3: the error classes live in `liquers.error`; the example imports from it. Examples run |
+| 2026-11-15 | c-glossary.md | C.2 gains a column naming each term's module |
+| 2026-11-15 | 05-commands.md | reviewed against the package layout of `design/py-package-submodules/`: its examples use only entry points of `liquers as lq` (`Environment`, `evaluate`, the decorators, the error classes), unchanged; no change |
+| 2026-11-15 | 08-environment.md | reviewed against the package layout of `design/py-package-submodules/`: its examples use only entry points of `liquers as lq` (`Environment`, `evaluate`, the decorators, the error classes), unchanged; no change |
+| 2026-11-15 | 10-templates.md | reviewed against the package layout of `design/py-package-submodules/`: its examples use only entry points of `liquers as lq` (`Environment`, `evaluate`, the decorators, the error classes), unchanged; no change |
+| 2026-11-15 | 11-ui.md | reviewed against the package layout of `design/py-package-submodules/`: its examples use only entry points of `liquers as lq` (`Environment`, `evaluate`, the decorators, the error classes), unchanged; no change |
+| 2026-11-15 | 14-testing.md | reviewed against the package layout of `design/py-package-submodules/`: its examples use only entry points of `liquers as lq` (`Environment`, `evaluate`, the decorators, the error classes), unchanged; no change |
+| 2026-11-16 | 04-values.md | reviewed against `design/settable-value-accessor/`: new 4.6 on editing a value through `lq.Accessor` (tokens, conflicts, projections, events); example runs |
+| 2026-11-16 | 12-serving.md | reviewed against `design/settable-value-accessor/`: the shared settings table names the opt-in `accessors` API |
+| 2026-11-16 | e-web-api.md | reviewed against `design/settable-value-accessor/`: new E.10, the Accessor API (routes, `ETag` preconditions, the WebSocket), from `_shared/web-api.md` |

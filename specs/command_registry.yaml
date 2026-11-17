@@ -1,8 +1,8 @@
 # Liquers command registry — GENERATED, do not edit by hand.
 # Regenerate: cargo run -p liquers-lib --features cli --bin export-command-registry -- \
 #               --format yaml -o specs/command_registry.yaml
-# Origin:   groups=core,lui,egui,image,polars,records,search,template,mem,markdown,store_config  features=egui,image-support,polars,records,templates,mem,markdown
-# Commands: 178
+# Origin:   groups=core,lui,egui,image,polars,records,search,template,mem,markdown,accessor,store_config  features=egui,image-support,polars,records,templates,mem,markdown
+# Commands: 192
 # CHANGELOG-BEGIN
 # 2026-08-02  initial export (95 commands: img 47, pl 26, lui 14, root 6, dep 2)
 # 2026-08-25  pl/select_columns and pl/drop_columns take a variadic `columns` argument
@@ -55,6 +55,10 @@
 #             lui/ui_spec propagates a failed log write (impl_version only).
 # 2026-11-04  composite-command-definition Step 11: commands_doc describes pipeline
 #             commands (impl_version only).
+# 2026-11-16  settable-value-accessor: new group accessor (ns-acc: accessor, store, recipe,
+#             query, pipeline, action, argument, field, item, get) returning value accessors.
+# 2026-11-17  query-pipeline-editor Step 11: lui query_editor, action_editor,
+#             resource_editor and key_editor (editor elements bound to an accessor).
 # CHANGELOG-END
 commands:
 - realm: store_config
@@ -754,6 +758,58 @@ commands:
   expires: never
   definition: Registered
   impl_version: 353776d67c163324e56c942bfbcfe6b0
+- namespace: lui
+  name: query_editor
+  label: Query editor
+  doc: 'An editor of a query or pipeline: a tree of its steps beside the highlighted text'
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 9b61655c0546b153272c93366cfe00c7
+- namespace: lui
+  name: action_editor
+  label: Action editor
+  doc: An editor of one action's arguments, from the command's argument metadata
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: a2ed32fadf9a9a7b135bc3410de0eb15
+- namespace: lui
+  name: resource_editor
+  label: Resource editor
+  doc: 'An editor of a resource query: its header and its key, with a store file selector'
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 9da6abf7a500f71dbf3f1c1093b70137
+- namespace: lui
+  name: key_editor
+  label: Key editor
+  doc: An editor of a key, with a store file selector
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 1b71a6d76d06f8fff92a7950d09bfd3d
 - namespace: lui
   name: submit
   label: Submit
@@ -4290,6 +4346,172 @@ commands:
     gui_info: !TextField 40
   volatile: false
   expires: never
+  definition: Registered
+- namespace: acc
+  name: accessor
+  label: Accessor
+  doc: A settable accessor of the keyed asset given as state (-R-key/…)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: acc
+  name: store
+  label: Store accessor
+  doc: 'A settable accessor of the stored data (view: binary, metadata or value) of the key given as state'
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: view
+    label: view
+    default: !Value value
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: acc
+  name: recipe
+  label: Recipe
+  doc: The accessor of one recipe of the recipe list the state accessor reads
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: index
+    label: index
+    default: None
+    argument_type: int
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: acc
+  name: query
+  label: Recipe query
+  doc: The accessor of the query of the recipe the state accessor reads
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: acc
+  name: pipeline
+  label: Recipe pipeline
+  doc: The accessor of the pipeline of the recipe the state accessor reads
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: acc
+  name: action
+  label: Pipeline element
+  doc: The accessor of one element of the query or pipeline the state accessor reads (0 is the resource)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: index
+    label: index
+    default: None
+    argument_type: int
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: acc
+  name: argument
+  label: Action argument
+  doc: The accessor of one argument of the action the state accessor reads
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: name
+    label: name
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: acc
+  name: field
+  label: Document field
+  doc: The accessor of one field of the document the state accessor reads
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: name
+    label: name
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: acc
+  name: item
+  label: List item
+  doc: The accessor of one item of the list the state accessor reads
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: index
+    label: index
+    default: None
+    argument_type: int
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: acc
+  name: get
+  label: Accessor value
+  doc: The current value of the accessor given as state
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: true
+  expires: never
+  is_async: true
   definition: Registered
 default_namespaces:
 - ''

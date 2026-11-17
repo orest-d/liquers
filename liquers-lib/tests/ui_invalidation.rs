@@ -105,6 +105,8 @@ impl UIElement for QuietElement {
             | UpdateMessage::AssetNotification(_)
             | UpdateMessage::Timer { .. }
             | UpdateMessage::Custom(_)
+            | UpdateMessage::Accessor(_)
+            | UpdateMessage::Directory(_)
             | UpdateMessage::UI(_) => UpdateResponse::Unchanged,
         }
     }

@@ -84,7 +84,7 @@ mod editor;
 mod plan;
 pub use convert::{ArgRef, ElementPath};
 pub use plan::{PipelinePlanBuilder, PlanningMode, DEFAULT_PLANNING_MODE, MAX_PIPELINE_DEPTH};
-pub use editor::{ActionEditor, PipelineEditor, QueryEditor};
+pub use editor::{ActionEditor, CommandChange, NamespaceImpact, PipelineEditor, QueryEditor};
 
 /// A value together with where it came from.
 ///
@@ -762,6 +762,18 @@ fn prefix_error(e: Error, what: &str) -> Error {
 }
 
 impl Source {
+    /// The source of an argument default or preset value: a literal, a link for a query, a nested
+    /// pipeline; `None` for no value.
+    pub fn from_parameter_value(value: &crate::command_metadata::CommandParameterValue) -> Option<Source> {
+        use crate::command_metadata::CommandParameterValue;
+        match value {
+            CommandParameterValue::Value(v) => Some(Source::Value(v.clone())),
+            CommandParameterValue::Query(q) => Some(Source::Link(q.encode())),
+            CommandParameterValue::Pipeline(p) => Some(Source::Pipeline(p.clone())),
+            CommandParameterValue::None => None,
+        }
+    }
+
     /// The serialized form, without a position.
     pub fn to_json(&self) -> Json {
         self.to_json_with(&None)

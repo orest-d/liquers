@@ -2,7 +2,7 @@
 title: Records
 status: ready
 sources: [reference/RECORD_STREAMS.md, guides/RECORD_STREAM_GUIDE.md, guides/SEARCH_GUIDE.md, reference/SEARCH.md, reference/AGENT_MEMORY_SERVICE.md, reference/PYTHON_INTEGRATION.md, reference/VISION.md]
-reviewed: 2026-11-14
+reviewed: 2026-11-15
 ---
 # 13. Records
 
@@ -17,14 +17,15 @@ A first look, to have something concrete in mind:
 
 ```python
 import liquers as lq
+from liquers.records import FieldType, RecordView
 
 env = lq.Environment()
 env.store.set("sales/jan.csv", b"id,region,amount\na1,EU,120\na2,US,80\n")
 
 table = env.evaluate("-R/sales/jan.csv/-/ns-rec/to_record")
-assert isinstance(table, lq.RecordView)                        # a table in memory
+assert isinstance(table, RecordView)                           # a table in memory
 assert [(f.name, f.type) for f in table.schema.fields] == [
-    ("id", lq.FieldType.Text), ("region", lq.FieldType.Text), ("amount", lq.FieldType.Int),
+    ("id", FieldType.Text), ("region", FieldType.Text), ("amount", FieldType.Int),
 ]
 assert table.to_list()[0] == {"id": "a1", "region": "EU", "amount": 120}    # one record
 env.shutdown()
@@ -36,7 +37,8 @@ env.shutdown()
 
 Section 9.2 showed how to read a record view and how to build one from rows, and section 9.3
 how to move it to pandas, Polars and pyarrow. Here are the parts that belong to this chapter:
-schemas, sources and manifests.
+schemas, sources and manifests. The record classes, `RecordView`, `RecordSource`, `FieldType` and the
+others, are in the module `liquers.records`.
 
 ### Declaring a schema
 
@@ -46,6 +48,7 @@ simply a Python string:
 
 ```python
 import liquers as lq
+from liquers.records import FieldType
 
 env = lq.Environment()
 env.store.set("sales/jan.csv", b"id,region,amount\na1,EU,120\na2,US,80\n")
@@ -61,7 +64,7 @@ table = env.evaluate([
     "-R/sales/jan.csv",
     {"action": "to_record", "ns": "rec", "arguments": {"schema": SCHEMA}},
 ])
-assert table.schema.field("amount").type == lq.FieldType.Float     # declared, not inferred
+assert table.schema.field("amount").type == FieldType.Float        # declared, not inferred
 assert table.schema.field("region").nullable is False
 assert table.column("amount").to_list() == [120.0, 80.0]
 
@@ -80,6 +83,7 @@ a link. A link is written `~X~` *query* `~E` in place of the argument:
 
 ```python
 import liquers as lq
+from liquers.records import FieldType
 
 env = lq.Environment()
 env.store.set("sales/jan.csv", b"id,region,amount\na1,EU,120\na2,US,80\n")
@@ -91,7 +95,7 @@ step = editor.action("to_record", ns="rec")
 step.link("schema", "-R/sales/schema.txt")           # the argument is the result of this query
 query = editor.query()
 assert query.encode() == "-R/sales/jan.csv/-/ns-rec/to_record--true-~X~-R/sales/schema.txt~E"
-assert env.evaluate(query).schema.field("amount").type == lq.FieldType.Float
+assert env.evaluate(query).schema.field("amount").type == FieldType.Float
 env.shutdown()
 ```
 
@@ -114,6 +118,7 @@ Liquers notices the new file at once:
 ```python
 import time
 import liquers as lq
+from liquers.records import RecordSource
 
 env = lq.Environment()
 env.store.set("sales/jan.raw.csv", b"id,region,amount\na1,EU,120\na2,US,80\n")
@@ -140,7 +145,7 @@ assert found.to_list() == [{"id": "b1", "region": "EU", "amount": 95}]
 
 # The source itself, in Python.
 source = env.evaluate("-R/sales/monthly.manifest.yaml/-/ns-rec/to_record_source")
-assert isinstance(source, lq.RecordSource) and source.bounded
+assert isinstance(source, RecordSource) and source.bounded
 assert [chunk.query.encode() for chunk in source.chunks()] == ["-R/sales/jan.csv", "-R/sales/feb.csv"]
 assert [len(view) for view in source] == [2, 1]              # a stream: one chunk at a time
 assert source.chunk(1).to_list() == [{"id": "b1", "region": "EU", "amount": 95}]
@@ -164,20 +169,21 @@ env.shutdown()
 The last lines of the example show the kinship of manifests and recipes from Python:
 `env.recipes` answers for the key of a chunk as it answers for a key from a `recipes.yaml`.
 
-API reference: [`RecordView`](https://orest-d.github.io/liquers/api/python/liquers.html#RecordView) and [`RecordSource`](https://orest-d.github.io/liquers/api/python/liquers.html#RecordSource).
+API reference: [`RecordView`](https://orest-d.github.io/liquers/api/python/liquers/records.html#RecordView) and [`RecordSource`](https://orest-d.github.io/liquers/api/python/liquers/records.html#RecordSource).
 
 A template makes the chunks from a command of yours. The command receives the offset and the
 number of rows, and answers a short table at the end:
 
 ```python
 import liquers as lq
+from liquers.records import RecordView
 
 env = lq.Environment()
 ROWS = [{"n": i} for i in range(5)]
 
 @env.first_command
 def page(offset: int = 0, size: int = 2):
-    return lq.RecordView.from_records(ROWS[offset:offset + size], fields={"n": "int"})
+    return RecordView.from_records(ROWS[offset:offset + size], fields={"n": "int"})
 
 env.store_set("numbers/all.manifest.yaml", """
 manifest: record-stream
@@ -201,6 +207,7 @@ With the `polars` package installed, the query of section 13.5 returns a `polars
 ```python
 import liquers as lq
 import polars as pl
+from liquers.records import RecordView
 
 env = lq.Environment()
 env.store.set("sales/jan.raw.csv", b"id,region,amount\na1,EU,120\na2,US,80\n")
@@ -219,7 +226,7 @@ assert total.to_dicts() == [{"amount": 215}]
 
 frame = env.evaluate("-R/sales/jan.raw.csv/-/ns-pl/from_csv")            # a data frame …
 view = env.evaluate("-R/sales/jan.raw.csv/-/ns-pl/from_csv/ns-rec/eq-region-EU")   # … into ns-rec
-assert isinstance(frame, pl.DataFrame) and isinstance(view, lq.RecordView)
+assert isinstance(frame, pl.DataFrame) and isinstance(view, RecordView)
 env.shutdown()
 ```
 
@@ -236,6 +243,7 @@ a query like any other, and its result is cached and kept up to date in the same
 
 ```python
 import liquers as lq
+from liquers.records import RecordView
 
 env = lq.Environment()
 env.store_set("notes/shopping.md", """---
@@ -260,7 +268,7 @@ Bread for the journey.
 """)
 
 listing = env.evaluate("-R-key/notes/-/ns-search/catalog")
-assert isinstance(listing, lq.RecordView)                     # the folder as a table
+assert isinstance(listing, RecordView)                        # the folder as a table
 assert [row["filename"] for row in listing.to_list()] == ["shopping.md", "trip.md"]
 
 hits = env.evaluate("-R-key/notes/-/ns-search/catalog-t-t/search-milk")

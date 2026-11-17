@@ -3,7 +3,7 @@ title: Liquers Web API Specification
 kind: reference
 audience: internal
 area: [axum, web]
-reviewed: 2026-11-10
+reviewed: 2026-11-16
 ---
 # Liquers Web API Specification
 
@@ -29,6 +29,7 @@ For a task-oriented introduction with curl and Python examples, see
 8. [Assembling a server](#8-assembling-a-server)
 9. [Access control](#9-access-control)
 10. [Implementation notes](#10-implementation-notes)
+11. [Accessor API](#11-accessor-api)
 - [Appendix A: Migration from Python liquer](#appendix-a-migration-from-python-liquer)
 - [Appendix B: Not implemented](#appendix-b-not-implemented)
 
@@ -36,7 +37,7 @@ For a task-oriented introduction with curl and Python examples, see
 
 ## 1. Overview
 
-`liquers-axum` provides four independent route builders, each generic over the `Environment` type
+`liquers-axum` provides five independent route builders, each generic over the `Environment` type
 `E` and producing an `axum::Router<EnvRef<E>>`:
 
 | Builder | Conventional base path | Serves |
@@ -45,6 +46,7 @@ For a task-oriented introduction with curl and Python examples, see
 | `AssetsApiBuilder` | `/liquer/api/assets` | the `AssetManager`: evaluation, observation, keyed mutations, WebSocket notifications |
 | `RecipesApiBuilder` | `/liquer/api/recipes` | the `AsyncRecipeProvider`, read-only |
 | `QueryApiBuilder` | `/liquer/q` | one-shot query evaluation |
+| `AccessorApiBuilder` | `/liquer/api/acc` | values through settable value accessors: conditional writes and change events (§11) |
 
 Base paths are chosen by the caller; nothing is mounted by default. A trailing `/` on a base is
 ignored (`"/liquer/q"` and `"/liquer/q/"` register the same routes), and the base joins its routes
@@ -620,7 +622,7 @@ document). Design: `specs/design/axum-server-assembly/`.
 | `host` | `127.0.0.1` | the address to listen on; `0.0.0.0` is reachable from the network (§9) |
 | `port` | `8080` | `0` picks a free port, which `LiquersServer::local_addr` reports |
 | `prefix` | `/liquer` | the path every route is under; a trailing `/` is ignored, `/` is the root; it must start with `/` |
-| `apis` | `[query, store, assets, recipes]` | the APIs mounted: `{prefix}/q`, `{prefix}/api/store`, `{prefix}/api/assets`, `{prefix}/api/recipes` |
+| `apis` | `[query, store, assets, recipes]` | the APIs mounted: `{prefix}/q`, `{prefix}/api/store`, `{prefix}/api/assets`, `{prefix}/api/recipes`; `accessors` (`{prefix}/api/acc`, §11) is opt-in and not in the default |
 | `read_only` | `false` | leaves out the store API and the assets mutation routes (the Assets API's `read_only()`, §5.6) (§9) |
 | `web` | `true` | `true`: serve store folder `web` at `{prefix}/web/`; `false`: no web folder and no index redirect; a string: serve that store folder (§9) |
 
@@ -637,7 +639,7 @@ server.stopped().await;                                // or server.shutdown(dea
 ```
 
 `LiquersServerBuilder::new(prefix)` starts from the defaults instead; its switches are
-`read_only`, `without_api`, `without_websocket`, `with_query_timeout`, `with_web`,
+`read_only`, `with_api`, `without_api`, `without_websocket`, `with_query_timeout`, `with_web`,
 `without_index` and `with_stop_deadline`. `router()` returns the composed
 `Router<EnvRef<E>>` for a host that runs its own loop; `bind(source)` listens and returns a
 `LiquersServer`.
@@ -777,6 +779,73 @@ behind the router.
 - **Query API settings** (`QueryApiConfig { timeout }`) reach its handlers as an axum `Extension`
   added by the builder; `WebSocketLimits` reach the WebSocket handlers the same way.
 
+- **Accessor API modules:** `accessor/mod.rs` (`AccessorApiBuilder`), `accessor/handlers.rs`,
+  `accessor/websocket.rs`.
+
+---
+
+## 11. Accessor API
+
+`AccessorApiBuilder::new(base).build()` serves values through settable value accessors
+([`VALUE_ACCESSORS.md`](VALUE_ACCESSORS.md)): a read with its token as the `ETag`, a write that is a
+compare-and-set on that token, and a socket of change events. `read_only()` leaves out `PUT`;
+`without_websocket()` leaves out `ws/`. Design: `design/settable-value-accessor/`.
+
+**Opt-in.** In an assembled server (§8.1) it is `Api::Accessors`, mounted at `{prefix}/api/acc` only
+when `apis` lists `accessors` (`Api::defaults()` does not; `Api::all()` does;
+`LiquersServerBuilder::with_api(Api::Accessors)` adds it). The server's `read_only` and
+`without_websocket` apply to it as to the Assets API. `bind` refuses it with a `ConfigurationError`
+("server.apis: accessors needs a value type with accessors") when the environment's type registry
+has no `Accessor` type, since no query of such an environment can make an accessor.
+
+**Resolving.** Every route takes a query in its path, which is evaluated: when its value is an
+accessor (an `acc` query such as `-R-key/config.yaml/-/ns-acc/accessor/field-title`), that accessor is
+used; any other query gives a read-only accessor of its own asset (`resolve_accessor`). An accessor
+query reads no value of its root, so resolving it is cheap; a plain query's routes evaluate it.
+
+| Method and path | Result |
+|---|---|
+| `GET {base}/q/{*query}` | the value, not enveloped: in `?format=` or its effective data format, `Content-Type` from that format, `ETag` the quoted token |
+| `PUT {base}/q/{*query}` | sets the value (preconditions below); answers the §2.2 envelope with `result: {"etag": …}` and the new `ETag` header |
+| `GET {base}/info/{*query}` | the envelope with `AccessorInfo` (`status`, `message`, `primary_progress`, `secondary_progress`, `log_len`) and `etag` once the accessor has been read; no value is evaluated |
+| `GET {base}/log/{*query}?since=n` | the envelope with the log entries from `n` (default 0); a `since` that is not a number is 400 |
+| `GET {base}/describe/{*query}` | the envelope with `PartDescription` (`step`, `type_identifier`, `argument`, `command`, `overridden`, `read_only`) |
+| `GET {base}/ws/{*query}` | a WebSocket of events (below) |
+
+**`PUT` body.** Read in `?format=`, else the format the `Content-Type` names (`application/json`
+→ `json`, `text/plain` → `txt`, YAML → `yaml`, `application/octet-stream` → `b`), else JSON; `?type=`
+names its type identifier.
+
+**`PUT` preconditions.** A write must say what it is based on:
+
+| Header | Means | Mismatch |
+|---|---|---|
+| `If-Match: <etag>` | set the value whose token is `<etag>` | 412, with the current `ETag` |
+| `If-Match: *` | set the value as it is now (it is read, and set against that token) | 412 when the value does not exist |
+| `If-None-Match: *` | create a value that must not exist | 412, with the current `ETag` |
+| none | — | 428 |
+
+A conflict writes nothing; its body is the §3.2 error body of the `StatusConflict`. A read-only
+accessor (`capabilities.write` false) answers 405 with the §3.2 body. Every other error follows §3.1.
+
+**WebSocket.** The query is resolved before the upgrade, so a query that fails is an ordinary error
+response. The session sends the current event (the latest the accessor has, `initial` when nothing
+has happened yet), then one text frame per change, each
+`AccessorEvent::to_json()`: `{"event": "changed", "etag": …}`, `{"event": "status", "status": …}`,
+`{"event": "progress", "primary" | "secondary": …}`, `{"event": "log", "count": n}`,
+`{"event": "removed"}`, `{"event": "invalidated"}`. Events coalesce: a slow client sees the latest. The
+socket closes with 1000 after `invalidated` (the accessor is dead; resolve the query again) and with
+1001 when the server stops. For a root that cannot notify (`capabilities.notify` false: the store
+root) it refreshes once a second, so changes made outside Liquers are seen within that period.
+
+```text
+GET /liquer/api/acc/q/-R-key/config.yaml/-/ns-acc/accessor/field-title
+  → 200 "Dashboard"  ETag: "8f…-3a…"
+PUT /liquer/api/acc/q/-R-key/config.yaml/-/ns-acc/accessor/field-title   If-Match: "8f…-3a…"
+  body: "Sales"  → 200 {"status": "OK", "result": {"etag": "…"}, …}
+PUT … same If-Match again → 412, ETag: the current token
+```
+
 ---
 
 ## Appendix A: Migration from Python liquer
@@ -809,6 +878,7 @@ Not available at HEAD; listed so that no reader mistakes them for features:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-16 | §11 Accessor API: `AccessorApiBuilder`, the opt-in `Api::Accessors` at `{prefix}/api/acc`, `GET`/`PUT` with `ETag` preconditions, `info`, `log`, `describe` and the event WebSocket. §1, §8.1: the fifth builder and `apis: accessors`. | `design/settable-value-accessor/`; `liquers-axum/tests/accessor_api.rs` |
 | 2026-11-10 | §8.2: a WebSocket session ends within 1 s of the stop even when it waits on a client that stopped reading (a review of PR #264 found it could outlive the shutdown). | `liquers-axum/tests/server_shutdown.rs` |
 | 2026-11-09 | §8 rewritten: §8.1 server assembly (`ServerConfig`, the `server` section and its defaults, `LiquersServerBuilder`, `EnvSource`, 503 when the source fails), §8.2 the two-stage stop with the WebSocket Close, §8.3 the web folder, §8.4 the index redirect, §8.5 composing routers by hand; §9 the security-sensitive settings `host`, `read_only`, `web` and the read-only web mount. | phase-5, `design/axum-server-assembly/` |
 | 2026-10-27 | §9: a mount is protected by the store configuration's `read_only` (or `ReadOnlyStore`), with writes answered 501 `NotSupported`, and when reads may still write (a store without data-only access, a pipeline assembled in code without its own `read_only`); the stale reference to the closed `STORE-NO-READ-ONLY-ADAPTER` is removed. | `design/web-api-spec-read-only-mount/` |

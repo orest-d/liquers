@@ -2,7 +2,7 @@
 title: Working with data
 status: ready
 sources: [reference/POLARS_COMMAND_LIBRARY.md, guides/RECORD_STREAM_GUIDE.md, guides/PYTHON_GUIDE.md, reference/PYTHON_INTEGRATION.md]
-reviewed: 2026-11-14
+reviewed: 2026-11-15
 ---
 # 9. Working with data
 
@@ -59,7 +59,8 @@ Appendix B has the complete list with all arguments, and
 
 ## 9.2 Record views in Python
 
-An `lq.RecordView` is a table you can read directly, without another package:
+A `RecordView`, from the module `liquers.records`, is a table you can read directly, without
+another package:
 
 | To get | Use |
 |---|---|
@@ -78,18 +79,19 @@ To make a table in a command, build a view from rows:
 
 ```python
 import liquers as lq
+from liquers.records import FieldType, RecordView
 
 env = lq.Environment()
 
 @env.first_command
 def sales():
-    return lq.RecordView.from_records(
+    return RecordView.from_records(
         [{"region": "north", "amount": 120}, {"region": "south", "amount": 80.5}],
         fields={"amount": "float"},
     )
 
 view = env.evaluate("sales")
-assert view.schema.field("amount").type == lq.FieldType.Float
+assert view.schema.field("amount").type == FieldType.Float
 assert view.to_list() == [{"region": "north", "amount": 120.0}, {"region": "south", "amount": 80.5}]
 assert env.evaluate("sales/ns-rec/nrows") == 2                   # a library command on your table
 assert env.evaluate("sales/ns-rec/head-1").to_dict() == {"region": ["north"], "amount": [120.0]}
@@ -114,9 +116,9 @@ A record view converts to and from the table types of the Python data ecosystem:
 
 | From a view | To a view |
 |---|---|
-| `view.to_pandas()` | `lq.RecordView.from_pandas(df)` |
-| `view.to_polars()` | `lq.RecordView.from_polars(df)` |
-| `view.to_arrow()` | `lq.RecordView.from_arrow(table)` |
+| `view.to_pandas()` | `RecordView.from_pandas(df)` |
+| `view.to_polars()` | `RecordView.from_polars(df)` |
+| `view.to_arrow()` | `RecordView.from_arrow(table)` |
 
 Each needs its package installed (the extras of chapter 2) and copies the data. Each `from_`
 function accepts `fields=` like `from_records`.
@@ -124,6 +126,7 @@ function accepts `fields=` like `from_records`.
 ```python
 import liquers as lq
 import pandas as pd
+from liquers.records import RecordView
 
 env = lq.Environment()
 env.store.set("data/sales.csv", b"region,month,amount\nEU,jan,120\nUS,jan,80\nEU,feb,95\n")
@@ -132,7 +135,7 @@ env.store.set("data/sales.csv", b"region,month,amount\nEU,jan,120\nUS,jan,80\nEU
 def total_by_region(table):
     df = table.to_pandas()
     totals = df.groupby("region", as_index=False)["amount"].sum()
-    return lq.RecordView.from_pandas(totals)
+    return RecordView.from_pandas(totals)
 
 totals = env.evaluate("-R/data/sales.csv/-/ns-rec/to_record/total_by_region")
 assert totals.to_list() == [{"region": "EU", "amount": 215}, {"region": "US", "amount": 80}]
@@ -184,12 +187,13 @@ them a view. A source is described by a *manifest*, which lists the query that m
 
 ```python
 import liquers as lq
+from liquers.records import RecordView
 
 env = lq.Environment()
 
 @env.first_command
 def part(i: int = 0):
-    return lq.RecordView.from_records([{"id": f"r{i}", "n": float(i)}])
+    return RecordView.from_records([{"id": f"r{i}", "n": float(i)}])
 
 @env.first_command
 def manifest():

@@ -20,7 +20,7 @@ server:
 | `host` | `127.0.0.1` | The address to listen on. The default answers only programs on this machine. |
 | `port` | `8080` | The port. With `0` the server picks a free one and reports it. |
 | `prefix` | `/liquer` | The path every route is under. `/` puts them at the root. |
-| `apis` | all four | Which APIs to offer: `query` (`{prefix}/q/…`), `store` (`{prefix}/api/store/…`), `assets` (`{prefix}/api/assets/…`, with the WebSocket) and `recipes` (`{prefix}/api/recipes/…`). |
+| `apis` | the four above | Which APIs to offer: `query` (`{prefix}/q/…`), `store` (`{prefix}/api/store/…`), `assets` (`{prefix}/api/assets/…`, with the WebSocket) and `recipes` (`{prefix}/api/recipes/…`). A fifth, `accessors` (`{prefix}/api/acc/…`, appendix E.10), is off unless you list it. |
 | `read_only` | `false` | With `true`, the store API and every route of the assets API that changes data are left out. |
 | `web` | `true` | `true` serves the store folder `web/`; a folder name such as `site` serves that folder instead; `false` turns the web folder and the start page off. |
 

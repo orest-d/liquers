@@ -116,6 +116,12 @@ def test_documented_value_types():
         env.shutdown()
 
 
+SUBMODULES = (
+    "query", "commands", "metadata", "dependencies", "plan", "recipes", "store", "environment",
+    "assets", "error", "data_nodes", "pipeline", "template", "records", "server", "lui",
+)
+
+
 def test_wheel_contents():
     files = {str(path).replace("\\", "/") for path in importlib.metadata.files("liquers-py") or []}
     # The notices, and the type declarations (liquers-py-stubs, STUBS07).
@@ -123,9 +129,14 @@ def test_wheel_contents():
         "liquers/THIRD-PARTY-NOTICES.html",
         "liquers/py.typed",
         "liquers/__init__.pyi",
-        "liquers/_native.pyi",
+        "_liquers/__init__.py",
+        "_liquers/__init__.pyi",
+        "_liquers/py.typed",
+        # One module and one stub per public submodule (py-package-submodules, AC-6).
+        *(f"liquers/{sub}.{ext}" for sub in SUBMODULES for ext in ("py", "pyi")),
     ):
         assert expected in files, sorted(files)
+    assert not any(name.startswith("liquers/_native") for name in files), sorted(files)
     assert any(name.endswith("/licenses/LICENSE") or name.endswith("/LICENSE") for name in files)
     metadata = importlib.metadata.metadata("liquers-py")
     assert metadata["Requires-Python"] == ">=3.10, <3.16" or metadata["Requires-Python"] == ">=3.10,<3.16"

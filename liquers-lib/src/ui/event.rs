@@ -15,26 +15,33 @@ pub enum UIEventKind {
     Submit,
     /// An element-defined event named in markup (`data-lq-event="refresh"`).
     Named(String),
+    /// A field's value changed: a checkbox was toggled, a selector was set
+    /// (`data-lq-event="change:<field>"`, sent on the DOM `change` event). Carries the field name.
+    Change(String),
 }
 
 impl UIEventKind {
-    /// `"submit"` -> `Submit`; any other non-empty name -> `Named`; empty -> `None`.
+    /// `"submit"` -> `Submit`; `"change:<field>"` -> `Change`; any other non-empty name ->
+    /// `Named`; empty -> `None`.
     pub fn from_name(name: &str) -> Option<Self> {
         let name = name.trim();
         if name.is_empty() {
             None
         } else if name == "submit" {
             Some(UIEventKind::Submit)
+        } else if let Some(field) = name.strip_prefix("change:") {
+            Some(UIEventKind::Change(field.to_string()))
         } else {
             Some(UIEventKind::Named(name.to_string()))
         }
     }
 
-    /// The name written in markup: `"submit"` or the custom name.
-    pub fn name(&self) -> &str {
+    /// The name written in markup: `"submit"`, `"change:<field>"` or the custom name.
+    pub fn name(&self) -> String {
         match self {
-            UIEventKind::Submit => "submit",
-            UIEventKind::Named(name) => name,
+            UIEventKind::Submit => "submit".to_string(),
+            UIEventKind::Named(name) => name.clone(),
+            UIEventKind::Change(field) => format!("change:{field}"),
         }
     }
 }
@@ -85,6 +92,11 @@ mod tests {
         assert_eq!(UIEventKind::from_name(""), None);
         assert_eq!(UIEventKind::from_name("  "), None);
         assert_eq!(UIEventKind::Submit.name(), "submit");
+        assert_eq!(
+            UIEventKind::from_name("change:f/1/n"),
+            Some(UIEventKind::Change("f/1/n".to_string()))
+        );
+        assert_eq!(UIEventKind::Change("x".to_string()).name(), "change:x");
         assert_eq!(UIEventKind::Named("reset".to_string()).name(), "reset");
     }
 

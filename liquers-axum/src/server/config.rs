@@ -20,12 +20,21 @@ pub enum Api {
     Assets,
     /// `{prefix}/api/recipes/…`: the recipes the providers know.
     Recipes,
+    /// `{prefix}/api/acc/…`: values through settable accessors (`PUT` left out when
+    /// `read_only`). Opt-in: not in [`Api::defaults`], and refused by `bind` when the value type
+    /// has no accessors.
+    Accessors,
 }
 
 impl Api {
-    /// Every standard API, in mounting order: the default of `apis`.
-    pub fn all() -> Vec<Api> {
+    /// The APIs a server mounts when `apis` is not given: every standard API but `accessors`.
+    pub fn defaults() -> Vec<Api> {
         vec![Api::Query, Api::Store, Api::Assets, Api::Recipes]
+    }
+
+    /// Every standard API, in mounting order.
+    pub fn all() -> Vec<Api> {
+        vec![Api::Query, Api::Store, Api::Assets, Api::Recipes, Api::Accessors]
     }
 }
 
@@ -101,10 +110,11 @@ pub struct ServerConfig {
     /// the root.
     #[serde(default = "default_prefix")]
     pub prefix: String,
-    /// The APIs to mount (default: all four).
-    #[serde(default = "Api::all")]
+    /// The APIs to mount (default: [`Api::defaults`], every API but `accessors`).
+    #[serde(default = "Api::defaults")]
     pub apis: Vec<Api>,
-    /// Leave out every route that changes data: the store API and the assets mutation routes.
+    /// Leave out every route that changes data: the store API, the assets mutation routes and the
+    /// accessor `PUT`.
     /// Off by default (writes enabled): security-sensitive.
     #[serde(default)]
     pub read_only: bool,
@@ -131,7 +141,7 @@ impl Default for ServerConfig {
             host: default_host(),
             port: default_port(),
             prefix: default_prefix(),
-            apis: Api::all(),
+            apis: Api::defaults(),
             read_only: false,
             web: WebSetting::default(),
         }
@@ -218,6 +228,10 @@ mod tests {
         assert_eq!(config.port, 8080);
         assert_eq!(config.prefix, "/liquer");
         assert_eq!(config.apis, vec![Api::Query, Api::Store, Api::Assets, Api::Recipes]);
+        assert_eq!(config.apis, Api::defaults());
+        assert!(Api::all().contains(&Api::Accessors));
+        let enabled: ServerConfig = serde_yaml::from_str("apis: [query, accessors]").expect("accessors");
+        assert_eq!(enabled.apis, vec![Api::Query, Api::Accessors]);
         assert!(!config.read_only);
         assert_eq!(config.web, WebSetting::Enabled(true));
         let mut empty = ConfigDocument::from_yaml("").expect("document");

@@ -32,7 +32,7 @@ with versions {'GLIBC_2.27'}
 def _wheel(directory: Path, name: str, files: dict[str, bytes], pad: int = 0) -> Path:
     path = directory / name
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_STORED) as archive:
-        archive.writestr("liquers/_native.abi3.so", b"\0" * pad)
+        archive.writestr("_liquers/_liquers.abi3.so", b"\0" * pad)
         for member, data in files.items():
             archive.writestr(member, data)
     return path

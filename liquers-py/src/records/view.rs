@@ -19,7 +19,7 @@ use crate::records::LiveRecord;
 /// argument, or a constructor (`RecordView.from_records`, `from_dict`, `from_pandas`,
 /// `from_polars`, `from_arrow`). Narrowing (`select_columns`, `slice`, `row`, `cell`) makes
 /// another view and copies nothing; `to_list()` and `to_dict()` copy into Python objects.
-#[pyclass(frozen, module = "liquers")]
+#[pyclass(frozen, module = "liquers.records")]
 pub struct RecordView {
     pub inner: Arc<dyn CoreRecordView>,
     _live: LiveRecord,

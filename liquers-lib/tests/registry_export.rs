@@ -62,6 +62,7 @@ fn full_registry() -> Result<CommandMetadataRegistry, Error> {
         liquers_lib::register_mem_commands!(cr)?;
         #[cfg(feature = "markdown")]
         liquers_lib::register_markdown_commands!(cr)?;
+        liquers_lib::register_accessor_commands!(cr)?;
     }
     Ok(env.get_command_metadata_registry().clone())
 }

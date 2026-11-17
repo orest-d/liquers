@@ -2,7 +2,7 @@
 id: UI-VARIADIC-ARGUMENT-LIST-EDITOR
 kind: feature
 title: A variadic argument cannot be edited as a list in a parameter editor
-status: draft
+status: closed
 priority: P3
 complexity: M
 area: [lib/ui, lib/egui, web, core/query]
@@ -71,3 +71,11 @@ Design: `specs/design/variadic-argument-slots/` (fix-direction steps 1 and 2, in
 Step 3, the list widget, has no in-tree parameter editor to live in and moved to
 `NO-COMMAND-PARAMETER-EDITOR`. The origin design was `specs/design/variadic-arguments-declaration/`
 (complete).
+
+## Resolution
+
+Implemented by `specs/design/query-pipeline-editor/` (2026-11-17): `ActionEditor::insert_item`,
+`remove_item` and `move_item` in `liquers-core` (fix direction 1 and 2), and the editors' list
+fields with append, delete and reorder (fix direction 3). Evidence:
+`liquers-core/src/pipeline/editor/tests.rs` `variadic_items_insert_remove_move`;
+`liquers-lib/tests/ui_editor_binding.rs` `two_editors_share_a_recipe_query`.

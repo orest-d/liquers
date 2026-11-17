@@ -53,7 +53,7 @@ use crate::error::serialization_pyerr;
 /// optional forms, or any.
 ///
 /// A narrower set than `ArgumentType`, used by `EnumArgument`.
-#[pyclass(from_py_object, eq, eq_int, module = "liquers")]
+#[pyclass(from_py_object, eq, eq_int, module = "liquers.commands")]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum EnumArgumentType {
     #[serde(rename = "string")]
@@ -78,7 +78,7 @@ pub enum EnumArgumentType {
 ///
 /// `EnumArgument(name, typ)` makes one named `name` whose alternatives have the value type `typ`
 /// (an `EnumArgumentType`).
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.commands")]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct EnumArgument(pub liquers_core::command_metadata::EnumArgument);
 
@@ -120,7 +120,7 @@ impl EnumArgument {
 /// The type of a command argument, as recorded in command metadata.
 ///
 /// `ArgumentInfo.argument_type` gives the same information as a string.
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.commands")]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct ArgumentType(pub liquers_core::command_metadata::ArgumentType);
 
@@ -206,7 +206,7 @@ impl From<liquers_core::command_metadata::EnumArgumentType> for EnumArgumentType
 ///
 /// `CommandKey(realm, namespace, name)`; an empty realm or namespace is the default one. Keys
 /// compare and hash by value.
-#[pyclass(module = "liquers")]
+#[pyclass(module = "liquers.commands")]
 pub struct CommandKey(pub liquers_core::command_metadata::CommandKey);
 
 #[pymethods]
@@ -261,7 +261,7 @@ impl CommandKey {
 ///
 /// `ArgumentInfo(name)` describes an argument of any type with no default. Read it from
 /// `CommandMetadata.arguments`.
-#[pyclass(module = "liquers")]
+#[pyclass(module = "liquers.commands")]
 pub struct ArgumentInfo(pub liquers_core::command_metadata::ArgumentInfo);
 
 #[pymethods]
@@ -391,7 +391,7 @@ fn parameter_value_to_py(
 /// How a command is implemented: registered code, or an alias of another command.
 ///
 /// Part of `CommandMetadata`.
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.commands")]
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommandDefinition(pub liquers_core::command_metadata::CommandDefinition);
 
@@ -481,7 +481,7 @@ impl CommandDefinition {
 ///
 /// `CommandPreset(action, label, description)`; `action` is query text and raises an exception when
 /// it does not parse.
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.commands")]
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommandPreset(pub liquers_core::command_metadata::CommandPreset);
 
@@ -526,7 +526,7 @@ impl CommandPreset {
 ///
 /// `Environment.command_metadata(name)` returns the metadata of a registered command. See
 /// `PYTHON_GUIDE.md` §5, "Metadata".
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.commands")]
 #[derive(Debug, Clone)]
 pub struct CommandMetadata(pub liquers_core::command_metadata::CommandMetadata);
 
@@ -667,7 +667,7 @@ impl CommandMetadata {
 /// A collection of command metadata, without the implementations.
 ///
 /// Enough to build a plan (`build_plan`) without running anything.
-#[pyclass(module = "liquers")]
+#[pyclass(module = "liquers.commands")]
 pub struct CommandMetadataRegistry(pub liquers_core::command_metadata::CommandMetadataRegistry);
 
 #[pymethods]

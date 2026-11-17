@@ -2183,6 +2183,52 @@ pub(crate) fn convert_scalar(arg: &ArgumentInfo, value: &Value) -> Result<Conver
     }
 }
 
+/// The version of a key's recipe: a content hash of the recipe, so that editing the recipe gives
+/// its `-R-recipe/<key>` dependency key a new version and expires what was computed from it
+/// (`specs/design/recipe-dependency-versions/`).
+///
+/// Every declared field counts, `title` and `description` included, so a stored value never
+/// keeps a title its recipe no longer declares. The two fields a provider derives
+/// (`has_circular_dependencies`, `circular_dependency_key`) are left out: they describe a
+/// validation, not the recipe. The recipe is serialized to JSON and every object's keys are
+/// sorted before hashing, because `arguments` and `links` are `HashMap`s whose iteration order
+/// is not stable. `None` (no recipe, e.g. a removed one) hashes JSON `null`, a version no recipe
+/// has, so removing a recipe is a change like any edit.
+pub(crate) fn recipe_version(recipe: Option<&Recipe>) -> crate::metadata::Version {
+    fn canonical(value: Value) -> Value {
+        match value {
+            Value::Object(map) => {
+                let sorted: std::collections::BTreeMap<String, Value> =
+                    map.into_iter().map(|(k, v)| (k, canonical(v))).collect();
+                let mut out = serde_json::Map::new();
+                for (k, v) in sorted {
+                    out.insert(k, v);
+                }
+                Value::Object(out)
+            }
+            Value::Array(items) => Value::Array(items.into_iter().map(canonical).collect()),
+            Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => value,
+        }
+    }
+    let json = match recipe {
+        None => Value::Null,
+        Some(recipe) => match serde_json::to_value(recipe) {
+            Ok(Value::Object(mut map)) => {
+                map.remove("has_circular_dependencies");
+                map.remove("circular_dependency_key");
+                canonical(Value::Object(map))
+            }
+            Ok(other) => canonical(other),
+            // Not expected: every field serializes. A recipe that cannot be hashed gets a
+            // fresh version, so it is treated as changed rather than silently as unchanged.
+            Err(_) => return crate::metadata::Version::new_unique(),
+        },
+    };
+    // `to_string` of a `Value` writes objects in their map order, which `canonical` fixed.
+    let text = serde_json::to_string(&json).unwrap_or_default();
+    crate::metadata::Version::from_content(text.as_bytes())
+}
+
 #[cfg(test)]
 mod test {
     use crate::{
@@ -4284,5 +4330,71 @@ mod recipes_config_tests {
         let chain = resolve_recipes(&RecipesConfig::Chain(Vec::new()), &[], &factory())?;
         assert!(chain.is_empty());
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod recipe_version_tests {
+    use super::{recipe_version, Recipe};
+
+    fn recipe(query: &str) -> Recipe {
+        Recipe::new(query.to_string(), String::new(), String::new()).expect("valid query")
+    }
+
+    #[test]
+    fn recipe_version_ignores_map_order() {
+        let mut a = recipe("make_text/r.txt");
+        let mut b = a.clone();
+        for i in 0..32 {
+            a.arguments.insert(format!("arg{i}"), serde_json::json!(i));
+            a.links.insert(format!("link{i}"), format!("-R/x{i}.txt"));
+        }
+        for i in (0..32).rev() {
+            b.arguments.insert(format!("arg{i}"), serde_json::json!(i));
+            b.links.insert(format!("link{i}"), format!("-R/x{i}.txt"));
+        }
+        assert_eq!(recipe_version(Some(&a)), recipe_version(Some(&b)));
+    }
+
+    #[test]
+    fn recipe_version_changes_with_query() {
+        let a = recipe("make_text/upper/r.txt");
+        let b = recipe("make_text/lower/r.txt");
+        assert_ne!(recipe_version(Some(&a)), recipe_version(Some(&b)));
+        assert!(!recipe_version(Some(&a)).is_unknown());
+    }
+
+    #[test]
+    fn recipe_version_counts_every_declared_field() {
+        let base = recipe("make_text/r.txt");
+        let v = recipe_version(Some(&base));
+        let mut titled = base.clone();
+        titled.title = "A title".to_string();
+        assert_ne!(recipe_version(Some(&titled)), v, "title");
+        let mut volatile = base.clone();
+        volatile.volatile = true;
+        assert_ne!(recipe_version(Some(&volatile)), v, "volatile");
+        let mut stored = base.clone();
+        stored.stored = Some(false);
+        assert_ne!(recipe_version(Some(&stored)), v, "stored");
+        let mut cwd = base.clone();
+        cwd.cwd = Some("data".to_string());
+        assert_ne!(recipe_version(Some(&cwd)), v, "cwd");
+    }
+
+    #[test]
+    fn recipe_version_ignores_derived_fields() {
+        let base = recipe("make_text/r.txt");
+        let mut flagged = base.clone();
+        flagged.has_circular_dependencies = true;
+        flagged.circular_dependency_key = Some(crate::query::Key::new());
+        assert_eq!(recipe_version(Some(&flagged)), recipe_version(Some(&base)));
+    }
+
+    #[test]
+    fn removed_recipe_has_its_own_version() {
+        let none = recipe_version(None);
+        assert!(!none.is_unknown());
+        assert_ne!(none, recipe_version(Some(&Recipe::default())));
     }
 }

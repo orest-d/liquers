@@ -36,6 +36,8 @@ pub fn error_to_status_code(error_type: ErrorType) -> StatusCode {
         ErrorType::NotAvailable => StatusCode::NOT_FOUND,
         ErrorType::DependencyVersionMismatch => StatusCode::CONFLICT,
         ErrorType::DependencyCycle => StatusCode::CONFLICT,
+        // The accessor routes answer a conditional-write conflict with 412 themselves
+        // (`accessor::handlers::put_handler`); every other route keeps 409.
         ErrorType::StatusConflict => StatusCode::CONFLICT,
         // Asset processing was cancelled: 499 Client Closed Request (falls back to 503 if the
         // non-standard code is unavailable).

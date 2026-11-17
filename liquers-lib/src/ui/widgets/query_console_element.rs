@@ -1,3 +1,35 @@
+//! [`QueryConsoleElement`]: a browser-like query console.
+//!
+//! The console holds a query text with history, shows the evaluated value or its metadata, offers
+//! the next presets of the last command, and opens a Parameters panel: an editor
+//! (`ui::editor::EditorState`) of the last action, whose edits rewrite the text without
+//! submitting it.
+//!
+//! # Main components
+//!
+//! - [`QueryConsoleElement`]: the element; `show_parameters`, `parameters_tree` and
+//!   `apply_parameter_commands` drive the Parameters panel.
+//!
+//! # Where it is used
+//!
+//! - The `lui/query_console` command (`ui::commands`) creates it; egui and the browser draw it.
+//!
+//! # Related concepts
+//!
+//! - `ui::editor`: the editors; the panel reuses their core and egui renderer.
+//! - `specs/design/query-pipeline-editor/` (the Parameters panel).
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_lib::ui::QueryConsoleElement;
+//!
+//! let mut console = QueryConsoleElement::new("Console".into(), "-R/a.csv/-/head-3".into());
+//! assert!(!console.show_parameters());
+//! console.set_show_parameters(true);
+//! assert!(console.show_parameters());
+//! ```
+
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -7,7 +39,10 @@ use liquers_core::error::Error;
 use liquers_core::metadata::{Metadata, Status};
 use liquers_core::state::State;
 
+use liquers_core::value::ValueInterface;
+
 use crate::ui::app_state::AppState;
+use crate::ui::editor::{EditorCommand, EditorEffect, EditorKind, EditorNode, EditorState, EditorTree, EditorView};
 use crate::ui::element::{UIElement, UpdateMessage, UpdateResponse};
 use crate::ui::event::{UIEvent, UIEventKind};
 use crate::ui::handle::UIHandle;
@@ -67,6 +102,19 @@ pub struct QueryConsoleElement {
     /// Last time a delayed volatile refresh was scheduled.
     #[serde(skip)]
     last_volatile_refresh_at: Option<std::time::Instant>,
+
+    /// Whether the Parameters panel (an action editor of the last action) is open.
+    #[serde(default)]
+    show_parameters: bool,
+
+    /// The editor behind the Parameters panel, over the console's query text.
+    #[serde(skip)]
+    parameters: Option<EditorState>,
+
+    /// What is being typed in the Parameters panel.
+    #[serde(skip)]
+    #[cfg_attr(not(feature = "egui"), allow(dead_code))]
+    parameters_view: EditorView,
 }
 
 impl QueryConsoleElement {
@@ -86,7 +134,81 @@ impl QueryConsoleElement {
             next_presets: Vec::new(),
             ui_element: None,
             last_volatile_refresh_at: None,
+            show_parameters: false,
+            parameters: None,
+            parameters_view: EditorView::default(),
         }
+    }
+
+    /// Whether the Parameters panel is open.
+    pub fn show_parameters(&self) -> bool {
+        self.show_parameters
+    }
+
+    /// Opens or closes the Parameters panel.
+    pub fn set_show_parameters(&mut self, on: bool) {
+        self.show_parameters = on;
+    }
+
+    /// The Parameters panel's tree: the last action of the query text, with its fields, presets
+    /// and next presets. `None` when the text does not parse or there is no registry.
+    pub fn parameters_tree(&mut self, ctx: &UIContext) -> Option<EditorTree> {
+        let registry = ctx.command_registry()?.clone();
+        let query = liquers_core::parse::parse_query(&self.query_text).ok()?;
+        let current = self
+            .parameters
+            .as_ref()
+            .and_then(EditorState::value)
+            .and_then(|v| v.try_into_query().ok())
+            .map(|q| q.encode());
+        if current.as_deref() != Some(query.encode().as_str()) {
+            let mut state = EditorState::new(EditorKind::Query, registry);
+            state.on_snapshot(&Value::from_query(&query), None).ok()?;
+            self.parameters = Some(state);
+        }
+        let mut tree = self.parameters.as_ref()?.tree().clone();
+        let last = tree
+            .nodes
+            .iter()
+            .rposition(|n| matches!(n, EditorNode::Action { .. } | EditorNode::Opaque { .. }));
+        tree.nodes = match last {
+            Some(at) => vec![tree.nodes.swap_remove(at)],
+            None => Vec::new(),
+        };
+        tree.text_editable = false;
+        tree.has_filename = false;
+        Some(tree)
+    }
+
+    /// Applies edits made in the Parameters panel: each accepted edit rewrites the query text,
+    /// without submitting it. Returns whether the text changed.
+    pub fn apply_parameter_commands(&mut self, commands: Vec<EditorCommand>, ctx: &UIContext) -> bool {
+        if commands.is_empty() || self.parameters_tree(ctx).is_none() {
+            return false;
+        }
+        let Some(state) = &mut self.parameters else {
+            return false;
+        };
+        let mut changed = false;
+        for command in commands {
+            match state.apply(command) {
+                Ok(EditorEffect::Write { value, .. }) => {
+                    if let Ok(q) = value.try_into_query() {
+                        self.query_text = q.encode();
+                        changed = true;
+                    }
+                    state.on_written(liquers_core::accessor::Fingerprint {
+                        anchor: 0,
+                        content: liquers_core::metadata::Version::new(0),
+                    });
+                }
+                Ok(EditorEffect::None)
+                | Ok(EditorEffect::Reload)
+                | Ok(EditorEffect::ListDirectory(_))
+                | Err(_) => {}
+            }
+        }
+        changed
     }
 
     /// Submit the current query_text for evaluation.
@@ -130,7 +252,7 @@ impl QueryConsoleElement {
                 self.submit_query(ctx);
                 UpdateResponse::NeedsRepaint
             }
-            UIEventKind::Named(_) => UpdateResponse::Unchanged,
+            UIEventKind::Named(_) | UIEventKind::Change(_) => UpdateResponse::Unchanged,
         }
     }
 
@@ -293,6 +415,15 @@ impl QueryConsoleElement {
                 self.data_view = !self.data_view;
             }
 
+            // Parameters panel toggle
+            if ui
+                .selectable_label(self.show_parameters, "Parameters")
+                .on_hover_text("Edit the arguments of the last action")
+                .clicked()
+            {
+                self.show_parameters = !self.show_parameters;
+            }
+
             // Presets dropdown (only if presets available)
             if !self.next_presets.is_empty() {
                 let mut selected_preset: Option<usize> = None;
@@ -443,6 +574,7 @@ impl UIElement for QueryConsoleElement {
             UpdateMessage::AssetNotification(_) => UpdateResponse::Unchanged,
             UpdateMessage::Timer { .. } => UpdateResponse::Unchanged,
             UpdateMessage::Custom(_) => UpdateResponse::Unchanged,
+            UpdateMessage::Accessor(_) | UpdateMessage::Directory(_) => UpdateResponse::Unchanged,
             UpdateMessage::UI(event) => self.handle_ui_event(event, ctx),
         }
     }
@@ -464,6 +596,23 @@ impl UIElement for QueryConsoleElement {
     ) -> egui::Response {
         ui.vertical(|ui| {
             self.show_toolbar(ui, ctx);
+            if self.show_parameters {
+                match self.parameters_tree(ctx) {
+                    Some(tree) => {
+                        let mut view = std::mem::take(&mut self.parameters_view);
+                        let commands = ui
+                            .push_id("lq-console-parameters", |ui| {
+                                crate::egui::editor::show_editor(ui, &tree, &mut view)
+                            })
+                            .inner;
+                        self.parameters_view = view;
+                        self.apply_parameter_commands(commands, ctx);
+                    }
+                    None => {
+                        ui.label("No parameters: the query does not parse, or there is no registry.");
+                    }
+                }
+            }
             ui.separator();
             self.show_content(ui, ctx, app_state);
         })
@@ -549,6 +698,8 @@ mod tests {
             | Ok(AppMessage::Quit)
             | Ok(AppMessage::Serialize { .. })
             | Ok(AppMessage::Deserialize { .. })
+            | Ok(AppMessage::Accessor { .. })
+            | Ok(AppMessage::ListDirectory { .. })
             | Err(_) => None,
         }
     }
@@ -984,6 +1135,38 @@ mod tests {
         assert!(restored.get_metadata().is_none());
     }
 
+    /// query-pipeline-editor AC-8: the Parameters panel edits the last action of the text and
+    /// does not submit.
+    #[test]
+    fn parameters_panel_edits_the_last_action_without_submitting() {
+        use liquers_core::command_metadata::{ArgumentInfo, CommandMetadata};
+        let mut cmr = CommandMetadataRegistry::new();
+        let mut head = CommandMetadata::new("head");
+        head.with_argument(ArgumentInfo::integer_argument("n", false).with_default(5));
+        cmr.add_command(&head);
+        let (ctx, mut rx) = create_test_context();
+        let ctx = ctx.with_command_registry(Arc::new(cmr));
+        let mut c = QueryConsoleElement::new("C".to_string(), "-R/a.csv/-/head-3".to_string());
+        c.set_handle(UIHandle(1));
+        c.set_show_parameters(true);
+        let tree = c.parameters_tree(&ctx).expect("tree");
+        assert_eq!(tree.nodes.len(), 1);
+        let path = tree.nodes[0].path().clone();
+        let changed = c.apply_parameter_commands(
+            vec![EditorCommand::SetField { path: path.clone(), arg: "n".into(), text: "7".into() }],
+            &ctx,
+        );
+        assert!(changed);
+        assert_eq!(c.query_text, "-R/a.csv/-/head-7");
+        assert!(rx.try_recv().is_err(), "nothing is submitted");
+        // A second edit after the first is written applies too.
+        c.apply_parameter_commands(
+            vec![EditorCommand::Reset { path, arg: "n".into() }],
+            &ctx,
+        );
+        assert_eq!(c.query_text, "-R/a.csv/-/head");
+    }
+
     #[test]
     fn test_typetag_roundtrip() {
         let c = QueryConsoleElement::new("C".to_string(), "q".to_string());
@@ -1035,7 +1218,9 @@ mod tests {
                 | AppMessage::UIEvent { .. }
                 | AppMessage::Quit
                 | AppMessage::Serialize { .. }
-                | AppMessage::Deserialize { .. } => panic!("Expected RequestAssetUpdates"),
+                | AppMessage::Deserialize { .. }
+                | AppMessage::Accessor { .. }
+                | AppMessage::ListDirectory { .. } => panic!("Expected RequestAssetUpdates"),
             }
         }
     }

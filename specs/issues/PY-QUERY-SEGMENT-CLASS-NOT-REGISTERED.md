@@ -24,7 +24,7 @@ every `#[pyclass]` against the `add_class` calls finds no other such class.
 ```python
 import liquers as lq
 seg = lq.parse("hello/to_text").segments[0]
-type(seg).__module__, type(seg).__name__   # ('liquers', 'QuerySegment')
+type(seg).__module__, type(seg).__name__   # ('liquers.query', 'QuerySegment') since 2026-11-15
 lq.QuerySegment                            # today: AttributeError
 isinstance(seg, lq.QuerySegment)           # today: AttributeError; expected: True
 ```
@@ -51,3 +51,10 @@ Found by review of `design/py-docstrings/` on 2026-10-27 (bulk design of the Pyt
 `design/liquers-py-stubs/` declares the class under the stub-only private name `_QuerySegment` in
 `liquers-py/python/liquers/__init__.pyi`, so `Query.segments` is typed. When the class is
 registered and exported, rename the declaration to `QuerySegment` and add it to `_native.pyi`.
+
+## Note (2026-11-15)
+
+`design/py-package-submodules/` gave the class `module = "liquers.query"`, so a segment reports
+`liquers.query` (`test_LAYOUT05`), and moved its declaration, still `_QuerySegment`, to
+`liquers/query.pyi`. When the class is exported, rename it to `QuerySegment` there and add it to
+`liquers.query.__all__`, `liquers/_backend.py` and `_liquers/__init__.pyi`.

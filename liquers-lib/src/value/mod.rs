@@ -1,3 +1,47 @@
+//! The value type of `liquers-lib`: [`Value`], a [`CombinedValue`] of [`SimpleValue`] and
+//! [`ExtValue`].
+//!
+//! [`ExtValue`] holds what `liquers-core`'s base value cannot: images, polars data frames, egui
+//! commands and widgets, UI elements, record views and sources, foreign-language objects, and value
+//! accessors. Each variant has one type identifier and a `TypeInfo` in
+//! [`ExtValue::type_descriptions`], which names the formats it can be written in.
+//!
+//! # Main components
+//!
+//! - [`Value`]: the value type of every `liquers-lib` environment.
+//! - [`ExtValue`]: the extended variants; [`ExtValueInterface`] builds and reads them.
+//! - [`extended`]: [`CombinedValue`] and [`ValueExtension`], for a value type of one's own.
+//! - [`foreign`]: [`foreign::ForeignValue`], the one variant for every integrated language.
+//!
+//! **Handle values** are passed like values but never stored, because their type declares no
+//! formats: `UIElement`, `Foreign` objects without a byte form, and `Accessor`
+//! (`ExtValue::Accessor`, a `liquers_core::accessor::ValueAccessor` of [`Value`], made by the `acc`
+//! commands). Persisting one is `NonSerializable`; its data node is opaque.
+//!
+//! # Where it is used
+//!
+//! - Every command of this crate takes and returns [`Value`]; `liquers-py`, `liquers-web` and
+//!   `liquers-axum` use it as their value type.
+//!
+//! # Related concepts
+//!
+//! - `liquers_core::value`: the base value and `ValueInterface`.
+//! - `liquers_core::type_system`: the registry [`ExtValue::type_descriptions`] feeds.
+//! - `specs/guides/TYPE_SYSTEM_GUIDE.md`: how to add a variant.
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_core::value::ValueInterface;
+//! use liquers_lib::value::Value;
+//! let text = Value::from("hello");
+//! assert_eq!(text.identifier(), "Text");
+//! assert!(Value::type_descriptions().iter().any(|t| t.type_identifier == "Accessor"));
+//! ```
+//!
+//! - [Tests](https://github.com/orest-d/liquers/blob/main/liquers-lib/tests/value_type_system.rs):
+//!   one sample of every variant against its type description.
+
 use liquers_core::value::ValueInterface;
 use liquers_core::{error::ErrorType, value::DefaultValueSerializer};
 
@@ -51,6 +95,12 @@ pub enum ExtValue {
     Foreign {
         value: Arc<dyn crate::value::foreign::ForeignValue>,
     },
+    /// A settable handle to where a value lives: a store entry, a keyed asset, a variable, or a
+    /// part of one (a recipe argument, a document field). A handle, never serialized: its type
+    /// declares no formats. See [`liquers_core::accessor`].
+    Accessor {
+        value: Arc<dyn liquers_core::accessor::ValueAccessor<crate::value::Value>>,
+    },
     /// A finite table — a `RecordBatch` or any view over one. Shareable, cacheable; serialized
     /// by `write_table`, which takes `&dyn RecordView` directly (no materialization needed to
     /// serialize — only a source needs that). See
@@ -91,7 +141,7 @@ impl ExtValueInterface for ExtValue {
     fn as_image(&self) -> Result<Arc<image::DynamicImage>, Error> {
         match self {
             ExtValue::Image { value } => Ok(value.clone()),
-            ExtValue::UIElement { .. } | ExtValue::Foreign { .. } => {
+            ExtValue::UIElement { .. } | ExtValue::Accessor { .. } | ExtValue::Foreign { .. } => {
                 Err(Error::conversion_error(self.identifier().as_ref(), "Image"))
             }
             #[cfg(feature = "polars")]
@@ -118,7 +168,7 @@ impl ExtValueInterface for ExtValue {
     fn as_polars_dataframe(&self) -> Result<Arc<polars::frame::DataFrame>, Error> {
         match self {
             ExtValue::PolarsDataFrame { value } => Ok(value.clone()),
-            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Foreign { .. } => Err(
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Accessor { .. } | ExtValue::Foreign { .. } => Err(
                 Error::conversion_error(self.identifier().as_ref(), "Polars dataframe"),
             ),
             #[cfg(feature = "egui")]
@@ -138,7 +188,7 @@ impl ExtValueInterface for ExtValue {
     fn as_ui_element(&self) -> Result<Arc<dyn crate::ui::element::UIElement>, Error> {
         match self {
             ExtValue::UIElement { value } => Ok(value.clone()),
-            ExtValue::Image { .. } | ExtValue::Foreign { .. } => Err(Error::conversion_error(
+            ExtValue::Image { .. } | ExtValue::Foreign { .. } | ExtValue::Accessor { .. } => Err(Error::conversion_error(
                 self.identifier().as_ref(),
                 "UIElement",
             )),
@@ -167,7 +217,7 @@ impl ExtValueInterface for ExtValue {
         match self {
             ExtValue::RecordView { value } => Ok(value.clone()),
             ExtValue::Image { .. }
-            | ExtValue::UIElement { .. }
+            | ExtValue::UIElement { .. } | ExtValue::Accessor { .. }
             | ExtValue::Foreign { .. }
             | ExtValue::RecordSource { .. } => {
                 Err(Error::conversion_error(self.identifier().as_ref(), "RecordView"))
@@ -191,7 +241,7 @@ impl ExtValueInterface for ExtValue {
         match self {
             ExtValue::RecordSource { value } => Ok(value.clone()),
             ExtValue::Image { .. }
-            | ExtValue::UIElement { .. }
+            | ExtValue::UIElement { .. } | ExtValue::Accessor { .. }
             | ExtValue::Foreign { .. }
             | ExtValue::RecordView { .. } => {
                 Err(Error::conversion_error(self.identifier().as_ref(), "RecordSource"))
@@ -349,6 +399,32 @@ fn record_view_cell_string_option(cell: &FieldValue) -> Result<Option<String>, E
 }
 
 impl ValueExtension for ExtValue {
+    fn erased_accessor(&self) -> Option<Arc<dyn liquers_core::accessor::ErasedAccessor>> {
+        match self {
+            ExtValue::Accessor { value } => {
+                Some(Arc::new(liquers_core::accessor::AccessorBox(value.clone())))
+            }
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Foreign { .. } => None,
+            #[cfg(feature = "polars")]
+            ExtValue::PolarsDataFrame { .. } => None,
+            #[cfg(feature = "egui")]
+            ExtValue::UiCommand { .. } | ExtValue::Widget { .. } => None,
+            #[cfg(feature = "records")]
+            ExtValue::RecordView { .. } | ExtValue::RecordSource { .. } => None,
+        }
+    }
+
+    fn from_erased_accessor(
+        accessor: Arc<dyn liquers_core::accessor::ErasedAccessor>,
+    ) -> Option<Self> {
+        accessor
+            .as_any()
+            .downcast_ref::<liquers_core::accessor::AccessorBox<crate::value::Value>>()
+            .map(|boxed| ExtValue::Accessor {
+                value: boxed.0.clone(),
+            })
+    }
+
     /// Reads as its single cell would (`specs/design/record-streams/phase2-architecture.md`
     /// §"A view as a value"): the cell's base value's own string conversion.
     /// `RecordSource` refuses, like every other non-record variant. A foreign value answers
@@ -356,7 +432,7 @@ impl ValueExtension for ExtValue {
     fn try_into_string(&self) -> Result<String, Error> {
         match self {
             ExtValue::Foreign { value } => value.try_into_string(),
-            ExtValue::Image { .. } | ExtValue::UIElement { .. } => {
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Accessor { .. } => {
                 Err(ext_scalar_refusal(self, "string"))
             }
             #[cfg(feature = "polars")]
@@ -377,7 +453,7 @@ impl ValueExtension for ExtValue {
     /// answers exactly as its `try_into_string` does, wrapped in `Some`.
     fn try_into_string_option(&self) -> Result<Option<String>, Error> {
         match self {
-            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Foreign { .. } => {
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Accessor { .. } | ExtValue::Foreign { .. } => {
                 self.try_into_string().map(Some)
             }
             #[cfg(feature = "polars")]
@@ -397,7 +473,7 @@ impl ValueExtension for ExtValue {
 
     fn try_into_i32(&self) -> Result<i32, Error> {
         match self {
-            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Foreign { .. } => {
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Accessor { .. } | ExtValue::Foreign { .. } => {
                 Err(ext_scalar_refusal(self, "i32"))
             }
             #[cfg(feature = "polars")]
@@ -415,7 +491,7 @@ impl ValueExtension for ExtValue {
 
     fn try_into_i64(&self) -> Result<i64, Error> {
         match self {
-            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Foreign { .. } => {
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Accessor { .. } | ExtValue::Foreign { .. } => {
                 Err(ext_scalar_refusal(self, "i64"))
             }
             #[cfg(feature = "polars")]
@@ -433,7 +509,7 @@ impl ValueExtension for ExtValue {
 
     fn try_into_i64_option(&self) -> Result<Option<i64>, Error> {
         match self {
-            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Foreign { .. } => {
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Accessor { .. } | ExtValue::Foreign { .. } => {
                 Err(ext_scalar_refusal(self, "i64"))
             }
             #[cfg(feature = "polars")]
@@ -453,7 +529,7 @@ impl ValueExtension for ExtValue {
 
     fn try_into_f64(&self) -> Result<f64, Error> {
         match self {
-            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Foreign { .. } => {
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Accessor { .. } | ExtValue::Foreign { .. } => {
                 Err(ext_scalar_refusal(self, "f64"))
             }
             #[cfg(feature = "polars")]
@@ -471,7 +547,7 @@ impl ValueExtension for ExtValue {
 
     fn try_into_f64_option(&self) -> Result<Option<f64>, Error> {
         match self {
-            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Foreign { .. } => {
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Accessor { .. } | ExtValue::Foreign { .. } => {
                 Err(ext_scalar_refusal(self, "f64"))
             }
             #[cfg(feature = "polars")]
@@ -491,7 +567,7 @@ impl ValueExtension for ExtValue {
 
     fn try_into_bool(&self) -> Result<bool, Error> {
         match self {
-            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Foreign { .. } => {
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Accessor { .. } | ExtValue::Foreign { .. } => {
                 Err(ext_scalar_refusal(self, "bool"))
             }
             #[cfg(feature = "polars")]
@@ -516,7 +592,7 @@ impl ValueExtension for ExtValue {
     fn try_into_json_value(&self) -> Result<serde_json::Value, Error> {
         match self {
             ExtValue::Foreign { value } => value.try_into_json_value(),
-            ExtValue::Image { .. } | ExtValue::UIElement { .. } => {
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Accessor { .. } => {
                 Err(ext_scalar_refusal(self, "JSON"))
             }
             #[cfg(feature = "polars")]
@@ -558,7 +634,9 @@ impl ValueExtension for ExtValue {
             #[cfg(feature = "egui")]
             ExtValue::UiCommand { .. } | ExtValue::Widget { .. } => AnyNode::opaque(),
             ExtValue::Foreign { value } => value.clone().data_node(),
-            ExtValue::Image { .. } | ExtValue::UIElement { .. } => AnyNode::opaque(),
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Accessor { .. } => {
+                AnyNode::opaque()
+            }
         }
     }
 
@@ -578,6 +656,10 @@ impl ValueExtension for ExtValue {
             TypeInfo::new("UIElement")
                 .with_type_name("ui_element")
                 .with_defaults("ui", "ui", "application/octet-stream", "element.ui"),
+            // A handle to where a value lives; no formats, so it is never stored.
+            TypeInfo::new("Accessor")
+                .with_type_name("accessor")
+                .with_defaults("accessor", "accessor", "application/octet-stream", "value.accessor"),
         ];
         #[cfg(feature = "polars")]
         descriptions.push(
@@ -671,7 +753,7 @@ impl ValueExtension for ExtValue {
     fn type_info(&self) -> liquers_core::type_system::TypeInfo {
         match self {
             ExtValue::Foreign { value } => value.type_info(),
-            ExtValue::Image { .. } | ExtValue::UIElement { .. } => default_ext_type_info(self),
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Accessor { .. } => default_ext_type_info(self),
             #[cfg(feature = "polars")]
             ExtValue::PolarsDataFrame { .. } => default_ext_type_info(self),
             #[cfg(feature = "egui")]
@@ -706,6 +788,7 @@ impl ValueExtension for ExtValue {
             ExtValue::RecordSource { .. } => "RecordSource".into(),
             ExtValue::Image { .. } => "Image".into(),
             ExtValue::UIElement { .. } => "UIElement".into(),
+            ExtValue::Accessor { .. } => "Accessor".into(),
             ExtValue::Foreign { value } => value.identifier(),
         }
     }
@@ -724,6 +807,7 @@ impl ValueExtension for ExtValue {
             ExtValue::RecordSource { .. } => "record_source".into(),
             ExtValue::Image { .. } => "image".into(),
             ExtValue::UIElement { .. } => "ui_element".into(),
+            ExtValue::Accessor { .. } => "accessor".into(),
             ExtValue::Foreign { value } => value.type_name(),
         }
     }
@@ -742,6 +826,7 @@ impl ValueExtension for ExtValue {
             ExtValue::RecordSource { .. } => "yaml".into(),
             ExtValue::Image { .. } => "png".into(),
             ExtValue::UIElement { .. } => "ui".into(),
+            ExtValue::Accessor { .. } => "accessor".into(),
             ExtValue::Foreign { value } => value.default_extension(),
         }
     }
@@ -760,6 +845,7 @@ impl ValueExtension for ExtValue {
             ExtValue::RecordSource { .. } => "manifest.yaml".into(),
             ExtValue::Image { .. } => "image.png".into(),
             ExtValue::UIElement { .. } => "element.ui".into(),
+            ExtValue::Accessor { .. } => "value.accessor".into(),
             ExtValue::Foreign { value } => value.default_filename(),
         }
     }
@@ -777,7 +863,9 @@ impl ValueExtension for ExtValue {
             #[cfg(feature = "records")]
             ExtValue::RecordSource { .. } => "application/yaml".into(),
             ExtValue::Image { .. } => "image/png".into(),
-            ExtValue::UIElement { .. } => "application/octet-stream".into(),
+            ExtValue::UIElement { .. } | ExtValue::Accessor { .. } => {
+                "application/octet-stream".into()
+            }
             ExtValue::Foreign { value } => value.default_media_type(),
         }
     }
@@ -797,7 +885,7 @@ impl DefaultValueSerializer for ExtValue {
             // Enumerated rather than caught by `_ =>` so that adding a variant is a compile
             // error here too. The previous catch-all silently absorbed new variants, which made
             // this the one match on ExtValue the compiler could not police.
-            ExtValue::UIElement { .. } => Err(Error::from_error(
+            ExtValue::UIElement { .. } | ExtValue::Accessor { .. } => Err(Error::from_error(
                 ErrorType::SerializationError,
                 format!(
                     "Serialization to {} not supported by {}",

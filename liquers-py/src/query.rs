@@ -53,7 +53,7 @@ pub(crate) fn quoted(py: Python<'_>, text: &str) -> String {
 /// Attached to parsed query elements and to errors, so a message can point at the text it is about.
 /// `Position.unknown()` is the position of an element that was not parsed from text. See
 /// `PYTHON_GUIDE.md` §8.
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.query")]
 #[derive(Clone)]
 pub struct Position(pub liquers_core::query::Position);
 
@@ -108,7 +108,7 @@ impl Position {
 ///
 /// A parameter is either plain text or a link (a nested query). `encode()` gives it back in query
 /// syntax.
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.query")]
 #[derive(Clone)]
 pub struct ActionParameter(liquers_core::query::ActionParameter);
 
@@ -145,7 +145,7 @@ impl ActionParameter {
 /// One element of a key: a folder or file name.
 ///
 /// A `Key` is a sequence of resource names; `key[i]` returns one.
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.query")]
 #[derive(Clone)]
 pub struct ResourceName(pub(crate) liquers_core::query::ResourceName);
 
@@ -181,7 +181,7 @@ impl ResourceName {
 /// `ActionRequest(name)` makes an action without parameters; `ActionRequest.from_arguments` adds
 /// text parameters. Actions come out of a parsed query through `TransformQuerySegment.query` and
 /// `Query.action()`.
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.query")]
 #[derive(Clone)]
 pub struct ActionRequest(liquers_core::query::ActionRequest);
 
@@ -247,7 +247,7 @@ impl ActionRequest {
 ///
 /// It carries the segment's name, its level, and whether the segment is a resource segment. The
 /// name of a transform segment's header selects the realm its actions are looked up in.
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.query")]
 #[derive(Clone)]
 pub struct SegmentHeader(liquers_core::query::SegmentHeader);
 
@@ -309,7 +309,7 @@ impl SegmentHeader {
 /// A segment of actions applied to a value, optionally ending in a filename.
 ///
 /// For example `to_text/upper/result.txt`: two actions and the filename `result.txt`.
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.query")]
 #[derive(Clone)]
 pub struct TransformQuerySegment(liquers_core::query::TransformQuerySegment);
 
@@ -398,7 +398,7 @@ impl TransformQuerySegment {
 /// `Key("a/b")` parses the text and raises `ParseError` when it is not a valid key. `len(key)` is
 /// the number of names and `key[i]` returns one as a `ResourceName`; a negative index counts from
 /// the end. Keys compare and hash by value.
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.query")]
 #[derive(Clone, Debug)]
 pub struct Key(pub liquers_core::query::Key);
 
@@ -480,7 +480,7 @@ impl Key {
 /// A segment that names a resource in a store, such as `-R/data/report.txt`.
 ///
 /// Its `key` is the path; its `header` the `-R` header, if any.
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.query")]
 #[derive(Clone)]
 pub struct ResourceQuerySegment(liquers_core::query::ResourceQuerySegment);
 
@@ -551,7 +551,7 @@ impl ResourceQuerySegment {
 ///
 /// Returned by `Query.segments` and `Query.predecessor()`. Use `is_resource_query_segment()` or
 /// `is_transform_query_segment()` to tell which.
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.query")]
 #[derive(Clone)]
 pub struct QuerySegment(liquers_core::query::QuerySegment);
 
@@ -645,7 +645,7 @@ impl QuerySegment {
 ///
 /// Make one with `parse(text)`; `Query()` is the empty query. Queries compare and hash by their
 /// meaning, not by `source`. See `PYTHON_GUIDE.md` §3 and §6.
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.query")]
 #[derive(Clone, Debug)]
 pub struct Query(pub liquers_core::query::Query);
 
@@ -807,7 +807,7 @@ impl Query {
 ///
 /// Informational only; it is not encoded and does not take part in equality or hashing. Make one
 /// with the static constructors (`QuerySource.query(text)`, `QuerySource.key(key)`, ...).
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.query")]
 #[derive(Clone)]
 pub struct QuerySource(liquers_core::query::QuerySource);
 
@@ -874,7 +874,7 @@ impl QuerySource {
 /// A default link argument for a Python command: `cwd: lq.Key = lq.link("-R-key/.")` makes the
 /// default the value of that query, evaluated when the argument is not written. Made by
 /// `lq.link(query)`.
-#[pyclass(frozen, name = "Link", module = "liquers")]
+#[pyclass(frozen, name = "Link", module = "liquers.query")]
 #[derive(Clone)]
 pub struct Link(pub liquers_core::query::Query);
 

@@ -4,7 +4,7 @@ import threading
 from collections.abc import Awaitable, Coroutine
 from typing import Any
 
-from liquers._native import UI, Environment, Server
+from liquers._backend import UI, Environment, Server
 
 _DEFAULT: Environment | None = None
 _LOCK = threading.Lock()

@@ -2,14 +2,17 @@
 id: VALUE-ACCESSOR
 kind: design
 title: Value accessor abstraction
-status: abandoned
+status: superseded
 area: [core/value]
 gh_pr: []
 issues: []
 created: 2026-03-02
-superseded_by:
+superseded_by: settable-value-accessor
 ---
 # Value accessor abstraction
+
+> **Superseded on 2026-11-15** by `specs/design/settable-value-accessor/`, which reopens the goal
+> (settable values for editors, projections, change notifications) without `Arc<Mutex>` mutation.
 
 > **Abandoned on 2026-10-20** (bulk design review). Its read side now exists as `DataNode` (`liquers-core/src/data_node.rs`, shipped with `liquers-mustache`). Its `Value::Accessor(Arc<dyn …>)` with `Arc<Mutex>` mutation contradicts `specs/reference/VALUE_TYPE_SYSTEM.md` §"What a value variant may hold" and the content-versioned asset layer; its UI-binding motive belongs to `lui`, and converting on demand is answered by `value-conversion-registry` (conversion at binding). No source issue was ever attached.
 

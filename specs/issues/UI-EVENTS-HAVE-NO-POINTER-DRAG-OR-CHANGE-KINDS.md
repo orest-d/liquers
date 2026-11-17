@@ -49,3 +49,10 @@ Key routing between nested hosts (ratatui inside egui inside web) is a related d
 
 Review of the `ui-events` design with Orest on 2026-10-30, while confirming what the first
 increment covers.
+
+## Progress
+
+2026-11-17, `specs/design/query-pipeline-editor/`: `UIEventKind::Change(field)` commits one field
+without submitting (the browser's `change` event, `data-lq-event="change:<field>"`). Focus,
+drag-and-drop and pointer kinds remain; the editors reorder lists with buttons in the browser
+until they exist.

@@ -2,11 +2,11 @@
 id: EDITOR-UNSET-OF-A-MIDDLE-POSITIONAL-ARGUMENT-SAYS-NOT-SET
 kind: issue
 title: The query editor answers 'is not set' when asked to unset a positional argument that is followed by another
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/query]
-design: 
+design: query-pipeline-editor
 created: 2026-11-14
 github:
 ---
@@ -46,3 +46,13 @@ Either of:
 
 Probing the editor for the user guides' section 3.9, 2026-11-14. The guides show `unset` on the
 last set argument only.
+
+## Resolution
+
+Resolved by `specs/design/query-pipeline-editor/` (2026-11-17) with the first expected behaviour as
+a new method: `ActionEditor::reset` writes the default in place of a middle positional argument
+(and removes the last one, or drops a named one), which is what a form's "reset to default" needs.
+`unset` keeps its strict meaning of removing a parameter; its message for a middle argument now
+says that only the last positional parameter can be removed. Evidence:
+`liquers-core/src/pipeline/editor/tests.rs` `reset_removes_last_and_writes_default_in_middle`;
+`liquers-lib/src/ui/editor/tests.rs` `reset_field_to_default`.
