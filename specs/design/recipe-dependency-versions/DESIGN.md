@@ -3,7 +3,7 @@ id: RECIPE-DEPENDENCY-VERSIONS
 kind: design
 title: Recipe dependency keys carry a content version, so editing a recipe expires what was computed from it
 form: compact
-status: approved
+gh_pr: [276]
 phase: implementation
 readiness: ready
 autofix: not-eligible
