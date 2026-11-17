@@ -250,7 +250,7 @@ Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-core --test recipe_versions`, th
   `refresh_listing_version` — AC-1..AC-4, AC-6 pass. Rollback: revert this step.
 - [x] 6. `metadata.rs` `is_store_resolvable`; `assets.rs` `dependency_version`, `stored_leaf` — AC-5
   passes — `cargo test -p liquers-core --test recipe_versions --test dependency_audit_integration`
-- [ ] 7. Benchmark: the ignored `chain_evaluation_scales` / `dependency_chain_scaling` before and
+- [x] 7. Benchmark: the ignored `chain_evaluation_scales` / `dependency_chain_scaling` before and
   after; a >10% regression returns open question 4 to the maintainer.
 - [x] 8. `DEPENDENCIES_STATUS.md`, `RECIPES_AND_PLANS.md`, `ASSETS.md` (History, `reviewed:`);
   issue closed — `python3 scripts/docs_index.py --check`
@@ -274,3 +274,10 @@ Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-core --test recipe_versions`, th
 - `assets::stored_walk_tests::stored_state_unknown_and_unresolvable_records_compatible` used a
   recipe key as its example of an unresolvable record; it no longer is one, and
   `stored_state_recipe_record_compares_the_recipe_version` covers recipe records instead.
+- Benchmark (step 7), `chain_evaluation_scales` in release, two runs each, 200 links: 1.72 s and
+  1.79 s before, 1.87 s and 1.82 s after (about 5%, within the 10% bound, so the scan stays).
+  Recipe lookups rise from 60 902 to 81 203: each value the chain stores in its folder rescans the
+  recipe keys held under that folder, so the lookups added grow with the square of the number of
+  keyed assets in one folder. An index by folder would make it linear if a folder with many
+  recipes shows it.
+
