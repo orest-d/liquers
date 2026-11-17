@@ -9,8 +9,8 @@ description, a type, a default and a widget (`gui_info`) for every argument. Thi
 (`settable-value-accessor`): a **query / pipeline editor** (a collapsible tree of steps beside the
 highlighted text), an **action editor** (one action's arguments with their declared widgets and
 documentation on hover), a **resource editor** (a resource's header and key, with a store file
-selector) and a **key editor** (the key alone), for the egui app, the
-browser and the split UI of `ui-split-elements` (VISION: queries are the user interface).
+selector) and a **key editor** (the key alone), for the egui app and the
+browser (VISION: queries are the user interface).
 
 ## Problem Example
 
@@ -64,7 +64,7 @@ the tree and any other editor bound to the same recipe show it.
   declaration order, with the widget `gui_info` names; when `gui_info` is the default text field the
   argument type picks the widget (checkbox, integer, float, enum selector); an enum writes the chosen
   alternative's alias, a `GlobalEnum` lists its alternatives, and a variadic argument is an ordered
-  list with add, remove and move
+  list of its values (one widget per item) with append, delete and reorder by drag and drop
 - **AC-3** Documentation on hover
   WHEN the user hovers an action header or an argument label
   THEN the command's label and `doc`, or the argument's label, description, type and default, are
@@ -102,11 +102,11 @@ the tree and any other editor bound to the same recipe show it.
 - **AC-10** Pipelines
   WHEN the editor is bound to a recipe pipeline that is not representable as a query
   THEN the tree edits it as in AC-1 to AC-6, and the text field is read-only with the reason
-- **AC-11** Two deployments
-  WHEN the same editor element is used in the egui app, in a monolithic browser UI, and in a split
-  (server engine, browser client) UI
-  THEN it behaves as the other criteria say in each; in split mode the client renders without the command
-  registry, and every edit travels to the server as an event that the server validates
+- **AC-11** Both monolithic backends
+  WHEN the same editor element is used in the egui app and in a monolithic browser UI
+  THEN it behaves as the other criteria say in each. (Split mode is not built here: the editor
+  reaches its value only through the accessor, so a later split design can run it in the client
+  with a copy of the registry and an accessor channel, unchanged.)
 - **AC-12** Old state loads
   WHEN an app state saved before this change is loaded
   THEN it loads unchanged
@@ -126,8 +126,9 @@ the tree and any other editor bound to the same recipe show it.
   argument needs no gui hint of its own: the `-R-key` link is what makes it a key)
 - **AC-16** Directives
   WHEN the query contains `ns`, `q` or `v`
-  THEN each is a node of its own: `ns` edits its namespace list, `q` and `v` can be inserted and
-  removed; the text shows the same directives
+  THEN each is a node of its own; `q` and `v` can be inserted and removed; `ns` is an ordered list
+  editor (reorder by drag and drop, delete, and append one of the valid namespaces not used yet);
+  the text shows the same directives
 - **AC-17** Searchable command tree
   WHEN the user inserts or appends an action
   THEN a searchable tree of namespaces and their commands (label, name, `doc` on hover) is offered,
@@ -163,10 +164,21 @@ the tree and any other editor bound to the same recipe show it.
   presets menu beside its field
   THEN the argument is set to that preset's value (a literal or a link), through the same validated
   edit as AC-5
+- **AC-25** Safe namespace edits
+  WHEN an `ns` edit keeps every affected action resolving to the same command
+  THEN it is applied; WHEN every action still resolves and its arguments still fit, but some
+  resolve to a different command (`pl` swapped for `rec`), THEN the editor names those actions and
+  applies the edit only after the user confirms; WHEN an action no longer resolves or its arguments
+  no longer fit, THEN the edit is refused with the reason (AC-5)
+- **AC-26** Continuous or on-demand update
+  WHEN "Update immediately" is on
+  THEN each committed edit is set into the accessor at once, so its change event follows and views
+  of the result recalculate; WHEN it is off, THEN edits stay in the editor, marked pending, until the
+  user presses Update (or Revert, which reloads the accessor's value)
 
 Non-goals: per-keystroke planning diagnostics in the text field (`query-editor-live-validation`);
 evaluating the query inside the editor (a view bound to the same query or recipe re-evaluates because the binding expires it, as in AC-13); the MIDI input itself (AC-13 defines only the numeric-argument addressing an event source uses); placeholders and command-definition
-mode (`WEB-PIPELINE-EDITOR-HAS-NO-DEFINITION-MODE`); drag and drop; a date picker (`DateField` is a
+mode (`WEB-PIPELINE-EDITOR-HAS-NO-DEFINITION-MODE`); drag and drop in the browser (egui has it; the browser gets buttons until `UI-EVENTS-HAVE-NO-POINTER-DRAG-OR-CHANGE-KINDS` adds drag events); a date picker (`DateField` is a
 text field); Python and JavaScript constructors for the elements beyond what the `lui` commands give.
 
 ## Core Interactions
@@ -184,7 +196,6 @@ text field); Python and JavaScript constructors for the elements beyond what the
   query that lives nowhere else is a memory accessor.
 - **UI:** four new `UIElement`s (query / pipeline, action, resource, key editors), their egui rendering (reusing `edit_query`), their `render_web`
   markup and `ui-events` user events, and `lui` commands that create them.
-- **Split UI:** the server and client halves of `ui-split-elements`, once that design defines them.
 
 ## Crate Placement
 
@@ -212,9 +223,14 @@ missing from `PipelineEditor` (Phase 2 lists them; `liquers-core` stays UI-free)
 
 - **Requires:** `settable-value-accessor` (complete) for the binding; `ui-events` (complete) for the
   browser's user events.
-- **Required for AC-11 split mode:** `ui-split-elements` (Phase 1 in review, another thread). This
-  design follows its Phase 1 decisions (the element knows its mode from `UIContext`; a server half
-  and a client half; client messages are events). Monolithic mode does not wait for it.
+- **Later:** `ui-split-elements` (Phase 1 in review, another thread; Orest expects a larger
+  overhaul). Not required: this design is monolithic, and the editor touches its value only through
+  the accessor.
+- **Requires for AC-26 with a recipe binding:** `recipe-dependency-versions` (in review, not
+  implemented; issue `RECIPE-DEPENDENCY-KEY-IS-NEVER-VERSIONED`, P2). Today a write of
+  `recipes.yaml` does not expire the assets computed from its recipes, so a view of the recipe's
+  result does not recalculate after an edit. The editor and other holders of the accessor do see
+  the change.
 - **Supersedes:** `command-parameter-editor` (Orest, 2026-11-16; not implemented). It owned
   `NO-COMMAND-PARAMETER-EDITOR`, which moves here. What is kept is under "Salvaged from
   command-parameter-editor" below.
@@ -236,9 +252,8 @@ moving optional (AC-6).
    accessor, so one code path handles editing, conflicts and change notification (AC-9).
 2. **Proposed resolution - link arguments in place.** A link argument is a subtree of the same tree
    (AC-1, AC-19), edited with the same nodes, rather than a nested editor in a pop-up.
-3. **Proposed resolution - split mode timing.** Phase 2 fixes the tree model as plain serializable
-   data (what the client half renders) and implements monolithic mode first; the split halves are a
-   Phase 4 step that starts when `ui-split-elements` Phase 2 is approved.
+3. **Decided - split mode (Orest, 2026-11-17).** Monolithic only. The editor is a view and control
+   connected to its model by the accessor; it is not itself split into halves (AC-11).
 4. **Proposed resolution - controllers (AC-13).** In scope as the numeric-argument addressing and
    scaling only, taken from the proof of concept. Alternative: drop AC-13 for a later design.
 Answered by Orest later on 2026-11-16: no key gui hint is needed, because a `-R-key/…` link acts as
@@ -252,7 +267,15 @@ dropdown before the key field, showing the header word without `-R` and nothing 
    proof of concept declares argument presets yet (the proof of concept's colour is a `ColorString`
    widget, not a preset), so a test registers one.
 6. **Implementation detail - moving nodes (AC-6).** Recommended: include up and down, since
-   `PipelineEditor::move_to` exists; leave drag and drop out.
+   `PipelineEditor::move_to` exists.
+
+## Scope Changes
+
+- **2026-11-17, Orest's Phase 2 review.** Added AC-25 (an `ns` edit is applied when it keeps the
+  meaning, confirmed when it changes which command an action resolves to, refused when it breaks the
+  query) and AC-26 (a switch between updating the accessor immediately and an Update button).
+  AC-2 and AC-16 now edit variadic arguments and `ns` as ordered lists with drag and drop. Size stays
+  L. Phases 1 and 2 updated; this is part of the Phase 2 gate.
 
 ## Salvaged from command-parameter-editor
 
