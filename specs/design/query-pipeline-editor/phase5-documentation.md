@@ -133,6 +133,7 @@ These all pass:
 - `cargo test -p liquers-lib --lib --features webui -- ui::web`;
 - `cargo test -p liquers-lib --no-default-features --features webui --lib -- ui::web::editor`.
 
-`bash scripts/check-build-matrix.sh`: see the result recorded in the PR. Also run:
-`check_api_docs.py` on the touched modules, `validate_phase.py query-pipeline-editor 5` and
-`docs_index.py --check`.
+`bash scripts/check-build-matrix.sh`: every native row passes; the 14 wasm32 rows pass after
+`rustup target add wasm32-unknown-unknown`. `cargo test -p liquers-lib --doc -- ui:: egui::editor`
+passes (the module examples). `check_api_docs.py` reports 0 errors on the touched modules;
+`validate_phase.py query-pipeline-editor 5` and `docs_index.py --check` pass.
