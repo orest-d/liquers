@@ -2,7 +2,7 @@
 # Regenerate: cargo run -p liquers-lib --features cli --bin export-command-registry -- \
 #               --format yaml -o specs/command_registry.yaml
 # Origin:   groups=core,lui,egui,image,polars,records,search,template,mem,markdown,accessor,store_config  features=egui,image-support,polars,records,templates,mem,markdown
-# Commands: 188
+# Commands: 192
 # CHANGELOG-BEGIN
 # 2026-08-02  initial export (95 commands: img 47, pl 26, lui 14, root 6, dep 2)
 # 2026-08-25  pl/select_columns and pl/drop_columns take a variadic `columns` argument
@@ -57,6 +57,8 @@
 #             commands (impl_version only).
 # 2026-11-16  settable-value-accessor: new group accessor (ns-acc: accessor, store, recipe,
 #             query, pipeline, action, argument, field, item, get) returning value accessors.
+# 2026-11-17  query-pipeline-editor Step 11: lui query_editor, action_editor,
+#             resource_editor and key_editor (editor elements bound to an accessor).
 # CHANGELOG-END
 commands:
 - realm: store_config
@@ -756,6 +758,58 @@ commands:
   expires: never
   definition: Registered
   impl_version: 353776d67c163324e56c942bfbcfe6b0
+- namespace: lui
+  name: query_editor
+  label: Query editor
+  doc: 'An editor of a query or pipeline: a tree of its steps beside the highlighted text'
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 9b61655c0546b153272c93366cfe00c7
+- namespace: lui
+  name: action_editor
+  label: Action editor
+  doc: An editor of one action's arguments, from the command's argument metadata
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: a2ed32fadf9a9a7b135bc3410de0eb15
+- namespace: lui
+  name: resource_editor
+  label: Resource editor
+  doc: 'An editor of a resource query: its header and its key, with a store file selector'
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 9da6abf7a500f71dbf3f1c1093b70137
+- namespace: lui
+  name: key_editor
+  label: Key editor
+  doc: An editor of a key, with a store file selector
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 1b71a6d76d06f8fff92a7950d09bfd3d
 - namespace: lui
   name: submit
   label: Submit

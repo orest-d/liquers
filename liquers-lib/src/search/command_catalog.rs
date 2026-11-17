@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use liquers_core::command_metadata::{
-    ArgumentInfo, ArgumentType, CommandKey, CommandMetadata, CommandParameterValue,
+    ArgumentInfo, CommandKey, CommandMetadata, CommandParameterValue,
 };
 use liquers_core::context::{Context, Environment};
 use liquers_core::error::Error;
@@ -23,24 +23,7 @@ pub fn command_query(command: &CommandMetadata) -> String {
     }
 }
 
-fn type_name(argument_type: &ArgumentType) -> String {
-    match argument_type {
-        ArgumentType::String => "String".to_string(),
-        ArgumentType::Integer => "Integer".to_string(),
-        ArgumentType::IntegerOption => "Integer?".to_string(),
-        ArgumentType::Float => "Float".to_string(),
-        ArgumentType::FloatOption => "Float?".to_string(),
-        ArgumentType::Boolean => "Boolean".to_string(),
-        ArgumentType::BooleanOption => "Boolean?".to_string(),
-        ArgumentType::Enum(e) => {
-            let aliases: Vec<&str> = e.values.iter().map(|v| v.alias.as_str()).collect();
-            format!("Enum({})", aliases.join("|"))
-        }
-        ArgumentType::GlobalEnum(name) => format!("Enum({name})"),
-        ArgumentType::Any => "Any".to_string(),
-        ArgumentType::None => "None".to_string(),
-    }
-}
+use crate::utils::argument_type_name as type_name;
 
 fn default_text(default: &CommandParameterValue) -> Option<String> {
     match default {

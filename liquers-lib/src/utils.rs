@@ -1,8 +1,29 @@
 use crate::value::Value;
-use liquers_core::command_metadata::CommandMetadataRegistry;
+use liquers_core::command_metadata::{ArgumentType, CommandMetadataRegistry};
 use liquers_core::parse::parse_query;
 use liquers_core::query::{ActionParameter, ActionRequest, QuerySegment};
 use liquers_core::state::State;
+
+/// The short name of an argument type, as the command catalog and the editors' hover text show
+/// it: `String`, `Integer?`, `Enum(a|b)`, …
+pub fn argument_type_name(argument_type: &ArgumentType) -> String {
+    match argument_type {
+        ArgumentType::String => "String".to_string(),
+        ArgumentType::Integer => "Integer".to_string(),
+        ArgumentType::IntegerOption => "Integer?".to_string(),
+        ArgumentType::Float => "Float".to_string(),
+        ArgumentType::FloatOption => "Float?".to_string(),
+        ArgumentType::Boolean => "Boolean".to_string(),
+        ArgumentType::BooleanOption => "Boolean?".to_string(),
+        ArgumentType::Enum(e) => {
+            let aliases: Vec<&str> = e.values.iter().map(|v| v.alias.as_str()).collect();
+            format!("Enum({})", aliases.join("|"))
+        }
+        ArgumentType::GlobalEnum(name) => format!("Enum({name})"),
+        ArgumentType::Any => "Any".to_string(),
+        ArgumentType::None => "None".to_string(),
+    }
+}
 
 /// A resolved next-command preset with the full query already constructed.
 /// The query string has the preset action already appended (with namespace

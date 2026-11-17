@@ -2,11 +2,11 @@
 id: NO-COMMAND-PARAMETER-EDITOR
 kind: feature
 title: No UI renders a command's arguments as an editable form from their gui_info
-status: draft
+status: closed
 priority: P3
 complexity: L
 area: [lib/ui, lib/egui]
-design: command-parameter-editor
+design: query-pipeline-editor
 created: 2026-10-21
 github:
 ---
@@ -46,3 +46,13 @@ should use `argument_slots` and the variadic edit functions of
 
 Split out of `UI-VARIADIC-ARGUMENT-LIST-EDITOR` during bulk design on 2026-10-21: its step 3 (the
 list renderer) has no in-tree editor to extend, so the editor itself is recorded here.
+
+## Resolution
+
+Implemented by `specs/design/query-pipeline-editor/` (2026-11-17): the action editor
+(`lui/action_editor`, `EditorKind::Action`) and the query editor's action nodes draw each argument
+with the widget its `gui_info` names, write each change back through the accessor, and edit a
+`multiple` argument as a list (drag and drop in egui, buttons in the browser). Evidence:
+`liquers-lib/src/ui/editor/tests.rs` `effective_widgets_from_type_and_gui_info`,
+`insert_remove_append_and_move`; `liquers-lib/tests/ui_editor_binding.rs`
+`action_editor_writes_through_the_action_accessor`.

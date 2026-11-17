@@ -150,7 +150,7 @@ fn user_event_to_js(handle: Option<UIHandle>, event: &UIEvent) -> Result<JsValue
             None => JsValue::NULL,
         },
     );
-    set(&object, "kind", &JsValue::from_str(event.kind.name()));
+    set(&object, "kind", &JsValue::from_str(&event.kind.name()));
     let fields = js_sys::Object::new();
     for (name, value) in &event.fields {
         set(&fields, name, &crate::bridge::value_to_js(value)?);

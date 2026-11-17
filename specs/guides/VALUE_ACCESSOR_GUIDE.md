@@ -3,7 +3,7 @@ title: Value Accessor Guide
 kind: guide
 audience: internal
 area: [core/value, core/assets, lib/value, axum, py, web]
-reviewed: 2026-11-16
+reviewed: 2026-11-17
 ---
 # Value Accessor Guide
 
@@ -175,6 +175,23 @@ A store root cannot push changes made behind Liquers' back (`capabilities().noti
 `refresh()` to check. Writes through Liquers are seen at once either way. The web socket refreshes
 such an accessor once a second.
 
+### Binding an editor
+
+A UI editor is bound to where its value lives by an accessor query. Ending the query with an `lui`
+editor command makes the element:
+
+```
+-R-key/reports/recipes.yaml/-/ns-acc/accessor/recipe-0/query/ns-lui/query_editor
+```
+
+The runner evaluates the part before `ns-lui`, watches the accessor, and gives the editor a snapshot
+on every `changed`; each edit is a `set_if` from the fingerprint the editor last loaded, so two
+editors of one recipe follow each other and the second writer of the same version gets a conflict
+(§5) and reloads. A set through the accessor expires the recipe's asset, so a view of that recipe's
+result recalculates when it next asks for it; nothing is evaluated by the editor itself. An
+accessor made in code has no address: the `lui` command adopts it for the session only. The element
+side is `reference/UI_INTERFACE_FSD.md` [Editors](../reference/UI_INTERFACE_FSD.md#editors).
+
 ## 5. Handling a conflict
 
 A conflict means someone else wrote first. Nothing was written. The error carries the current token,
@@ -328,4 +345,5 @@ back as the same `Arc`. The checklist is the `ACCESSOR` feature of
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-17 | §4: binding an editor (`ns-lui/query_editor` over an accessor query). | `design/query-pipeline-editor/` |
 | 2026-11-16 | Created: making, reading and writing, projecting, events, conflicts, HTTP, new roots, steps and wrappers. | `design/settable-value-accessor/` |
