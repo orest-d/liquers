@@ -261,6 +261,7 @@ on wasm.
 - **egui asset-manager adapter** — planned → [`issues/EGUI-ASSET-MANAGER-INTEGRATION.md`](issues/EGUI-ASSET-MANAGER-INTEGRATION.md)
 - **Native UI driver and egui window (`NativeDriver`, `spawn_headless`, `run_window`)** — built → [`design/egui-native-app/`](design/egui-native-app/)
 - **Liquers UI from Python (the model, and an egui window)** — built → [`design/liquers-py-ui/`](design/liquers-py-ui/), [`design/liquers-py-ui-window/`](design/liquers-py-ui-window/)
+- **UI redesign: UI crate(s), one trait per technique, client-server protocol** — planned → [`issues/UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE.md`](issues/UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE.md) *(investigation: [`design/ui-split-elements/`](design/ui-split-elements/))*
 
 `design/ui-events/` built the interaction half of the browser backend — `webui-fixes` did the
 rendering half: backend-neutral `UIEvent`s delivered through `update()`, declared in `data-lq-*`
@@ -647,6 +648,7 @@ deliberately folded behind a broader line.
 - feature `ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE`
 - feature `ASSET-REGISTRATION-OWNERSHIP-CONTRACT`
 - feature `ASSETS-API-ADMIN-OPERATIONS`
+- feature `AXUM-CANNOT-SERVE-A-LIQUERS-UI`
 - feature `AXUM-SERVER-SENDS-NO-CORS-HEADERS`
 - feature `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS`
 - feature `COMMAND-ENUM-ALTERNATIVES-CANNOT-BE-COMPUTED`
@@ -728,6 +730,7 @@ deliberately folded behind a broader line.
 - feature `WEB-PAGE-CANNOT-PASS-A-PIPELINE-VALUE`
 - feature `WEB-PIPELINE-EDITOR-HAS-NO-DEFINITION-MODE`
 - feature `WEB-QUERY-EDITOR-NOT-LIVE`
+- feature `WEB-UI-CANNOT-BE-DRIVEN-BY-A-REMOTE-ENGINE`
 - feature `YAML-DOCUMENT-EDIT-DROPS-COMMENTS`
 <!-- END generated: unplaced -->
 
