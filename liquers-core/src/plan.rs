@@ -3495,6 +3495,7 @@ impl<E: Environment> DependencyWalk<E> {
 
     /// One read: finished from the memo or because no recipe serves it, or a frame to descend into.
     async fn visit(&mut self, read: &Read) -> Result<Visit, Error> {
+        use crate::maybe_send::MaybeBoxed;
         if self.on_path.contains(&read.key) {
             return match read.kind {
                 ReadKind::State | ReadKind::Recipe | ReadKind::Directory => {
@@ -3513,20 +3514,27 @@ impl<E: Environment> DependencyWalk<E> {
                 // The memo does not tell the read kinds apart: a `GetAsset` of a key with no
                 // recipe memoizes `None` without registering anything, and a later
                 // `GetAssetRecipe` of the same key must still give its record a version.
-                let resolved = self
-                    .envref
-                    .get_recipe_provider()
-                    .recipe_opt(&read.key, self.envref.clone())
-                    .await;
-                if let Ok(recipe) = resolved {
-                    let manager = self.envref.get_asset_manager();
-                    crate::assets::register_recipe_version(
-                        manager.as_ref(),
-                        &read.key,
-                        recipe.as_ref(),
-                    )
-                    .await;
+                // Boxed, like every registration here, to keep this walk's future small: it
+                // runs deep inside an evaluation, and on wasm a larger frame overflows.
+                let envref = self.envref.clone();
+                let key = read.key.clone();
+                async move {
+                    let resolved = envref
+                        .get_recipe_provider()
+                        .recipe_opt(&key, envref.clone())
+                        .await;
+                    if let Ok(recipe) = resolved {
+                        let manager = envref.get_asset_manager();
+                        crate::assets::register_recipe_version(
+                            manager.as_ref(),
+                            &key,
+                            recipe.as_ref(),
+                        )
+                        .await;
+                    }
                 }
+                .maybe_boxed()
+                .await;
             }
             return Ok(Visit::Done(done));
         }
@@ -3538,17 +3546,22 @@ impl<E: Environment> DependencyWalk<E> {
         // A read served by a recipe records `-R-recipe/<key>`, and so does a `GetAssetRecipe`
         // read whether or not the recipe exists: give that record the recipe's current version,
         // so an edit of the recipe expires the reader (`specs/design/recipe-dependency-versions/`).
-        match (&resolved, read.kind) {
-            (Ok(Some(recipe)), _) => {
-                let manager = self.envref.get_asset_manager();
-                crate::assets::register_recipe_version(manager.as_ref(), &read.key, Some(recipe))
+        let register = match (&resolved, read.kind) {
+            (Ok(Some(recipe)), _) => Some(Some(recipe.clone())),
+            (Ok(None), ReadKind::Recipe) => Some(None),
+            (Ok(None), ReadKind::State | ReadKind::Link | ReadKind::Directory) | (Err(_), _) => {
+                None
+            }
+        };
+        if let Some(recipe) = register {
+            let manager = self.envref.get_asset_manager();
+            let key = read.key.clone();
+            async move {
+                crate::assets::register_recipe_version(manager.as_ref(), &key, recipe.as_ref())
                     .await;
             }
-            (Ok(None), ReadKind::Recipe) => {
-                let manager = self.envref.get_asset_manager();
-                crate::assets::register_recipe_version(manager.as_ref(), &read.key, None).await;
-            }
-            (Ok(None), ReadKind::State | ReadKind::Link | ReadKind::Directory) | (Err(_), _) => {}
+            .maybe_boxed()
+            .await;
         }
         let recipe = match resolved {
             Ok(Some(recipe)) => recipe,

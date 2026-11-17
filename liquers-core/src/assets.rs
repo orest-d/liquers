@@ -4705,8 +4705,19 @@ impl<E: Environment> AssetRef<E> {
                         // Keys are a payload boundary: reject a keyed recipe that requires an
                         // evaluation payload, since no payload can reach a keyed asset.
                         recipe.to_plan_for_key(envref.get_command_metadata_registry(), &key)?;
-                        let recipe_version =
-                            register_recipe_version(manager.as_ref(), &key, Some(&recipe)).await;
+                        // Boxed: this frame is on the evaluation's deep path (wasm stack).
+                        let recipe_version = {
+                            use crate::maybe_send::MaybeBoxed;
+                            let manager = manager.clone();
+                            let key = key.clone();
+                            let recipe = recipe.clone();
+                            async move {
+                                register_recipe_version(manager.as_ref(), &key, Some(&recipe))
+                                    .await
+                            }
+                            .maybe_boxed()
+                            .await
+                        };
                         own_recipe_record = Some(DependencyRecord::new(
                             DependencyKey::from_recipe_key(&key),
                             recipe_version,

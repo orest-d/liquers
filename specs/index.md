@@ -8,8 +8,8 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 253
-- P2: 68
+Total rows: 254
+- P2: 69
 - P3: 185
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
@@ -47,6 +47,7 @@ Total rows: 253
 | [`STORE-OPENDAL-FS-CONCURRENT-WRITES-TO-ONE-KEY-FAIL`](issues/STORE-OPENDAL-FS-CONCURRENT-WRITES-TO-ONE-KEY-FAIL.md) | issue | Concurrent writes to one key of an OpenDAL fs store can fail with a write error | draft |  |  | P2 | M | store/backends |  | 2026-11-01 |
 | [`UI-INTERFACE-FSD-DESCRIBES-UNBUILT-API`](issues/UI-INTERFACE-FSD-DESCRIBES-UNBUILT-API.md) | issue | UI_INTERFACE_FSD describes a UI API that was never built | draft |  |  | P2 | M | docs;lib/ui |  | 2026-10-27 |
 | [`USER-GUIDE-EXAMPLES-ARE-NOT-EXECUTED`](issues/USER-GUIDE-EXAMPLES-ARE-NOT-EXECUTED.md) | issue | User guide chapter examples are not executed | draft |  |  | P2 | M | docs;build |  | 2026-11-01 |
+| [`WASM-EVALUATION-STACK-HAS-NO-HEADROOM`](issues/WASM-EVALUATION-STACK-HAS-NO-HEADROOM.md) | issue | A few bytes more in the plan walk's future overflow the wasm stack in a guide example | draft |  |  | P2 | M | web;core/plan;core/assets |  | 2026-11-17 |
 | [`WEB-EXPLICIT-ENVIRONMENT-CONFIGURES-THE-SINGLETON`](issues/WEB-EXPLICIT-ENVIRONMENT-CONFIGURES-THE-SINGLETON.md) | issue | configureStore and registerStoreObject on a new Environment() configure the singleton instead | draft |  |  | P2 | M | web |  | 2026-10-26 |
 | [`WEB-MODULE-HAS-NO-VERSIONED-CDN-ADDRESS`](issues/WEB-MODULE-HAS-NO-VERSIONED-CDN-ADDRESS.md) | feature | The browser module has no npm package and no versioned address on a CDN | draft |  |  | P2 | M | web;build |  | 2026-11-10 |
 | [`WEB-STORE-WRITE-DOES-NOT-INVALIDATE-RESULTS`](issues/WEB-STORE-WRITE-DOES-NOT-INVALIDATE-RESULTS.md) | issue | A page's store write leaves the results that read the key stale | draft |  |  | P2 | M | web |  | 2026-11-04 |
