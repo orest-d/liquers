@@ -227,9 +227,11 @@ impl DependencyKey {
         self.0.starts_with("ns-dep/command_impl-")
     }
 
-    /// True for `-R/` and `-R-dir/` keys, whose version a store can answer.
+    /// True for `-R/`, `-R-dir/` and `-R-recipe/` keys, whose version can be answered without
+    /// evaluating anything: from a stored value's metadata, a store listing, or the recipe the
+    /// recipe provider resolves (`specs/design/recipe-dependency-versions/`).
     pub fn is_store_resolvable(&self) -> bool {
-        self.is_pure_key() || self.is_dir_key()
+        self.is_pure_key() || self.is_dir_key() || self.is_recipe_key()
     }
 
     fn extract_prefixed_key(&self, prefix: &str) -> Result<Option<Key>, Error> {
@@ -4545,7 +4547,7 @@ mod tests {
         assert!(!cmd_key.is_store_resolvable());
 
         let recipe_key = DependencyKey::new("-R-recipe/data/file.csv");
-        assert!(!recipe_key.is_store_resolvable());
+        assert!(recipe_key.is_store_resolvable());
     }
 
     #[test]
