@@ -260,7 +260,7 @@ on wasm.
 - **Typed list values for `lui/children`** — built → [`design/value-list-support/`](design/value-list-support/)
 - **egui asset-manager adapter** — planned → [`issues/EGUI-ASSET-MANAGER-INTEGRATION.md`](issues/EGUI-ASSET-MANAGER-INTEGRATION.md)
 - **Native UI driver and egui window (`NativeDriver`, `spawn_headless`, `run_window`)** — built → [`design/egui-native-app/`](design/egui-native-app/)
-- **Query, pipeline, action and resource editors (tree view, `gui_info` widgets, presets, store file selector, accessor binding; supersedes `command-parameter-editor`)** — implemented, Phase 5 in review → [`design/query-pipeline-editor/`](design/query-pipeline-editor/)
+- **Query, pipeline, action and resource editors (tree view, `gui_info` widgets, presets, store file selector, accessor binding; supersedes `command-parameter-editor`)** — complete → [`design/query-pipeline-editor/`](design/query-pipeline-editor/)
 - **Liquers UI from Python (the model, and an egui window)** — built → [`design/liquers-py-ui/`](design/liquers-py-ui/), [`design/liquers-py-ui-window/`](design/liquers-py-ui-window/)
 - **UI redesign: UI crate(s), one trait per technique, client-server protocol** — planned → [`issues/UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE.md`](issues/UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE.md) *(investigation: [`design/ui-split-elements/`](design/ui-split-elements/))*
 

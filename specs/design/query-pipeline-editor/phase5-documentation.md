@@ -76,7 +76,7 @@ additive and `unset` behaves as the chapters show. No chapter describes the edit
 is filed as `USER-GUIDES-DO-NOT-DESCRIBE-THE-EDITORS`.
 
 ### Links and Capability Map
-`specs/README.md`: the entry reads "implemented, Phase 5 in review"; it becomes complete with the design.
+`specs/README.md`: the entry reads "complete".
 
 ## Issues Filed
 
