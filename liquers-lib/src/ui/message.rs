@@ -1,3 +1,40 @@
+//! The messages between UI elements and the async [`crate::ui::AppRunner`] loop.
+//!
+//! An element never awaits: it sends an [`AppMessage`] on the cheap, non-blocking
+//! [`AppMessageSender`], and the runner answers later through the element's `update`
+//! (`crate::ui::element::UpdateMessage`).
+//!
+//! # Main components
+//!
+//! - [`AppMessage`]: submit or re-evaluate a query, apply a query to a node, forward a UI event,
+//!   save or load the app state, quit, and the editor requests `Accessor` and `ListDirectory`.
+//! - [`AccessorOp`] / [`AccessorUpdate`]: what an editor asks of its value accessor (watch, adopt,
+//!   get, `set_if`) and the runner's answers (bound, snapshot, written, conflict, failed).
+//! - [`AssetSnapshot`]: the state of a monitored asset pushed to an element.
+//! - [`app_message_channel`]: the channel itself.
+//!
+//! # Where it is used
+//!
+//! - `UIContext::send_message` (`ui::ui_context`) sends them; `AppRunner::run` (`ui::runner`)
+//!   processes them; the editor element (`ui::editor`) sends `Accessor` and `ListDirectory`.
+//!
+//! # Related concepts
+//!
+//! - `liquers_core::accessor`: the accessor `AccessorOp` drives.
+//! - `specs/reference/UI_INTERFACE_FSD.md`: the message protocol.
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_lib::ui::message::{app_message_channel, AppMessage};
+//! use liquers_lib::ui::UIHandle;
+//!
+//! let (tx, mut rx) = app_message_channel();
+//! tx.send(AppMessage::SubmitQuery { handle: Some(UIHandle(1)), query: "-R/a.txt".into() })?;
+//! assert!(matches!(rx.try_recv(), Ok(AppMessage::SubmitQuery { .. })));
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+
 use std::sync::Arc;
 
 use liquers_core::error::Error;

@@ -262,6 +262,9 @@ fn reset_removes_last_and_writes_default_in_middle() -> Result<(), Error> {
     let mut editor = q("new_action-5-b-c")?;
     editor.edit_action(0)?.reset("b").expect_err("b has no default and c is given");
     assert_eq!(editor.query().encode(), "new_action-5-b-c");
+    // `unset` of a middle argument says why it is refused (EDITOR-UNSET-OF-A-MIDDLE-…).
+    let err = editor.edit_action(0)?.unset("b").expect_err("b is followed by c");
+    assert!(err.message.contains("followed by another positional parameter"), "{}", err.message);
     let mut editor = q("-R/a.csv/-/head-3")?;
     editor.edit_action(1)?.reset("n")?;
     assert_eq!(editor.query().encode(), "-R/a.csv/-/head");

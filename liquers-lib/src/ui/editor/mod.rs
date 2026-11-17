@@ -41,32 +41,22 @@
 //! # Examples
 //!
 //! ```
-//! use std::sync::Arc;
-//! use liquers_core::command_metadata::{ArgumentInfo, CommandMetadata, CommandMetadataRegistry};
-//! use liquers_core::query::Query;
-//! use liquers_core::value::ValueInterface;
-//! use liquers_lib::ui::editor::{EditorCommand, EditorEffect, EditorKind, EditorState, NodePath};
-//! use liquers_lib::value::Value;
-//!
-//! let mut cmr = CommandMetadataRegistry::new();
-//! let mut head = CommandMetadata::new("head");
-//! head.with_argument(ArgumentInfo::integer_argument("n", false).with_default(5));
-//! cmr.add_command(&head);
-//!
+//! # use std::sync::Arc;
+//! # use liquers_core::command_metadata::{ArgumentInfo, CommandMetadata, CommandMetadataRegistry};
+//! # use liquers_core::value::ValueInterface;
+//! # use liquers_lib::ui::editor::{EditorCommand, EditorEffect, EditorKind, EditorState, NodePath};
+//! # use liquers_lib::value::Value;
+//! # let mut cmr = CommandMetadataRegistry::new();
+//! # let mut head = CommandMetadata::new("head");
+//! # head.with_argument(ArgumentInfo::integer_argument("n", false).with_default(5));
+//! # cmr.add_command(&head);
 //! let mut editor = EditorState::new(EditorKind::Query, Arc::new(cmr));
 //! let query = liquers_core::parse::parse_query("-R/data.csv/-/head-3")?;
 //! editor.on_snapshot(&Value::from_query(&query), None)?;
-//! let effect = editor.apply(EditorCommand::SetField {
-//!     path: NodePath::element(1),
-//!     arg: "n".into(),
-//!     text: "10".into(),
-//! })?;
+//! let set = |text: &str| EditorCommand::SetField { path: NodePath::element(1), arg: "n".into(), text: text.into() };
+//! assert!(matches!(editor.apply(set("10"))?, EditorEffect::Write { .. }));
 //! assert_eq!(editor.tree().text, "-R/data.csv/-/head-10");
-//! assert!(matches!(effect, EditorEffect::Write { .. }));
-//! // A refused edit changes nothing.
-//! assert!(editor.apply(EditorCommand::SetField {
-//!     path: NodePath::element(1), arg: "n".into(), text: "abc".into(),
-//! }).is_err());
+//! assert!(editor.apply(set("abc")).is_err()); // a refused edit changes nothing
 //! assert_eq!(editor.tree().text, "-R/data.csv/-/head-10");
 //! # Ok::<(), liquers_core::error::Error>(())
 //! ```

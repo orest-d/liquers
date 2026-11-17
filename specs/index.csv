@@ -171,7 +171,8 @@ DOCS-STORE-CONFIG-DESCRIBES-ASYNC-FILESTORE-AS-FUTURE-WORK,issue,Store configura
 DOCS-TOOLING-TESTS-NOT-RUN-IN-CI,issue,The unit tests of the documentation tooling are not run by CI,closed,local,,ready,eligible,P3,S,docs;build,,,,docs-tooling-tests-in-ci,,2026-10-20,specs/issues/DOCS-TOOLING-TESTS-NOT-RUN-IN-CI.md
 DRAFT-MARKERS-LOOK-ALIKE,issue,Draft builds show every editorial marker the same way,draft,local,,,,P3,S,docs,,,,,,2026-11-01,specs/issues/DRAFT-MARKERS-LOOK-ALIKE.md
 DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE,issue,Removing a computed value with a stored record leaves an empty data file at its key,draft,local,,,,P3,S,core/assets;core/store,,,,,,2026-10-27,specs/issues/DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE.md
-EDITOR-UNSET-OF-A-MIDDLE-POSITIONAL-ARGUMENT-SAYS-NOT-SET,issue,The query editor answers 'is not set' when asked to unset a positional argument that is followed by another,draft,local,,,,P3,S,core/query,,,,,,2026-11-14,specs/issues/EDITOR-UNSET-OF-A-MIDDLE-POSITIONAL-ARGUMENT-SAYS-NOT-SET.md
+EDITOR-CANNOT-EDIT-INSIDE-A-NESTED-PIPELINE,feature,The query and pipeline editor shows a nested pipeline element read-only,draft,local,,,,P3,M,lib/ui,,,,,,2026-11-17,specs/issues/EDITOR-CANNOT-EDIT-INSIDE-A-NESTED-PIPELINE.md
+EDITOR-UNSET-OF-A-MIDDLE-POSITIONAL-ARGUMENT-SAYS-NOT-SET,issue,The query editor answers 'is not set' when asked to unset a positional argument that is followed by another,closed,local,,,,P3,S,core/query,,,,query-pipeline-editor,,2026-11-14,specs/issues/EDITOR-UNSET-OF-A-MIDDLE-POSITIONAL-ARGUMENT-SAYS-NOT-SET.md
 EGUI-ASSET-MANAGER-INTEGRATION,feature,No stable adapter between egui widgets and the asset manager,accepted,local,,needs-decision,not-eligible,P2,M,lib/egui,,,,ui-asset-snapshot-boundary,,2026-08-08,specs/issues/EGUI-ASSET-MANAGER-INTEGRATION.md
 EGUI-EXAMPLES-HAND-WRITE-THE-FRAME-LOOP,issue,"Six egui examples keep their own runtime, runner loop and repaint policy instead of the native driver",draft,local,,,,P3,S,lib/egui,,,,,,2026-11-10,specs/issues/EGUI-EXAMPLES-HAND-WRITE-THE-FRAME-LOOP.md
 EGUI-HAS-NO-REUSABLE-NATIVE-APP,feature,liquers-lib has no reusable native egui application; every desktop app re-implements the frame loop,closed,local,,ready,not-eligible,P1,L,lib/egui;lib/ui,,,,egui-native-app,,2026-11-06,specs/issues/EGUI-HAS-NO-REUSABLE-NATIVE-APP.md
@@ -273,7 +274,7 @@ MODULE-DOCS-DO-NOT-FOLLOW-THE-API-DOC-RULES,issue,"Existing module docs lack pur
 MULTI-LANGUAGE-TRACEBACK-IS-A-FLAT-STRING,issue,An error crossing several languages carries one flat traceback string with no structure,draft,local,,needs-decision,not-eligible,P3,L,core/error;py;web,,,,multi-language-traceback,,2026-10-19,specs/issues/MULTI-LANGUAGE-TRACEBACK-IS-A-FLAT-STRING.md
 NEW-FOLDER-WRITE-DOES-NOT-REFRESH-THE-PARENT-LISTING,issue,A write that creates a folder does not refresh the listing of the folder above it,closed,local,,ready,eligible,P3,S,core/assets,,,,new-folder-write-ancestor-listing-refresh,,2026-10-17,specs/issues/NEW-FOLDER-WRITE-DOES-NOT-REFRESH-THE-PARENT-LISTING.md
 NEXT-PRESETS-MISREAD-PLANNER-INSTRUCTIONS,issue,find_next_presets reads planner instructions differently from the planner,closed,local,,ready,eligible,P3,S,lib/commands,,,,next-presets-follow-planner-rules,,2026-10-20,specs/issues/NEXT-PRESETS-MISREAD-PLANNER-INSTRUCTIONS.md
-NO-COMMAND-PARAMETER-EDITOR,feature,No UI renders a command's arguments as an editable form from their gui_info,draft,local,,,,P3,L,lib/ui;lib/egui,,,,query-pipeline-editor,,2026-10-21,specs/issues/NO-COMMAND-PARAMETER-EDITOR.md
+NO-COMMAND-PARAMETER-EDITOR,feature,No UI renders a command's arguments as an editable form from their gui_info,closed,local,,,,P3,L,lib/ui;lib/egui,,,,query-pipeline-editor,,2026-10-21,specs/issues/NO-COMMAND-PARAMETER-EDITOR.md
 NO-COMPACT-BINARY-DATA-FORMAT,feature,There is no compact binary data format for caching and cross-process transfer,draft,local,,needs-decision,not-eligible,P3,L,core/value;lib/value,,,,generic-serde-data-formats,,2026-10-20,specs/issues/NO-COMPACT-BINARY-DATA-FORMAT.md
 NO-END-TO-END-TEST-OF-A-MANIFEST-OVER-STORED-CSV-FILES,issue,"No test reads a manifest whose chunks are stored CSV files, the design's motivating case",closed,local,,ready,eligible,P3,S,records,,,,manifest-over-stored-csv-test,,2026-09-27,specs/issues/NO-END-TO-END-TEST-OF-A-MANIFEST-OVER-STORED-CSV-FILES.md
 NO-MARKDOWN-NAVIGATION-COMMANDS,feature,"Markdown documents cannot be navigated, filtered or interpreted by structure",closed,local,,,,P3,L,lib/commands,,,,markdown-navigation,,2026-10-11,specs/issues/NO-MARKDOWN-NAVIGATION-COMMANDS.md
@@ -530,7 +531,7 @@ UI-EVENTS-HAVE-NO-POINTER-DRAG-OR-CHANGE-KINDS,feature,"UI events cannot express
 UI-INTERFACE-FSD-DESCRIBES-UNBUILT-API,issue,UI_INTERFACE_FSD describes a UI API that was never built,draft,local,,,,P2,M,docs;lib/ui,,,,,,2026-10-27,specs/issues/UI-INTERFACE-FSD-DESCRIBES-UNBUILT-API.md
 UI-QUERY-CONSOLE-NO-ERROR-HIGHLIGHT,issue,Query console never highlights the erroring token despite complete plumbing,closed,local,,ready,,P2,S,lib/ui;core/query,,,,ui-query-console-error-highlight,,2026-08-12,specs/issues/UI-QUERY-CONSOLE-NO-ERROR-HIGHLIGHT.md
 UI-QUERY-EDITOR-LACKS-LIVE-VALIDATION,issue,Query editor cannot validate the current text with command metadata,draft,local,,needs-decision,not-eligible,P2,L,lib/ui;lib/egui;web;core/plan;core/query,,,,query-editor-live-validation,,2026-09-04,specs/issues/UI-QUERY-EDITOR-LACKS-LIVE-VALIDATION.md
-UI-VARIADIC-ARGUMENT-LIST-EDITOR,feature,A variadic argument cannot be edited as a list in a parameter editor,draft,local,,needs-decision,not-eligible,P3,M,lib/ui;lib/egui;web;core/query,,,,variadic-argument-slots,,2026-08-25,specs/issues/UI-VARIADIC-ARGUMENT-LIST-EDITOR.md
+UI-VARIADIC-ARGUMENT-LIST-EDITOR,feature,A variadic argument cannot be edited as a list in a parameter editor,closed,local,,needs-decision,not-eligible,P3,M,lib/ui;lib/egui;web;core/query,,,,variadic-argument-slots,,2026-08-25,specs/issues/UI-VARIADIC-ARGUMENT-LIST-EDITOR.md
 UI-WIDGET-DOES-NOT-CONVERT-ITS-VALUE,feature,"A UI view renders a value only by its own variant, never by converting it to a type it can show",draft,local,,needs-decision,not-eligible,P3,M,lib/ui;lib/value,,,,ui-display-conversion,,2026-10-26,specs/issues/UI-WIDGET-DOES-NOT-CONVERT-ITS-VALUE.md
 UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION,issue,Expiring an uncached key's stored copy can be overwritten by an evaluation already in flight,closed,local,,ready,eligible,P3,M,core/assets,,,,uncached-write-back-rechecks-dependency-versions,,2026-09-27,specs/issues/UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION.md
 UNKEYED-ASSET-HAS-NO-VERSION,feature,"A keyless query asset has no version, so nothing can tell whether it changed without re-evaluating it",draft,local,,needs-decision,not-eligible,P3,M,core/assets;records,,,,unkeyed-asset-derived-version,,2026-10-26,specs/issues/UNKEYED-ASSET-HAS-NO-VERSION.md
@@ -538,6 +539,7 @@ UNMANAGED-ASSET-NOT-FOLLOWABLE-ACROSS-CONNECTIONS,feature,An unmanaged asset can
 UPSTREAM-COMMAND-VOLATILITY-INVISIBLE-TO-DEPENDENCY-WALK,issue,A recipe preview misses volatility its upstream inherits from a volatile command,draft,local,,,,P2,S,core/plan,,,,,,2026-11-03,specs/issues/UPSTREAM-COMMAND-VOLATILITY-INVISIBLE-TO-DEPENDENCY-WALK.md
 USER-DOCUMENTATION-CANNOT-BE-GENERATED,feature,"Nothing generates the user documentation site, and Liquers cannot build one from templates",closed,local,,,,P2,L,docs;build;lib/commands,233,,,user-documentation-guides,,2026-11-01,specs/issues/USER-DOCUMENTATION-CANNOT-BE-GENERATED.md
 USER-GUIDE-EXAMPLES-ARE-NOT-EXECUTED,issue,User guide chapter examples are not executed,draft,local,,,,P2,M,docs;build,,,,,,2026-11-01,specs/issues/USER-GUIDE-EXAMPLES-ARE-NOT-EXECUTED.md
+USER-GUIDES-DO-NOT-DESCRIBE-THE-EDITORS,issue,"The user guides' UI chapters do not describe the query, action, resource and key editors",draft,local,,,,P3,S,docs,,,,,,2026-11-17,specs/issues/USER-GUIDES-DO-NOT-DESCRIBE-THE-EDITORS.md
 USER-GUIDES-LIVE-IN-SPECS,feature,"Liquers has no public user guides, in any format, and nothing publishes documentation on the web",closed,local,,,,P2,L,docs;build,,,,user-documentation-guides,,2026-11-01,specs/issues/USER-GUIDES-LIVE-IN-SPECS.md
 V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL,issue,The `v` instruction marks the whole plan volatile rather than the steps after it,closed,local,,,,P3,M,core/plan;core/query,,,,plan-policy,,2026-08-26,specs/issues/V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL.md
 VALIDATE-CANNOT-SEE-NON-STANDARD-RECIPE-PROVIDERS,feature,liquers-validate cannot validate recipes served by a non-standard or generative recipe provider,draft,local,,needs-decision,not-eligible,P3,M,core/commands;core/plan,,,,validate-through-recipe-providers,,2026-09-25,specs/issues/VALIDATE-CANNOT-SEE-NON-STANDARD-RECIPE-PROVIDERS.md
@@ -884,7 +886,7 @@ QUERY-DATA-FORMAT-COMMAND,design,A data_format command lets a query declare the 
 QUERY-EDITOR-LIVE-VALIDATION,design,A query editor that tokenizes and validates the text being typed,in_review,local,implementation,needs-decision,not-eligible,P2,L,lib/ui;lib/egui;core/query,,,,query-editor-live-validation,,2026-10-21,specs/design/query-editor-live-validation/DESIGN.md
 ACTIVE-08,design,Design for QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS,complete,local,,ready,not-eligible,P3,S,core/query,,119,,query-leading-slash-field,,2026-09-03,specs/design/query-leading-slash-field/DESIGN.md
 QUERY-LINK-PARSER,design,Action-parameter link parsing (~X~~E),complete,local,,,,,,core/query,,17,,query-link-parser,,2026-03-02,specs/design/query-link-parser/DESIGN.md
-QUERY-PIPELINE-EDITOR,design,"Query, pipeline, action, resource and key editors as UI elements",approved,local,implementation,,,,,lib/ui;lib/egui;core/query,,,,query-pipeline-editor,,2026-11-16,specs/design/query-pipeline-editor/DESIGN.md
+QUERY-PIPELINE-EDITOR,design,"Query, pipeline, action, resource and key editors as UI elements",in_review,local,documentation,,,,,lib/ui;lib/egui;core/query,,,,query-pipeline-editor,,2026-11-16,specs/design/query-pipeline-editor/DESIGN.md
 QUERY-TOKEN-CLASSES-ASCII,design,"Action names, filenames, segment headers and header values are tested as ASCII",complete,local,,ready,eligible,P2,S,core/query,,193,,query-token-classes-ascii,,2026-10-26,specs/design/query-token-classes-ascii/DESIGN.md
 QUERY-VALIDATION,design,Offline query and recipe validation,complete,local,,,,,,core/validate,,15,,query-validation,,2026-03-02,specs/design/query-validation/DESIGN.md
 QUEUED-MANAGER-CONDITIONAL-EVICTION,design,Conditional queued-manager cache eviction,complete,local,,ready,,P2,S,core/assets,,,,queued-manager-conditional-eviction,,2026-08-29,specs/design/queued-manager-conditional-eviction/DESIGN.md
@@ -1069,7 +1071,7 @@ IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,current,loca
 JAVASCRIPT_INTEGRATION,reference,JavaScript Integration,current,local,,,,,,web;core/value;core/error;core/store;lib/value,,,,,2026-11-04,,specs/reference/JAVASCRIPT_INTEGRATION.md
 MARKDOWN,reference,Markdown Navigation,current,local,,,,,,lib/commands;records,,,,,2026-11-01,,specs/reference/MARKDOWN.md
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,,core/context;core/commands,,,,,2026-11-11,,specs/reference/PAYLOAD_GUIDE.md
-PIPELINES,reference,Pipelines,current,local,,,,,,core/commands;core/plan;core/query;core/validate,,,,,2026-11-04,,specs/reference/PIPELINES.md
+PIPELINES,reference,Pipelines,current,local,,,,,,core/commands;core/plan;core/query;core/validate,,,,,2026-11-17,,specs/reference/PIPELINES.md
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,,lib/polars,,,,,2026-11-03,,specs/reference/POLARS_COMMAND_LIBRARY.md
 POSITIONING,reference,Positioning and Marketing Plan (draft),current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/POSITIONING.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-11-04,,specs/reference/PROJECT_OVERVIEW.md
@@ -1082,7 +1084,7 @@ SEARCH,reference,Search,current,local,,,,,,records;lib/commands,,,,,2026-10-17,,
 STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,,store/config,,,,,2026-11-01,,specs/reference/STORE_CONFIG_FSD.md
 STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-27,,specs/reference/STORE_SEMANTICS.md
 TEMPLATE_LANGUAGE,reference,Template Language,current,local,,,,,,core/query;lib/commands,,,,,2026-11-04,,specs/reference/TEMPLATE_LANGUAGE.md
-UI_INTERFACE_FSD,reference,UI Interface Specification,current,local,,,,,,lib/ui,,,,,2026-11-16,,specs/reference/UI_INTERFACE_FSD.md
+UI_INTERFACE_FSD,reference,UI Interface Specification,current,local,,,,,,lib/ui,,,,,2026-11-17,,specs/reference/UI_INTERFACE_FSD.md
 VALUE_ACCESSORS,reference,Value Accessors,current,local,,,,,,core/value;core/assets;core/query;lib/value;axum;py;web,,,,,2026-11-16,,specs/reference/VALUE_ACCESSORS.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-11-16,,specs/reference/VALUE_TYPE_SYSTEM.md
 VISION,reference,Liquers Vision and Strategy,current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/VISION.md
@@ -1093,7 +1095,7 @@ ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,curr
 autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_bulk_design.md
 autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_issue_fixing.md
 COMMAND_DESIGN_GUIDE,guide,Command Design Guide,current,local,,,,,,core/commands,,,,,2026-11-04,,specs/guides/COMMAND_DESIGN_GUIDE.md
-COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,core/commands;macro,,,,,2026-11-04,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
+COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,core/commands;macro,,,,,2026-11-17,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 DEPENDENCY_CONSISTENCY_GUIDE,guide,Dependency Consistency Guide,current,local,,,,,,core/assets,,,,,2026-10-08,,specs/guides/DEPENDENCY_CONSISTENCY_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,,core/context;core/assets;core/store,,,,,2026-11-09,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
 GITHUB_ACTIONS_GUIDE,guide,GitHub Actions Guide,current,local,,,,,,build;docs,,,,,2026-11-11,,specs/guides/GITHUB_ACTIONS_GUIDE.md
@@ -1113,7 +1115,7 @@ TEMPLATE_GUIDE,guide,Template Guide,current,local,,,,,,core/query;lib/commands,,
 TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,,core/value;lib/value,,,,,2026-11-04,,specs/guides/TYPE_SYSTEM_GUIDE.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,,build;core/assets,,,,,2026-10-20,,specs/guides/UNITTEST_GUIDE.md
 USER_DOCS_EDITING_GUIDE,guide,User Documentation Editing Guide,current,local,,,,,,docs,,,,,2026-11-14,,specs/guides/USER_DOCS_EDITING_GUIDE.md
-VALUE_ACCESSOR_GUIDE,guide,Value Accessor Guide,current,local,,,,,,core/value;core/assets;lib/value;axum;py;web,,,,,2026-11-16,,specs/guides/VALUE_ACCESSOR_GUIDE.md
+VALUE_ACCESSOR_GUIDE,guide,Value Accessor Guide,current,local,,,,,,core/value;core/assets;lib/value;axum;py;web,,,,,2026-11-17,,specs/guides/VALUE_ACCESSOR_GUIDE.md
 WEB_API_GUIDE,guide,Web API Guide,current,local,,,,,,axum;web,,,,,2026-11-09,,specs/guides/WEB_API_GUIDE.md
 python/01-introduction,chapter,Introduction,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/python/01-introduction.md
 python/02-installing,chapter,Installing and setting up,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/02-installing.md

@@ -13,13 +13,13 @@ renderers, then the commands. Each layer is tested before the next one uses it. 
 - [x] Step 2: argument edits on `ActionEditor` — 84445478
 - [x] Step 3: safe namespace edits — 84445478
 - [x] Step 4: presets and conversions — 84445478
-- [ ] Step 5: registry in `UIContext`, `Change` events, `type_name`
-- [ ] Step 6: the editor core and its tree
-- [ ] Step 7: the editor element and its messages
-- [ ] Step 8: the runner's accessor and listing requests
-- [ ] Step 9: egui rendering
-- [ ] Step 10: browser rendering
-- [ ] Step 11: `lui` commands, the console's Parameters panel, the registry export
+- [x] Step 5: registry in `UIContext`, `Change` events, `type_name` — 1551f952
+- [x] Step 6: the editor core and its tree — 1551f952, tests 5f20fa97
+- [x] Step 7: the editor element and its messages — 1551f952, 5f20fa97
+- [x] Step 8: the runner's accessor and listing requests — 1551f952, 5f20fa97
+- [x] Step 9: egui rendering — 1551f952, 5f20fa97
+- [x] Step 10: browser rendering — 1551f952, d9167d16
+- [x] Step 11: `lui` commands, the console's Parameters panel, the registry export — 5f20fa97
 - [ ] Step 12: integration tests and the build matrix
 
 ## Implementation Steps

@@ -1,3 +1,41 @@
+//! The `lui` commands: build and arrange UI elements from queries.
+//!
+//! Each command is an ordinary Liquers command in namespace `lui`, so a query such as
+//! `-R-key/reports/recipes.yaml/-/ns-acc/accessor/recipe-0/query/ns-lui/query_editor` creates an
+//! element, and `…/ns-lui/add-instead` places one in the app state.
+//!
+//! # Main components
+//!
+//! - Tree commands: `add`, `remove`, `children`, `first`, `last`, `parent`, … (positions and
+//!   navigation words of `ui::resolve`).
+//! - Element constructors: [`ui_spec`], [`markdown`], [`query_console`], and the editors
+//!   [`query_editor`], [`action_editor`], [`resource_editor`], [`key_editor`] (an accessor value is
+//!   bound by its address, any other value is kept in memory).
+//! - [`submit`]: submit the state as the current element's query.
+//! - [`register_lui_commands!`](crate::register_lui_commands): registers them all.
+//!
+//! # Where it is used
+//!
+//! - Every UI host registers them (`ui::native`, the browser mount, the examples); `UISpec` menus
+//!   and shortcuts run them through `ui::action`.
+//!
+//! # Related concepts
+//!
+//! - `ui::app_state` (the element tree), `ui::payload` (how a command reaches it).
+//! - `specs/guides/COMMAND_REGISTRATION_GUIDE.md`: how the commands are declared.
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_core::state::State;
+//! use liquers_lib::ui::UIElement;
+//! use liquers_lib::value::{ExtValueInterface, Value};
+//!
+//! let value = liquers_lib::ui::commands::query_editor(&State::<Value>::new())?;
+//! assert_eq!(value.as_ui_element()?.type_name(), "EditorElement");
+//! # Ok::<(), liquers_core::error::Error>(())
+//! ```
+
 use std::sync::Arc;
 
 use liquers_core::context::{Context, Environment};

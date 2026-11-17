@@ -1,3 +1,35 @@
+//! [`QueryConsoleElement`]: a browser-like query console.
+//!
+//! The console holds a query text with history, shows the evaluated value or its metadata, offers
+//! the next presets of the last command, and opens a Parameters panel: an editor
+//! (`ui::editor::EditorState`) of the last action, whose edits rewrite the text without
+//! submitting it.
+//!
+//! # Main components
+//!
+//! - [`QueryConsoleElement`]: the element; `show_parameters`, `parameters_tree` and
+//!   `apply_parameter_commands` drive the Parameters panel.
+//!
+//! # Where it is used
+//!
+//! - The `lui/query_console` command (`ui::commands`) creates it; egui and the browser draw it.
+//!
+//! # Related concepts
+//!
+//! - `ui::editor`: the editors; the panel reuses their core and egui renderer.
+//! - `specs/design/query-pipeline-editor/` (the Parameters panel).
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_lib::ui::QueryConsoleElement;
+//!
+//! let mut console = QueryConsoleElement::new("Console".into(), "-R/a.csv/-/head-3".into());
+//! assert!(!console.show_parameters());
+//! console.set_show_parameters(true);
+//! assert!(console.show_parameters());
+//! ```
+
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};

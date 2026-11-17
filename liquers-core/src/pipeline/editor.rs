@@ -980,6 +980,13 @@ impl ActionEditor<'_> {
                             Some(i) if i + 1 == a.parameters.len() => {
                                 a.parameters.pop();
                             }
+                            Some(i) if i < a.parameters.len() => {
+                                return Err(Error::invalid_argument(
+                                    &md.name,
+                                    name,
+                                    "is followed by another positional parameter; reset writes its default in place",
+                                ))
+                            }
                             Some(_) | None => {
                                 return Err(Error::invalid_argument(&md.name, name, "is not set"))
                             }

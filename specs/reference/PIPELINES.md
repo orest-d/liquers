@@ -3,7 +3,7 @@ title: Pipelines
 kind: reference
 audience: internal
 area: [core/commands, core/plan, core/query, core/validate]
-reviewed: 2026-11-04
+reviewed: 2026-11-17
 ---
 # Pipelines
 
@@ -250,8 +250,21 @@ arguments that need no escaping. `--recipes` accepts recipes with a `pipeline`.
 `Arc<CommandMetadataRegistry>` snapshot (`EnvRef::command_metadata_snapshot`) and refused with the
 editor unchanged. It exposes each action's `CommandMetadata` and `ArgumentInfo`. `ActionEditor`
 (from `action(name)`) chains `ns`, `set`, `push`, `placeholder`, `link`, `pipeline`, `state`,
-`unset`. `QueryEditor` wraps it and refuses any edit after which the pipeline has no query form,
-so `query()` always succeeds.
+`unset`, and for a form: `set_source` (any `Source`: a value, a link, …), `reset` (back to the
+default: removes the last positional parameter, writes the default in place of a middle one, drops
+a named one), `insert_item` / `remove_item` / `move_item` on a variadic argument, and `excess` (the
+parameters beyond what the command takes). `QueryEditor` wraps it and refuses any edit after which
+the pipeline has no query form, so `query()` always succeeds; it opens a query leniently, so excess
+parameters are kept and written back (the strict conversion still refuses them).
+
+**Namespace edits.** `namespace_run(at)` is the run of actions sharing one `ns` (a `v` directive does
+not break it), `available_namespaces` and `unused_namespaces` list what can be added.
+`namespace_impact(at, list)` says what a new `ns` list does: `Same` (every command of the run
+resolves as before), `Changed(Vec<CommandChange>)` (some resolve elsewhere, `before` / `after`
+keys) or `Invalid` (one no longer resolves). `set_namespaces(at, list, accept)` applies `Same`,
+returns `Changed` unapplied unless `accept`, and refuses `Invalid`. `ParameterPreset::{name, value,
+description}` and `ActionElement::from_action_request` give argument and command presets to an
+editor. The UI editors built on this are `UI_INTERFACE_FSD.md` [Editors](UI_INTERFACE_FSD.md#editors).
 
 ## Related
 
@@ -266,5 +279,6 @@ so `query()` always succeeds.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-17 | Editors: argument edits for forms (`set_source`, `reset`, item edits, `excess`), lenient query opening, safe namespace edits; reviewed against the implementation. | `design/query-pipeline-editor/` |
 | 2026-11-04 | Related: the Python integration's pipelines section. | `design/liquers-py-pipelines/` |
 | 2026-11-04 | Created: the model and serialized form, conversions and representability rules, planning, pipeline commands, recipe pipelines, validation and editors, as implemented and tested. | phase-5, `design/composite-command-definition/` |

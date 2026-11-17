@@ -260,7 +260,7 @@ on wasm.
 - **Typed list values for `lui/children`** — built → [`design/value-list-support/`](design/value-list-support/)
 - **egui asset-manager adapter** — planned → [`issues/EGUI-ASSET-MANAGER-INTEGRATION.md`](issues/EGUI-ASSET-MANAGER-INTEGRATION.md)
 - **Native UI driver and egui window (`NativeDriver`, `spawn_headless`, `run_window`)** — built → [`design/egui-native-app/`](design/egui-native-app/)
-- **Query, pipeline, action and resource editors (tree view, `gui_info` widgets, presets, store file selector, accessor binding; supersedes `command-parameter-editor`)** — in design → [`design/query-pipeline-editor/`](design/query-pipeline-editor/)
+- **Query, pipeline, action and resource editors (tree view, `gui_info` widgets, presets, store file selector, accessor binding; supersedes `command-parameter-editor`)** — implemented, Phase 5 in review → [`design/query-pipeline-editor/`](design/query-pipeline-editor/)
 - **Liquers UI from Python (the model, and an egui window)** — built → [`design/liquers-py-ui/`](design/liquers-py-ui/), [`design/liquers-py-ui-window/`](design/liquers-py-ui-window/)
 
 `design/ui-events/` built the interaction half of the browser backend — `webui-fixes` did the
@@ -657,6 +657,7 @@ deliberately folded behind a broader line.
 - feature `DEPENDENCY-ANALYSIS-REWALKS-UPSTREAM-PER-EVALUATION`
 - feature `DEPENDENCY-ANALYSIS-SUMMARIES-NOT-REUSED-ACROSS-EVALUATIONS`
 - feature `DOCS-SITE-HAS-NO-PER-RELEASE-VERSIONS`
+- feature `EDITOR-CANNOT-EDIT-INSIDE-A-NESTED-PIPELINE`
 - feature `ENVIRONMENT-ORDERLY-SHUTDOWN`
 - feature `EXTENDED-SCALARS-NOT-MAPPED-BY-LANGUAGE-BRIDGES`
 - feature `EXTERNAL-INDEX-HAS-NO-RECONCILIATION-CONTRACT`
@@ -670,7 +671,6 @@ deliberately folded behind a broader line.
 - feature `MANIFEST-TEMPLATE-BATCH-ONLY-AT-THE-END-OF-THE-QUERY`
 - feature `MARKDOWN-CODE-BLOCKS-FRONT-MATTER-AND-BACKLINKS-ARE-NOT-COMMANDS`
 - feature `MCP-SERVER-APPLIES-NO-ACCESS-POLICY`
-- feature `NO-COMMAND-PARAMETER-EDITOR`
 - feature `NO-COMPACT-BINARY-DATA-FORMAT`
 - feature `NO-RELATIONAL-DATABASE-ACCESS-LAYER`
 - feature `NO-REMOTE-STORE-OR-ASSET-MANAGER`
@@ -708,7 +708,6 @@ deliberately folded behind a broader line.
 - feature `TEMPLATE-HAS-NO-MDBOOK-INCLUDE-SYNTAX`
 - feature `TEXT-EDITOR-EDITS-ARE-NEVER-SAVED`
 - feature `TYPE-REGISTRY-NOT-REALM-AWARE`
-- feature `UI-VARIADIC-ARGUMENT-LIST-EDITOR`
 - feature `UI-WIDGET-DOES-NOT-CONVERT-ITS-VALUE`
 - feature `UNKEYED-ASSET-HAS-NO-VERSION`
 - feature `UNMANAGED-ASSET-NOT-FOLLOWABLE-ACROSS-CONNECTIONS`
