@@ -289,27 +289,37 @@ impl<E: Environment> DependencyManager<E> {
         }
     }
 
-    /// The keys whose recipe version (`-R-recipe/<key>`) this manager holds and which lie in
-    /// `dir` or below it. A scan of the version map, used after a write into `dir` to re-resolve
-    /// the recipes that file may define (`specs/design/recipe-dependency-versions/`).
+    /// The keys whose recipe (`-R-recipe/<key>`) this manager knows — holds a version for, or
+    /// holds edges from (an edge loaded from a stored record registers no version) — and which
+    /// lie in `dir` or below it. A scan of the version map and the edge map, used after a write
+    /// into `dir` to re-resolve the recipes that file may define
+    /// (`specs/design/recipe-dependency-versions/`).
     pub(crate) async fn recipe_keys_under(
         &self,
         dir: &crate::query::Key,
     ) -> Vec<crate::query::Key> {
-        let mut keys = Vec::new();
+        let mut recipe_keys: HashSet<DependencyKey> = HashSet::new();
         self.versions
             .iter_async(|dep_key, _| {
                 if dep_key.is_recipe_key() {
-                    if let Ok(Some(key)) = dep_key.recipe_key() {
-                        if key.has_key_prefix(dir) {
-                            keys.push(key);
-                        }
-                    }
+                    recipe_keys.insert(dep_key.clone());
                 }
                 true
             })
             .await;
-        keys
+        self.keyed_dependents
+            .iter_async(|dep_key, _| {
+                if dep_key.is_recipe_key() {
+                    recipe_keys.insert(dep_key.clone());
+                }
+                true
+            })
+            .await;
+        recipe_keys
+            .iter()
+            .filter_map(|dep_key| dep_key.recipe_key().ok().flatten())
+            .filter(|key| key.has_key_prefix(dir))
+            .collect()
     }
 
     /// Record `version` for `key` only if this manager holds none, without expiring anything.

@@ -313,3 +313,35 @@ on_both_managers!(
     unchanged_recipe_is_fast_tracked_after_restart_queued,
     unchanged_recipe_is_fast_tracked_after_restart_inline
 );
+
+/// A value loaded from the store after a restart, under the default `explicit` policy, registers
+/// its edges but no recipe version: a later edit through the manager still expires it.
+async fn editing_a_recipe_expires_a_value_loaded_after_restart<K: AssetManagerKind>() -> TestResult
+{
+    let names = ["data/recipes.yaml", "data/r.txt"];
+    let first = env::<K>(UPPER).await?;
+    assert_eq!(get_text(&first, "data/r.txt").await?, "GENERATED");
+    wait_stored(&first, "data/r.txt", Status::Ready).await?;
+
+    let second_store = AsyncMemoryStore::new(&Key::new());
+    let first_store = first.get_async_store();
+    for name in names {
+        let (bytes, metadata) = first_store.get(&key(name)).await?;
+        second_store.set(&key(name), &bytes, &metadata).await?;
+    }
+    let calls = Arc::new(AtomicUsize::new(0));
+    let second = build::<K>(second_store, DependencyAuditPolicy::Explicit, calls.clone())?;
+    assert_eq!(get_text(&second, "data/r.txt").await?, "GENERATED");
+    assert_eq!(calls.load(Ordering::SeqCst), 0, "precondition: served as stored");
+
+    write_recipes(&second, LOWER).await?;
+
+    wait_stored(&second, "data/r.txt", Status::Expired).await?;
+    assert_eq!(get_text(&second, "data/r.txt").await?, "generated");
+    Ok(())
+}
+on_both_managers!(
+    editing_a_recipe_expires_a_value_loaded_after_restart,
+    editing_a_recipe_expires_a_value_loaded_after_restart_queued,
+    editing_a_recipe_expires_a_value_loaded_after_restart_inline
+);

@@ -3508,7 +3508,27 @@ impl<E: Environment> DependencyWalk<E> {
         }
         let memo_key = (read.key.clone(), read.cursor.cwd().cloned());
         if let Some(done) = self.done.get(&memo_key) {
-            return Ok(Visit::Done(done.clone()));
+            let done = done.clone();
+            if read.kind == ReadKind::Recipe {
+                // The memo does not tell the read kinds apart: a `GetAsset` of a key with no
+                // recipe memoizes `None` without registering anything, and a later
+                // `GetAssetRecipe` of the same key must still give its record a version.
+                let resolved = self
+                    .envref
+                    .get_recipe_provider()
+                    .recipe_opt(&read.key, self.envref.clone())
+                    .await;
+                if let Ok(recipe) = resolved {
+                    let manager = self.envref.get_asset_manager();
+                    crate::assets::register_recipe_version(
+                        manager.as_ref(),
+                        &read.key,
+                        recipe.as_ref(),
+                    )
+                    .await;
+                }
+            }
+            return Ok(Visit::Done(done));
         }
         let resolved = self
             .envref
