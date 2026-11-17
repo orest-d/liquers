@@ -3,7 +3,7 @@ id: UI-SPLIT-ELEMENTS-PROTOCOL-DISCUSSION
 kind: analysis
 title: Split UI elements — interface options, protocol and runner support, on two examples
 workflow: liquers-project
-status: draft
+status: complete
 area: [lib/ui, axum, web]
 created: 2026-11-15
 ---

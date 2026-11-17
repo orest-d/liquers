@@ -12,6 +12,10 @@ github:
 ---
 ## Problem
 
+> **2026-11-17.** The investigative design `ui-split-elements` (complete) worked out a client-server
+> UI direction; the owner moved the work into the UI redesign `UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE`
+> (P1), which this issue now waits on.
+
 `liquers-lib` has a server-side renderer, `render_app_ssr` (`liquers-lib/src/ui/web/app.rs`), that
 turns an `AppState` into an HTML fragment on any target, and `liquers-lib/tests/webui_ssr.rs`
 proves it natively. Nothing serves that HTML. `liquers-axum` depends on `liquers-core` and

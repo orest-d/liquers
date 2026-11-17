@@ -12,6 +12,10 @@ github:
 ---
 ## Problem
 
+> **2026-11-17.** The investigative design `ui-split-elements` (complete) worked out a client-server
+> UI direction; the owner moved the work into the UI redesign `UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE`
+> (P1), which this issue now waits on.
+
 The web UI backend assumes the engine runs in the same wasm instance as the DOM. The browser
 driver in `liquers-lib/src/ui/web/app.rs` (`mount_web_with`, `spawn_driver_loop`) holds the
 `AppState`, the `AppRunner` and the `Environment` in-process: delegated `click` / `keydown`
