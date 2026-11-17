@@ -180,3 +180,24 @@ answered with an error (AC-8).
 2. Table pages always as `RecordView`, so the client needs `records` but never `polars`?
 3. Existing `UIElement`s stay as fused elements, split-capable only by snapshot?
 4. Multiple subscriptions per element in the runner (needed by E1), done inside this design?
+
+## 8. Answers (Orest, 2026-11-17) and consequences
+
+1. **Option C, with one trait per frontend.** Orest is considering a wider UI redesign where each
+   GUI framework has its own trait. Shape that follows: a framework-independent **model** trait
+   (server half), and per-frontend client traits — a web view, later an egui view — that all speak
+   the model's `Down`/`Up` messages. The monolithic web trait (liquers-web) stays separate; a
+   blanket impl can run *model + web view* in-process, so split elements also work monolithically,
+   while hand-written monolithic elements remain possible. The message types, not a view type, are
+   the contract: `mount` names the model type and protocol version, and each client picks its own
+   registered view for it.
+2. **Table pages are `RecordView`s** — agreed.
+3. **Existing elements:** decided in the UI redesign; the current and new implementations run in
+   parallel until the new one matures.
+4. **Multiple subscriptions per element** — agreed. Also: a client need not be a browser; an egui
+   app could connect to a server, and several clients (web and egui) could attach to the same
+   session, e.g. a supporter watching and acting in a user's session. Not decided; cost to be
+   evaluated. To keep it possible at low cost, the protocol separates **session** from
+   **connection** (a session id; a session holds a list of connections and fans `Down` messages out
+   to all of them), and model state is shared while view state (scroll, local selection) stays per
+   client. The expensive part is not fan-out but authorisation to join another user's session.
