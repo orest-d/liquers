@@ -34,7 +34,7 @@ Rejected:
 
 | Issue | Status | Priority | Impact on this design | Fix first? | Blocking? | Action |
 |---|---|---|---|---|---|---|
-| `RECIPE-DEPENDENCY-KEY-IS-NEVER-VERSIONED` (design `recipe-dependency-versions`) | draft | P2 | AC-26 with a recipe binding: editing `recipes.yaml` does not expire what the recipe computed, so a result view does not recalculate | for that case | no | dependency recorded in Phase 1; G8 |
+| `RECIPE-DEPENDENCY-KEY-IS-NEVER-VERSIONED` (design `recipe-dependency-versions`) | draft | P2 | AC-26 with a recipe binding: editing `recipes.yaml` does not expire what the recipe computed, so a result view does not recalculate | for that case | no | prerequisite, fixed first (G8) |
 | `EDITOR-UNSET-OF-A-MIDDLE-POSITIONAL-ARGUMENT-SAYS-NOT-SET` | draft | P3 | AC-18 | no | no | fixed by `ActionEditor::reset` (Step 1) |
 | `CORE-QUERY-EDITOR-ACCEPTS-AN-UNKNOWN-COMMAND` | draft | P3 | AC-17, AC-23 | no | no | designed around; stays open |
 | `UI-EVENTS-HAVE-NO-POINTER-DRAG-OR-CHANGE-KINDS` | draft | — | browser change events and drag and drop | no | no | `Change` added here (G2); drag stays there, the browser gets buttons |
@@ -333,5 +333,5 @@ Module docs (`API_DOCUMENTATION_GUIDE.md` §3, all five parts): new `liquers-lib
   `ActionEditor`, namespace edits on `PipelineEditor` and `QueryEditor`.
 - **G6** The query editor's conversion back to text keeps excess parameters instead of refusing.
 - **G7** Namespaces `lui` and `acc`. *(Agreed.)*
-- **G8** Make `recipe-dependency-versions` a prerequisite of this design's implementation, or ship
-  without it and say a recipe edit refreshes the editors but not the recipe's result view.
+- **G8** Decided by Orest on 2026-11-17: `recipe-dependency-versions` is fixed first, as a
+  prerequisite of this design's implementation, so a recipe binding can be tested end to end.
