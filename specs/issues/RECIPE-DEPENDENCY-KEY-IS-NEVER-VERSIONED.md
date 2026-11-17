@@ -2,7 +2,7 @@
 id: RECIPE-DEPENDENCY-KEY-IS-NEVER-VERSIONED
 kind: issue
 title: Editing a recipe does not expire the assets computed from it, because recipe dependency keys never get a version
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [core/assets, core/plan]
@@ -54,3 +54,11 @@ dependents expire like those of any other changed dependency.
 
 Bulk design 2026-10-20 (`payload-requirement-skips-dependency-analysis`), when checking whether
 recipe edits could invalidate a cached analysis summary.
+
+## Resolution
+
+2026-11-17: fixed by `design/recipe-dependency-versions/`. A keyed asset records its own recipe
+(`-R-recipe/<key>`), whose version is a hash of the recipe (`recipes::recipe_version`); a write into
+a folder re-resolves the recipes of that folder and expires what an edited or removed recipe
+computed; recipe keys are store-resolvable for the `on_load` check and audits. Evidence:
+`liquers-core/tests/recipe_versions.rs` (the Problem Example and AC-1 to AC-6, on both managers).

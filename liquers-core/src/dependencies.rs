@@ -289,6 +289,29 @@ impl<E: Environment> DependencyManager<E> {
         }
     }
 
+    /// The keys whose recipe version (`-R-recipe/<key>`) this manager holds and which lie in
+    /// `dir` or below it. A scan of the version map, used after a write into `dir` to re-resolve
+    /// the recipes that file may define (`specs/design/recipe-dependency-versions/`).
+    pub(crate) async fn recipe_keys_under(
+        &self,
+        dir: &crate::query::Key,
+    ) -> Vec<crate::query::Key> {
+        let mut keys = Vec::new();
+        self.versions
+            .iter_async(|dep_key, _| {
+                if dep_key.is_recipe_key() {
+                    if let Ok(Some(key)) = dep_key.recipe_key() {
+                        if key.has_key_prefix(dir) {
+                            keys.push(key);
+                        }
+                    }
+                }
+                true
+            })
+            .await;
+        keys
+    }
+
     /// Record `version` for `key` only if this manager holds none, without expiring anything.
     ///
     /// For a version the caller has just confirmed against the store (the `on_load` check), so
@@ -2146,6 +2169,28 @@ mod tests {
     }
 
     // --- Load from records tests ---
+
+    #[tokio::test]
+    async fn recipe_keys_under_selects_subtree() {
+        let dm = DependencyManager::<TestEnv>::new();
+        for name in ["data/r.txt", "data/sub/s.txt", "other/t.txt"] {
+            let key = parse_key(name).unwrap();
+            dm.register_version(&DependencyKey::from_recipe_key(&key), Version::new(1))
+                .await;
+        }
+        // Not a recipe key, though under `data`.
+        dm.register_version(&DependencyKey::new("-R/data/u.txt"), Version::new(1))
+            .await;
+        let mut under: Vec<String> = dm
+            .recipe_keys_under(&parse_key("data").unwrap())
+            .await
+            .iter()
+            .map(|k| k.encode())
+            .collect();
+        under.sort();
+        assert_eq!(under, vec!["data/r.txt".to_string(), "data/sub/s.txt".to_string()]);
+        assert_eq!(dm.recipe_keys_under(&Key::new()).await.len(), 3);
+    }
 
     #[tokio::test]
     async fn load_from_records_registers_known() {

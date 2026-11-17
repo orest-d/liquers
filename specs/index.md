@@ -8,8 +8,8 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 254
-- P2: 69
+Total rows: 253
+- P2: 68
 - P3: 185
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
@@ -35,7 +35,6 @@ Total rows: 254
 | [`NO-SQL-QUERY-CAPABILITY-OVER-STORED-AND-DERIVED-DATA`](issues/NO-SQL-QUERY-CAPABILITY-OVER-STORED-AND-DERIVED-DATA.md) | feature | No SQL query capability over stored and derived data | draft | needs-decision | not-eligible | P2 | M | core/store;lib/commands | [phase1](design/sql-over-tables/phase1-high-level-design.md)  [phase2](design/sql-over-tables/phase2-architecture.md)  [phase3](design/sql-over-tables/phase3-examples.md)  [phase4](design/sql-over-tables/phase4-implementation.md)  | 2026-09-17 |
 | [`PLAN-EXPIRATION-REACHES-THE-CONTEXT-ONLY-THROUGH-APPLY-RECIPE`](issues/PLAN-EXPIRATION-REACHES-THE-CONTEXT-ONLY-THROUGH-APPLY-RECIPE.md) | issue | A plan's expiration reaches the asset only through apply_recipe | draft | needs-decision | not-eligible | P2 | M | core/context;core/plan | [design](design/plan-expiration-set-at-finalization/DESIGN.md) | 2026-10-20 |
 | [`QUERY-CANNOT-CHOOSE-A-DATA-FORMAT`](issues/QUERY-CANNOT-CHOOSE-A-DATA-FORMAT.md) | feature | A query cannot choose a data format or a format refinement except through a filename | draft | needs-decision | not-eligible | P2 | M | lib/commands;core/value | [design](design/query-data-format-command/DESIGN.md) | 2026-10-20 |
-| [`RECIPE-DEPENDENCY-KEY-IS-NEVER-VERSIONED`](issues/RECIPE-DEPENDENCY-KEY-IS-NEVER-VERSIONED.md) | issue | Editing a recipe does not expire the assets computed from it, because recipe dependency keys never get a version | draft | needs-decision | not-eligible | P2 | M | core/assets;core/plan | [design](design/recipe-dependency-versions/DESIGN.md) | 2026-10-20 |
 | [`SERIALIZATION-CANNOT-REPORT-A-LOSSY-WRITE`](issues/SERIALIZATION-CANNOT-REPORT-A-LOSSY-WRITE.md) | issue | Serialization cannot report a lossy write, so a value silently loses data on its way to the store | draft | needs-decision | not-eligible | P2 | M | core/value | [design](design/serialization-lossy-write-warnings/DESIGN.md) | 2026-10-13 |
 | [`SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY`](issues/SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY.md) | issue | A serialized binary is cached on the asset forever, with no policy for releasing it | draft | needs-decision | not-eligible | P2 | M | core/assets | [design](design/serialized-binary-disposal-policy/DESIGN.md) | 2026-09-05 |
 | [`STORE-CONFORMANCE-VALIDATION-TOOL`](issues/STORE-CONFORMANCE-VALIDATION-TOOL.md) | issue | No way to run the conformance suite against a store outside a test binary | accepted | needs-decision | not-eligible | P2 | M | store/backends;core/store | [design](design/store-conformance-check-tool/DESIGN.md) | 2026-09-02 |

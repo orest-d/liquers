@@ -3,9 +3,9 @@ id: RECIPE-DEPENDENCY-VERSIONS
 kind: design
 title: Recipe dependency keys carry a content version, so editing a recipe expires what was computed from it
 form: compact
-status: in_review
+status: approved
 phase: implementation
-readiness: needs-decision
+readiness: ready
 autofix: not-eligible
 area: [core/assets, core/plan]
 issues: [RECIPE-DEPENDENCY-KEY-IS-NEVER-VERSIONED]
@@ -13,8 +13,18 @@ created: 2026-10-26
 ---
 # Recipe dependency keys carry a content version, so editing a recipe expires what was computed from it
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written, not
-approved, nothing implemented.
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written.
+Approved by the maintainer 2026-11-17, with the open questions resolved as below, and implemented
+the same day (ahead of the query/pipeline editor, so recipe bindings can be tested end to end).
+
+**Decisions (2026-11-17).**
+1. Version fields: **every declared field** — query, pipeline, title, description, arguments,
+   links, cwd, volatile, expires, stored, cached — excluding the derived
+   `has_circular_dependencies` / `circular_dependency_key` (maintainer's choice). `pipeline` was
+   added to the recipe after this design was written and is included.
+2. A removed recipe is a change (its version hashes JSON `null`), as proposed.
+3. Every keyed asset records its own recipe, as proposed.
+4. The refresh scans the version map's recipe keys, as proposed.
 
 ## Phase 1: High-Level Design
 
@@ -77,7 +87,7 @@ providers that do not read from the store (they get versions at resolution, but 
 
 ### Design Readiness
 
-- **Readiness:** needs-decision
+- **Readiness:** ready (decisions above)
 - **Automatic fixing:** not-eligible — rule 4: every keyed asset's stored metadata gains a
   dependency record, and `DependencyKey::is_store_resolvable` (`pub`) answers `true` for recipe
   keys; rule 5: open decisions below.
@@ -231,21 +241,36 @@ Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-core --test recipe_versions`, th
 
 ### Steps
 
-- [ ] 1. `liquers-core/tests/recipe_versions.rs` — the five tests; AC-1, AC-2, AC-4, AC-5, AC-6 fail at HEAD — `cargo test -p liquers-core --test recipe_versions`
-- [ ] 2. `recipes.rs` `recipe_version` + unit tests — `cargo test -p liquers-core --lib recipe_version`
-- [ ] 3. `assets.rs` `register_recipe_version`; `evaluate_recipe` registers and records the own
+- [x] 1. `liquers-core/tests/recipe_versions.rs` — the five tests; AC-1, AC-2, AC-4, AC-5, AC-6 fail at HEAD — `cargo test -p liquers-core --test recipe_versions`
+- [x] 2. `recipes.rs` `recipe_version` + unit tests — `cargo test -p liquers-core --lib recipe_version`
+- [x] 3. `assets.rs` `register_recipe_version`; `evaluate_recipe` registers and records the own
   recipe — `cargo test -p liquers-core --test recipe_versions editing_a_recipe` (still fails until step 5)
-- [ ] 4. `plan.rs` `visit` registers served recipes — `cargo test -p liquers-core --lib plan::tests`
-- [ ] 5. `dependencies.rs` `recipe_keys_under`; `assets.rs` `refresh_recipe_versions` called from
+- [x] 4. `plan.rs` `visit` registers served recipes — `cargo test -p liquers-core --lib plan::tests`
+- [x] 5. `dependencies.rs` `recipe_keys_under`; `assets.rs` `refresh_recipe_versions` called from
   `refresh_listing_version` — AC-1..AC-4, AC-6 pass. Rollback: revert this step.
-- [ ] 6. `metadata.rs` `is_store_resolvable`; `assets.rs` `dependency_version`, `stored_leaf` — AC-5
+- [x] 6. `metadata.rs` `is_store_resolvable`; `assets.rs` `dependency_version`, `stored_leaf` — AC-5
   passes — `cargo test -p liquers-core --test recipe_versions --test dependency_audit_integration`
 - [ ] 7. Benchmark: the ignored `chain_evaluation_scales` / `dependency_chain_scaling` before and
   after; a >10% regression returns open question 4 to the maintainer.
-- [ ] 8. `DEPENDENCIES_STATUS.md`, `RECIPES_AND_PLANS.md`, `ASSETS.md` (History, `reviewed:`);
+- [x] 8. `DEPENDENCIES_STATUS.md`, `RECIPES_AND_PLANS.md`, `ASSETS.md` (History, `reviewed:`);
   issue closed — `python3 scripts/docs_index.py --check`
 
 ### Validation
 
 `cargo test -p liquers-core --lib --tests`; `cargo test -p liquers-lib --lib --tests`;
 `cargo test -p liquers-records --all-features --lib --tests` (manifest provider); diff review.
+
+### Implementation notes (2026-11-17)
+
+- `recipe_version` hashes the recipe's JSON with every object's keys sorted recursively (not only
+  `arguments` and `links`), so a `serde_json` built with `preserve_order` elsewhere in the
+  workspace cannot change a version; `Version::from_content`, like a stored value's version.
+- `tests/recipe_versions.rs` adds a control for AC-5: with the recipe unchanged, the stored copy is
+  still fast-tracked under `on_load`.
+- Two audit tests (`dependency_audit_integration.rs`: `audit_after_restart_expires_dependent`,
+  `listing_gap_resolved_by_audit_after_restart`) now list the dependent's own recipe among the
+  checked gaps: after a restart the map holds no recipe version, so the audit resolves it (and
+  finds it unchanged). The order of `checked` is not specified, so they compare it sorted.
+- `assets::stored_walk_tests::stored_state_unknown_and_unresolvable_records_compatible` used a
+  recipe key as its example of an unresolvable record; it no longer is one, and
+  `stored_state_recipe_record_compares_the_recipe_version` covers recipe records instead.

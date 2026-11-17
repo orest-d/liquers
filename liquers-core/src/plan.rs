@@ -3510,12 +3510,27 @@ impl<E: Environment> DependencyWalk<E> {
         if let Some(done) = self.done.get(&memo_key) {
             return Ok(Visit::Done(done.clone()));
         }
-        let recipe = match self
+        let resolved = self
             .envref
             .get_recipe_provider()
             .recipe_opt(&read.key, self.envref.clone())
-            .await
-        {
+            .await;
+        // A read served by a recipe records `-R-recipe/<key>`, and so does a `GetAssetRecipe`
+        // read whether or not the recipe exists: give that record the recipe's current version,
+        // so an edit of the recipe expires the reader (`specs/design/recipe-dependency-versions/`).
+        match (&resolved, read.kind) {
+            (Ok(Some(recipe)), _) => {
+                let manager = self.envref.get_asset_manager();
+                crate::assets::register_recipe_version(manager.as_ref(), &read.key, Some(recipe))
+                    .await;
+            }
+            (Ok(None), ReadKind::Recipe) => {
+                let manager = self.envref.get_asset_manager();
+                crate::assets::register_recipe_version(manager.as_ref(), &read.key, None).await;
+            }
+            (Ok(None), ReadKind::State | ReadKind::Link | ReadKind::Directory) | (Err(_), _) => {}
+        }
+        let recipe = match resolved {
             Ok(Some(recipe)) => recipe,
             Ok(None) | Err(_) => {
                 self.done.insert(memo_key, None);

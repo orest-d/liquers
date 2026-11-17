@@ -2613,6 +2613,63 @@ pub(crate) async fn stored_dependency_walk<E: Environment, M: AssetManager<E> + 
     }
 }
 
+/// Register the version of `key`'s recipe (`None`: it has none) as the version of the
+/// dependency key `-R-recipe/<key>`, and expire what recorded a different one
+/// (`ExpiryCause::Updated`). Returns the version.
+///
+/// The one place a recipe version enters the dependency graph
+/// (`specs/design/recipe-dependency-versions/`): the owner of a keyed asset calls it when it
+/// resolves its recipe, the plan walk when a read is served by a recipe, and the listing refresh
+/// after a write into the recipe's folder. A first registration expires only dependents whose
+/// record contradicts it, as for any key (`DependencyManager::register_version`).
+pub(crate) async fn register_recipe_version<E: Environment, M: AssetManager<E> + ?Sized>(
+    manager: &M,
+    key: &Key,
+    recipe: Option<&Recipe>,
+) -> Version {
+    let version = crate::recipes::recipe_version(recipe);
+    let expired = manager
+        .dependency_manager()
+        .register_version(&DependencyKey::from_recipe_key(key), version)
+        .await;
+    manager
+        .expire_dependencies_result(expired, ExpiryCause::Updated { version })
+        .await;
+    version
+}
+
+/// Re-resolve the recipe of every key under `dir` whose recipe version the dependency manager
+/// holds, and register it with [`register_recipe_version`]: after a write into `dir` (a
+/// `recipes.yaml`, a manifest) an edited or removed recipe expires what was computed from it.
+///
+/// Called by [`AssetManager::refresh_listing_version`] after the provider dropped its cache for
+/// `dir`, so the new file is read. A provider error skips that key (reported on stderr): the
+/// write it follows stands.
+async fn refresh_recipe_versions<E: Environment, M: AssetManager<E> + ?Sized>(
+    manager: &M,
+    dir: &Key,
+) {
+    let keys = manager.dependency_manager().recipe_keys_under(dir).await;
+    if keys.is_empty() {
+        return;
+    }
+    let Ok(envref) = manager.try_get_envref() else {
+        return;
+    };
+    let provider = envref.get_recipe_provider();
+    for key in keys {
+        match provider.recipe_opt(&key, envref.clone()).await {
+            Ok(recipe) => {
+                register_recipe_version(manager, &key, recipe.as_ref()).await;
+            }
+            Err(error) => eprintln!(
+                "Recipe of {} could not be re-read after a write into {}: {}",
+                key, dir, error
+            ),
+        }
+    }
+}
+
 /// One key's own state, read from the dependency manager or its stored metadata.
 async fn stored_leaf<E: Environment, M: AssetManager<E> + ?Sized>(
     manager: &M,
@@ -2625,8 +2682,8 @@ async fn stored_leaf<E: Environment, M: AssetManager<E> + ?Sized>(
     if !key.is_store_resolvable() || memo.on_path.contains(key) {
         return StoredLeaf::Final(StoredDependencyState::Unresolvable);
     }
-    if key.is_dir_key() {
-        // A listing has no status and no records: its version is the answer.
+    if key.is_dir_key() || key.is_recipe_key() {
+        // A listing or a recipe has no status and no records: its version is the answer.
         return match manager.dependency_version(key).await {
             Ok(version) if !version.is_unknown() => {
                 if memo.register {
@@ -4559,6 +4616,9 @@ impl<E: Environment> AssetRef<E> {
         payload: Option<E::Payload>,
     ) -> Result<RecipeEvaluation<E::Value>, Error> {
         self.resolve_volatility_before_evaluation().await;
+        // The record of this key's dependency on its own recipe, at the version just resolved
+        // (`specs/design/recipe-dependency-versions/`): an edit of the recipe expires the key.
+        let mut own_recipe_record: Option<DependencyRecord> = None;
         let (input_state, recipe) = {
             let (input_state, recipe) = self.initial_state_and_recipe().await;
             if let Ok(Some(key)) = recipe.key() {
@@ -4645,6 +4705,12 @@ impl<E: Environment> AssetRef<E> {
                         // Keys are a payload boundary: reject a keyed recipe that requires an
                         // evaluation payload, since no payload can reach a keyed asset.
                         recipe.to_plan_for_key(envref.get_command_metadata_registry(), &key)?;
+                        let recipe_version =
+                            register_recipe_version(manager.as_ref(), &key, Some(&recipe)).await;
+                        own_recipe_record = Some(DependencyRecord::new(
+                            DependencyKey::from_recipe_key(&key),
+                            recipe_version,
+                        ));
                         // The asset starts with an ad-hoc key recipe before provider lookup. Once
                         // the stored recipe is resolved, make its identity and human-facing
                         // metadata the asset's authoritative recipe metadata.
@@ -4697,6 +4763,9 @@ impl<E: Environment> AssetRef<E> {
             context.set_payload(payload);
         }
         let context_for_deps = context.clone(); // shares pending_dependencies Arc
+        if let Some(record) = own_recipe_record {
+            context.add_dependency(record).await;
+        }
         eprintln!("Applying recipe");
         let res = match envref.apply_recipe(input_state, recipe, context).await {
             Ok(res) => res,
@@ -8079,7 +8148,9 @@ pub trait AssetManager<E: Environment>:
     /// The current version of a store-resolvable dependency key, **without evaluating**.
     ///
     /// `-R/` keys answer [`Self::version`]. `-R-dir/` keys answer the listing version of the
-    /// directory (`DependencyManager::listing_version` over [`Self::listdir`]). Any other key answers
+    /// directory (`DependencyManager::listing_version` over [`Self::listdir`]). `-R-recipe/` keys
+    /// answer the version of the recipe the provider resolves now (`recipes::recipe_version`,
+    /// which also versions "no recipe"). Any other key answers
     /// `Version::unknown()` as well; callers ask `DependencyKey::is_store_resolvable` first.
     /// A store error stays `Err`.
     async fn dependency_version(
@@ -8097,6 +8168,19 @@ pub trait AssetManager<E: Environment>:
                 Ok(Some(dir)) => {
                     let names = self.listdir(&dir).await?;
                     Ok(crate::dependencies::DependencyManager::<E>::listing_version(&names))
+                }
+                Ok(None) | Err(_) => Ok(Version::unknown()),
+            };
+        }
+        if dep_key.is_recipe_key() {
+            return match dep_key.recipe_key() {
+                Ok(Some(key)) => {
+                    let envref = self.try_get_envref()?;
+                    let recipe = envref
+                        .get_recipe_provider()
+                        .recipe_opt(&key, envref.clone())
+                        .await?;
+                    Ok(crate::recipes::recipe_version(recipe.as_ref()))
                 }
                 Ok(None) | Err(_) => Ok(Version::unknown()),
             };
@@ -8160,6 +8244,12 @@ pub trait AssetManager<E: Environment>:
         let mut registered_above: Option<Key> = None;
         loop {
             self.get_recipe_provider().directory_changed(&level).await;
+            if &level == dir {
+                // The write may have edited the recipes of this folder (`recipes.yaml`, a
+                // manifest): re-resolve those that something depends on. First level only — a
+                // recipe-defining file defines the recipes of its own folder.
+                refresh_recipe_versions(self, &level).await;
+            }
             let between = match &registered_above {
                 Some(ancestor) => ancestor != &level,
                 None => false,
@@ -18314,12 +18404,31 @@ mod stored_walk_tests {
             Status::Ready,
             &[
                 (dk("d/missing.txt"), 0),
-                (DependencyKey::from_recipe_key(&parse_key("d/b.txt")?), 4),
                 (DependencyKey::new("ns-dep/command_impl---unversioned"), 3),
             ],
         )
         .await?;
         assert_eq!(state(&envref, "d/b.txt").await, StoredDependencyState::Confirmed(Version::new(2)));
+        Ok(())
+    }
+
+    /// A recipe record is resolved from the recipe provider: it holds while the recipe's version
+    /// is the recorded one (here: no recipe, both times), and breaks when it is not.
+    #[tokio::test]
+    async fn stored_state_recipe_record_compares_the_recipe_version() -> TestResult {
+        let envref = env();
+        let own = DependencyKey::from_recipe_key(&parse_key("d/b.txt")?);
+        let mut mr = MetadataRecord::new();
+        mr.status = Status::Ready;
+        mr.version = Some(Version::new(2));
+        mr.dependencies = vec![DependencyRecord::new(own, crate::recipes::recipe_version(None))];
+        envref
+            .get_async_store()
+            .set(&parse_key("d/b.txt")?, b"bytes", &Metadata::MetadataRecord(mr))
+            .await?;
+        assert_eq!(state(&envref, "d/b.txt").await, StoredDependencyState::Confirmed(Version::new(2)));
+        stored(&envref, "d/c.txt", 2, Status::Ready, &[(DependencyKey::from_recipe_key(&parse_key("d/c.txt")?), 4)]).await?;
+        assert!(matches!(state(&envref, "d/c.txt").await, StoredDependencyState::Stale { .. }));
         Ok(())
     }
 

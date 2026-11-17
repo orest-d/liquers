@@ -3,7 +3,7 @@ title: Recipes and Plans Reference
 kind: reference
 audience: internal
 area: [core/plan, core/query, core/assets, core/context]
-reviewed: 2026-11-16
+reviewed: 2026-11-17
 ---
 # Recipes and Plans
 
@@ -213,6 +213,11 @@ to answer correctly: it lists nothing, `contains` is `false`, `can_make` is `tru
 `directory_changed(dir)` (default: nothing) is called by the asset manager after every write or
 removal it mediates, with the written key's parent and with each ancestor level whose listing it
 refreshes; a provider that caches directory-derived state drops it for `dir` and its subtree.
+After the first level is dropped, the manager re-resolves (`recipe_opt`) every key under `dir` whose
+recipe version it holds, so **editing a recipe expires the asset it computes** and everything that
+read it (`Cascaded { Updated }` rooted at `-R-recipe/<key>`); a removed recipe counts as an edit,
+and rewriting the file with a key's recipe unchanged expires nothing. Any declared field counts,
+`title` and `description` included. See `DEPENDENCIES_STATUS.md` §What a dependency record holds.
 
 Provider and parsing failures can otherwise remain errors. `get_asset_info` describes a
 recipe-backed asset and planning diagnostics; it does not prove that an evaluated or persisted value
@@ -957,6 +962,7 @@ assets they made expire as for any write of the file.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-17 | §Provider contract: a write into a folder re-resolves its recipes, and an edited or removed recipe expires its asset and its readers. | `design/recipe-dependency-versions/` |
 | 2026-11-16 | §Editing recipes through accessors: the `acc` projections of a `recipes.yaml`, validated query edits, invalidation of moved parts, and what the YAML keeps. | `design/settable-value-accessor/` |
 | 2026-11-04 | `Recipe::pipeline` and §Recipe pipelines; `PipelinePlanBuilder` as the planning entry point; `Step::UseValue`, `Step::PipelineCommand` and the pipeline parameter values; pipeline enum aliases in overrides; the last-action limitation closed by recipe pipelines. | phase-5, `design/composite-command-definition/` |
 | 2026-11-03 | `get_asset_info` and `recipe_plan` build and analyse through `make_recipe_plan`, which returns an analysis error as `Err`; the "different subsets of analysis" limitation is resolved, and a command-volatile upstream limitation is filed. | `design/recipe-preview-shares-plan-analysis/` |

@@ -3,7 +3,7 @@ title: Assets Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-11-04
+reviewed: 2026-11-17
 ---
 # Assets Specification
 
@@ -376,7 +376,7 @@ the cascade reached it (equal to `root` for a direct dependent). The seven cause
 | `Audit { found }` | `trigger_dependency_audit*` in `AuditMode::Expire`; `found` is the current version, 0 when none | not expired | `Cascaded` | Warning |
 | `StaleDependency { dependency }` | an evaluation that waited (through `wait_for_dependency`) on a dependency that expired meanwhile, or that recorded its edge against a dependency version the map had already replaced; an audit (`trigger_dependency_audit*` in `AuditMode::Expire`) that found a gap stale upstream, `dependency` naming what broke; the store audit (`trigger_dependency_audit_store`) on each stale stored value | `Direct`, born `Expired` (a stale stored value: `Direct`, persisted) | `Cascaded`, root = the asset (for an audit gap: the gap), cause still naming the stale input | Warning |
 | `UpdatedInStore { actual }` | stored bytes no longer match the recorded version (§Content changed outside Liquers) | not expired: becomes input, or is deleted | `Cascaded` | Warning |
-| `Updated { version }` | new content through Liquers: a recomputation with a new version, `set_state`, `set_binary`, `publish_version`, a fast-track load registering a different version, a changed command version, a changed folder listing | not expired | `Cascaded` | Info |
+| `Updated { version }` | new content through Liquers: a recomputation with a new version, `set_state`, `set_binary`, `publish_version`, a fast-track load registering a different version, a changed command version, a changed folder listing, a changed recipe (root `-R-recipe/<key>`) | not expired | `Cascaded` | Info |
 | `Removed` | `AssetManager::remove` deleting a value (a `Source`/`Override`, or a key with no recipe) | removed | `Cascaded` | Info |
 
 Info is the contract working as designed; Warning is a stored assumption found false, or a
@@ -1313,6 +1313,7 @@ each with an `ExpiryReason` (§Why an asset is `Expired`). The rules are in
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-17 | §Why an asset is `Expired`: `Updated` also covers an edited or removed recipe, rooted at `-R-recipe/<key>`. | `design/recipe-dependency-versions/` |
 | 2026-11-04 | §Closure assets: `AssetManager::closure_asset` runs a Rust closure as an ad-hoc asset. | `design/ad-hoc-closure-asset/` |
 | 2026-10-27 | An inferred record at a recipe key is read as a file with no metadata (reuse and the version check follow `ExternalChangePolicy`); `remove` deletes such an entry as a dropped computed value, dependents not expired. | `design/storage-none-computed-values/` |
 | 2026-10-27 | An uncached keyed write re-checks its recorded inputs and expires the stored copy when one was superseded during the run. | `design/uncached-write-back-rechecks-dependency-versions/` |
