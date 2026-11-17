@@ -131,6 +131,9 @@ required-features = ["egui"]
 name = "ui_spec_demo"
 required-features = ["egui"]
 [[example]]
+name = "ui_spec_editor"
+required-features = ["egui"]
+[[example]]
 name = "ui_spec_interactive"
 required-features = ["egui"]
 [[example]]

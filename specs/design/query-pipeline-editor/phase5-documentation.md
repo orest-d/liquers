@@ -26,6 +26,7 @@ Built as approved in Phases 2 to 4, all 12 steps ticked.
   `ui::web::editor::editor_html`, with the browser `change` event (`UIEventKind::Change`).
 - **Commands**: `lui/query_editor`, `action_editor`, `resource_editor` and `key_editor`. The query
   console gained a Parameters panel.
+- **Example** (added at Orest's request): `liquers-lib/examples/ui_spec_editor.rs`, a UISpec app whose init queries open a query editor and an action editor of a recipe and a console of its result; `--check` runs it without a window and shows an edit reaching the console.
 
 Deviations from the approved design, none of which changes a contract:
 
@@ -82,6 +83,7 @@ is filed as `USER-GUIDES-DO-NOT-DESCRIBE-THE-EDITORS`.
 - `EDITOR-CANNOT-EDIT-INSIDE-A-NESTED-PIPELINE`: nested pipelines are shown but cannot be edited.
   This is a known limit of Phase 2.
 - `USER-GUIDES-DO-NOT-DESCRIBE-THE-EDITORS`: the gap in the user-guide chapters above.
+- `QUERY-CONSOLE-HAS-NO-QUERY-EDITOR-ON-DEMAND`: the console shows only the last action's form, not the whole query editor (Orest's request).
 
 Closed:
 
