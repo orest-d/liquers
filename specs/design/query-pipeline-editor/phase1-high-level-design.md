@@ -268,6 +268,17 @@ dropdown before the key field, showing the header word without `-R` and nothing 
 6. **Implementation detail - moving nodes (AC-6).** Recommended: include up and down, since
    `PipelineEditor::move_to` exists.
 
+## Design Readiness
+
+Pre-approved after Phase 2 (`proceed all`, 2026-11-17). Decision log, collected through Phases 3
+and 4 (tiers as in `autonomous_bulk_design.md` §3):
+
+- **Blocking:** none.
+- **Needs decision:** none.
+- **Assumed (recommended answers, reversible):** AC-13 is in scope as numeric-argument addressing
+  only (open question 4); moving nodes up and down is included (open question 6); the query
+  console gets the toggled Parameters panel (salvaged); the browser reorders lists with buttons.
+
 ## Scope Changes
 
 - **2026-11-17, Orest's Phase 2 review.** Added AC-25 (an `ns` edit is applied when it keeps the
