@@ -560,7 +560,7 @@ impl EditorState {
                 }, &arg)
             }
             EditorCommand::ToLink { path, arg } => self.edit_argument(&path, |a, info| {
-                a.set_source(info.name.as_str(), Source::Link("-R/".to_string()))?;
+                a.set_source(info.name.as_str(), Source::Link("-R/new".to_string()))?;
                 Ok(())
             }, &arg),
             EditorCommand::ToValue { path, arg } => self.edit_argument(&path, |a, info| {

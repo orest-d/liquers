@@ -8,6 +8,7 @@ use liquers_core::value::ValueInterface;
 use crate::value::Value;
 
 use super::app_state::AppState;
+use super::editor::{EditorBinding, EditorElement, EditorKind};
 use super::handle::UIHandle;
 use super::message::AppMessage;
 use super::payload::UIPayload;
@@ -343,6 +344,68 @@ pub fn query_console(state: &State<Value>) -> Result<Value, Error> {
     }))
 }
 
+/// The editor element of `kind` over the state: an accessor value is bound by its address, any
+/// other value (a query, a pipeline, a key or text) is kept in memory for the session.
+fn editor_element(state: &State<Value>, kind: EditorKind, title: &str) -> Result<Value, Error> {
+    let element = if state.is_none() {
+        EditorElement::new(title, kind, EditorBinding::Memory(String::new()))
+    } else {
+        let value = state.data_unchecked();
+        match value.try_into_accessor() {
+            Ok(accessor) => EditorElement::from_accessor(title, kind, accessor),
+            Err(_) => {
+                let text = match kind {
+                    EditorKind::Key => match value.try_into_key() {
+                        Ok(key) => key.encode(),
+                        Err(_) => value.try_into_string()?,
+                    },
+                    EditorKind::Query | EditorKind::Action | EditorKind::Resource => {
+                        match value.try_into_query() {
+                            Ok(q) => q.encode(),
+                            Err(_) => match value.try_into_pipeline() {
+                                Ok(p) => p.to_json().to_string(),
+                                Err(_) => value.try_into_string()?,
+                            },
+                        }
+                    }
+                };
+                EditorElement::new(title, kind, EditorBinding::Memory(text))
+            }
+        }
+    };
+    Ok(Value::from(crate::value::ExtValue::UIElement {
+        value: Arc::new(element),
+    }))
+}
+
+/// Command: lui/query_editor
+/// An editor of a query or pipeline: a tree of its steps beside the highlighted text.
+#[liquers_macro::command_version]
+pub fn query_editor(state: &State<Value>) -> Result<Value, Error> {
+    editor_element(state, EditorKind::Query, "Query editor")
+}
+
+/// Command: lui/action_editor
+/// An editor of one action's arguments (the one-element pipeline of an action accessor).
+#[liquers_macro::command_version]
+pub fn action_editor(state: &State<Value>) -> Result<Value, Error> {
+    editor_element(state, EditorKind::Action, "Action editor")
+}
+
+/// Command: lui/resource_editor
+/// An editor of a query's resource: its header and its key, with a store file selector.
+#[liquers_macro::command_version]
+pub fn resource_editor(state: &State<Value>) -> Result<Value, Error> {
+    editor_element(state, EditorKind::Resource, "Resource editor")
+}
+
+/// Command: lui/key_editor
+/// An editor of a key, with a store file selector.
+#[liquers_macro::command_version]
+pub fn key_editor(state: &State<Value>) -> Result<Value, Error> {
+    editor_element(state, EditorKind::Key, "Key editor")
+}
+
 /// Command: lui/submit
 /// Interpret the input state as a query string and submit it bound to the current handle.
 /// This is what makes `UiAction::Apply { query: "ns-lui/submit" }` behave like the old
@@ -503,6 +566,34 @@ macro_rules! register_lui_commands {
             label: "Query Console"
             doc: "Create an interactive query console element"
 
+        version: auto
+        )?;
+        register_command!($cr,
+            fn query_editor(state) -> result
+            namespace: "lui"
+            label: "Query editor"
+            doc: "An editor of a query or pipeline: a tree of its steps beside the highlighted text"
+        version: auto
+        )?;
+        register_command!($cr,
+            fn action_editor(state) -> result
+            namespace: "lui"
+            label: "Action editor"
+            doc: "An editor of one action's arguments, from the command's argument metadata"
+        version: auto
+        )?;
+        register_command!($cr,
+            fn resource_editor(state) -> result
+            namespace: "lui"
+            label: "Resource editor"
+            doc: "An editor of a resource query: its header and its key, with a store file selector"
+        version: auto
+        )?;
+        register_command!($cr,
+            fn key_editor(state) -> result
+            namespace: "lui"
+            label: "Key editor"
+            doc: "An editor of a key, with a store file selector"
         version: auto
         )?;
         register_command!($cr,

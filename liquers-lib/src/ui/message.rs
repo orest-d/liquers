@@ -78,6 +78,9 @@ pub enum AppMessage {
 pub enum AccessorOp {
     /// Bind the accessor and deliver its value and its changes.
     Watch,
+    /// Like `Watch`, with an accessor made in code (empty `address()`): it is used as it is,
+    /// for the session; after a reload the element falls back to its `Memory` text.
+    Adopt(std::sync::Arc<dyn liquers_core::accessor::ValueAccessor<Value>>),
     /// Read the accessor again.
     Get,
     /// Set `value` if the accessor's fingerprint is still `expected`.

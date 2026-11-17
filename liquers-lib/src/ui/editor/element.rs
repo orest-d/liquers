@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
+use liquers_core::accessor::ValueAccessor;
 use liquers_core::error::Error;
 use liquers_core::value::ValueInterface;
 
@@ -55,6 +56,9 @@ pub struct EditorElement {
     view: EditorView,
     #[serde(skip)]
     bound: bool,
+    /// An accessor made in code (empty `address()`), bound as it is for the session.
+    #[serde(skip)]
+    live: Option<Arc<dyn ValueAccessor<Value>>>,
 }
 
 impl EditorElement {
@@ -70,6 +74,24 @@ impl EditorElement {
             state: None,
             view: EditorView::default(),
             bound: false,
+            live: None,
+        }
+    }
+
+    /// An editor of `kind` over an accessor value: its `address()` becomes the binding, or, for
+    /// an accessor made in code, the accessor is used as it is for the session.
+    pub fn from_accessor(
+        title: impl Into<String>,
+        kind: EditorKind,
+        accessor: Arc<dyn ValueAccessor<Value>>,
+    ) -> Self {
+        let address = accessor.address().encode();
+        if address.is_empty() {
+            let mut element = EditorElement::new(title, kind, EditorBinding::Memory(String::new()));
+            element.live = Some(accessor);
+            element
+        } else {
+            EditorElement::new(title, kind, EditorBinding::Accessor(address))
         }
     }
 
@@ -113,11 +135,11 @@ impl EditorElement {
         if !self.bound && self.state.is_some() {
             if let Some(handle) = self.handle {
                 self.bound = true;
-                ctx.send_message(AppMessage::Accessor {
-                    handle,
-                    binding: self.binding.clone(),
-                    op: AccessorOp::Watch,
-                });
+                let op = match self.live.take() {
+                    Some(accessor) => AccessorOp::Adopt(accessor),
+                    None => AccessorOp::Watch,
+                };
+                ctx.send_message(AppMessage::Accessor { handle, binding: self.binding.clone(), op });
             }
         }
     }
@@ -200,6 +222,12 @@ impl EditorElement {
                 }
                 AccessorUpdate::Snapshot { value, fingerprint } => {
                     let _ = state.on_snapshot(value, *fingerprint);
+                    if let EditorBinding::Memory(_) = &self.binding {
+                        // The fallback after a reload, for a memory or code-made binding.
+                        if let Some(v) = state.value() {
+                            self.binding = EditorBinding::Memory(value_text(&v));
+                        }
+                    }
                 }
                 AccessorUpdate::Written { fingerprint } => {
                     effect = state.on_written(*fingerprint);

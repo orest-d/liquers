@@ -669,12 +669,11 @@ mod tests {
         let mut view = EditorView::default();
         let ctx = egui::Context::default();
         for _ in 0..2 {
-            let _ = ctx.run(egui::RawInput::default(), |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
-                    let commands = show_editor(ui, &tree, &mut view);
-                    assert!(commands.is_empty(), "{commands:?}");
-                });
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                let commands = show_editor(ui, &tree, &mut view);
+                assert!(commands.is_empty(), "{commands:?}");
             });
+            output.textures_delta.clear();
         }
     }
 }

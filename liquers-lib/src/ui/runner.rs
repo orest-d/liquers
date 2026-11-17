@@ -654,9 +654,16 @@ where
         op: AccessorOp,
         app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
     ) {
-        let rebind = matches!(op, AccessorOp::Watch) || !self.accessors.contains_key(&handle);
+        let rebind = matches!(op, AccessorOp::Watch | AccessorOp::Adopt(_))
+            || !self.accessors.contains_key(&handle);
         if rebind {
-            match self.bind_accessor(&binding).await {
+            let bound = match &op {
+                AccessorOp::Adopt(accessor) => Ok(accessor.clone()),
+                AccessorOp::Watch | AccessorOp::Get | AccessorOp::SetIf { .. } => {
+                    self.bind_accessor(&binding).await
+                }
+            };
+            match bound {
                 Ok(accessor) => {
                     if let Some(driver) = accessor.driver() {
                         super::spawn_ui_task(driver);
@@ -692,7 +699,9 @@ where
             return;
         };
         let update = match op {
-            AccessorOp::Watch | AccessorOp::Get => Self::read_accessor(&accessor).await,
+            AccessorOp::Watch | AccessorOp::Adopt(_) | AccessorOp::Get => {
+                Self::read_accessor(&accessor).await
+            }
             AccessorOp::SetIf { value, expected } => {
                 match accessor.set_if(value, expected, SetOptions::default()).await {
                     Ok(snapshot) => {
