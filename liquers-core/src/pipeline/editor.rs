@@ -10,6 +10,14 @@
 //! [`QueryEditor::query`] always succeeds. After each edit it re-encodes and re-parses the query,
 //! so element positions and error positions point into the current query (AC-41).
 //!
+//! [`ActionEditor`] is the control of one action, with no user interface: set, link, reset an
+//! argument to its default, insert, remove and move the items of a variadic argument, and list
+//! the parameters beyond what the command takes ([`ActionEditor::excess`], which the query editor
+//! keeps). [`PipelineEditor::namespace_impact`] and [`PipelineEditor::set_namespaces`] make `ns`
+//! edits safe: an edit that keeps every action on its command applies, one that moves an action to
+//! another command needs acceptance ([`NamespaceImpact::Changed`]), one that breaks the query is
+//! refused.
+//!
 //! Value accessors use both: the query steps of [`crate::accessor::steps`] read an action or an
 //! argument ([`PipelineEditor::argument_source`]) and write a part back through these edits, so an
 //! edit the registry refuses is refused before anything is written to where the query lives.
@@ -65,6 +73,26 @@ pub struct PipelineEditor {
     placeholders: Option<BTreeSet<String>>,
     /// Keep the pipeline representable as a query (the query editor).
     query_mode: bool,
+}
+
+/// What an `ns` edit would do to the actions it covers (AC-25 of `query-pipeline-editor`).
+#[derive(Debug, Clone, PartialEq)]
+pub enum NamespaceImpact {
+    /// Every action resolves to the same command.
+    Same,
+    /// Every action still resolves and its arguments fit, but these resolve to another command.
+    Changed(Vec<CommandChange>),
+    /// An action no longer resolves, or its arguments no longer fit.
+    Invalid(Error),
+}
+
+/// One action that an `ns` edit makes resolve to another command.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommandChange {
+    /// The element index of the action.
+    pub at: usize,
+    pub before: CommandKey,
+    pub after: CommandKey,
 }
 
 impl PipelineEditor {
@@ -323,6 +351,142 @@ impl PipelineEditor {
         let action = self.action_at(at)?;
         let explicit = action.ns.as_ref().map(|n| n.0.clone()).unwrap_or_default();
         Ok(self.cmr.lookup_namespaces(&explicit))
+    }
+
+    /// The actions an `ns` at action `at` covers: the run of actions around `at` that share its
+    /// namespaces, with `v` directives between them (a `q`, a resource or any other element ends a
+    /// run). In a query this is the stretch an `ns-…` directive governs.
+    pub fn namespace_run(&self, at: usize) -> Result<std::ops::Range<usize>, Error> {
+        let ns = self.action_at(at)?.ns.clone();
+        let elements = &self.pipeline.elements;
+        let joins = |i: usize| match &elements[i].item {
+            ElementKind::Action(a) => a.ns == ns,
+            ElementKind::Volatile => true,
+            ElementKind::Text(_)
+            | ElementKind::Value(_)
+            | ElementKind::Resource { .. }
+            | ElementKind::KeyValue(_)
+            | ElementKind::Cwd(_)
+            | ElementKind::Evaluate(_)
+            | ElementKind::QueryValue(_)
+            | ElementKind::Quote
+            | ElementKind::Pipeline(_) => false,
+        };
+        let mut start = at;
+        while start > 0 && joins(start - 1) {
+            start -= 1;
+        }
+        let mut end = at + 1;
+        while end < elements.len() && joins(end) {
+            end += 1;
+        }
+        // A run starts and ends with an action.
+        while !matches!(elements[start].item, ElementKind::Action(_)) {
+            start += 1;
+        }
+        while !matches!(elements[end - 1].item, ElementKind::Action(_)) {
+            end -= 1;
+        }
+        Ok(start..end)
+    }
+
+    /// Every namespace with commands in the pipeline's realm (AC-16).
+    pub fn available_namespaces(&self, at: usize) -> Result<Vec<String>, Error> {
+        self.action_at(at)?;
+        Ok(self.cmr.namespaces(&self.pipeline.realm))
+    }
+
+    /// The available namespaces not yet in the `ns` list of the run at `at` (AC-16).
+    pub fn unused_namespaces(&self, at: usize) -> Result<Vec<String>, Error> {
+        let used = self.action_at(at)?.ns.clone().map(|n| n.0).unwrap_or_default();
+        Ok(self
+            .available_namespaces(at)?
+            .into_iter()
+            .filter(|n| !used.contains(n))
+            .collect())
+    }
+
+    /// What setting the `ns` list of the run at `at` to `namespaces` would do (AC-25): `Same` when
+    /// every action of the run resolves to the same command, `Changed` when every one still
+    /// resolves and its arguments still fit but some resolve to another command, `Invalid` when an
+    /// action no longer resolves or its arguments no longer fit. An action that did not resolve
+    /// before counts as unchanged when it resolves now.
+    pub fn namespace_impact(&self, at: usize, namespaces: &[String]) -> Result<NamespaceImpact, Error> {
+        let run = self.namespace_run(at)?;
+        let realm = self.pipeline.realm.clone();
+        let new_ns = if namespaces.is_empty() {
+            None
+        } else {
+            Some(Namespaces(namespaces.to_vec()))
+        };
+        let mut copy = self.pipeline.clone();
+        let mut changes = Vec::new();
+        for i in run {
+            let ElementKind::Action(before) = &self.pipeline.elements[i].item else {
+                continue;
+            };
+            let mut after = before.clone();
+            after.ns = new_ns.clone();
+            let before_key = self.lookup(before).map(|md| md.key()).ok();
+            let after_key = match self.lookup(&after) {
+                Ok(md) => md.key(),
+                Err(e) => return Ok(NamespaceImpact::Invalid(self.annotate(e, Some(i)))),
+            };
+            if let Err(e) = self.check_action(&after, &realm, false) {
+                return Ok(NamespaceImpact::Invalid(self.annotate(e, Some(i))));
+            }
+            match before_key {
+                Some(before_key) if before_key != after_key => changes.push(CommandChange {
+                    at: i,
+                    before: before_key,
+                    after: after_key,
+                }),
+                Some(_) | None => {}
+            }
+            copy.elements[i].item = ElementKind::Action(after);
+        }
+        if self.query_mode {
+            if let Err(e) = copy.to_query_lenient(&self.cmr) {
+                return Ok(NamespaceImpact::Invalid(self.annotate(e, None)));
+            }
+        }
+        Ok(if changes.is_empty() {
+            NamespaceImpact::Same
+        } else {
+            NamespaceImpact::Changed(changes)
+        })
+    }
+
+    /// Sets the `ns` list of the run at `at` (AC-25). `Same` is applied; `Changed` is applied only
+    /// with `accept_changes`, and otherwise returned with nothing changed; `Invalid` is refused
+    /// with its error.
+    pub fn set_namespaces(
+        &mut self,
+        at: usize,
+        namespaces: Vec<String>,
+        accept_changes: bool,
+    ) -> Result<NamespaceImpact, Error> {
+        let impact = self.namespace_impact(at, &namespaces)?;
+        match &impact {
+            NamespaceImpact::Invalid(e) => return Err(e.clone()),
+            NamespaceImpact::Changed(_) if !accept_changes => return Ok(impact),
+            NamespaceImpact::Changed(_) | NamespaceImpact::Same => {}
+        }
+        let run = self.namespace_run(at)?;
+        let new_ns = if namespaces.is_empty() {
+            None
+        } else {
+            Some(Namespaces(namespaces))
+        };
+        self.apply(|p| {
+            for i in run {
+                if let ElementKind::Action(a) = &mut p.elements[i].item {
+                    a.ns = new_ns.clone();
+                }
+            }
+            Ok(())
+        })?;
+        Ok(impact)
     }
 
     /// Checks the whole pipeline: every action resolves and its arguments fit.
@@ -842,6 +1006,164 @@ impl ActionEditor<'_> {
         })?;
         Ok(self)
     }
+    /// Sets an argument to any source: a literal, a link, a nested pipeline (AC-19).
+    pub fn set_source(&mut self, arg: impl Into<ArgRef>, source: Source) -> Result<&mut Self, Error> {
+        let arg = arg.into();
+        if let Source::Placeholder(name) = &source {
+            self.editor
+                .check_placeholder(name)
+                .map_err(|e| self.editor.annotate(e, Some(self.index)))?;
+        }
+        self.edit(|a, md| Self::put(a, md, arg, source))
+    }
+
+    /// Resets an argument to its default: removes it when it is the last one written (by name, or
+    /// the last positional parameter, or a whole variadic run), otherwise writes its default in its
+    /// place. Resetting an argument that is not given changes nothing. An argument in the middle
+    /// with no default cannot be reset.
+    pub fn reset(&mut self, arg: impl Into<ArgRef>) -> Result<&mut Self, Error> {
+        let arg = arg.into();
+        self.edit(|a, md| {
+            let info = argument_info_of(md, &arg)?.clone();
+            if a.arguments.remove(&info.name).is_some() {
+                return Ok(());
+            }
+            let slots = positional_arguments(md);
+            let Some(slot) = slots.iter().position(|s| s.name == info.name) else {
+                return Ok(());
+            };
+            if slot >= a.parameters.len() {
+                return Ok(());
+            }
+            if info.multiple || slot + 1 == a.parameters.len() {
+                a.parameters.truncate(slot);
+                return Ok(());
+            }
+            match Source::from_parameter_value(&info.default) {
+                Some(source) => {
+                    a.parameters[slot] = Located::new(source);
+                    Ok(())
+                }
+                None => Err(Error::invalid_argument(
+                    &md.name,
+                    &info.name,
+                    "has no default to write in its place, and a later argument is given",
+                )),
+            }
+        })
+    }
+
+    /// The items of a variadic argument, and whether they are given by position.
+    fn items_of(a: &ActionElement, md: &CommandMetadata, name: &str) -> Result<(Vec<Source>, bool), Error> {
+        let info = argument_info_of(md, &ArgRef::Name(name.to_owned()))?;
+        if !info.multiple {
+            return Err(Error::invalid_argument(&md.name, name, "is not a variadic argument"));
+        }
+        if let Some(given) = a.arguments.get(name) {
+            let items = match &given.item {
+                Source::Multiple(items) => items.clone(),
+                Source::Value(Json::Array(values)) => {
+                    values.iter().cloned().map(Source::Value).collect()
+                }
+                other => vec![other.clone()],
+            };
+            return Ok((items, false));
+        }
+        let slots = positional_arguments(md);
+        let slot = slots.iter().position(|s| s.name == name).unwrap_or(slots.len());
+        if a.parameters.len() >= slot {
+            Ok((a.parameters.iter().skip(slot).map(|p| p.item.clone()).collect(), true))
+        } else {
+            Ok((Vec::new(), false))
+        }
+    }
+
+    /// Writes the items of a variadic argument back, by position when it can be.
+    fn put_items(a: &mut ActionElement, md: &CommandMetadata, name: &str, items: Vec<Source>, by_position: bool) {
+        let slots = positional_arguments(md);
+        let slot = slots.iter().position(|s| s.name == name).unwrap_or(slots.len());
+        if by_position || (a.parameters.len() == slot && !a.arguments.contains_key(name)) {
+            a.parameters.truncate(slot);
+            a.parameters.extend(items.into_iter().map(Located::new));
+        } else if items.is_empty() {
+            a.arguments.remove(name);
+        } else {
+            a.arguments.insert(name.to_owned(), Located::new(Source::Multiple(items)));
+        }
+    }
+
+    fn edit_items(
+        &mut self,
+        arg: ArgRef,
+        f: impl FnOnce(&mut Vec<Source>, &CommandMetadata, &str) -> Result<(), Error>,
+    ) -> Result<&mut Self, Error> {
+        self.edit(|a, md| {
+            let name = argument_info_of(md, &arg)?.name.clone();
+            let (mut items, by_position) = Self::items_of(a, md, &name)?;
+            f(&mut items, md, &name)?;
+            Self::put_items(a, md, &name, items, by_position);
+            Ok(())
+        })
+    }
+
+    /// Inserts an item into a variadic argument before item `at` (`at` equal to the count appends).
+    pub fn insert_item(&mut self, arg: impl Into<ArgRef>, at: usize, source: Source) -> Result<&mut Self, Error> {
+        self.edit_items(arg.into(), |items, md, name| {
+            if at > items.len() {
+                return Err(Error::invalid_argument(
+                    &md.name,
+                    name,
+                    &format!("item {at} is out of range (it has {})", items.len()),
+                ));
+            }
+            items.insert(at, source);
+            Ok(())
+        })
+    }
+
+    /// Removes item `at` of a variadic argument.
+    pub fn remove_item(&mut self, arg: impl Into<ArgRef>, at: usize) -> Result<&mut Self, Error> {
+        self.edit_items(arg.into(), |items, md, name| {
+            if at >= items.len() {
+                return Err(Error::invalid_argument(
+                    &md.name,
+                    name,
+                    &format!("item {at} is out of range (it has {})", items.len()),
+                ));
+            }
+            items.remove(at);
+            Ok(())
+        })
+    }
+
+    /// Moves item `from` of a variadic argument to position `to`.
+    pub fn move_item(&mut self, arg: impl Into<ArgRef>, from: usize, to: usize) -> Result<&mut Self, Error> {
+        self.edit_items(arg.into(), |items, md, name| {
+            if from >= items.len() || to >= items.len() {
+                return Err(Error::invalid_argument(
+                    &md.name,
+                    name,
+                    &format!("item {from} or {to} is out of range (it has {})", items.len()),
+                ));
+            }
+            let item = items.remove(from);
+            items.insert(to, item);
+            Ok(())
+        })
+    }
+
+    /// The parameters beyond what the command's arguments take (AC-23): none when the command has
+    /// a variadic argument, which takes them all.
+    pub fn excess(&self) -> Result<Vec<Source>, Error> {
+        let action = self.element()?;
+        let md = self.metadata()?;
+        let slots = positional_arguments(md);
+        if slots.iter().any(|s| s.multiple) {
+            return Ok(Vec::new());
+        }
+        Ok(action.parameters.iter().skip(slots.len()).map(|p| p.item.clone()).collect())
+    }
+
     /// The command this action resolves to.
     pub fn metadata(&self) -> Result<&CommandMetadata, Error> {
         self.editor.command_metadata(self.index)
@@ -958,6 +1280,31 @@ impl QueryEditor {
     /// See [`PipelineEditor::unset_arguments`].
     pub fn unset_arguments(&self, at: usize) -> Result<Vec<&ArgumentInfo>, Error> {
         self.0.unset_arguments(at)
+    }
+    /// See [`PipelineEditor::namespace_run`].
+    pub fn namespace_run(&self, at: usize) -> Result<std::ops::Range<usize>, Error> {
+        self.0.namespace_run(at)
+    }
+    /// See [`PipelineEditor::available_namespaces`].
+    pub fn available_namespaces(&self, at: usize) -> Result<Vec<String>, Error> {
+        self.0.available_namespaces(at)
+    }
+    /// See [`PipelineEditor::unused_namespaces`].
+    pub fn unused_namespaces(&self, at: usize) -> Result<Vec<String>, Error> {
+        self.0.unused_namespaces(at)
+    }
+    /// See [`PipelineEditor::namespace_impact`].
+    pub fn namespace_impact(&self, at: usize, namespaces: &[String]) -> Result<NamespaceImpact, Error> {
+        self.0.namespace_impact(at, namespaces)
+    }
+    /// See [`PipelineEditor::set_namespaces`].
+    pub fn set_namespaces(
+        &mut self,
+        at: usize,
+        namespaces: Vec<String>,
+        accept_changes: bool,
+    ) -> Result<NamespaceImpact, Error> {
+        self.0.set_namespaces(at, namespaces, accept_changes)
     }
 }
 

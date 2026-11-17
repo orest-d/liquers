@@ -135,6 +135,30 @@ fn not_representable(
 // Query → pipeline
 // ---------------------------------------------------------------------------------------------
 
+impl ActionElement {
+    /// The action element of one query action: its parameters as text values and links, with
+    /// their positions, and `ns` as the namespaces to look it up in. Used for each action of
+    /// [`Pipeline::try_from`] and for a [`crate::command_metadata::CommandPreset`]'s action.
+    pub fn from_action_request(action: &ActionRequest, ns: Option<Namespaces>) -> ActionElement {
+        let parameters = action
+            .parameters
+            .iter()
+            .map(|p| match p {
+                ActionParameter::String(s, pos) => {
+                    Located::at(Source::Value(Json::String(s.clone())), pos)
+                }
+                ActionParameter::Link(q, pos) => Located::at(Source::Link(q.encode()), pos),
+            })
+            .collect();
+        ActionElement {
+            action: action.name.clone(),
+            ns,
+            parameters,
+            arguments: Default::default(),
+        }
+    }
+}
+
 impl TryFrom<&Query> for Pipeline {
     type Error = Error;
 
@@ -314,25 +338,11 @@ impl TryFrom<&Query> for Pipeline {
                             buf.push(Located::at(item, &action.position));
                             continue;
                         }
-                        let parameters = action
-                            .parameters
-                            .iter()
-                            .map(|p| match p {
-                                ActionParameter::String(s, pos) => {
-                                    Located::at(Source::Value(Json::String(s.clone())), pos)
-                                }
-                                ActionParameter::Link(q, pos) => {
-                                    Located::at(Source::Link(q.encode()), pos)
-                                }
-                            })
-                            .collect();
                         buf.push(Located::at(
-                            ElementKind::Action(ActionElement {
-                                action: action.name.clone(),
-                                ns: ns.clone(),
-                                parameters,
-                                arguments: Default::default(),
-                            }),
+                            ElementKind::Action(ActionElement::from_action_request(
+                                action,
+                                ns.clone(),
+                            )),
                             &action.position,
                         ));
                     }
@@ -972,6 +982,7 @@ pub(crate) fn encode_arguments(
     cmr: &CommandMetadataRegistry,
     path: &ElementPath,
     epos: &Option<Position>,
+    lenient: bool,
 ) -> Result<Vec<ActionParameter>, Error> {
     let slots = positional_arguments(md);
     check_argument_names(action, md)?;
@@ -1074,7 +1085,20 @@ pub(crate) fn encode_arguments(
             }
         }
     }
-    if let Some((i, p)) = positional.next() {
+    if lenient {
+        // The query editor keeps parameters beyond the command's arguments as written, so a
+        // query that has them can be opened and its excess shown (query-pipeline-editor, G6).
+        for (i, p) in positional {
+            out.append(&mut gap);
+            out.push(single_parameter(
+                &p.item,
+                &p.position(),
+                cmr,
+                &path.argument(ArgRef::Position(i)),
+                epos,
+            )?);
+        }
+    } else if let Some((i, p)) = positional.next() {
         return Err(Error::too_many_parameters(
             &format!("command '{}'", md.name),
             slots.len(),
@@ -1443,7 +1467,7 @@ fn write_transform(
                 },
                 Some((_, md)),
             ) => {
-                let parameters = encode_arguments(element, md, cmr, path, pos)?;
+                let parameters = encode_arguments(element, md, cmr, path, pos, lenient)?;
                 out.push(ActionRequest {
                     name: element.action.clone(),
                     parameters,

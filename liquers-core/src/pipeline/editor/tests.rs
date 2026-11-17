@@ -243,3 +243,164 @@ fn editor_accepts_empty_parameter() -> Result<(), Error> {
     assert_eq!(q.action().map(|a| a.parameters.len()), Some(2));
     Ok(())
 }
+
+// ---------------------------------------------------------------------------------------------
+// query-pipeline-editor (Phase 3, core tests)
+// ---------------------------------------------------------------------------------------------
+
+fn q(text: &str) -> Result<QueryEditor, Error> {
+    QueryEditor::from_query(&parse_query(text)?, registry())
+}
+
+/// query-pipeline-editor AC-18: the last argument is removed, a middle one gets its default.
+#[test]
+fn reset_removes_last_and_writes_default_in_middle() -> Result<(), Error> {
+    let mut editor = q("-R/a.csv/-/ns-pl/sort-x-f")?;
+    editor.edit_action(1)?.reset("ascending")?;
+    assert_eq!(editor.query().encode(), "-R/a.csv/-/ns-pl/sort-x");
+    // A middle argument with a default: its default is written in its place.
+    let mut editor = q("new_action-5-b-c")?;
+    editor.edit_action(0)?.reset("b").expect_err("b has no default and c is given");
+    assert_eq!(editor.query().encode(), "new_action-5-b-c");
+    let mut editor = q("-R/a.csv/-/head-3")?;
+    editor.edit_action(1)?.reset("n")?;
+    assert_eq!(editor.query().encode(), "-R/a.csv/-/head");
+    // Resetting an argument that is not given changes nothing.
+    editor.edit_action(1)?.reset("n")?;
+    assert_eq!(editor.query().encode(), "-R/a.csv/-/head");
+    Ok(())
+}
+
+/// query-pipeline-editor AC-2: a variadic argument is an ordered list of items.
+#[test]
+fn variadic_items_insert_remove_move() -> Result<(), Error> {
+    let mut editor = q("-R/a.csv/-/ns-pl/is_in-region-EU-US")?;
+    editor.edit_action(1)?.insert_item("values", 2, Source::Value(json!("APAC")))?;
+    assert_eq!(editor.query().encode(), "-R/a.csv/-/ns-pl/is_in-region-EU-US-APAC");
+    editor.edit_action(1)?.move_item("values", 2, 0)?;
+    assert_eq!(editor.query().encode(), "-R/a.csv/-/ns-pl/is_in-region-APAC-EU-US");
+    editor.edit_action(1)?.remove_item("values", 1)?;
+    assert_eq!(editor.query().encode(), "-R/a.csv/-/ns-pl/is_in-region-APAC-US");
+    assert!(editor.edit_action(1)?.remove_item("values", 5).is_err());
+    assert!(editor.edit_action(1)?.insert_item("column", 0, Source::Value(json!("x"))).is_err());
+    assert_eq!(editor.query().encode(), "-R/a.csv/-/ns-pl/is_in-region-APAC-US");
+    Ok(())
+}
+
+/// query-pipeline-editor AC-19: an argument switches between a value and a link.
+#[test]
+fn set_source_switches_between_value_and_link() -> Result<(), Error> {
+    let mut editor = q("-R/a.csv/-/head-3")?;
+    editor.edit_action(1)?.set_source("n", Source::Link("-R/config/limit.txt".into()))?;
+    assert_eq!(editor.query().encode(), "-R/a.csv/-/head-~X~-R/config/limit.txt~E");
+    editor.edit_action(1)?.set_source("n", Source::Value(json!(10)))?;
+    assert_eq!(editor.query().encode(), "-R/a.csv/-/head-10");
+    assert!(editor.edit_action(1)?.set_source("n", Source::Value(json!("abc"))).is_err());
+    Ok(())
+}
+
+/// query-pipeline-editor AC-23 and G6: a query with excess parameters opens and keeps them.
+#[test]
+fn excess_parameters_are_kept_and_listed() -> Result<(), Error> {
+    let mut editor = q("-R/a.csv/-/head-3-4-5")?;
+    assert_eq!(editor.query().encode(), "-R/a.csv/-/head-3-4-5");
+    let excess = editor.edit_action(1)?.excess()?;
+    assert_eq!(excess, vec![Source::Value(json!("4")), Source::Value(json!("5"))]);
+    editor.edit_action(1)?.set("n", 7)?;
+    assert_eq!(editor.query().encode(), "-R/a.csv/-/head-7-4-5");
+    // The strict conversion still refuses them.
+    assert!(Query::try_from(editor.editor()).is_err());
+    Ok(())
+}
+
+fn namespaced_registry() -> Arc<CommandMetadataRegistry> {
+    let mut cmr = CommandMetadataRegistry::new();
+    let mut add = |ns: &str, name: &str, args: Vec<ArgumentInfo>| {
+        let mut cm = CommandMetadata::new(name);
+        cm.with_namespace(ns);
+        for a in args {
+            cm.with_argument(a);
+        }
+        cmr.add_command(&cm);
+    };
+    add("pl", "from_csv", vec![]);
+    add("pl", "head", vec![ArgumentInfo::integer_argument("n", false).with_default(5)]);
+    add("rec", "head", vec![ArgumentInfo::integer_argument("n", false).with_default(5)]);
+    add("rec", "first", vec![]);
+    add("img", "head", vec![ArgumentInfo::boolean_argument("flip")]);
+    Arc::new(cmr)
+}
+
+/// query-pipeline-editor AC-25: an `ns` edit that keeps, changes or breaks the meaning.
+#[test]
+fn namespace_impact_same_changed_invalid() -> Result<(), Error> {
+    let editor =
+        QueryEditor::from_query(&parse_query("-R/a.csv/-/ns-pl/from_csv/head-5")?, namespaced_registry())?;
+    assert_eq!(editor.namespace_run(1)?, 1..3);
+    let pl_rec = vec!["pl".to_owned(), "rec".to_owned()];
+    assert_eq!(editor.namespace_impact(1, &pl_rec)?, NamespaceImpact::Same);
+    let rec_pl = vec!["rec".to_owned(), "pl".to_owned()];
+    match editor.namespace_impact(1, &rec_pl)? {
+        NamespaceImpact::Changed(changes) => {
+            assert_eq!(changes.len(), 1);
+            assert_eq!(changes[0].at, 2);
+            assert_eq!(changes[0].before.namespace, "pl");
+            assert_eq!(changes[0].after.namespace, "rec");
+        }
+        other => panic!("expected Changed, got {other:?}"),
+    }
+    assert!(matches!(
+        editor.namespace_impact(1, &["rec".to_owned()])?,
+        NamespaceImpact::Invalid(_)
+    ));
+    // `img/head` takes a boolean, not a number: the arguments no longer fit.
+    assert!(matches!(
+        editor.namespace_impact(1, &["img".to_owned(), "pl".to_owned()])?,
+        NamespaceImpact::Invalid(_)
+    ));
+    Ok(())
+}
+
+/// query-pipeline-editor AC-25, AC-16: a changed meaning is applied only when accepted.
+#[test]
+fn set_namespaces_needs_acceptance_for_changed() -> Result<(), Error> {
+    let mut editor =
+        QueryEditor::from_query(&parse_query("-R/a.csv/-/ns-pl/from_csv/head-5")?, namespaced_registry())?;
+    let rec_pl = vec!["rec".to_owned(), "pl".to_owned()];
+    assert!(matches!(
+        editor.set_namespaces(1, rec_pl.clone(), false)?,
+        NamespaceImpact::Changed(_)
+    ));
+    assert_eq!(editor.query().encode(), "-R/a.csv/-/ns-pl/from_csv/head-5");
+    editor.set_namespaces(1, rec_pl, true)?;
+    assert_eq!(editor.query().encode(), "-R/a.csv/-/ns-rec-pl/from_csv/head-5");
+    assert!(editor.set_namespaces(1, vec!["rec".to_owned()], true).is_err());
+    assert_eq!(editor.query().encode(), "-R/a.csv/-/ns-rec-pl/from_csv/head-5");
+    Ok(())
+}
+
+/// query-pipeline-editor AC-16: the namespaces offered for an `ns` list.
+#[test]
+fn available_and_unused_namespaces() -> Result<(), Error> {
+    let editor =
+        QueryEditor::from_query(&parse_query("-R/a.csv/-/ns-pl/from_csv")?, namespaced_registry())?;
+    assert_eq!(editor.available_namespaces(1)?, vec!["img", "pl", "rec"]);
+    assert_eq!(editor.unused_namespaces(1)?, vec!["img", "rec"]);
+    assert!(editor.available_namespaces(0).is_err(), "element 0 is the resource");
+    Ok(())
+}
+
+/// query-pipeline-editor AC-20, AC-21: a preset's action request becomes an action element.
+#[test]
+fn action_from_preset_request() -> Result<(), Error> {
+    let preset = crate::command_metadata::CommandPreset::new("sort-region-f", "By region", "")?;
+    let element = ActionElement::from_action_request(&preset.action, Some(Namespaces::from("pl")));
+    let mut editor = q("-R/a.csv/-/ns-pl/is_in-region-EU")?;
+    editor.replace(1, Located::new(ElementKind::Action(element)))?;
+    assert_eq!(editor.query().encode(), "-R/a.csv/-/ns-pl/sort-region-f");
+    assert_eq!(
+        Source::from_parameter_value(&crate::command_metadata::CommandParameterValue::None),
+        None
+    );
+    Ok(())
+}
