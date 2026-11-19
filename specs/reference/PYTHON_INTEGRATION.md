@@ -3,7 +3,7 @@ title: Python Integration
 kind: reference
 audience: both
 area: [py, core/value, core/error, lib/value, core/store, store/config, core/assets, lib/ui, lib/egui]
-reviewed: 2026-11-16
+reviewed: 2026-11-19
 ---
 # Python Integration
 
@@ -47,7 +47,7 @@ once more, as the same object (`liquers.Key is liquers.query.Key`):
 | `liquers.plan` | `Plan`, `Step`, `ParameterValue`, `ResolvedParameterValues`, `build_plan` | `liquers_core::plan` |
 | `liquers.recipes` | `Recipe`, `RecipeList`, `RecipeProviders` | `liquers_core::recipes` |
 | `liquers.store` | `Store`, `StoreArgumentInfo` | `liquers_core::store` |
-| `liquers.environment` | `Environment`, `Context`, `Issue`, `default_environment`, `evaluate`, `evaluate_async`, `require` | `liquers_core::context`, `environment_builder` |
+| `liquers.environment` | `Environment`, `Context`, `Issue`, `default_environment`, `configure`, `evaluate`, `evaluate_async`, `require`, `add_arguments`, `configure_from_args`, `configure_from_command_line` | `liquers_core::context`, `environment_builder` |
 | `liquers.assets` | `State`, `AssetRef` | `liquers_core::state`, `assets` |
 | `liquers.error` | `Error`, `ErrorType`, `LiquersError` and its generated subclasses (§6) | `liquers_core::error` |
 | `liquers.data_nodes` | `data_node`, `DataNode`, `NodeKind` | `liquers_core::data_node` |
@@ -69,7 +69,8 @@ The package's private modules:
 |---|---|
 | `__init__.py` | Imports `liquers.error` first (it installs the error classes), then the other submodules, then every name **by name**, listed in `__all__`. |
 | `_backend.py` | The only module that imports `_liquers`: every native name, explicitly, in `__all__`. A class registered in `src/lib.rs` is added here, to its public module and to `__init__.py`. A pure-Python fallback (`PY-HAS-NO-PURE-PYTHON-FALLBACK`) would be put behind this module: it must provide the same names, each class reporting the same `__module__`. |
-| `_env.py` | `default_environment()` (one `Environment`, created lazily under a lock), `evaluate()`, `evaluate_async()`, `serve()` and `serve_async()`. |
+| `_env.py` | `default_environment()` (one `Environment`, created lazily under a lock), `evaluate()`, `evaluate_async()`, `serve()` and `serve_async()`. `configure()` (`default_environment().configure(...)`). |
+| `_cli.py` | `add_arguments`, `configure_from_args` and `configure_from_command_line`: the `argparse` start-up, which passes command-line options as `overrides` (§3). |
 | `_commands.py` | The decorators, and declaration stage 1 (§4). |
 | `_errors.py` | `LiquersError` and one subclass per `ErrorType`, generated at import (§6). |
 | `_factories.py` | `_declare`: a store or recipe provider factory's declaration from its signature (§9, §10). |
@@ -135,8 +136,8 @@ An evaluation outside a UI passes no payload; a UI's evaluations carry the eleme
 The built-ins include the `lui` commands (`register_lui_commands!`).
 The type registry is `Value`'s, plus `py.Object` (§5).
 
-**Construction.** `Environment(*, config=None, conversion=None, pickle=None, async_loops=None,
-job_capacity=None)`. `config` is a configuration document (`reference/ENVIRONMENT_CONFIG.md`
+**Construction.** `Environment(*, config=None, overrides=None, conversion=None, pickle=None,
+async_loops=None, job_capacity=None)`. `config` is a configuration document (`reference/ENVIRONMENT_CONFIG.md`
 §The configuration document), read by `PyConfig::from_python` (`liquers-py/src/config.rs`):
 
 | `config` | Read as |
@@ -167,13 +168,51 @@ the asset manager runs at once; `async_loops` and `job_capacity` are integers of
 anything else raises `ConfigurationError`, from a keyword or from the file. An unknown
 `conversion` is refused the same way.
 
+**Overrides.** `overrides=` is a `dict` in the shape of the document, merged over the parsed
+`config` (or over the empty document when `config` is `None`) by `ConfigDocument::overlay`
+before anything is read from it: mappings merge key by key, any other value (a list included)
+replaces, and `None` is no change. The document keeps its folder, so a relative
+`command_registry` from the file still resolves against the file's folder; a path in the
+overrides resolves against the working directory. The keywords then apply over the merged
+document. `liquers/_cli.py` builds `overrides` from `argparse` options (`add_arguments`,
+`configure_from_args`, `configure_from_command_line`, `PYTHON_GUIDE.md` §4).
+
 **Command registry file.** `command_registry: <file>` names a command metadata registry (the
 format of `specs/command_registry.yaml`), resolved against the document's folder when `config` is
-a file and against the working directory otherwise. It is read at construction, so a missing file
-raises naming it and a file that is not a registry raises `ConfigurationError` naming it. Its
-`commands` join the imported metadata (below) and apply on every build, as `import_metadata` does.
+a file and against the working directory otherwise. It is read at construction or `configure`,
+so a missing file, or one that is not a registry, raises `ConfigurationError` naming it. Its
+`commands` are kept with the settings and apply on every build, before the metadata
+`import_metadata` added, so `import_metadata` wins.
 
 Nothing else is built yet. There is no `reset()`: a new `Environment()` is a fresh environment.
+
+**Settings.** The constructor resolves its arguments into one `Settings` value (the `PyConfig`,
+the conversion mode and pickle, the loop count and the registry file's metadata), held under the
+declarations lock. A build reads them there: the store, recipes and asset options come from
+`PyConfig`, and the conversion is bound into each Python command when the build registers it
+(`register_py_command`), so a command registered before a `configure` converts its results under
+the configured mode. `serve`, `ui`, `store_set` and `render` read the settings of the environment
+they build.
+
+**Configure.** `configure(*, config=None, overrides=None, conversion=None, pickle=None,
+async_loops=None, job_capacity=None)` takes the constructor's keywords and replaces every setting
+of the environment, as if it had been constructed with them, until its first successful build.
+Under the declarations lock, in order:
+
+1. a shut environment raises `GeneralError`;
+2. a built environment (a build has succeeded since construction) raises `ConfigurationError`
+   ("already built"); the environment keeps its settings and works on;
+3. the new settings resolve as in the constructor (`ParseError` or `ConfigurationError`), and the
+   declared template and pipeline commands are checked against them; an issue naming one of
+   them raises `ConfigurationError`;
+4. the loop pool is resized to `async_loops`: an idle pool takes any size, a running one (a
+   failed build can start it) only its own size, else `ConfigurationError`;
+5. the settings are assigned; the next use builds with them.
+
+A failing step changes nothing. A failed first build leaves the environment unbuilt, so
+`configure` is still allowed after it. A second `configure` replaces the first entirely.
+Registrations made before or after `configure` are unaffected; registering after the first build
+rebuilds with the settings in force.
 
 **Declarations.** The handle holds a lock-protected record of everything declared on it: the
 Python command specs in registration order (at most one per key), the keys `unregister` removed,
@@ -181,8 +220,9 @@ and the command metadata `import_metadata` added. A build applies them in this o
 
 1. `liquers-lib`'s built-in commands (core, image, polars, records, search, templates);
 2. the removals;
-3. the Python specs;
-4. the imported metadata. An entry naming no registered command is a validation error.
+3. the Python specs, each bound to the settings' conversion;
+4. the command registry file's metadata (above), then the metadata `import_metadata` added. An
+   entry naming no registered command is a validation error.
 
 The builder's own validation runs next; any error-level issue fails the build with
 `ConfigurationError` summarising them. `validate()` reports the same issues without building;
@@ -205,7 +245,7 @@ itself.
 **Rebuild.** The environment is built on first use. A later `command`, `first_command`,
 `unregister`, `import_metadata`, `register_store_factory` or `register_recipe_provider_factory`
 marks it for a rebuild, and the next use builds a new
-environment from all declarations **with the same store**. The replaced environment is moved to a
+environment from all declarations **with the same store and settings**. The replaced environment is moved to a
 retired list, not dropped, because evaluations may still be running in it; its asset cache does
 not carry over.
 
@@ -220,7 +260,9 @@ shutdown still returns a result that is already ready, and a wait still outstand
 the last reference to it; work still in flight keeps its own environment until it finishes.
 
 **Default environment.** `lq.default_environment()` is one `Environment()`, made on first call
-under a lock.
+under a lock; the bare decorators make it when they run, usually at import. `lq.configure(...)`
+is `default_environment().configure(...)`, with the same keywords, so the default can be
+configured after imports that registered commands and before its first use.
 
 **Methods.**
 
@@ -229,6 +271,7 @@ under a lock.
 | `evaluate(query)`, `evaluate_state(query)` | evaluates and waits; the value, or an `lq.State` |
 | `get_asset(query)` | starts evaluating; an `lq.AssetRef` |
 | `store_set(key, data)` | writes a value; `key` is a `str` |
+| `configure(*, config=None, overrides=None, …)` | replaces the settings before the first build (above) |
 | `command(fn=None, **options)`, `first_command(…)` | the decorators bound to this environment |
 | `unregister(name, namespace="")` | removes a command (§4) |
 | `command_metadata(name, namespace="")` | the `CommandMetadata` the built environment holds |
@@ -1194,8 +1237,10 @@ stop the others: it goes to `sys.unraisablehook`.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-19 | §1: `configure`, `add_arguments`, `configure_from_args` and `configure_from_command_line` are in `liquers.environment`; `_cli.py` added to the private modules. | merge of `design/py-package-submodules/` with `design/py-command-line-config/` |
 | 2026-11-16 | §19 Accessors: `lq.Accessor` and its results in `liquers.accessors`; per-wrapper tokens; where events and callbacks run. §1, §2: the module and its classes. §6: `StatusConflictError.token`. | `design/settable-value-accessor/`; `liquers-py/tests/test_ACCESSOR_use.py` |
 | 2026-11-15 | §1: the native extension is the private package `_liquers`, reached only through `liquers/_backend.py`; sixteen public submodules mirror the Rust modules; every class reports its submodule. §6: `liquers.error` installs the error classes. §13: one stub per submodule; stubtest and mypy cover `_liquers`. §14, §18: `liquers.data_nodes`, `liquers.lui`. | `design/py-package-submodules/`; `liquers-py/tests/test_LAYOUT_submodules.py` |
+| 2026-11-15 | §3: `Settings` under the declarations lock, `configure` and `lq.configure` (refused once built, replace every setting, change nothing on failure), `overrides=`, the registry file applied before `import_metadata`, a missing registry file is `ConfigurationError`, conversion bound per build. | `design/py-default-environment-config/`, `design/py-command-line-config/` |
 | 2026-11-14 | §18 Idle: `wait_idle` and `wait_idle_async` are refused inside any Python command, `async def` ones included (a Codex review of PR #268 found an async command's `wait_idle_async` deadlocked). §1: `_ui.py` holds the mark. | `liquers-py/tests/test_UIUSE_model.py` `test_UIUSE_wait_idle_async_inside_an_async_command_raises` |
 | 2026-11-11 | §18 User interface: `env.ui()`, `lq.UI`, status events and who delivers them, the window (`run`, `close`), lifetime. §3: the UI payload and the `lui` built-ins; `Context.element`. §1: `_ui.py`, the `gui` feature. §2: the UI classes. §7: UI models are disposed at exit after the servers. §8: UI limitations. §12: the wheels carry egui, and the Windows allow-list names the window's system DLLs. | `design/liquers-py-ui/`, `design/liquers-py-ui-window/` |
 | 2026-11-10 | §17 Lifetime: a server still binding when `env.shutdown()` runs is stopped and raises (a review of PR #264 found it could stay listening). | `liquers-py/src/environment.rs` test `a_server_bound_after_shutdown_is_stopped` |

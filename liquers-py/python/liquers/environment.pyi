@@ -1,5 +1,6 @@
 """Type declarations for ``liquers.environment``; the classes it exports report ``liquers.environment`` as their module."""
 
+import argparse
 import os
 from collections.abc import Awaitable, Callable, Coroutine, Iterable, Mapping, Sequence
 from typing import Any, ClassVar, Literal, Protocol, TypeVar, final, overload
@@ -23,9 +24,13 @@ __all__ = [
     "Context",
     "Issue",
     "default_environment",
+    "configure",
     "evaluate",
     "evaluate_async",
     "require",
+    "add_arguments",
+    "configure_from_args",
+    "configure_from_command_line",
 ]
 
 _P = ParamSpec("_P")
@@ -37,7 +42,8 @@ class _Decorator(Protocol):
 
 @final
 class Environment:
-    def __new__(cls, *, config: os.PathLike[str] | dict[str, Any] | str | None = ..., conversion: Literal["permissive", "strict"] | None = ..., pickle: bool | None = ..., async_loops: int | None = ..., job_capacity: int | None = ...) -> Self: ...
+    def __new__(cls, *, config: os.PathLike[str] | dict[str, Any] | str | None = ..., overrides: dict[str, Any] | None = ..., conversion: Literal["permissive", "strict"] | None = ..., pickle: bool | None = ..., async_loops: int | None = ..., job_capacity: int | None = ...) -> Self: ...
+    def configure(self, *, config: os.PathLike[str] | dict[str, Any] | str | None = ..., overrides: dict[str, Any] | None = ..., conversion: Literal["permissive", "strict"] | None = ..., pickle: bool | None = ..., async_loops: int | None = ..., job_capacity: int | None = ...) -> None: ...
     def evaluate(self, query: Query | str | Pipeline | list[Any] | tuple[Any, ...] | dict[str, Any]) -> Any: ...
     def evaluate_state(self, query: Query | str | Pipeline | list[Any] | tuple[Any, ...] | dict[str, Any]) -> State: ...
     def get_asset(self, query: Query | str) -> AssetRef: ...
@@ -125,6 +131,14 @@ class Context:
     def element(self) -> int | None: ...
 
 def default_environment() -> Environment: ...
+def configure(*, config: Any = None, overrides: dict[str, Any] | None = None, conversion: Literal["permissive", "strict"] | None = None,
+              pickle: bool | None = None, async_loops: int | None = None, job_capacity: int | None = None) -> None: ...
+def add_arguments(parser: argparse.ArgumentParser, *, options: Iterable[str] | None = None,
+                  default_config: str | os.PathLike[str] | None = ...) -> argparse._ArgumentGroup: ...
+def configure_from_args(args: argparse.Namespace, *, env: Environment | None = None) -> None: ...
+def configure_from_command_line(parser: argparse.ArgumentParser | None = None, argv: Sequence[str] | None = None, *,
+                                env: Environment | None = None, options: Iterable[str] | None = None,
+                                default_config: str | os.PathLike[str] | None = ...) -> argparse.Namespace: ...
 
 def evaluate(query: Query | str | Pipeline | list[Any] | tuple[Any, ...] | dict[str, Any]) -> Any: ...
 

@@ -556,7 +556,8 @@ impl StopAtExit {
 }
 
 enum PoolSlot {
-    Idle,
+    /// Not started; the size it will start with.
+    Idle(NonZeroUsize),
     Running(Arc<LoopPool>),
     Closed,
 }
@@ -566,15 +567,31 @@ enum PoolSlot {
 /// A failed start is not kept, so the next command tries again. Shared by every rebuild of the
 /// environment, since it lives on the handle's cell.
 pub struct LazyLoopPool {
-    size: NonZeroUsize,
     slot: Mutex<PoolSlot>,
 }
 
 impl LazyLoopPool {
     pub(crate) fn new(size: NonZeroUsize) -> Self {
         LazyLoopPool {
-            size,
-            slot: Mutex::new(PoolSlot::Idle),
+            slot: Mutex::new(PoolSlot::Idle(size)),
+        }
+    }
+
+    /// Sets the number of loops of a pool that has not started (`EnvCell::configure`). A running
+    /// pool keeps its loops, so another size is a `ConfigurationError`; the same size is accepted.
+    pub(crate) fn resize(&self, py: Python<'_>, size: NonZeroUsize) -> Result<(), Error> {
+        let mut slot = lock(py, &self.slot);
+        match &*slot {
+            PoolSlot::Idle(_) => {
+                *slot = PoolSlot::Idle(size);
+                Ok(())
+            }
+            PoolSlot::Running(pool) if pool.loops.len() == size.get() => Ok(()),
+            PoolSlot::Running(pool) => Err(Error::configuration_error(format!(
+                "async loops already started with {} loops; async_loops can no longer change",
+                pool.loops.len()
+            ))),
+            PoolSlot::Closed => Err(shut_down_while_waiting()),
         }
     }
 
@@ -591,9 +608,13 @@ impl LazyLoopPool {
         match &*slot {
             PoolSlot::Running(pool) => return Ok(pool.clone()),
             PoolSlot::Closed => return Err(shut_down_while_waiting()),
-            PoolSlot::Idle => {}
+            PoolSlot::Idle(_) => {}
         }
-        let pool = Arc::new(start(py, self.size)?);
+        let size = match &*slot {
+            PoolSlot::Idle(size) => *size,
+            PoolSlot::Running(_) | PoolSlot::Closed => NonZeroUsize::MIN,
+        };
+        let pool = Arc::new(start(py, size)?);
         let hook = StopAtExit {
             pool: Arc::downgrade(&pool),
         };
@@ -609,7 +630,7 @@ impl LazyLoopPool {
         let previous = std::mem::replace(&mut *lock(py, &self.slot), PoolSlot::Closed);
         match previous {
             PoolSlot::Running(pool) => pool.stop(py),
-            PoolSlot::Idle | PoolSlot::Closed => Ok(()),
+            PoolSlot::Idle(_) | PoolSlot::Closed => Ok(()),
         }
     }
 }
@@ -771,6 +792,22 @@ mod tests {
             assert!(Arc::ptr_eq(&pool, &lazy.get(py)?));
             lazy.close(py)?;
             assert!(lazy.get(py).is_err());
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn resize_sets_an_idle_pool_and_refuses_a_running_one() -> Result<(), Box<dyn std::error::Error>> {
+        attached(|py| -> Result<(), Box<dyn std::error::Error>> {
+            let lazy = LazyLoopPool::new(size(1));
+            lazy.resize(py, size(2))?;
+            let pool = lazy.get(py)?;
+            assert_eq!(pool.loops.len(), 2);
+            lazy.resize(py, size(2))?;
+            let refused = lazy.resize(py, size(3)).expect_err("a running pool keeps its size");
+            assert_eq!(refused.error_type, liquers_core::error::ErrorType::ConfigurationError);
+            lazy.close(py)?;
+            assert!(lazy.resize(py, size(1)).is_err());
             Ok(())
         })
     }

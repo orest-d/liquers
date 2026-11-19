@@ -32,7 +32,9 @@ object. A name added to or removed from ``liquers-py/src/lib.rs`` is added to or
   environment and return its value as a Python object.
 - `liquers.command` — the decorator that registers a Python function as a command.
 - `liquers.default_environment` and `liquers.Environment` — the environment: its store, commands
-  and assets; configure it before the first query.
+  and assets; `liquers.configure` sets the default's settings before its first build.
+- `liquers.add_arguments`, `liquers.configure_from_args` and `liquers.configure_from_command_line`
+  — start an application from a configuration file with command-line overrides.
 - `liquers.Query` and `liquers.parse` — the query language, parsed and inspected without running.
 - `liquers.Environment.serve` and `liquers.Server` — serve an environment over the Liquers HTTP
   API.
@@ -166,9 +168,13 @@ from liquers.environment import (
     Context,
     Issue,
     default_environment,
+    configure,
     evaluate,
     evaluate_async,
     require,
+    add_arguments,
+    configure_from_args,
+    configure_from_command_line,
 )
 from liquers.assets import (
     State,
@@ -319,6 +325,10 @@ __all__ = [
     "RecordStream",
     "RecordChunk",
     "default_environment",
+    "configure",
+    "add_arguments",
+    "configure_from_args",
+    "configure_from_command_line",
     "evaluate",
     "evaluate_async",
     "serve",

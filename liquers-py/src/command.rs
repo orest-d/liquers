@@ -69,7 +69,7 @@ const COMMAND: &str = "a Python command";
 use crate::context::Context;
 use crate::environment::PyEnvironment;
 use crate::error::pyerr_to_error;
-use crate::value::{py_to_value, value_to_py, ConversionMode, Value};
+use crate::value::{py_to_value, value_to_py, Conversion, Value};
 
 /// The `module` recorded on a Python command's metadata, which is how a replacement is told
 /// apart from a built-in one.
@@ -105,8 +105,6 @@ pub struct PyCallable {
     pub delivery: StateDelivery,
     /// Where `context` goes among the positional parameters, if the function takes it.
     pub context_index: Option<usize>,
-    pub conversion: ConversionMode,
-    pub pickle: bool,
     /// The registering environment's shut signal, handed to the `Context` of each call.
     pub shut: Arc<Shut>,
     /// For an `async def` callable, the environment's loop pool its coroutines run on.
@@ -119,8 +117,6 @@ impl PyCallable {
         object: Py<PyAny>,
         delivery: StateDelivery,
         context_index: Option<usize>,
-        conversion: ConversionMode,
-        pickle: bool,
         shut: Arc<Shut>,
         loops: Option<Arc<LazyLoopPool>>,
     ) -> Self {
@@ -128,12 +124,27 @@ impl PyCallable {
             object,
             delivery,
             context_index,
-            conversion,
-            pickle,
             shut,
             loops,
             _handle: LiveHandle::new(),
         }
+    }
+}
+
+/// A registered callable together with the conversion of the build that registered it.
+///
+/// The settings of an environment can change until its first successful build
+/// (`EnvCell::configure`), so a callable gets its conversion when a build registers it, not when
+/// it is declared. Dereferences to the callable.
+pub struct BoundCallable {
+    pub callable: Arc<PyCallable>,
+    pub conversion: Conversion,
+}
+
+impl std::ops::Deref for BoundCallable {
+    type Target = PyCallable;
+    fn deref(&self) -> &PyCallable {
+        &self.callable
     }
 }
 
@@ -159,8 +170,6 @@ impl PyCommandSpec {
         declaration: &serde_json::Value,
         context_index: Option<usize>,
         implementation: Option<&[u8]>,
-        conversion: ConversionMode,
-        pickle: bool,
         shut: Arc<Shut>,
         loops: Option<Arc<LazyLoopPool>>,
     ) -> Result<(Self, Vec<String>), Error> {
@@ -198,8 +207,6 @@ impl PyCommandSpec {
                 object,
                 delivery,
                 context_index,
-                conversion,
-                pickle,
                 shut,
                 loops,
             )),
@@ -215,6 +222,7 @@ impl PyCommandSpec {
 pub fn register_py_command(
     registry: &mut CommandRegistry<PyEnvironment>,
     spec: &PyCommandSpec,
+    conversion: Conversion,
 ) -> Result<Replaced, Error> {
     let replaced = match registry.command_metadata_registry.get(spec.key.clone()) {
         None => Replaced::Nothing,
@@ -222,7 +230,7 @@ pub fn register_py_command(
         Some(_) => Replaced::Builtin,
     };
     registry.unregister(spec.key.clone());
-    let callable = spec.callable.clone();
+    let callable = Arc::new(BoundCallable { callable: spec.callable.clone(), conversion });
     registry.register_async_command(spec.key.clone(), move |state, arguments, context| {
         let callable = callable.clone();
         Box::pin(async move { call_py_command(callable, state, arguments, context).await })
@@ -238,7 +246,7 @@ pub fn register_py_command(
 
 /// Runs a Python command on a blocking thread, with the GIL.
 async fn call_py_command(
-    callable: Arc<PyCallable>,
+    callable: Arc<BoundCallable>,
     state: CoreState<Value>,
     arguments: CommandArguments<PyEnvironment>,
     context: CoreContext<PyEnvironment>,
@@ -263,7 +271,7 @@ async fn call_py_command(
 /// Runs an `async def` command: makes the coroutine on a blocking thread, runs it on a pool loop,
 /// and waits for it without holding a thread.
 async fn call_async_py_command(
-    callable: Arc<PyCallable>,
+    callable: Arc<BoundCallable>,
     loops: Arc<LazyLoopPool>,
     state: CoreState<Value>,
     arguments: CommandArguments<PyEnvironment>,
@@ -305,7 +313,7 @@ async fn call_async_py_command(
 #[allow(clippy::too_many_arguments)]
 fn start_coroutine(
     py: Python<'_>,
-    callable: &PyCallable,
+    callable: &BoundCallable,
     loops: &LazyLoopPool,
     pending: &Mutex<Pending>,
     state: &CoreState<Value>,
@@ -336,7 +344,7 @@ fn mark_as_command<'py>(py: Python<'py>, coroutine: Bound<'py, PyAny>) -> PyResu
 }
 
 /// The coroutine's result, once its future is done; the context is invalidated here.
-fn coroutine_result(py: Python<'_>, callable: &PyCallable, pending: &Mutex<Pending>) -> Result<Value, Error> {
+fn coroutine_result(py: Python<'_>, callable: &BoundCallable, pending: &Mutex<Pending>) -> Result<Value, Error> {
     let future = lock_pending(pending).finish().ok_or_else(|| {
         Error::cancelled("an async command's coroutine was cancelled".to_string())
     })?;
@@ -349,12 +357,12 @@ fn coroutine_result(py: Python<'_>, callable: &PyCallable, pending: &Mutex<Pendi
         return Err(Error::cancelled("an async command's coroutine was cancelled".to_string()));
     }
     let result = future.call_method0("result").map_err(|e| pyerr_to_error(py, &e))?;
-    py_to_value(&result, callable.conversion, callable.pickle)
+    py_to_value(&result, callable.conversion.mode, callable.conversion.pickle)
 }
 
 fn call_with_gil(
     py: Python<'_>,
-    callable: &PyCallable,
+    callable: &BoundCallable,
     state: &CoreState<Value>,
     arguments: &CommandArguments<PyEnvironment>,
     context: CoreContext<PyEnvironment>,
@@ -373,7 +381,7 @@ fn call_with_gil(
                 .to_string(),
         ));
     }
-    py_to_value(&result, callable.conversion, callable.pickle)
+    py_to_value(&result, callable.conversion.mode, callable.conversion.pickle)
 }
 
 fn is_coroutine(py: Python<'_>, object: &Bound<'_, PyAny>) -> Result<bool, Error> {
@@ -387,14 +395,14 @@ fn is_coroutine(py: Python<'_>, object: &Bound<'_, PyAny>) -> Result<bool, Error
 /// dependencies (`records/resolver.rs`). The caller invalidates it when the command ends.
 fn prepare_call<'py>(
     py: Python<'py>,
-    callable: &PyCallable,
+    callable: &BoundCallable,
     state: &CoreState<Value>,
     arguments: &CommandArguments<PyEnvironment>,
     context: CoreContext<PyEnvironment>,
 ) -> Result<(Bound<'py, PyTuple>, Context), Error> {
     let envref = context.get_envref();
     let context = Context::new(context, callable.shut.clone())
-        .with_conversion(callable.conversion, callable.pickle);
+        .with_conversion(callable.conversion);
     let scope = context.scope(&envref);
     let mut positional: Vec<Py<PyAny>> = Vec::with_capacity(arguments.len() + 2);
     match &callable.delivery {

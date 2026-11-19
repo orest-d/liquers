@@ -142,8 +142,9 @@ Each result Liquers computes is an *asset*: the value together with its status (
 
 ## 4. Configuring an environment
 
-The default environment suits a script. Anything else — tests, a store on disk, several
-configurations in one process — makes its own `lq.Environment`:
+The default environment suits a script, and `lq.configure` (below, "Configuring the default
+environment") gives it a store on disk or any other setting. Tests and several configurations in
+one process make their own `lq.Environment`:
 
 ```python
 import tempfile
@@ -331,7 +332,55 @@ contract, with the threads each call runs on, is
 [`reference/PYTHON_INTEGRATION.md`](../reference/PYTHON_INTEGRATION.md) §9.
 
 **The default environment.** `lq.default_environment()` returns one shared environment, created on
-first use with the default settings. `lq.evaluate` and the bare `@lq.command` decorators use it.
+first use with the default settings. `lq.evaluate`, `lq.serve`, `lq.ui` and the bare
+`@lq.command` decorators use it.
+
+**Configuring the default environment.** `lq.configure(...)` takes `Environment`'s keywords and
+sets them on the default environment. It works after commands were registered, in any import
+order, and must come before the environment's first use (the first evaluation, `serve`, `ui` or
+store write); after that it raises `ConfigurationError` ("already built"). A second call replaces
+every setting of the first, and a call that fails changes nothing. `env.configure(...)` does the
+same for an environment you made.
+
+```python
+import pathlib, tempfile
+import liquers as lq
+
+@lq.first_command                        # registered first, as an imported module would
+def hello() -> str:
+    return "hello"
+
+folder = pathlib.Path(tempfile.mkdtemp())
+(folder / "liquers.yaml").write_text("python: {conversion: strict}\nserver: {port: 0}\n")
+lq.configure(config=folder / "liquers.yaml")
+assert lq.evaluate("hello") == "hello"
+try:
+    lq.configure(pickle=True)
+except lq.ConfigurationError:
+    pass                                 # already built
+```
+
+**Starting an application.** `overrides=` merges a partial configuration over `config`, keeping
+the file's folder for its relative paths. `lq.add_arguments(parser)` adds `--config`,
+`--command-registry`, `--default-namespace`, `--host`, `--port`, `--prefix`,
+`--server-read-only`, `--job-capacity`, `--async-loops`, `--conversion` and `--pickle` to an
+`argparse` parser; an option not given keeps the file's value. `lq.configure_from_args(args)`
+configures from the file (`--config`, else `liquers.yaml` in the working directory if it exists)
+with the given options merged over it, and `lq.configure_from_command_line(parser)` does all
+three steps and returns the parsed arguments. Each takes `env=` for an environment of your own.
+
+```python
+import argparse, pathlib, tempfile
+import liquers as lq
+
+folder = pathlib.Path(tempfile.mkdtemp())
+(folder / "app.yaml").write_text("server: {host: 127.0.0.1, port: 8123}\n")
+parser = argparse.ArgumentParser()
+parser.add_argument("--title", default="My app")
+args = lq.configure_from_command_line(parser, argv=["--config", str(folder / "app.yaml"), "--port", "0"])
+with lq.serve() as server:               # the file's host, the command line's port
+    assert server.port != 8123 and args.title == "My app"
+```
 
 **Threads.** One environment can be used from several Python threads at once; evaluations run in
 parallel.
@@ -1452,6 +1501,7 @@ What you will notice; the complete list, with the tracking issues, is
 |---|---|---|
 | 2026-11-16 | §7 "Editing values through accessors"; §2: `liquers.accessors`. | `design/settable-value-accessor/` |
 | 2026-11-15 | §2 and §9 (one stub per submodule): the public submodules, `liquers.lui` and `liquers.data_nodes`, the private `_liquers` package. | `design/py-package-submodules/` |
+| 2026-11-15 | §4: configuring the default environment (`lq.configure`, `env.configure`), `overrides=`, and starting an application from a configuration file and its command line (`add_arguments`, `configure_from_args`, `configure_from_command_line`). | phase-5, `design/py-default-environment-config/`, `design/py-command-line-config/` |
 | 2026-11-14 | §6 "Showing a Liquers UI": `wait_idle_async` inside a command, `async def` ones included, raises too. | `liquers-py/tests/test_UIUSE_model.py` |
 | 2026-11-11 | §6 "Showing a Liquers UI": the model, status callbacks, opening a window. §1: the wheels open windows; a build without. §2: the UI names. §10: UI limits. | phase-5, `design/liquers-py-ui/`, `design/liquers-py-ui-window/` |
 | 2026-11-09 | §4: `config=` takes a file (`pathlib.Path`), YAML text or a dict; the `python` section; keywords override the file; unknown sections and server/python keys are refused; the command metadata file. §6: serving over HTTP, with its security settings. §10: the server's limits. | phase-5, `design/configuration-document/`, `design/liquers-py-web-server/` |

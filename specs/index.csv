@@ -324,6 +324,7 @@ PY-ADD-PYTHON-COMMAND-ALIASES-AN-UNREGISTERED-COMMAND,issue,liquers-py's add_pyt
 PY-ADD-PYTHON-COMMAND-STILL-DECLARES-PYCALL-ALIASES,issue,CommandMetadataRegistry.add_python_command is still public and declares aliases of a pycall command that does not exist,draft,local,,,,P3,S,py,,,,,,2026-10-27,specs/issues/PY-ADD-PYTHON-COMMAND-STILL-DECLARES-PYCALL-ALIASES.md
 PY-API-IS-ONE-FLAT-MODULE,feature,"The Python API is one flat module with no submodules, unlike the Rust crates",closed,local,,,,P3,L,py,,,,py-package-submodules,,2026-11-14,specs/issues/PY-API-IS-ONE-FLAT-MODULE.md
 PY-API-REFERENCE-NOT-GENERATED,feature,The Python package has no generated API reference,closed,local,,ready,not-eligible,P2,S,py;docs,,,,py-api-reference,,2026-10-19,specs/issues/PY-API-REFERENCE-NOT-GENERATED.md
+PY-APPLICATION-CANNOT-START-FROM-A-CONFIG-FILE,feature,A Python Liquers application has no supported way to start from a configuration file with command-line overrides,closed,local,,ready,not-eligible,P2,L,py;docs,,,,py-command-line-config,,2026-11-14,specs/issues/PY-APPLICATION-CANNOT-START-FROM-A-CONFIG-FILE.md
 PY-ASYNC-EVALUATION-NOT-SUPPORTED,feature,liquers-py has no awaitable evaluation and cannot register async def commands,closed,local,,ready,not-eligible,P3,L,py,,,,liquers-py-async,,2026-10-20,specs/issues/PY-ASYNC-EVALUATION-NOT-SUPPORTED.md
 PY-CANNOT-INSPECT-THE-DEPENDENCY-MANAGER,feature,Python cannot inspect the dependency manager,draft,local,,,,P3,M,py,,,,,,2026-11-14,specs/issues/PY-CANNOT-INSPECT-THE-DEPENDENCY-MANAGER.md
 PY-CANNOT-OPEN-A-LIQUERS-UI-WINDOW,feature,Python cannot open the Liquers desktop UI in a window,closed,local,,ready,not-eligible,P3,L,py;lib/egui;build,,,,liquers-py-ui-window,,2026-11-06,specs/issues/PY-CANNOT-OPEN-A-LIQUERS-UI-WINDOW.md
@@ -332,6 +333,7 @@ PY-CANNOT-START-A-WEB-SERVER,feature,Python cannot serve its environment over th
 PY-CANNOT-USE-A-LIQUERS-UI,feature,"Python cannot hold, drive or observe a Liquers UI model on its environment",closed,local,,ready,not-eligible,P3,L,py;lib/ui,,,,liquers-py-ui,,2026-11-06,specs/issues/PY-CANNOT-USE-A-LIQUERS-UI.md
 PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA,feature,Python command decorators cannot declare per-argument metadata,draft,local,,needs-decision,not-eligible,P3,S,py,,,,py-command-decorator-declaration-keywords,,2026-10-18,specs/issues/PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA.md
 PY-COMMAND-DECORATOR-CANNOT-SET-REALM,feature,Python command decorators cannot place a command in a realm,draft,local,,needs-decision,not-eligible,P3,S,py,,,,py-command-decorator-declaration-keywords,,2026-10-18,specs/issues/PY-COMMAND-DECORATOR-CANNOT-SET-REALM.md
+PY-DEFAULT-ENVIRONMENT-CANNOT-BE-CONFIGURED,feature,"The Python default environment cannot be configured, and the guide does not say so",closed,local,,ready,not-eligible,P2,L,py;docs,,,,py-default-environment-config,,2026-11-14,specs/issues/PY-DEFAULT-ENVIRONMENT-CANNOT-BE-CONFIGURED.md
 PY-ENCODED-REPRS-QUOTE-THE-DEBUG-STRING,issue,"The reprs of Key, Expires and ExpirationTime put Rust debug text inside Python quotes",closed,local,,ready,eligible,P3,S,py,,,,py-encoded-reprs,,2026-10-27,specs/issues/PY-ENCODED-REPRS-QUOTE-THE-DEBUG-STRING.md
 PY-ENVIRONMENT-CANNOT-EVALUATE,issue,"liquers-py's Environment has no asset manager or recipe provider, so nothing can be evaluated from Python",closed,local,,,,P2,M,py,,,,,,2026-10-19,specs/issues/PY-ENVIRONMENT-CANNOT-EVALUATE.md
 PY-ERROR-INSTANCES-CANNOT-BE-PICKLED,issue,Liquers error instances cannot be pickled in Python,draft,local,,,,P3,S,py,,,,,,2026-11-15,specs/issues/PY-ERROR-INSTANCES-CANNOT-BE-PICKLED.md
@@ -868,6 +870,8 @@ PREDECESSOR-CUT-EQUIVALENCE,design,Make cutting a predecessor boundary observabl
 PURE-COMMAND-CONTEXT-DESIGN,design,Running a command with a pure context,in_review,local,implementation,needs-decision,not-eligible,P2,M,core/context;core/commands,,,,pure-command-context,,2026-10-19,specs/design/pure-command-context/DESIGN.md
 PY-API-REFERENCE,design,A script generates the Python package's API reference from its docstrings,complete,local,,ready,not-eligible,P2,S,py;docs,,234,,py-api-reference,,2026-10-27,specs/design/py-api-reference/DESIGN.md
 PY-COMMAND-DECORATOR-DECLARATION-KEYWORDS,design,The Python command decorators declare per-argument metadata and a realm,in_review,local,implementation,needs-decision,not-eligible,P3,S,py,,,,py-command-decorator-declaration-keywords,,2026-10-27,specs/design/py-command-decorator-declaration-keywords/DESIGN.md
+PY-COMMAND-LINE-CONFIG,design,Start a Python Liquers application from a configuration file with command-line overrides,,github,documentation,ready,not-eligible,P2,L,py;docs;core/context,,273,,py-command-line-config,,2026-11-14,specs/design/py-command-line-config/DESIGN.md
+PY-DEFAULT-ENVIRONMENT-CONFIG,design,Configure the Python default environment after commands are registered,,github,documentation,ready,not-eligible,P2,L,py;docs,,273,,py-default-environment-config,,2026-11-14,specs/design/py-default-environment-config/DESIGN.md
 PY-DOCSTRINGS,design,"Every public name of the Python package has a docstring and a signature, and a test keeps it so",complete,local,,ready,eligible,P2,M,py;docs,,220,,py-docstrings,,2026-10-27,specs/design/py-docstrings/DESIGN.md
 PY-ENCODED-REPRS,design,"Key, Expires and ExpirationTime reprs quote their text form once",complete,local,,ready,eligible,P3,S,py,,222,,py-encoded-reprs,,2026-10-27,specs/design/py-encoded-reprs/DESIGN.md
 PY-METADATA-FIELDS-AS-PROPERTIES,design,Python Metadata exposes its read-only fields as properties,in_review,local,implementation,needs-decision,not-eligible,P3,S,py,,,,py-metadata-fields-as-properties,,2026-10-27,specs/design/py-metadata-fields-as-properties/DESIGN.md
@@ -1071,7 +1075,7 @@ COMMAND_ALIASES,reference,Command Aliases,current,local,,,,,,core/commands;core/
 COMMAND_DECLARATION,reference,Command Declaration Format,current,local,,,,,,core/commands;web;py,,,,,2026-11-04,,specs/reference/COMMAND_DECLARATION.md
 CONFORMANCE_TERMS,reference,Conformance Terms,current,local,,,,,,docs,,,,,2026-09-02,,specs/reference/CONFORMANCE_TERMS.md
 DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,,,core/assets,,,,,2026-11-17,,specs/reference/DEPENDENCIES_STATUS.md
-ENVIRONMENT_CONFIG,reference,Environment Configuration,current,local,,,,,,core/context;core/store;core/assets,,,,,2026-11-09,,specs/reference/ENVIRONMENT_CONFIG.md
+ENVIRONMENT_CONFIG,reference,Environment Configuration,current,local,,,,,,core/context;core/store;core/assets,,,,,2026-11-15,,specs/reference/ENVIRONMENT_CONFIG.md
 IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,current,local,,,,,,lib/image,,,,,2026-11-03,,specs/reference/IMAGE_COMMAND_LIBRARY.md
 JAVASCRIPT_INTEGRATION,reference,JavaScript Integration,current,local,,,,,,web;core/value;core/error;core/store;lib/value,,,,,2026-11-04,,specs/reference/JAVASCRIPT_INTEGRATION.md
 MARKDOWN,reference,Markdown Navigation,current,local,,,,,,lib/commands;records,,,,,2026-11-01,,specs/reference/MARKDOWN.md
@@ -1080,7 +1084,7 @@ PIPELINES,reference,Pipelines,current,local,,,,,,core/commands;core/plan;core/qu
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,,lib/polars,,,,,2026-11-03,,specs/reference/POLARS_COMMAND_LIBRARY.md
 POSITIONING,reference,Positioning and Marketing Plan (draft),current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/POSITIONING.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-11-04,,specs/reference/PROJECT_OVERVIEW.md
-PYTHON_INTEGRATION,reference,Python Integration,current,local,,,,,,py;core/value;core/error;lib/value;core/store;store/config;core/assets;lib/ui;lib/egui,,,,,2026-11-16,,specs/reference/PYTHON_INTEGRATION.md
+PYTHON_INTEGRATION,reference,Python Integration,current,local,,,,,,py;core/value;core/error;lib/value;core/store;store/config;core/assets;lib/ui;lib/egui,,,,,2026-11-19,,specs/reference/PYTHON_INTEGRATION.md
 REALMS,reference,Realms,current,local,,,,,,core/plan;core/commands;store/config,,,,,2026-11-04,,specs/reference/REALMS.md
 RECIPES_AND_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/query;core/assets;core/context,,,,,2026-11-17,,specs/reference/RECIPES_AND_PLANS.md
 RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-11-03,,specs/reference/RECORD_STREAMS.md
@@ -1122,7 +1126,7 @@ UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,,build;core/assets,,,,
 USER_DOCS_EDITING_GUIDE,guide,User Documentation Editing Guide,current,local,,,,,,docs,,,,,2026-11-14,,specs/guides/USER_DOCS_EDITING_GUIDE.md
 VALUE_ACCESSOR_GUIDE,guide,Value Accessor Guide,current,local,,,,,,core/value;core/assets;lib/value;axum;py;web,,,,,2026-11-17,,specs/guides/VALUE_ACCESSOR_GUIDE.md
 WEB_API_GUIDE,guide,Web API Guide,current,local,,,,,,axum;web,,,,,2026-11-09,,specs/guides/WEB_API_GUIDE.md
-python/01-introduction,chapter,Introduction,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/python/01-introduction.md
+python/01-introduction,chapter,Introduction,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/01-introduction.md
 python/02-installing,chapter,Installing and setting up,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/02-installing.md
 python/03-queries,chapter,Queries,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/03-queries.md
 python/04-values,chapter,"Values, state and metadata",ready,local,,,,,,docs,,,,,2026-11-16,,docs/guides/python/04-values.md
@@ -1148,9 +1152,9 @@ rust/02-installing,chapter,Installing and setting up,ready,local,,,,,,docs,,,,,2
 rust/03-queries,chapter,Queries,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/03-queries.md
 rust/04-values,chapter,"Values, state and metadata",ready,local,,,,,,docs,,,,,2026-11-16,,docs/guides/rust/04-values.md
 rust/05-commands,chapter,Commands,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/05-commands.md
-rust/06-stores,chapter,Stores,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/06-stores.md
+rust/06-stores,chapter,Stores,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/rust/06-stores.md
 rust/07-assets,chapter,"Recipes, assets and caching",ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/07-assets.md
-rust/08-environment,chapter,The environment,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/08-environment.md
+rust/08-environment,chapter,The environment,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/rust/08-environment.md
 rust/09-data,chapter,Working with data,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/09-data.md
 rust/10-templates,chapter,Templates,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/10-templates.md
 rust/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/11-ui.md
@@ -1171,7 +1175,7 @@ web/04-values,chapter,"Values, state and metadata",ready,local,,,,,,docs,,,,,202
 web/05-commands,chapter,Commands,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/05-commands.md
 web/06-stores,chapter,Stores,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/06-stores.md
 web/07-assets,chapter,"Recipes, assets and caching",ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/07-assets.md
-web/08-environment,chapter,The environment,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/08-environment.md
+web/08-environment,chapter,The environment,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/web/08-environment.md
 web/09-data,chapter,Working with data,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/09-data.md
 web/10-templates,chapter,Templates,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/10-templates.md
 web/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/11-ui.md

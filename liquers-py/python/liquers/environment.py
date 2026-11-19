@@ -7,6 +7,10 @@ the usual style.
 # Main components
 - `Environment`: configured once, then used to evaluate queries.
 - `default_environment()`, `evaluate`, `evaluate_async`: the process-wide default environment and its shortcuts.
+- `configure(...)`: sets the default environment's settings, before its first use
+  (`Environment.configure` does the same for an environment you made).
+- `add_arguments`, `configure_from_args`, `configure_from_command_line`: start an application from a
+  configuration file with command-line overrides.
 - `Context`: what a running command sees of its evaluation.
 - `Issue`: a problem found while the environment was built.
 - `require(extra)`: checks that an optional extra is installed.
@@ -35,9 +39,15 @@ from liquers._backend import (
     Issue,
 )
 from liquers._env import (
+    configure,
     default_environment,
     evaluate,
     evaluate_async,
+)
+from liquers._cli import (
+    add_arguments,
+    configure_from_args,
+    configure_from_command_line,
 )
 from liquers._extras import require
 
@@ -46,7 +56,11 @@ __all__ = [
     "Context",
     "Issue",
     "default_environment",
+    "configure",
     "evaluate",
     "evaluate_async",
     "require",
+    "add_arguments",
+    "configure_from_args",
+    "configure_from_command_line",
 ]

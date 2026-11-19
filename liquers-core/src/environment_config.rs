@@ -9,8 +9,9 @@
 //!
 //! - [`EnvironmentConfig`]: the environment's keys; applied with
 //!   [`EnvironmentBuilder::with_config`].
-//! - [`ConfigDocument`]: `from_yaml` / `from_json` / `from_toml` / `load`, `take_section`,
-//!   `finish` (an untaken section is an error), `command_registry_path`.
+//! - [`ConfigDocument`]: `from_yaml` / `from_json` / `from_toml` / `load`, `overlay` (a partial
+//!   document merged over the parsed one, keeping its folder), `take_section`, `finish` (an
+//!   untaken section is an error), `command_registry_path`.
 //!
 //! # Where it is used
 //!
@@ -188,6 +189,9 @@ pub struct ConfigDocument {
     /// The document's folder when it was read from a file ([`Self::load`]); only
     /// `command_registry` resolves against it (store paths stay relative to the working directory).
     pub base: Option<PathBuf>,
+    /// The environment's keys as written, kept so [`Self::overlay`] can merge into them and parse
+    /// again rather than serialize [`Self::environment`] back.
+    environment_raw: serde_json::Map<String, serde_json::Value>,
     sections: BTreeMap<String, serde_json::Value>,
     taken: Vec<String>,
 }
@@ -257,10 +261,11 @@ impl ConfigDocument {
             }
         };
         let text = std::fs::read_to_string(path).map_err(|e| {
-            Error::general_error(format!(
-                "cannot read the configuration document {}: {e}",
-                path.display()
-            ))
+            let message = format!("cannot read the configuration document {}: {e}", path.display());
+            match e.kind() {
+                std::io::ErrorKind::NotFound => Error::configuration_error(message),
+                _ => Error::general_error(message),
+            }
         })?;
         let mut doc = parse(&text).map_err(|mut e| {
             e.message = format!("{}: {}", path.display(), e.message);
@@ -305,17 +310,78 @@ impl ConfigDocument {
                 sections.insert(key, value);
             }
         }
-        let environment: EnvironmentConfig =
-            serde_json::from_value(serde_json::Value::Object(environment)).map_err(|e| {
-                Error::parse_error(format!("Failed to parse environment configuration: {e}"))
-            })?;
         Ok(ConfigDocument {
-            environment,
+            environment: parse_environment(&environment)?,
             command_registry,
             base: None,
+            environment_raw: environment,
             sections,
             taken: Vec::new(),
         })
+    }
+
+    /// Merges `overlay`, a partial document, over this one: a mapping merges key by key, and
+    /// every other value (a list included) replaces what is there. `null` is an empty overlay.
+    ///
+    /// Call it before any [`Self::take_section`]. [`Self::base`] is kept, so a relative
+    /// `command_registry` in the overlay resolves against the file's folder; pass an absolute path
+    /// for one that should not. The environment's keys are merged as written and parsed again, so
+    /// a direct edit of [`Self::environment`] made before the call is replaced.
+    ///
+    /// A non-mapping overlay, or environment keys that no longer parse, is a `ParseError` (as in
+    /// [`Self::from_json`]); an overlay of a section already taken is a `ConfigurationError`.
+    ///
+    /// ```
+    /// use liquers_core::environment_config::ConfigDocument;
+    ///
+    /// let mut doc = ConfigDocument::from_yaml("assets: {job_capacity: 2}\nserver: {host: 0.0.0.0, port: 8080}\n").unwrap();
+    /// doc.overlay(serde_json::json!({"server": {"port": 9000}, "default_namespaces": ["pl"]})).unwrap();
+    /// let server: serde_json::Value = doc.take_section("server").unwrap().unwrap();
+    /// assert_eq!(server, serde_json::json!({"host": "0.0.0.0", "port": 9000}));
+    /// assert_eq!(doc.environment.assets.job_capacity, Some(2));
+    /// assert_eq!(doc.environment.default_namespaces, Some(vec!["pl".to_string()]));
+    /// ```
+    pub fn overlay(&mut self, overlay: serde_json::Value) -> Result<(), Error> {
+        let map = match overlay {
+            serde_json::Value::Null => return Ok(()),
+            serde_json::Value::Object(map) => map,
+            other => {
+                return Err(Error::parse_error(format!(
+                    "a configuration overlay must be a mapping of sections, not {}",
+                    json_kind(&other)
+                )))
+            }
+        };
+        let mut environment = self.environment_raw.clone();
+        let mut command_registry = self.command_registry.clone();
+        let mut sections = self.sections.clone();
+        for (key, value) in map {
+            if Self::ENVIRONMENT_KEYS.contains(&key.as_str()) {
+                merge_json(environment.entry(key).or_insert(serde_json::Value::Null), value);
+            } else if key == Self::COMMAND_REGISTRY_KEY {
+                command_registry = match value {
+                    serde_json::Value::String(path) => Some(path),
+                    serde_json::Value::Null => None,
+                    other => {
+                        return Err(Error::configuration_error(format!(
+                            "'command_registry' must name a file, not {}",
+                            json_kind(&other)
+                        )))
+                    }
+                };
+            } else if self.taken.iter().any(|t| t == &key) {
+                return Err(Error::configuration_error(format!(
+                    "cannot overlay section '{key}': it has already been read"
+                )));
+            } else {
+                merge_json(sections.entry(key).or_insert(serde_json::Value::Null), value);
+            }
+        }
+        self.environment = parse_environment(&environment)?;
+        self.environment_raw = environment;
+        self.command_registry = command_registry;
+        self.sections = sections;
+        Ok(())
     }
 
     /// Takes the section `name`, if the document has one, parsed as `T`. An empty section
@@ -385,6 +451,27 @@ impl ConfigDocument {
                 Some(_) | None => path,
             }
         })
+    }
+}
+
+/// Parses the environment's keys.
+fn parse_environment(raw: &serde_json::Map<String, serde_json::Value>) -> Result<EnvironmentConfig, Error> {
+    serde_json::from_value(serde_json::Value::Object(raw.clone())).map_err(|e| {
+        Error::parse_error(format!("Failed to parse environment configuration: {e}"))
+    })
+}
+
+/// Merges `overlay` into `target`: mappings key by key, anything else replaces; `null` changes
+/// nothing.
+fn merge_json(target: &mut serde_json::Value, overlay: serde_json::Value) {
+    match (target, overlay) {
+        (_, serde_json::Value::Null) => {}
+        (serde_json::Value::Object(target), serde_json::Value::Object(overlay)) => {
+            for (key, value) in overlay {
+                merge_json(target.entry(key).or_insert(serde_json::Value::Null), value);
+            }
+        }
+        (target, overlay) => *target = overlay,
     }
 }
 
@@ -848,6 +935,7 @@ assets:
         assert_eq!(ConfigDocument::load(&json).expect("json").environment.assets.job_capacity, Some(6));
         let missing = ConfigDocument::load(&dir.join("absent.yaml")).expect_err("missing");
         assert!(missing.to_string().contains("absent.yaml"), "{missing}");
+        assert_eq!(missing.error_type, crate::error::ErrorType::ConfigurationError);
         let toml = dir.join("liquers.toml");
         std::fs::write(&toml, "[assets]\njob_capacity = 7\n").expect("write");
         #[cfg(feature = "toml")]
@@ -855,5 +943,60 @@ assets:
         #[cfg(not(feature = "toml"))]
         assert!(ConfigDocument::load(&toml).expect_err("feature").to_string().contains("toml"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `overlay` merges mappings key by key and replaces every other value; `null` is a no-op.
+    #[test]
+    fn overlay_merges_mappings_and_replaces_other_values() {
+        let mut doc = ConfigDocument::from_yaml(
+            "default_namespaces: [a, b]\nserver: {host: 127.0.0.1, port: 8080}\n",
+        )
+        .expect("parse");
+        doc.overlay(serde_json::json!({"server": {"port": 9000}, "default_namespaces": ["c"]}))
+            .expect("overlay");
+        doc.overlay(serde_json::Value::Null).expect("null");
+        let server: serde_json::Value = doc.take_section("server").expect("server").expect("some");
+        assert_eq!(server, serde_json::json!({"host": "127.0.0.1", "port": 9000}));
+        assert_eq!(doc.environment.default_namespaces, Some(vec!["c".to_string()]));
+        let mut empty = ConfigDocument::default();
+        empty.overlay(serde_json::json!({"assets": {"job_capacity": 3}})).expect("on defaults");
+        assert_eq!(empty.environment.assets.job_capacity, Some(3));
+    }
+
+    /// `overlay` keeps `base`: the file's relative `command_registry` still joins it, and an
+    /// absolute overlay path is used as given.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn overlay_keeps_base_and_reparses_environment_keys() {
+        let dir = std::env::temp_dir().join(format!("liquers-config-overlay-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let path = dir.join("liquers.yaml");
+        std::fs::write(&path, "command_registry: commands.yaml\nassets: {job_capacity: 5}\n").expect("write");
+        let mut doc = ConfigDocument::load(&path).expect("load");
+        doc.overlay(serde_json::json!({"default_namespaces": ["pl"]})).expect("overlay");
+        assert_eq!(doc.command_registry_path(), Some(dir.join("commands.yaml")));
+        assert_eq!(doc.environment.assets.job_capacity, Some(5));
+        assert_eq!(doc.environment.default_namespaces, Some(vec!["pl".to_string()]));
+        let absolute = std::env::temp_dir().join("elsewhere.yaml");
+        doc.overlay(serde_json::json!({"command_registry": absolute.to_string_lossy()})).expect("registry");
+        assert_eq!(doc.command_registry_path(), Some(absolute));
+        assert_eq!(doc.base.as_deref(), Some(dir.as_path()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `overlay` refuses a section already read and environment keys that no longer parse, and
+    /// changes nothing when it does.
+    #[test]
+    fn overlay_refuses_a_taken_section_and_a_bad_environment() {
+        use crate::error::ErrorType;
+        let mut doc = ConfigDocument::from_yaml("server: {port: 8080}\nassets: {job_capacity: 2}\n").expect("parse");
+        let _: Option<serde_json::Value> = doc.take_section("server").expect("server");
+        let taken = doc.overlay(serde_json::json!({"server": {"port": 1}})).expect_err("taken");
+        assert_eq!(taken.error_type, ErrorType::ConfigurationError);
+        let bad = doc.overlay(serde_json::json!({"assets": {"job_capacity": "many"}})).expect_err("bad");
+        assert_eq!(bad.error_type, ErrorType::ParseError);
+        assert_eq!(doc.environment.assets.job_capacity, Some(2));
+        let list = doc.overlay(serde_json::json!(["not", "a", "mapping"])).expect_err("list");
+        assert_eq!(list.error_type, ErrorType::ParseError);
     }
 }

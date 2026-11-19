@@ -3,7 +3,7 @@ title: Environment Configuration
 kind: reference
 audience: both
 area: [core/context, core/store, core/assets]
-reviewed: 2026-11-09
+reviewed: 2026-11-15
 ---
 # Environment Configuration
 
@@ -172,7 +172,8 @@ let environment = doc.finish()?;                                  // an untaken 
 - **Reading.** `from_yaml` and `from_json` are always available, `from_toml` behind the `toml`
   feature. `load(path)` (native targets only) chooses by extension, `.yaml`, `.yml`, `.json` or
   `.toml`; any other extension, or `.toml` without the feature, is a `ConfigurationError` naming
-  the supported ones, and an unreadable file is an error naming the path. An empty document, or
+  the supported ones. A file that does not exist is a `ConfigurationError` naming the path, and
+another unreadable file is an error naming it. An empty document, or
   one that is `null`, is every default. YAML tags and non-string keys are a `ParseError`, so every
   section is plain JSON-shaped data.
 - **Sections.** `take_section::<T>(name)` returns `None` for an absent section, treats `null` as
@@ -182,6 +183,14 @@ let environment = doc.finish()?;                                  // an untaken 
 - **Finishing.** `finish()` returns the `EnvironmentConfig`, or a `ConfigurationError` naming every
   section no one took (`unknown section 'sever'`) and listing the known keys: the environment
   keys, `command_registry` and every name passed to `take_section`.
+- **Overlay.** `overlay(value)` merges a partial document (a `serde_json::Value`) over the one
+  read, before any section is taken: mappings merge key by key, any other value (a list included)
+  replaces, and `null` is no change. The environment keys are parsed again from the merged
+  mapping, and `base` is kept, so a relative `command_registry` that came from the file still
+  resolves against the file's folder. A non-mapping overlay, or environment keys that no longer
+  parse, is a `ParseError`; an overlay of a section already taken is a `ConfigurationError`. A
+  host applies command-line or programmatic overrides this way (`liquers-py`'s `overrides=`,
+  [PYTHON_INTEGRATION.md](PYTHON_INTEGRATION.md) §3).
 - **Relative paths.** `load` records the document's folder as `base`; `command_registry_path()`
   resolves a relative `command_registry` against it. Store paths are not rewritten and stay
   relative to the working directory.
@@ -328,6 +337,7 @@ and the default gains `manifest`.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-15 | §The configuration document: `overlay` (merge a partial document over the parsed one, keeping `base`); a missing file is a `ConfigurationError`. | phase-5, `design/py-command-line-config/` |
 | 2026-11-09 | §The configuration document: `ConfigDocument` (one file per host: environment keys, `command_registry`, host sections; `load` by extension, `take_section`, `finish` refusing an unknown section, paths relative to the document); §Format: unknown top-level keys are refused by a `ConfigDocument`. | phase-5, `design/configuration-document/` |
 | 2026-11-01 | `default_namespaces`: namespaces searched after a query's `ns`, root appended unless listed, replacing the command registry's chain; field row, sample, `with_config` equivalence, the empty-entry build failure. | `design/plan-default-namespaces/` |
 | 2026-11-01 | §The recipe provider chain: one entry type may repeat with different arguments, only an identical entry is refused; repeated types name their members `type#position`; integration entry types (Python) in the entries table, replacing the `{type: python, …}` placeholder. | `design/liquers-py-recipes/` (phase-5) |

@@ -17,7 +17,8 @@ They combine well, because both read the same queries and can share one store.
 ## 12.1 Embedding in a script or a notebook
 
 For a script, the default environment is enough. Register commands with `@lq.command`, evaluate
-with `lq.evaluate`.
+with `lq.evaluate`, and give it a configuration file with `lq.configure` if it needs one
+(chapter 8).
 
 In a notebook, cells are run again and again. Running a cell that defines a command registers
 it again, replaces the old definition with a warning, and drops the cached results, so the next
@@ -27,19 +28,15 @@ discard the cache.
 
 ## 12.2 Embedding in a service
 
-In a long-running program, create one environment at startup and use it for the life of the
-process:
+In a long-running program, create one environment at startup, from the service's configuration
+file, and use it for the life of the process:
 
 ```python
+import pathlib
 import liquers as lq
 
-def create_environment(data_folder: str) -> lq.Environment:
-    env = lq.Environment(config={
-        "store": {"stores": [
-            {"type": "filesystem", "prefix": "data", "config": {"path": data_folder}},
-        ]},
-        "assets": {"job_capacity": 8},
-    })
+def create_environment(config_file: pathlib.Path) -> lq.Environment:
+    env = lq.Environment(config=config_file)
 
     @env.command
     def shout(text) -> str:
@@ -49,7 +46,14 @@ def create_environment(data_folder: str) -> lq.Environment:
 
 if __name__ == "__main__":
     import tempfile
-    env = create_environment(tempfile.mkdtemp())
+    folder = pathlib.Path(tempfile.mkdtemp())
+    (folder / "service.yaml").write_text(
+        "store:\n"
+        "  stores:\n"
+        "    - {type: filesystem, prefix: data, config: {path: " + str(folder) + "} }\n"
+        "assets: {job_capacity: 8}\n"
+    )
+    env = create_environment(folder / "service.yaml")
     try:
         env.store_set("data/note.txt", "milk")
         print(env.evaluate("-R/data/note.txt/-/shout"))      # MILK
@@ -82,14 +86,23 @@ your Python code, so a notebook or a script keeps working while it serves.
 
 ### Starting a server
 
+A server takes its settings from the `server` section of the configuration:
+
+```yaml
+# liquers.yaml
+server:
+  host: 127.0.0.1
+  port: 8080
+```
+
 ```python
-env = lq.Environment()
+env = lq.Environment(config=pathlib.Path("liquers.yaml"))
 
 @env.first_command
 def greet(name: str = "world") -> str:
     return f"Hello, {name}!"
 
-server = env.serve()            # http://127.0.0.1:8080
+server = env.serve()            # http://127.0.0.1:8080, from liquers.yaml
 ```
 
 Open `http://127.0.0.1:8080/liquer/q/greet-Ann` in a browser and it answers `Hello, Ann!`.
@@ -102,23 +115,25 @@ the server picks a free port, and `server.port` reports the one it got, which su
 `with` block, the server stops at the block's end:
 
 ```python
-import urllib.request
+import pathlib, urllib.request
 import liquers as lq
 
-env = lq.Environment()
+pathlib.Path("liquers.yaml").write_text("server: {host: 127.0.0.1, port: 0}\n")
+env = lq.Environment(config=pathlib.Path("liquers.yaml"))
 
 @env.first_command
 def greet(name: str = "world") -> str:
     return f"Hello, {name}!"
 
-with env.serve(port=0) as server:
+with env.serve() as server:
     answer = urllib.request.urlopen(f"{server.url}/liquer/q/greet-Ann").read()
     assert answer == b"Hello, Ann!"
 assert not server.running
 env.shutdown()
 ```
 
-The module-level `lq.serve()` serves the default environment, the one `@lq.command` registers in.
+The module-level `lq.serve()` serves the default environment, the one `@lq.command` registers in,
+configured with `lq.configure` (chapter 8).
 
 ### Serving in the foreground
 
@@ -150,6 +165,28 @@ The server's settings come from the `server` section of the environment's config
 env = lq.Environment(config=pathlib.Path("liquers.yaml"))
 server = env.serve(port=9000)   # the file's settings, except the port
 ```
+
+A program that serves usually takes the file and its overrides from the command line, as
+`python app.py --config liquers.yaml --port 9000` (chapter 8, "Starting an application"):
+
+```python
+import pathlib, urllib.request
+import liquers as lq
+
+@lq.first_command
+def greet(name: str = "world") -> str:
+    return f"Hello, {name}!"
+
+pathlib.Path("liquers.yaml").write_text(
+    "server:\n  host: 127.0.0.1\n  port: 8123\n  prefix: /api\n  read_only: true\n"
+)
+lq.configure_from_command_line(argv=["--port", "0"])   # a real program leaves argv out
+with lq.serve() as server:            # liquers.yaml's settings, the port from the command line
+    answer = urllib.request.urlopen(f"{server.url}/api/q/greet-Ann").read()
+    assert answer == b"Hello, Ann!"
+```
+
+Without `--config`, the file is `liquers.yaml` in the working directory, if there is one.
 
 {{> ../_shared/serving.md}}
 

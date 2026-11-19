@@ -45,7 +45,8 @@ TOP_LEVEL_NAMES = {
     "data_node", "RenderResult", "Diagnostic", "Link", "link", "Pipeline", "PipelineEditor",
     "QueryEditor", "ActionEditor", "StoreArgumentInfo", "Store", "FieldType", "KeyRole",
     "FieldSchema", "RecordSchema", "ChunkOrigin", "RecordView", "RecordColumn", "RecordBuffer",
-    "RecordSource", "RecordStream", "RecordChunk", "default_environment", "evaluate",
+    "RecordSource", "RecordStream", "RecordChunk", "default_environment", "configure", "add_arguments",
+    "configure_from_args", "configure_from_command_line", "evaluate",
     "evaluate_async", "serve", "serve_async", "ui", "command", "first_command", "require",
     "LiquersError",
     # settable-value-accessor

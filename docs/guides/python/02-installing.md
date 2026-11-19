@@ -209,8 +209,10 @@ of your own program stays clean. In a terminal you can hide the messages with `2
 
 **The default environment.** `lq.evaluate` and the decorators `@lq.command` and
 `@lq.first_command` work on one shared environment, which is created the first time it is needed
-and keeps its data in memory. That is convenient for a script or a notebook. For anything that
-needs its own storage or its own set of commands, including tests, create an environment
-yourself (chapter 8).
+and keeps its data in memory. That is convenient for a script or a notebook. `lq.configure`
+gives it a configuration file, a store on disk or a server section, even after your modules have
+registered their commands, and `lq.configure_from_command_line` takes those settings from your
+program's command line (chapter 8). For a set of commands of its own, as in tests, create an
+environment yourself.
 
 **Version 0.1.** The interfaces described in this guide can still change between releases.
