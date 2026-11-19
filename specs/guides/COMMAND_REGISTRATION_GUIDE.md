@@ -3,7 +3,7 @@ title: Command Registration Guide
 kind: guide
 audience: internal
 area: [core/commands, macro]
-reviewed: 2026-11-04
+reviewed: 2026-11-17
 ---
 # Command Registration Guide
 
@@ -1013,6 +1013,12 @@ register_command!(cr,
 register_command!(cr, fn process_data(state, format: String) -> result)?;
 ```
 
+This metadata is the user interface of the command: the query and action editors
+(`lui/query_editor`, `lui/action_editor`) show `label`, `doc`, each argument's `label`,
+`description`, type and default on hover, draw the widget its `gui:` names (or one picked from the
+type), and offer its argument presets, the command's `preset:` and `next:` entries, and a button for
+its `filename:`.
+
 ### Keep Command Functions Pure
 
 ```rust
@@ -1126,6 +1132,7 @@ only) action is that command ([`AGENT_MEMORY_SERVICE.md`](../reference/AGENT_MEM
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-17 | §5 Provide Comprehensive Metadata: what the editors show from the metadata. | `design/query-pipeline-editor/` |
 | 2026-11-04 | Default links from Python: `lq.link(query)`. | `design/liquers-py-templates/` |
 | 2026-11-04 | New §Registering a pipeline command. | phase-5, `design/composite-command-definition/` |
 | 2026-10-20 | Links to `reference/api/DOC_08_RECIPES_PLANS.md` follow its promotion to `reference/RECIPES_AND_PLANS.md`. | DOC-08 promotion |

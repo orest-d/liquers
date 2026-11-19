@@ -11,7 +11,7 @@ use crate::metadata::DependencyKey;
 ///
 /// Made with the static constructors; `name` is the argument the link fills. Relations compare and
 /// hash by value.
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.dependencies")]
 #[derive(Clone, Debug)]
 pub struct DependencyRelation(pub liquers_core::dependencies::DependencyRelation);
 
@@ -114,7 +114,7 @@ impl DependencyRelation {
 /// One dependency of a plan: what is depended on (`key`) and how (`relation`).
 ///
 /// `PlanDependency(key, relation)` takes a `DependencyKey` and a `DependencyRelation`.
-#[pyclass(from_py_object, module = "liquers")]
+#[pyclass(from_py_object, module = "liquers.dependencies")]
 #[derive(Clone, Debug)]
 pub struct PlanDependency(pub liquers_core::dependencies::PlanDependency);
 

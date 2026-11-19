@@ -272,16 +272,17 @@ type is taken from the key's extension. To report an error, raise an `lq.Liquers
 `lq.KeyNotFoundError`; any other exception reaches the caller as `KeyReadError` or
 `KeyWriteError` with your traceback.
 
-To try a store without an environment, wrap the object directly:
+To try a store without an environment, wrap the object directly with `Store` from
+`liquers.store`:
 
 ```python
-import liquers as lq
+from liquers.store import Store
 
 class Flat:
     def get(self, key):
         return b"one" if str(key) == "a/one.txt" else None
 
-store = lq.Store.from_object(Flat())
+store = Store.from_object(Flat())
 assert store.get("a/one.txt") == b"one"
 assert store.contains("a/one.txt") and not store.contains("a/two.txt")
 assert store.is_read_only()

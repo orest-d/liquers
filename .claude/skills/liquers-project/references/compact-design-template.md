@@ -26,8 +26,12 @@ created: <YYYY-MM-DD>
 ### Problem Example
 ### Scope and Acceptance Criteria
 <Scenarios: `- **AC-1** <name>` then a WHEN line and a THEN line (DOCS_STRUCTURE_GUIDE.md §5.2.1).>
+### Language Integration
+<New feature only: the LANGUAGE-INTEGRATION_GUIDE.md change, and Python and JavaScript each in
+scope / later — <ISSUE-ID> / not needed — why (SKILL.md §Phases).>
 ### Documentation Intent
 - API docs: <the modules whose module doc changes, or none — why (API_DOCUMENTATION_GUIDE.md §3)>
+- User guides: <chapters of `docs/guides/{rust,python,web}/` to change, or none — why>
 ### Design Readiness
 <Or `### Open Questions` when no readiness is assessed. Add `### Design Dependencies` and
 `### Scope Changes` when they apply.>

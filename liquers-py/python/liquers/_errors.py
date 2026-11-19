@@ -79,8 +79,9 @@ class LiquersError(Exception):
         return f"{type(self).__name__}({self.message!r})"
 
 
-# Reported as `liquers.LiquersError`, where users import it from (OBJECT08).
-LiquersError.__module__ = "liquers"
+# Reported as `liquers.error.LiquersError`, its public module (OBJECT08); `liquers.LiquersError` is
+# the same class.
+LiquersError.__module__ = "liquers.error"
 
 _ERROR_TYPE_CLASS: Any = None
 
@@ -92,6 +93,29 @@ def _is_error_type(value: object) -> bool:
 def _variant_name(error_type: object) -> str:
     # PyO3 renders a simple enum member as "ErrorType.Variant".
     return repr(error_type).rsplit(".", 1)[-1]
+
+
+def _get_token(self: BaseException) -> Any:
+    return self.__dict__.get("_token")
+
+
+def _set_token(self: BaseException, value: Any) -> None:
+    self.__dict__["_token"] = value
+
+
+# Class attributes of particular variants. A `StatusConflictError` from an accessor carries the
+# current token, which the native side sets on the instance; any other has `token` None. It is a
+# property rather than a plain `None`, so that it has its own docstring.
+_VARIANT_ATTRIBUTES: dict[str, dict[str, Any]] = {
+    "StatusConflict": {
+        "token": property(
+            _get_token,
+            _set_token,
+            doc="The current token, when the conflict is an accessor's and the value still exists; "
+            "otherwise None.",
+        )
+    }
+}
 
 
 def _install(error_type_class: Any) -> dict[str, type["LiquersError"]]:
@@ -108,7 +132,7 @@ def _install(error_type_class: Any) -> dict[str, type["LiquersError"]]:
         bases = (LiquersError,) + _CATEGORY_EXTRA_BASES.get(category, ())
         # No `_error_type`: like LiquersError itself, a category class needs an explicit ErrorType.
         namespace = {
-            "__module__": "liquers",
+            "__module__": "liquers.error",
             "__doc__": f"Base class of every error in the {category} category.",
         }
         categories[category] = type(class_name, bases, namespace)
@@ -123,8 +147,9 @@ def _install(error_type_class: Any) -> dict[str, type["LiquersError"]]:
         bases = tuple(categories[c] for c in member.categories()) or (LiquersError,)
         namespace = {
             "_error_type": member,
-            "__module__": "liquers",
+            "__module__": "liquers.error",
             "__doc__": f"Raised for ErrorType.{name}.",
+            **_VARIANT_ATTRIBUTES.get(name, {}),
         }
         subclass = type(class_name, bases, namespace)
         _SUBCLASSES[name] = subclass

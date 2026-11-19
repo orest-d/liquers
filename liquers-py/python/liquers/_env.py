@@ -13,7 +13,8 @@ and the settings are fixed from then on.
   environment, as module-level functions.
 
 # Where it is used
-- `liquers/__init__.py` re-exports every public name here at the top level.
+- `liquers.environment` and `liquers.server` export its public names, and `liquers` re-exports them
+  at the top level.
 - `liquers/_commands.py`: the bare decorators register in `default_environment()`.
 - `liquers/_cli.py`: `configure_from_args` configures it from command-line options.
 
@@ -39,7 +40,7 @@ import threading
 from collections.abc import Awaitable, Coroutine
 from typing import Any, Literal
 
-from liquers._native import UI, Environment, Server
+from liquers._backend import UI, Environment, Server
 
 _DEFAULT: Environment | None = None
 _LOCK = threading.Lock()

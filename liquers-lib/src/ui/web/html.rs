@@ -45,7 +45,7 @@ pub fn field_attr(name: &str) -> String {
 /// ` data-lq-event="…"` — the UI event a click (or Enter, on a single-line field) sends to the
 /// owning element.
 pub fn event_attr(kind: &crate::ui::event::UIEventKind) -> String {
-    format!(" data-lq-event=\"{}\"", escape_html(kind.name()))
+    format!(" data-lq-event=\"{}\"", escape_html(&kind.name()))
 }
 
 /// ` data-lq-shortcut="…"` — a keyboard shortcut that activates this node's `data-lq-action`.
@@ -111,6 +111,10 @@ fn ext_to_html(ext: &ExtValue, app_state: &dyn AppState) -> String {
         #[cfg(feature = "polars")]
         ExtValue::PolarsDataFrame { value } => super::dataframe::dataframe_to_html(value, 100),
         ExtValue::UIElement { value } => value.render_web(app_state),
+        ExtValue::Accessor { value } => format!(
+            "<div class=\"lq-accessor\">accessor {}</div>",
+            escape_html(&value.address().encode())
+        ),
         #[cfg(feature = "egui")]
         ExtValue::UiCommand { .. } => {
             "<div class=\"lq-egui-only\">egui command (no web rendering)</div>".to_string()

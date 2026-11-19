@@ -1,8 +1,8 @@
 ---
 title: Values, state and metadata
 status: ready
-sources: [reference/VALUE_TYPE_SYSTEM.md, guides/JAVASCRIPT_GUIDE.md, reference/PIPELINES.md]
-reviewed: 2026-11-10
+sources: [reference/VALUE_TYPE_SYSTEM.md, guides/JAVASCRIPT_GUIDE.md, reference/PIPELINES.md, reference/VALUE_ACCESSORS.md]
+reviewed: 2026-11-16
 ---
 # 4. Values, state and metadata
 
@@ -194,7 +194,7 @@ the store, call `env.store().set(key, bytes, {})`.
 
 ## 4.5 Handles
 
-Three kinds of values reach JavaScript as a *handle*: a small object that refers to data inside
+Four kinds of values reach JavaScript as a *handle*: a small object that refers to data inside
 the module instead of copying it.
 
 | Value | Handle | Chapter |
@@ -202,6 +202,7 @@ the module instead of copying it.
 | a table | `RecordBatch` | [9](09-data.md) |
 | a table in chunks | `RecordSource` | [9](09-data.md) |
 | a user-interface element | `UIElement` | [11](11-ui.md) |
+| a handle on the place a value lives | `Accessor` | 4.6 |
 
 The objects the module gives you for its own work are handles too: `Asset`, `State`, `Value`,
 `Query`, `Key`, `Store` and the editors.
@@ -211,3 +212,36 @@ dropped is cleaned up eventually, but when is up to the browser. So every handle
 method, and for large data, a table above all, you should call it when you are done. After
 `free()` the handle must not be used. A handle passed back to Liquers, as the result of a
 command for example, is the same value again, not a copy.
+
+## 4.6 Editing a value in place
+
+An *accessor* is a handle on the place a value lives: a stored file, a result, or one part of
+either, such as a field of a YAML document. You read and write through it, and Liquers keeps
+everyone who holds the same place in step. The `acc` commands make one from a key:
+
+```js
+import init, * as liquers from "./liquers_web.js";
+
+await init();
+await liquers.init();
+await liquers.Environment.global().configureStore({ stores: [{ type: "memory", prefix: "d" }] });
+
+const file = await liquers.accessor("-R-key/d/config.yaml/-/ns-acc/accessor");
+await file.setIf("title: Dashboard\nrows: 3\n", null);    // null: create it
+const title = await file.project("field-title");
+const { token } = await title.snapshot();
+await title.setIf("Sales", token);                         // write, if nobody changed it since
+assert.strictEqual(await liquers.evaluate("-R/d/config.yaml"), "title: Sales\nrows: 3\n");
+await assert.rejects(title.setIf("Stale", token), (e) => e.errorType === "status_conflict");
+```
+
+The *token* says which version you read. `setIf` writes only if the value is still that version, so
+two editors cannot overwrite each other without noticing: the second one's promise rejects with a
+`status_conflict` error whose `token` is the current one, nothing is written, and they read again.
+`set(value)` uses the token this handle last saw; `setIf(value, null)` creates a value that must not
+exist yet.
+
+`subscribe(callback)` calls you back with `{ event: "changed", etag }` and the status, progress and
+log events, until you `dispose()` the subscription. `liquers.memoryAccessor(value)` is a variable of
+your own that commands can share: an accessor a command returns is a handle to the same place, not
+a copy. A query that is not an accessor gives a read-only one, whose `capabilities.write` is false.

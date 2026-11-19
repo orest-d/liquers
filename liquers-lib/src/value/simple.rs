@@ -1,3 +1,37 @@
+//! `SimpleValue`: the base side of `liquers-lib`'s value type.
+//!
+//! [`SimpleValue`] holds the same data as `liquers-core`'s `Value` (scalars, text, arrays,
+//! objects, bytes, metadata, asset info, recipes, command metadata, queries, keys, pipelines), in
+//! struct variants, with the same type identifiers, conversions and JSON forms. It is the `Base`
+//! of `liquers_lib::value::Value`, whose `Extended` side holds the richer values.
+//!
+//! # Main components
+//!
+//! - [`SimpleValue`] and its `ValueInterface` and `DefaultValueSerializer` implementations.
+//!
+//! # Where it is used
+//!
+//! - `liquers_lib::value::Value` (`CombinedValue<SimpleValue, ExtValue>`), and so every command of
+//!   this crate.
+//!
+//! # Related concepts
+//!
+//! - `liquers_core::value::Value`: the core value type this one mirrors.
+//! - [`crate::value::extended`]: how `SimpleValue` combines with the extension.
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_core::value::ValueInterface;
+//! use liquers_lib::value::SimpleValue;
+//! let recipe = SimpleValue::from_recipe(liquers_core::recipes::Recipe::default());
+//! assert_eq!(recipe.identifier(), "Recipe");
+//! assert!(recipe.try_into_json_value().is_ok()); // the same JSON form as core's `Value`
+//! ```
+//!
+//! - [Tests](https://github.com/orest-d/liquers/blob/main/liquers-lib/tests/value_type_system.rs):
+//!   identifiers and type descriptions.
+
 use serde::{Deserialize, Serialize};
 use serde_json;
 use serde_yaml;
@@ -152,6 +186,15 @@ impl ValueInterface for SimpleValue {
                 }
                 Ok(serde_json::Value::Object(m))
             }
+            // The same JSON forms as core's `Value`, so a recipe, a metadata record or a
+            // pipeline can be read as a document (the accessor steps do) in either value type.
+            SimpleValue::Metadata { value } => serde_json::to_value(value.as_ref()).map_err(|e| {
+                Error::conversion_error_with_message("metadata", "json value", &e.to_string())
+            }),
+            SimpleValue::Recipe { value } => serde_json::to_value(value.as_ref()).map_err(|e| {
+                Error::conversion_error_with_message("recipe", "json value", &e.to_string())
+            }),
+            SimpleValue::Pipeline { value } => Ok(value.to_json()),
             _ => Err(Error::conversion_error(self.identifier(), "JSON value")),
         }
     }

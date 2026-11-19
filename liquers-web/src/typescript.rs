@@ -535,6 +535,47 @@ export interface UIRenderer {
   dispose?(): void;
 }
 
+/** What an `Accessor` can do: `write` is false for a read-only accessor (a computed asset), and
+ * `notify` false for a root that cannot report changes (call `refresh()` to see them). */
+export interface AccessorCapabilities {
+  write: boolean;
+  notify: boolean;
+}
+
+/** `Accessor.info()`: the root's state, without reading the value. `status` is a status name as `LiquersAsset.status` gives it (`"none"` when the
+ * value does not exist); `token` is null until the value has been read. */
+export interface AccessorInfo {
+  status: string;
+  message: string;
+  primaryProgress: unknown | null;
+  secondaryProgress: unknown | null;
+  logLen: number;
+  token: string | null;
+}
+
+/** `Accessor.describe()`: what the part is. `step` is the projection step that reaches it
+ * (`"field-title"`), or `"root"`. */
+export interface PartDescription {
+  step: string;
+  typeIdentifier: string;
+  argument: unknown | null;
+  command: string | null;
+  overridden: boolean;
+  readOnly: boolean;
+}
+
+/** One accessor event, in the WebSocket's shape: `etag` comes with `"changed"`, `status` (a
+ * status name, as in `AccessorInfo`) with `"status"`, `primary` or `secondary` with `"progress"`,
+ * and `count` with `"log"`. */
+export interface AccessorEventObject {
+  event: "initial" | "status" | "progress" | "log" | "changed" | "invalidated" | "removed";
+  etag?: string;
+  status?: string;
+  primary?: unknown;
+  secondary?: unknown;
+  count?: number;
+}
+
 /** What `dataFacts` reports about a data object without reading it. */
 export interface LiquersDataFacts {
   size: number;

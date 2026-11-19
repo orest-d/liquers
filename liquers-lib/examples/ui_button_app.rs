@@ -99,6 +99,7 @@ impl UIElement for ButtonElement {
             }
             UpdateMessage::AssetNotification(_) => UpdateResponse::Unchanged,
             UpdateMessage::Timer { .. } => UpdateResponse::Unchanged,
+            UpdateMessage::Accessor(_) | UpdateMessage::Directory(_) => UpdateResponse::Unchanged,
             UpdateMessage::AssetUpdate(_) => UpdateResponse::Unchanged,
             UpdateMessage::UI(_) => UpdateResponse::Unchanged,
         }

@@ -70,6 +70,7 @@ mod browser {
         key_target: web_sys::EventTarget,
         click: Closure<dyn FnMut(web_sys::Event)>,
         keydown: Closure<dyn FnMut(web_sys::Event)>,
+        change: Closure<dyn FnMut(web_sys::Event)>,
     }
 
     impl MountHandle {
@@ -86,6 +87,10 @@ mod browser {
                 let _ = dom.key_target.remove_event_listener_with_callback(
                     "keydown",
                     dom.keydown.as_ref().unchecked_ref(),
+                );
+                let _ = dom.root.remove_event_listener_with_callback(
+                    "change",
+                    dom.change.as_ref().unchecked_ref(),
                 );
                 dom.root.set_inner_html("");
             }
@@ -173,6 +178,27 @@ mod browser {
         };
         if dispatched {
             ev.prevent_default();
+        }
+    }
+
+    /// Delegated change handler: a field declaring `data-lq-event="change:<field>"` (a checkbox,
+    /// a selector) sends `UIEventKind::Change` with the owning element's field values.
+    fn dispatch_change(ev: &web_sys::Event, ctx: &UIContext) {
+        let target = match ev
+            .target()
+            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+        {
+            Some(t) => t,
+            None => return,
+        };
+        match target
+            .get_attribute("data-lq-event")
+            .and_then(|name| UIEventKind::from_name(&name))
+        {
+            Some(kind @ UIEventKind::Change(_)) => {
+                send_field_event(&target, kind, ctx);
+            }
+            Some(UIEventKind::Submit) | Some(UIEventKind::Named(_)) | None => {}
         }
     }
 
@@ -280,10 +306,17 @@ mod browser {
         true
     }
 
-    /// The live text of an `<input>` or `<textarea>`; `None` for anything else.
+    /// The live text of an `<input>`, `<textarea>` or `<select>`; a checkbox reads `true` or
+    /// `false`; `None` for anything else.
     fn read_field_value(field: &web_sys::Element) -> Option<String> {
         if let Some(input) = field.dyn_ref::<web_sys::HtmlInputElement>() {
+            if input.type_() == "checkbox" {
+                return Some(input.checked().to_string());
+            }
             return Some(input.value());
+        }
+        if let Some(select) = field.dyn_ref::<web_sys::HtmlSelectElement>() {
+            return Some(select.value());
         }
         field
             .dyn_ref::<web_sys::HtmlTextAreaElement>()
@@ -627,7 +660,8 @@ mod browser {
             current_env,
             mut on_tick,
         } = options;
-        let ctx = UIContext::new(app_state.clone(), sender.clone());
+        let ctx = UIContext::new(app_state.clone(), sender.clone())
+            .with_command_registry(envref.command_metadata_snapshot());
 
         let click_ctx = ctx.clone();
         let click = Closure::wrap(Box::new(move |ev: web_sys::Event| {
@@ -638,8 +672,14 @@ mod browser {
         let keydown = Closure::wrap(Box::new(move |ev: web_sys::Event| {
             dispatch_keydown(&ev, &keydown_ctx, &keydown_root);
         }) as Box<dyn FnMut(web_sys::Event)>);
+        let change_ctx = ctx.clone();
+        let change = Closure::wrap(Box::new(move |ev: web_sys::Event| {
+            dispatch_change(&ev, &change_ctx);
+        }) as Box<dyn FnMut(web_sys::Event)>);
         root.add_event_listener_with_callback("click", click.as_ref().unchecked_ref())
             .map_err(|_| Error::general_error("failed to attach click listener".to_string()))?;
+        root.add_event_listener_with_callback("change", change.as_ref().unchecked_ref())
+            .map_err(|_| Error::general_error("failed to attach change listener".to_string()))?;
         // Keys go to the document, not the root: with nothing focused the browser targets
         // `<body>`, outside the root, and a menu shortcut must still work there.
         let key_target: web_sys::EventTarget = match web_sys::window().and_then(|w| w.document()) {
@@ -668,6 +708,7 @@ mod browser {
                 key_target,
                 click,
                 keydown,
+                change,
             }),
             stopped,
         })

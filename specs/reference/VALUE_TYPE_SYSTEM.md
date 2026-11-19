@@ -3,7 +3,7 @@ title: Value Type System
 kind: reference
 audience: internal
 area: [core/value, lib/value]
-reviewed: 2026-11-04
+reviewed: 2026-11-16
 ---
 
 # Value Type System
@@ -81,7 +81,7 @@ Core (`liquers-core::value::Value`, mirrored by `liquers-lib`'s `SimpleValue`):
 written as `json`, `yaml`/`yml`, or `txt` (its query text, only when it needs no registry to be
 written). `ValueInterface::try_into_pipeline` reads a pipeline, a query, or JSON or YAML text.
 
-Library (`liquers-lib::value::ExtValue`): `Image`, `UIElement`, `polars.DataFrame` (feature
+Library (`liquers-lib::value::ExtValue`): `Image`, `UIElement`, `Accessor`, `polars.DataFrame` (feature
 `polars`), `egui.Command` and `egui.Widget` (feature `egui`), `RecordView` and `RecordSource`
 (feature `records`; see "The record identifiers" below).
 
@@ -336,6 +336,15 @@ values by content, a payload that mutates in place can leave a cached asset whos
 matches its version. `ExtValue::Widget` does this deliberately, because live mutation is a widget's
 purpose.
 
+`ExtValue::Accessor { value: Arc<dyn ValueAccessor<Value>> }` is the other justified handle: a value
+accessor ([`VALUE_ACCESSORS.md`](VALUE_ACCESSORS.md)) is a live handle on the place a value lives, and
+sharing it between clones is the point (every holder of one query's accessor is one handle). It is
+not data: its `TypeInfo("Accessor")` declares no formats, so it is never stored (persisting it is
+metadata only, like a UI element), its `data_node` is opaque, and its JSON form is refused. Core reaches
+it without knowing the variant through `ValueInterface::from_accessor` and `try_into_accessor`, which
+default to refusing; a value type that carries accessors overrides both, and an environment whose
+registry has no `Accessor` type is one the web API's accessor routes refuse.
+
 ## Reading a value by name: `DataNode`
 
 `ValueInterface::data_node(value: Arc<Self>) -> AnyNode` exposes a value as a tree of maps, lists
@@ -372,7 +381,7 @@ because the rule is inconvenient:
 - **An error state.** An errored asset keeps the intended output's filename, so `report.csv` gives
   an effective format of `csv` while the value is gone and the type has become `None` — and its
   bytes are not a serialization of the declared type at all.
-- **A type that declares no formats.** A UI element, an egui widget or a foreign handle has no byte
+- **A type that declares no formats.** A UI element, an egui widget, an accessor or a foreign handle has no byte
   form; the asset layer persists it as metadata only, so requiring it to name a format it cannot
   produce would be contradictory.
 
@@ -444,6 +453,7 @@ degrades on read.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-16 | `Accessor` identifier (`ExtValue::Accessor`): a justified handle, never stored, reached through `ValueInterface::from_accessor` / `try_into_accessor`. | `design/settable-value-accessor/` |
 | 2026-11-04 | §What a value variant may hold: `Pipeline` joins the payloads behind `Arc`, keeping `Value` and `SimpleValue` at 32 bytes. | `design/core-value-enum-oversized/` |
 | 2026-11-04 | `Pipeline` identifier (`Value::Pipeline`), its formats and `try_into_pipeline`. | phase-5, `design/composite-command-definition/` |
 | 2026-11-03 | §What a value variant may hold: core `Value` and `SimpleValue` keep their four large payloads behind `Arc` and are at most 32 bytes (was 752). | `design/core-value-enum-oversized/` |

@@ -32,12 +32,20 @@ UI, bindings. Omit the ones it does not touch.>
 ## Crate Placement
 <Crate(s) and why, respecting the dependency flow in CLAUDE.md.>
 
+## Language Integration
+<Required for a completely new feature; omit for a fix or an internal change. See
+`specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` and SKILL.md §Phases.>
+- Integration guide: <new feature ID / extend <ID> / no change — why>
+- Python (`liquers-py`): <in scope / later — <ISSUE-ID> / not needed — why>
+- JavaScript (`liquers-web`): <in scope / later — <ISSUE-ID> / not needed — why>
+
 ## Documentation Intent
 - Reference: <new / extend <path> / none — why>
 - Guide: <new / extend <path> / none — why>
 - Other documents: <list or none>
 - Documents to update: <paths or none>
 - API docs: <the modules whose module doc is created or changed, or none — why; `specs/guides/API_DOCUMENTATION_GUIDE.md` §3>
+- User guides: <chapters of `docs/guides/{rust,python,web}/` to create or update, per guide, or none — why>
 
 ## Open Questions
 1. <Question, with a recommended answer when there is one.>

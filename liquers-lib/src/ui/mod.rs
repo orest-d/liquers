@@ -53,6 +53,7 @@
 pub mod action;
 pub mod app_state;
 pub mod commands;
+pub mod editor;
 pub mod element;
 pub mod event;
 pub mod handle;

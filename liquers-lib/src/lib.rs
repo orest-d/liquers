@@ -1,3 +1,4 @@
+pub mod accessor;
 pub mod commands;
 #[cfg(feature = "egui")]
 pub mod egui;

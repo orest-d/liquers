@@ -178,9 +178,27 @@ has its chapter:
 | Errors | `LiquersError` and one subclass for each kind of error | 15 |
 | The package | `require`, `__version__` | 2 |
 
+Each of these names (all but `__version__`) also lives in a submodule that groups it with its neighbours, the way the Rust crates
+are organised: `liquers.query`, `liquers.commands`, `liquers.metadata`, `liquers.store`,
+`liquers.environment`, `liquers.records`, `liquers.error` and so on. Both spellings give the same
+object, so use whichever reads better:
+
+```python
+import liquers as lq
+from liquers.query import Key, parse
+
+assert Key is lq.Key and parse is lq.parse
+print(Key.__module__)    # liquers.query
+```
+
+Two submodules have names chosen so they never hide a function of the same name: the user
+interface is `liquers.lui` (it holds `lq.ui()`), and reading data in place is `liquers.data_nodes`
+(it holds `lq.data_node()`). Modules whose names start with an underscore, and the compiled
+package `_liquers`, are internal: do not import from them.
+
 The complete list, with every method, is the
-[API reference](https://orest-d.github.io/liquers/api/python/liquers.html). The same text is
-available in Python through `help(lq.Environment)`, and the package ships type declarations, so
+[API reference](https://orest-d.github.io/liquers/api/python/liquers.html), with a page per
+submodule. The same text is available in Python through `help(lq.Environment)`, and the package ships type declarations, so
 editors and type checkers know the signatures.
 
 ## 2.5 Things to know before you start

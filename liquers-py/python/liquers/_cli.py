@@ -16,7 +16,7 @@ given on the command line resolves against the working directory.
 - `configure_from_command_line(parser)` — both, plus parsing; returns the parsed arguments.
 
 # Where it is used
-- `liquers/__init__.py` re-exports the three functions at the top level.
+- `liquers.environment` exports the three functions, and `liquers` re-exports them at the top level.
 - The user guide *Liquers for Python*, chapter 8 "Starting an application", and the server and UI
   examples of chapters 11 and 12.
 
@@ -52,7 +52,7 @@ import pathlib
 from collections.abc import Iterable, Sequence
 from typing import Any
 
-from liquers._native import Environment
+from liquers._backend import Environment
 
 DEFAULT_CONFIG = "liquers.yaml"
 

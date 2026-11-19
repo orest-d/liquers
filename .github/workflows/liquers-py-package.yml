@@ -16,6 +16,7 @@ on:
       - 'liquers-py/packaging/**'
       - 'liquers-py/src/**'
       - 'liquers-py/python/liquers/**'
+      - 'liquers-py/python/_liquers/**'
       - 'liquers-py/tests/package/**'
       - 'Cargo.toml'
       - 'scripts/check-workspace-metadata.py'

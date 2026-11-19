@@ -256,7 +256,18 @@ async fn audit_after_restart_expires_dependent() -> TestResult {
     )
     .await?;
 
-    assert_eq!(report.checked, vec![dep("data/a.txt")]);
+    // The gaps: `a.txt` and `b.txt`'s own recipe, which the fresh process has not resolved
+    // (`specs/design/recipe-dependency-versions/`); the recipe is unchanged, so only `a.txt` is
+    // a finding.
+    let mut checked = report.checked.clone();
+    checked.sort_by(|x, y| x.as_str().cmp(y.as_str()));
+    assert_eq!(
+        checked,
+        vec![
+            DependencyKey::from_recipe_key(&parse_key("data/b.txt")?),
+            dep("data/a.txt"),
+        ]
+    );
     assert_eq!(report.expired, vec![dep("data/b.txt")]);
     assert_eq!(
         report.findings.len(),
@@ -1063,7 +1074,14 @@ async fn listing_gap_resolved_by_audit_after_restart() -> TestResult {
     .await?;
 
     let dir = DependencyKey::from_dir_key(&parse_key("data")?);
-    assert_eq!(report.checked, vec![dir.clone()], "{report:?}");
+    // `index.txt`'s own recipe is a gap too, unchanged, so the listing is the only finding.
+    let mut checked = report.checked.clone();
+    checked.sort_by(|x, y| x.as_str().cmp(y.as_str()));
+    assert_eq!(
+        checked,
+        vec![dir.clone(), DependencyKey::from_recipe_key(&index_key("idx")?)],
+        "{report:?}"
+    );
     assert_eq!(report.expired, vec![dep("idx/index.txt")], "{report:?}");
     assert_eq!(index.status().await, Status::Expired);
     Ok(())

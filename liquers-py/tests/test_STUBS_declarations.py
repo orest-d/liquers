@@ -17,8 +17,8 @@ from pathlib import Path
 
 import pytest
 
+import _liquers
 import liquers
-import liquers._native
 
 TYPING_LEG = (
     sys.implementation.name == "cpython"
@@ -36,8 +36,9 @@ MYPY_INI = TYPING / "mypy.ini"
 PYRIGHT_CONFIG = TYPING / "pyrightconfig.json"
 ALLOWLIST = TYPING / "stubtest-allowlist.txt"
 PACKAGE = Path(liquers.__file__).parent
+NATIVE = Path(_liquers.__file__).parent
 PINS = {"mypy": "2.4.1", "pyright": "1.1.414"}
-# Names `_native` has only in a `debug-handles` build (the test build).
+# Names `_liquers` has only in a `debug-handles` build (the test build).
 DEBUG_ONLY = {"live_record_handle_count"}
 
 
@@ -48,17 +49,28 @@ def run(args, cwd, env=None):
 
 def stubtest(cwd, env=None):
     return run(
-        [sys.executable, "-m", "mypy.stubtest", "liquers", "--allowlist", str(ALLOWLIST),
+        [sys.executable, "-m", "mypy.stubtest", "liquers", "_liquers", "--allowlist", str(ALLOWLIST),
          "--mypy-config-file", str(MYPY_INI)],
         cwd,
         env,
     )
 
 
+# The public submodules, which a class reports as its module (`liquers.query.Key`).
+SUBMODULES = (
+    "query", "commands", "metadata", "dependencies", "plan", "recipes", "store", "environment",
+    "assets", "error", "data_nodes", "pipeline", "template", "records", "server", "lui",
+    "accessors",
+)
+_NAMED = re.compile(
+    r"^error: _?liquers\.(?:(?:" + "|".join(SUBMODULES) + r")\.)?(\w+)", re.M
+)
+
+
 def remaining(stubtest_output):
-    """The class or function each stubtest error names (`liquers.X.y is ...` gives `X`)."""
+    """The class or function each stubtest error names (`liquers.query.Key.x is ...` gives `Key`)."""
     names = set()
-    for match in re.finditer(r"^error: liquers\.(?:_native\.)?(\w+)", stubtest_output, re.M):
+    for match in _NAMED.finditer(stubtest_output):
         names.add(match.group(1))
     return names
 
@@ -105,8 +117,11 @@ def test_checkers_are_pinned():
 
 def test_declaration_files_exist():
     files = importlib.resources.files("liquers")
-    for name in ("__init__.pyi", "_native.pyi", "py.typed"):
+    for name in ("__init__.pyi", "py.typed", *(f"{sub}.pyi" for sub in SUBMODULES)):
         assert files.joinpath(name).is_file(), name
+    native = importlib.resources.files("_liquers")
+    for name in ("__init__.pyi", "py.typed"):
+        assert native.joinpath(name).is_file(), f"_liquers/{name}"
 
 
 def test_stubtest_passes(tmp_path):
@@ -116,16 +131,19 @@ def test_stubtest_passes(tmp_path):
 
 
 def test_package_sources_pass_mypy(tmp_path):
-    # `-p liquers` checks the stubs and the six pure-Python modules; `__init__.py` is read
-    # through `__init__.pyi`.
-    result = mypy(["-p", "liquers"], tmp_path)
+    # `-p liquers` checks the stubs and the pure-Python modules that have no stub of their own;
+    # `__init__.py` is read through `__init__.pyi`. `-p _liquers` checks the native package's stub.
+    result = mypy(["-p", "liquers", "-p", "_liquers"], tmp_path)
     assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_native_names_are_declared():
-    runtime = set(dir(liquers._native)) - DEBUG_ONLY
-    assert undeclared(runtime, declared_names(PACKAGE / "_native.pyi")) == []
+    runtime = set(dir(_liquers)) - DEBUG_ONLY
+    assert undeclared(runtime, declared_names(NATIVE / "__init__.pyi")) == []
     assert undeclared(set(liquers.__all__), declared_names(PACKAGE / "__init__.pyi")) == []
+    for sub in SUBMODULES:
+        module = importlib.import_module(f"liquers.{sub}")
+        assert undeclared(set(module.__all__), declared_names(PACKAGE / f"{sub}.pyi")) == [], sub
 
 
 def test_undeclared_names_the_class():
@@ -139,11 +157,11 @@ def test_stubtest_reports_drift(tmp_path, case):
     for path in PACKAGE.iterdir():
         if path.suffix in (".py", ".pyi") or path.name == "py.typed":
             shutil.copy(path, copy / path.name)
-    stub = copy / "__init__.pyi"
+    stub = copy / "environment.pyi"
     text = stub.read_text()
     if case == "missing":
         changed = re.sub(r"\n    def evaluate_state\(self[^\n]*", "", text, count=1)
-        expected = "liquers.Environment.evaluate_state is not present in stub"
+        expected = "liquers.environment.Environment.evaluate_state is not present in stub"
     else:
         changed = text.replace(
             "class Environment:\n", "class Environment:\n    def no_such_method(self) -> None: ...\n", 1
@@ -158,9 +176,9 @@ def test_stubtest_reports_drift(tmp_path, case):
 
 
 def stub_classes():
-    """`{name: [base names]}` of the classes in `__init__.pyi`."""
+    """`{name: [base names]}` of the classes in `error.pyi`, where the error classes are declared."""
     classes = {}
-    for node in ast.parse((PACKAGE / "__init__.pyi").read_text()).body:
+    for node in ast.parse((PACKAGE / "error.pyi").read_text()).body:
         if isinstance(node, ast.ClassDef):
             classes[node.name] = [b.id for b in node.bases if isinstance(b, ast.Name)]
     return classes
@@ -169,14 +187,14 @@ def stub_classes():
 def test_error_classes_are_declared():
     classes = stub_classes()
     assert classes["LiquersError"] == ["Exception"]
-    for name, cls in liquers._ERROR_SUBCLASSES.items():
-        assert name in classes, f"{name} is not declared in __init__.pyi"
+    for name, cls in liquers.error._ERROR_SUBCLASSES.items():
+        assert name in classes, f"{name} is not declared in error.pyi"
         assert classes[name] == [b.__name__ for b in cls.__bases__], name
     declared_errors = {
         n for n, bases in classes.items()
-        if any(b in liquers._ERROR_SUBCLASSES or b == "LiquersError" for b in bases)
+        if any(b in liquers.error._ERROR_SUBCLASSES or b == "LiquersError" for b in bases)
     }
-    assert declared_errors == set(liquers._ERROR_SUBCLASSES)
+    assert declared_errors == set(liquers.error._ERROR_SUBCLASSES)
 
 
 @pytest.mark.parametrize("checker", ["mypy", "pyright"])
@@ -191,7 +209,7 @@ def test_good_samples_pass(tmp_path, checker):
         report = json.loads(result.stdout)
         assert result.returncode == 0, json.dumps(report["generalDiagnostics"], indent=1)
         checked = report["summary"]["filesAnalyzed"]
-    assert checked >= 7
+    assert checked >= 8
 
 
 IGNORE = re.compile(r"  # type: ignore\[[\w-]+\]  # pyright: ignore\[\w+\]$")

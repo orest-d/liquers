@@ -20,7 +20,7 @@ use crate::error::pyerr_to_error;
 /// and `"any"`; `default` must be JSON. Pass a list of them as `arguments=` to
 /// `Environment.register_store_factory` or `register_recipe_provider_factory` when a factory's
 /// signature cannot describe its arguments.
-#[pyclass(frozen, name = "StoreArgumentInfo", module = "liquers")]
+#[pyclass(frozen, name = "StoreArgumentInfo", module = "liquers.store")]
 #[derive(Clone)]
 pub struct StoreArgumentInfo(pub CoreStoreArgumentInfo);
 

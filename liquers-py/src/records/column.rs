@@ -19,7 +19,7 @@ use crate::records::schema::FieldType;
 use crate::records::LiveRecord;
 
 /// One column of a record view.
-#[pyclass(frozen, module = "liquers")]
+#[pyclass(frozen, module = "liquers.records")]
 pub struct RecordColumn {
     name: String,
     column: Column,
@@ -169,7 +169,7 @@ impl RecordColumn {
 /// One part of a record column (`validity`, `offsets` or `data`), lent read-only with the buffer
 /// protocol. It holds the column, so its bytes outlive the view and the column object they came
 /// from.
-#[pyclass(frozen, module = "liquers")]
+#[pyclass(frozen, module = "liquers.records")]
 pub struct RecordBuffer {
     column: Column,
     part: Part,

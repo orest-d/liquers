@@ -240,14 +240,15 @@ env.shutdown()
 The result has a key, so it is cached and stored, which a pipeline evaluated with
 `env.evaluate` is not (section 3.10).
 
-API reference: [`Recipe`](https://orest-d.github.io/liquers/api/python/liquers.html#Recipe).
+API reference: [`Recipe`](https://orest-d.github.io/liquers/api/python/liquers/recipes.html#Recipe).
 
 ## 7.9 Recipes from Python
 
 A `recipes.yaml` lists its results one by one. When the names follow a pattern instead, "for
 every file `x.csv` there is a summary `x.summary.txt`", write a *recipe provider*: an object
 whose `recipe_opt(key)` returns the recipe for a key, or `None` when the key is not its
-business. The recipe is an `lq.Recipe` or just the text of a query.
+business. The recipe is a `Recipe`, from the module `liquers.recipes`, or just the text of a
+query.
 
 As with a store, you register a factory under a type name. The `recipes` list of the
 configuration then names that type, and the other settings of the entry are passed to the
@@ -255,6 +256,7 @@ factory:
 
 ```python
 import liquers as lq
+from liquers.recipes import Recipe
 
 class Reports:
     def __init__(self, folder):
@@ -263,7 +265,7 @@ class Reports:
         if str(key.parent()) != self.folder:
             return None                                   # not mine: answer quickly
         if key.filename() == "fresh.txt":
-            return lq.Recipe("hello", volatile=True)
+            return Recipe("hello", volatile=True)
         return f"hello/{key.filename()}"
 
 env = lq.Environment(config={"recipes": ["recipes_yaml", {"type": "reports", "folder": "reports"}]})
@@ -295,8 +297,8 @@ A provider may be asked often, so `recipe_opt` should answer quickly for keys th
 own. It may be an `async def`. If its results should show up when a folder is listed, give it a
 method `assets_with_recipes(folder)` that returns the names it offers in that folder.
 
-`lq.Recipe(query, title="", description="", *, cwd=None, volatile=False, expires=None)` builds a
-recipe; `expires` is an `lq.Expires`.
+`Recipe(query, title="", description="", *, cwd=None, volatile=False, expires=None)` builds a
+recipe; `expires` is an `Expires`, from `liquers.metadata`.
 
 ## 7.10 Settings that change caching
 

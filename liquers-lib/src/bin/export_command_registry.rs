@@ -56,6 +56,8 @@ enum Group {
     Mem,
     /// The `ns-md` commands (feature `markdown`).
     Markdown,
+    /// The `ns-acc` commands: value accessors (always present).
+    Accessor,
     /// The `store_config` realm: store configuration entries, declared but never executed.
     #[value(name = "store_config")]
     StoreConfig,
@@ -74,6 +76,7 @@ impl Group {
             Group::Template => "template",
             Group::Mem => "mem",
             Group::Markdown => "markdown",
+            Group::Accessor => "accessor",
             Group::StoreConfig => "store_config",
         }
     }
@@ -82,7 +85,7 @@ impl Group {
     /// always present. Several groups may share one feature (`search` comes with `records`).
     fn feature(self) -> Option<&'static str> {
         match self {
-            Group::Core | Group::Lui | Group::StoreConfig => None,
+            Group::Core | Group::Lui | Group::Accessor | Group::StoreConfig => None,
             Group::Egui => Some("egui"),
             Group::Image => Some("image-support"),
             Group::Polars => Some("polars"),
@@ -96,7 +99,7 @@ impl Group {
     /// Whether this binary was compiled with the group's cargo feature.
     fn is_compiled_in(self) -> bool {
         match self {
-            Group::Core | Group::Lui | Group::StoreConfig => true,
+            Group::Core | Group::Lui | Group::Accessor | Group::StoreConfig => true,
             Group::Egui => cfg!(feature = "egui"),
             Group::Image => cfg!(feature = "image-support"),
             Group::Polars => cfg!(feature = "polars"),
@@ -108,7 +111,7 @@ impl Group {
         }
     }
 
-    fn all() -> [Group; 11] {
+    fn all() -> [Group; 12] {
         [
             Group::Core,
             Group::Lui,
@@ -120,6 +123,7 @@ impl Group {
             Group::Template,
             Group::Mem,
             Group::Markdown,
+            Group::Accessor,
             Group::StoreConfig,
         ]
     }
@@ -306,6 +310,9 @@ fn build_registry(groups: &[Group]) -> Result<CommandMetadataRegistry, Error> {
                 Group::Markdown => {
                     #[cfg(feature = "markdown")]
                     liquers_lib::register_markdown_commands!(cr)?;
+                }
+                Group::Accessor => {
+                    liquers_lib::register_accessor_commands!(cr)?;
                 }
                 // Every command registry declares the realm's built-ins when it is created;
                 // the group adds liquers-lib's own entries and decides whether they are kept.

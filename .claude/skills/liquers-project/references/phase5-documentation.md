@@ -148,6 +148,10 @@ and the output of `scripts/check_api_docs.py` for those files; or `None`>
 <Output of `docs_index.py chapters-for`, and for each chapter: reviewed, fixed, or marked `CHECK:`
 with an issue; or `None`>
 
+### Language Integration
+<Each Phase 1 decision and its outcome: in scope (what shipped; conformance matrix and
+`LANGUAGE-INTEGRATION_GUIDE.md` updated), later (issue ID), not needed; or `Not a new feature`>
+
 ### Links and Capability Map
 <Links added, updated, or replaced in `specs/README.md` and other documentation>
 

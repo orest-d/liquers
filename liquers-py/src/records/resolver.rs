@@ -113,6 +113,11 @@ impl SourceOrigin {
     pub fn shut(&self) -> &Arc<Shut> {
         &self.shut
     }
+
+    /// The environment, while it is alive (`lq.Accessor.project` evaluates in it).
+    pub fn envref(&self) -> Option<EnvRef<PyEnvironment>> {
+        self.env.upgrade().map(EnvRef)
+    }
 }
 
 /// The resolver a `lq.RecordSource` traverses with: it decides on every call between the

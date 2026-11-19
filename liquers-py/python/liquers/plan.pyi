@@ -1,0 +1,56 @@
+"""Type declarations for ``liquers.plan``; the classes it exports report ``liquers.plan`` as their module."""
+
+import os
+from collections.abc import Awaitable, Callable, Coroutine, Iterable, Mapping, Sequence
+from typing import Any, ClassVar, Literal, Protocol, TypeVar, final, overload
+
+from typing_extensions import ParamSpec, Self, TypeAlias
+
+from liquers.commands import CommandMetadataRegistry
+
+__all__ = [
+    "Plan",
+    "Step",
+    "ParameterValue",
+    "ResolvedParameterValues",
+    "build_plan",
+]
+
+@final
+class Plan:
+    def __new__(cls) -> Self: ...
+    def to_json(self) -> str: ...
+    def to_yaml(self) -> str: ...
+    @staticmethod
+    def from_json(json: str) -> Plan: ...
+    @staticmethod
+    def from_yaml(yaml: str) -> Plan: ...
+
+@final
+class Step:
+    @staticmethod
+    def info(message: str) -> Step: ...
+    @staticmethod
+    def warning(message: str) -> Step: ...
+    @staticmethod
+    def error(message: str) -> Step: ...
+    def to_json(self) -> str: ...
+    @staticmethod
+    def from_json(json: str) -> Step: ...
+
+@final
+class ParameterValue:
+    @staticmethod
+    def none() -> ParameterValue: ...
+    def to_json(self) -> str: ...
+    @staticmethod
+    def from_json(json: str) -> ParameterValue: ...
+
+@final
+class ResolvedParameterValues:
+    def __new__(cls) -> Self: ...
+    def to_json(self) -> str: ...
+    @staticmethod
+    def from_json(json: str) -> ResolvedParameterValues: ...
+
+def build_plan(query: str, command_metadata_registry: CommandMetadataRegistry) -> Plan: ...

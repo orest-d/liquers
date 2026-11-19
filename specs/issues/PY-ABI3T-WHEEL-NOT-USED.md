@@ -31,3 +31,9 @@ CPython expects and current pip installs the tag; checked on a final 3.15 releas
 ## Discovery
 
 `liquers-py-package` Phase 2 (the ABI question).
+
+## Note (2026-11-15)
+
+`design/py-package-submodules/` moved the extension to the private package `_liquers`: the library
+is now `_liquers/_liquers.<suffix>.so` and the failing import would be `_liquers._liquers`. The
+naming problem is unchanged.

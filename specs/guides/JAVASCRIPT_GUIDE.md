@@ -3,7 +3,7 @@ title: Using Liquers from JavaScript in the browser
 kind: guide
 audience: user
 area: [web]
-reviewed: 2026-11-04
+reviewed: 2026-11-16
 ---
 # Using Liquers from JavaScript in the browser
 
@@ -59,6 +59,7 @@ Both return `Promise`s. Calling `liquers.init()` again is harmless: it keeps the
 | The query language | `Query`, `Key`, `encodeParam` |
 | Pipelines | `evaluatePipeline`, `pipelineToQuery`, `queryToPipeline`, `PipelineEditor`, `QueryEditor` |
 | Templates | `render`, `expand`, `validateTemplate` |
+| Editing values in place | `accessor`, `memoryAccessor`, `Accessor`, `AccessorSnapshot`, `AccessorSubscription` |
 | Stores | `Environment.configureStore`, `Environment.registerStoreObject`, `Store` |
 | Record streams (`records` builds) | `RecordBatch`, `RecordSource`, `RecordStream` |
 
@@ -732,6 +733,43 @@ await assert.rejects(liquers.evaluate("today/to_text"), (e) => e.errorType === "
 
 A Rust command cannot look inside an opaque object, and one cannot be written to a store.
 
+**Editing values through accessors.** An accessor is a live handle on the place a value lives: a
+stored file, a keyed asset, a field of a document, an argument of a recipe's query. The `acc`
+commands make one from a key, and `liquers.accessor(query)` resolves it. Every method returns a
+`Promise`; a write succeeds only if nobody else wrote since this handle last read or wrote.
+
+```js
+import init, * as liquers from "./liquers_web.js";
+
+await init();
+await liquers.init();
+await liquers.Environment.global().configureStore({ stores: [{ type: "memory", prefix: "d" }] });
+
+const doc = await liquers.accessor("-R-key/d/config.yaml/-/ns-acc/accessor");
+await doc.setIf("title: Dashboard\nrows: 3\n", null);           // null: create, it must not exist
+const title = await doc.project("field-title");
+const seen = [];
+const sub = title.subscribe((e) => seen.push(e.event));           // "changed", "status", …
+
+const { token } = await title.snapshot();
+await title.setIf("Sales", token);                                // returns the new token
+assert.strictEqual(await liquers.evaluate("-R/d/config.yaml"), "title: Sales\nrows: 3\n");
+await assert.rejects(title.setIf("Stale", token),
+  (e) => e.errorType === "status_conflict" && typeof e.token === "string");
+sub.dispose();
+
+const counter = liquers.memoryAccessor(1, "counter");             // a variable shared by its holders
+await counter.set(2);
+assert.strictEqual(await counter.get(), 2);
+```
+
+A conflict writes nothing; its `token` is the current one, so read again and retry. `describe()`
+says what a part is, `info()` gives its status (`"none"` for a value that does not exist) and `log()`
+its messages, and `capabilities.write` is false for a query that is not an accessor, which gives a
+read-only one. An accessor a command returns crosses as an `Accessor` handle, and a handle passed
+back is the same accessor. The guide to accessors in every language is
+[`VALUE_ACCESSOR_GUIDE.md`](VALUE_ACCESSOR_GUIDE.md).
+
 ## 8. Errors
 
 Every Liquers error reaches JavaScript as a `LiquersError`. There is one class; the kind of error is
@@ -1082,6 +1120,7 @@ What you will notice; the complete list, with the tracking issues, is
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-16 | §7 "Editing values through accessors"; §2: `accessor`, `memoryAccessor` and the accessor classes. | `design/settable-value-accessor/` |
 | 2026-10-26 | Created from the implemented `liquers-web`; every example runs under Node. | `WEB-HAS-NO-API-REFERENCE-OR-USER-GUIDE` |
 | 2026-10-26 | Nested values: `null` now returns as `null`; why nested bytes are refused. | `WEB-NESTED-NULL-CROSSES-AS-UNDEFINED`, `WEB-NESTED-BYTES-REFUSED-NOT-DEGRADED` |
 | 2026-10-31 | §5 "The context": a command receives an execution context; the limitation is removed. | design `js-command-context` |

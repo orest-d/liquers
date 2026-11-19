@@ -1,8 +1,8 @@
 ---
 title: Values, state and metadata
 status: ready
-sources: [reference/VALUE_TYPE_SYSTEM.md, guides/TYPE_SYSTEM_GUIDE.md, reference/PIPELINES.md]
-reviewed: 2026-11-10
+sources: [reference/VALUE_TYPE_SYSTEM.md, guides/TYPE_SYSTEM_GUIDE.md, reference/PIPELINES.md, reference/VALUE_ACCESSORS.md]
+reviewed: 2026-11-16
 ---
 # 4. Values, state and metadata
 
@@ -78,6 +78,7 @@ pub enum CombinedValue<Base, Ext> {
 | `RecordView` | `Arc<dyn RecordView>`, a finite table | `records` | `as_record_view()` |
 | `RecordSource` | `Arc<dyn RecordSource>`, a table read in chunks | `records` | `as_record_source()` |
 | `UIElement`, widgets | parts of a user interface | `egui` for widgets | `as_ui_element()` |
+| `Accessor` | `Arc<dyn ValueAccessor<Value>>`, a handle on the place a value lives (section 4.6) | always | `try_into_accessor()` |
 | foreign objects | an object of another language: Python, JavaScript | always | |
 
 The `try_into_…` methods of the base kinds come from the trait `ValueInterface` of
@@ -285,3 +286,39 @@ stored, but your own commands can downcast it and use it. Finally, `Value` is on
 value type. The environment is generic over it, and a program with unusual needs can combine
 `SimpleValue` with an extension enum of its own through `CombinedValue`. The command library is
 written for `liquers_lib::value::Value`, so this route gives up the library.
+
+## 4.6 Accessors: editing a value in place
+
+An *accessor* is a value that is a handle on the place another value lives: a stored file, a
+result, a variable in memory, or one part of any of these, such as a field of a YAML document or
+an argument of a recipe's query. You read and write through it, and every holder of the same place
+stays in step. The `acc` commands make one from a key, and `resolve_accessor` evaluates such a
+query and gives you the accessor:
+
+```rust
+// Sketch: `envref` is an environment with the `acc` commands registered
+// (`liquers_lib::register_accessor_commands!(cr)?`) and `config.yaml` in its store.
+use liquers_core::accessor::{resolve_accessor, SetOptions, ValueAccessor};
+
+let query = parse_query("-R-key/config.yaml/-/ns-acc/accessor/field-title")?;
+let title = resolve_accessor(&envref, &query).await?;
+
+let read = title.get().await?;                            // the value and its fingerprint
+assert_eq!(read.state.try_into_string()?, "Dashboard");
+title.set_if(Value::from("Sales"), Some(read.fingerprint), SetOptions::default()).await?;
+
+// The same fingerprint again is out of date: someone (here, we) wrote in between.
+let stale = title.set_if(Value::from("Stale"), Some(read.fingerprint), SetOptions::default()).await;
+assert_eq!(stale.unwrap_err().error_type, ErrorType::StatusConflict);
+```
+
+`set_if` writes only if the part is still what you read, so two editors cannot overwrite each other
+without noticing: the second gets a `StatusConflict` error, nothing is written, and the error carries
+the current fingerprint (`accessor::conflict_token`). `set_if(value, None, …)` creates a value that
+must not exist yet, and `set` uses the fingerprint the accessor last saw. `subscribe()` gives a
+channel of events (`Changed`, status, progress, log), and `project` the accessor of a part.
+`memory_accessor` makes a variable shared by every clone of the handle.
+
+An accessor is never stored: it has no file format. A value type of your own carries accessors by
+overriding `ValueInterface::from_accessor` and `try_into_accessor`; without them, the accessor
+commands refuse to run.

@@ -15,6 +15,7 @@ use liquers_core::error::Error;
 
 use crate::value::{ExtValueInterface, Value};
 
+pub mod accessor;
 pub mod commands;
 pub mod convert;
 pub mod table_ops;

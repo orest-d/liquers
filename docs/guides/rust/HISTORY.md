@@ -43,6 +43,9 @@ have a row here (`specs/guides/USER_DOCS_EDITING_GUIDE.md`, maintenance).
 | 2026-11-14 | d-sister-guides.md | chapter 13 is *Records*; adds appendix E |
 | 2026-11-14 | e-web-api.md | new appendix: the web API reference, from the shared fragment `_shared/web-api.md` (written from `reference/WEB_API_SPECIFICATION.md`, example answers taken from a running server); `ready` |
 | 2026-11-14 | 11-ui.md | restructured to go from a first application to the details: 11.1 is a complete window (or page) built from a UI spec, followed by what the user interface is and is not, from the shared fragment `_shared/ui-idea.md` |
+| 2026-11-16 | 04-values.md | reviewed against `design/settable-value-accessor/`: `Accessor` joins the extended kinds; new 4.6 on accessors (a sketch: resolve, `set_if` with a fingerprint, conflicts) |
+| 2026-11-16 | 12-serving.md | reviewed against `design/settable-value-accessor/`: the shared settings table names the opt-in `accessors` API |
+| 2026-11-16 | e-web-api.md | reviewed against `design/settable-value-accessor/`: new E.10, the Accessor API (routes, `ETag` preconditions, the WebSocket), from `_shared/web-api.md` |
 | 2026-11-15 | 06-stores.md | reviewed for `py-command-line-config` (`ConfigDocument::overlay`, a missing file is a `ConfigurationError`): still right; no edit |
 | 2026-11-15 | 08-environment.md | reviewed for `py-command-line-config` (`ConfigDocument::overlay`, a missing file is a `ConfigurationError`): still right; no edit |
 | 2026-11-15 | 12-serving.md | reviewed for `py-command-line-config` (`ConfigDocument::overlay`, a missing file is a `ConfigurationError`): still right; no edit |

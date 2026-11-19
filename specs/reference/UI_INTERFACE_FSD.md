@@ -3,7 +3,7 @@ title: UI Interface Specification
 kind: reference
 audience: internal
 area: [lib/ui]
-reviewed: 2026-11-11
+reviewed: 2026-11-17
 ---
 # UI Interface Specification
 
@@ -309,6 +309,15 @@ fn render_table(state: &State<Value>) -> Result<Value, Error> {
 }
 ```
 
+### Element-owned values
+
+A value an element owns, with no home in the store or in an asset (a form field's draft, a
+selection), is a memory accessor (`liquers_core::accessor::memory_accessor`,
+[`VALUE_ACCESSORS.md`](VALUE_ACCESSORS.md)): a variable every clone of the handle shares, with
+conflicts, projections and change events like any other accessor. How an element binds to an
+accessor (redrawing on `Changed`, writing on an edit) is specified for the editors in
+[Editors](#editors).
+
 ## Event Handling
 
 Events stored as queries in element state:
@@ -342,7 +351,7 @@ recorded as `UIChange::Replaced`. An event for a removed element is dropped. Del
 owning element only: there is no propagation.
 
 ```rust
-pub enum UIEventKind { Submit, Named(String) }      // closed; a new kind is a deliberate change
+pub enum UIEventKind { Submit, Named(String), Change(String) } // closed; a new kind is deliberate
 pub struct UIEvent { pub kind: UIEventKind, pub fields: Vec<(String, Value)> }
 ```
 
@@ -359,6 +368,7 @@ channel (the query console's Enter does), so both backends share one handling pa
 |---|---|---|
 | `data-lq-field="name"` | `<input>`, `<textarea>` | its live value travels with the owner's events as field `name` |
 | `data-lq-event="submit"` / `"name"` | any node | a click sends that event to the owning element; on a single-line input, so does Enter |
+| `data-lq-event="change:<field>"` | `<input>`, `<select>` | the browser's `change` (a checkbox toggled, a choice made, a field left) sends `Change(<field>)` with the fields; a checkbox's value is `"true"` / `"false"` |
 | `data-lq-shortcut="Alt+N"` | a node with `data-lq-action` | the key combination runs that node's action |
 | `data-lq-action='…'` | any node | a click runs the serialized `UiAction` |
 
@@ -377,8 +387,54 @@ physical code, so macOS Option combinations and non-Latin layouts still match.
 **Limits.** Browsers never deliver some combinations to a page (Chrome: Ctrl+N, Ctrl+T, Ctrl+W),
 so a web menu should not rely on them; the query console example uses Alt+N. In egui, menu
 shortcuts are consumed by `UISpecElement` itself (`consume_shortcut`) and run their `UiAction`;
-in neither backend is a shortcut a `UIEvent`. Kinds beyond `Submit` and `Named` (field change,
-drop, focus, pointer) are not yet defined (`UI-EVENTS-HAVE-NO-POINTER-DRAG-OR-CHANGE-KINDS`).
+in neither backend is a shortcut a `UIEvent`. `Change(field)` commits one field without submitting
+(`UIEventKind::from_name("change:<field>")`). Drop, focus and pointer kinds are not yet defined
+(`UI-EVENTS-HAVE-NO-POINTER-DRAG-OR-CHANGE-KINDS`).
+
+## Editors
+
+Query, pipeline, action, resource and key editors are one `UIElement`,
+`liquers-lib/src/ui/editor/` `EditorElement` (design `design/query-pipeline-editor/`). Reviewed
+against the implementation on 2026-11-17.
+
+| Kind (`EditorKind`) | Edits | Created by |
+|---|---|---|
+| `Query` | a query or pipeline: a tree of its steps (resource, `ns`, actions, `q` / `v`, values; a link argument is a subtree) beside the highlighted text | `lui/query_editor` |
+| `Action` | the one-element pipeline of an action accessor | `lui/action_editor` |
+| `Resource` | the first resource of a query: header dropdown, key, store file selector | `lui/resource_editor` |
+| `Key` | a key, with the file selector | `lui/key_editor` |
+
+**Binding.** `EditorBinding::Accessor(query)` names the accessor (for example
+`-R-key/reports/recipes.yaml/-/ns-acc/accessor/recipe-0/query`); `Memory(text)` keeps the value in a
+memory accessor for the session. The `lui` commands take an accessor value's `address()`; an
+accessor made in code (empty address) is adopted as it is (`AccessorOp::Adopt`) and saved as
+`Memory`. A binding that does not give an accessor makes the editor read-only with the error.
+
+**Protocol.** The element never awaits. It sends `AppMessage::Accessor { handle, binding, op }`
+(`Watch`, `Adopt`, `Get`, `SetIf { value, expected }`) and `AppMessage::ListDirectory { handle,
+folder }`; `AppRunner` answers with `UpdateMessage::Accessor(AccessorUpdate)` (`Bound`, `Snapshot`,
+`Written`, `Conflict` with the live value, `Failed`) and `UpdateMessage::Directory`. The runner
+keeps one watched accessor per handle and turns each `Changed` event into a fresh snapshot, so a
+second editor of the same recipe follows. A write is `set_if` against the fingerprint the copy was
+loaded from: a conflict reloads the live value and reports the refused text. At most one write is
+in flight; edits made meanwhile are written when it completes.
+
+**Edits.** `EditorState` (backend-free) applies each `EditorCommand` as a validated edit of a
+`liquers_core::pipeline::QueryEditor` / `PipelineEditor` working copy: a refused edit changes
+nothing and is shown at its node. "Update immediately" (`continuous`, default on) writes each
+committed edit; otherwise edits are pending until Update, and Revert reloads. A namespace edit that
+changes what a command resolves to waits for Confirm; one that leaves a command unresolved is
+refused. Unknown commands and excess parameters are shown read-only and kept.
+
+**Renderers.** `egui::editor::show_editor` (collapsing tree, `gui_info` widgets, drag and drop of
+`ns` entries and list items) and `ui::web::editor::editor_html` (the `data-lq-*` markup; lists move
+with buttons) both draw the same `EditorTree` and return `EditorCommand`s; `EditorView::from_ui_event`
+decodes the browser's events. Hover text is each field's label, description, type and default.
+`UIContext::command_registry()` carries the registry snapshot every host gives its contexts; with
+none, the editor shows the text only.
+
+The query console's Parameters panel is the same core over the console's text, showing its last
+action; an edit rewrites the text and does not submit.
 
 ## Hosts
 
@@ -769,3 +825,5 @@ Candidate universal operations identified across use cases:
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |
 | 2026-10-30 | Event Handling: implemented UI events (`UIEvent`, `data-lq-*` markup, keyboard precedence, limits). Only that section was reviewed against the implementation. | ui-events |
 | 2026-11-11 | Hosts: the native driver, the egui window and the Python host; reviewed against the implementation (that section only). | `design/egui-native-app/`, `design/liquers-py-ui/`, `design/liquers-py-ui-window/` |
+| 2026-11-16 | Value Integration: element-owned values are memory accessors; binding is left to the UI designs. Only that subsection was reviewed. | `design/settable-value-accessor/` |
+| 2026-11-17 | Editors: the editor element, its binding and message protocol, edits and renderers; UI events gain `Change(field)`. Those sections reviewed against the implementation. | `design/query-pipeline-editor/` |

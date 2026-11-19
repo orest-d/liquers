@@ -14,7 +14,7 @@ use super::config::{normalize_prefix, Api, ServerConfig, WebSetting};
 use super::running::LiquersServer;
 use super::source::EnvSource;
 use crate::web::{index_routes, web_routes};
-use crate::{AssetsApiBuilder, QueryApiBuilder, RecipesApiBuilder, StoreApiBuilder};
+use crate::{AccessorApiBuilder, AssetsApiBuilder, QueryApiBuilder, RecipesApiBuilder, StoreApiBuilder};
 
 /// Assembles the standard APIs, the web folder and the index page into one router, and binds it.
 ///
@@ -52,7 +52,7 @@ impl<E: Environment> LiquersServerBuilder<E> {
         &self.config
     }
 
-    /// Leave out the store API and the assets mutation routes.
+    /// Leave out the store API, the assets mutation routes and the accessor `PUT`.
     pub fn read_only(mut self) -> Self {
         self.config.read_only = true;
         self
@@ -64,7 +64,16 @@ impl<E: Environment> LiquersServerBuilder<E> {
         self
     }
 
-    /// Leave out the assets API's WebSocket endpoints.
+    /// Mount one of the standard APIs, if it is not already listed: `with_api(Api::Accessors)`
+    /// turns the opt-in accessor API on.
+    pub fn with_api(mut self, api: Api) -> Self {
+        if !self.config.apis.contains(&api) {
+            self.config.apis.push(api);
+        }
+        self
+    }
+
+    /// Leave out the WebSocket endpoints of the assets and accessor APIs.
     pub fn without_websocket(mut self) -> Self {
         self.websocket = false;
         self
@@ -130,6 +139,16 @@ impl<E: Environment> LiquersServerBuilder<E> {
                 Api::Recipes => {
                     router.merge(RecipesApiBuilder::<E>::new(format!("{prefix}/api/recipes")).build())
                 }
+                Api::Accessors => {
+                    let mut accessors = AccessorApiBuilder::<E>::new(format!("{prefix}/api/acc"));
+                    if read_only {
+                        accessors = accessors.read_only();
+                    }
+                    if !self.websocket {
+                        accessors = accessors.without_websocket();
+                    }
+                    router.merge(accessors.build())
+                }
             };
         }
         if let Ok(Some(root)) = self.config.web.root() {
@@ -142,9 +161,19 @@ impl<E: Environment> LiquersServerBuilder<E> {
     }
 
     /// Binds `host:port` and starts serving `source` in the background. Fails, with nothing
-    /// listening, when the settings are invalid or the address cannot be bound.
+    /// listening, when the settings are invalid, `apis` lists `accessors` for a value type with no
+    /// accessors (no `Accessor` in the type registry), or the address cannot be bound.
     pub async fn bind(self, source: impl EnvSource<E>) -> Result<LiquersServer, Error> {
         self.config.validate()?;
+        if self.config.apis.contains(&Api::Accessors) {
+            if let Ok(envref) = source.current().await {
+                if envref.get_type_registry().get("Accessor").is_none() {
+                    return Err(Error::configuration_error(
+                        "server.apis: accessors needs a value type with accessors".to_string(),
+                    ));
+                }
+            }
+        }
         let host = self.config.host.trim();
         let address = if host.contains(':') && !host.starts_with('[') {
             format!("[{host}]:{}", self.config.port)
