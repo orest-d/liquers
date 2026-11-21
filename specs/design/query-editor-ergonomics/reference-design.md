@@ -284,6 +284,73 @@ namespace, command, realm, state → tokens) implemented with the keyed override
 selector-backed resolver can replace it without touching the widgets. The resolver itself is
 filed as `NO-RENDERER-NEUTRAL-STYLESHEET` for the later theme design.
 
+### 4.3 The theme subset of this design
+
+Decided 2026-11-21: YAML authoring, one token model in Rust, CSS generated for the browser
+([`theme-formats.md`](./theme-formats.md)). This design defines the part of the model the editors
+need, named so the rest of the UI can use it too (it is not limited to the editors).
+
+| Group | Tokens | Used by |
+|---|---|---|
+| Surface roles (per mode) | `bg`, `panel`, `card`, `card-head`, `control`, `control-hover`, `line`, `line-strong`, `shadow` | Window, cards, inputs |
+| Text roles (per mode) | `ink`, `ink-muted`, `ink-faint`, `on-accent` | Labels, help lines, ids |
+| State roles (per mode) | `accent`, `accent-wash`, `focus-ring`, `danger`, `warning`, `success`, `modified` | Focus, errors, the modified dot, preset chip |
+| Query syntax (per mode) | `header`, `resource`, `separator`, `namespace`, `action`, `parameter`, `entity`, `link`, `filename`, `plain`, `highlight`, `error` | The highlighted query text in egui (`egui/widgets.rs` `styled_query_to_layout_job`, colours hard-coded today), the browser (`lq-tok-*` classes) and the terminal (`DarkAnsiQueryRenderStyle` in `liquers-core/src/query.rs`) |
+| Hues | named hues with `dark`, `light`, `ansi` | Namespace tiles (registry metadata names a hue) |
+| Density (Comfortable, Compact) | `control-height`, `row-gap`, `card-gap`, `card-radius`, `card-padding`, `label-width`, `icon-size`; `cells` variants for a terminal | Cards and the form grid |
+| Typography | `font-ui`, `font-mono`, `size-body`, `size-small`, `size-title` | All text; mono for queries and ids |
+| Icons | `icon-set` (Phosphor), `namespaces.<ns>`, `commands.<ns>/<name>` (icon, hue) | AC-8, AC-14 |
+| Terminal fallbacks | `terminal.<role>` as ANSI names | A later TUI; the query syntax already has an ANSI renderer |
+
+The query syntax group is keyed by token kind, matching the `SyntaxKind` of
+`query-editor-live-validation` (`Separator`, `Header`, `ResourceName`, `ActionName`, `Parameter`,
+`Entity`, `Filename`, `Plain`) plus what the editors add (`namespace`, `link`, `highlight`,
+`error`). Today's `StyledQueryToken` maps onto the same keys.
+
+### 4.4 How UI elements reach the theme
+
+Today an element gets everything through `UIContext` (`liquers-lib/src/ui/ui_context.rs`): the
+`AppState` behind a `tokio::sync::Mutex`, the message sender, its handle, and since #275 the
+command metadata registry as an `Arc` snapshot (`with_command_registry`). Options:
+
+| | Where the theme lives | Read per frame | Change at run time | Persisted | Assessment |
+|---|---|---|---|---|---|
+| **A. In `UIContext`** | `Arc<Theme>` beside the registry (`with_theme`, `theme()`), set by the runner or host | Lock-free `Arc` read | The runner swaps the `Arc` and repaints | No (the host's job) | Simplest; mirrors the registry; renderer-neutral |
+| **B. In `AppState`** | A `theme` field or trait method on `AppState` (`DirectAppState`) | Needs the mutex (`try_sync_lock`) every frame | Any command can set it (`lui/set_theme`) | Yes, saved with the app state | Persists per UI document, but puts styling behind the state lock and into every `AppState` implementation |
+| **C. As an asset** | A key or query (`-R/config/theme.yaml`), loaded and watched like any asset; the runner keeps the resolved `Arc<Theme>` | Via A | Editing the file in the store reloads it (asset notifications) | In the store | The most Liquers-like: a theme is data in a store, editable with the existing editors |
+| D. In egui's context | `ctx.data` / `Style` only | Fast | egui only | No | Rejected: nothing for the browser or a TUI |
+
+**Recommended: A for reading, C for the source.** Elements call `ui_context.theme()` and never
+lock anything; the runner owns where the theme comes from: the built-in default, a file, or a
+key/query loaded as an asset and reloaded when it changes. A theme *name or reference* (not the
+whole theme) may also be kept in `AppState` (B, small), so a saved UI reopens with its theme;
+the runner resolves it. Mode and density are separate small settings, also in the UI state, so a
+user can flip dark/light without touching the theme file.
+
+### 4.5 The theme in the environment configuration
+
+**Possible today, with one gap.** `ConfigDocument` (`liquers-core/src/environment_config.rs`)
+already splits a configuration document into the environment's keys and *host sections*: a host
+takes its own with `take_section::<T>("name")`, and `finish()` refuses any section nobody took,
+so a typo fails loudly. `liquers-axum` takes `server` this way, `liquers-py` takes `python`, and
+the user guide shows a section of one's own (`liquers-lib/tests/user_guide_GUIDE.rs`, `report`).
+`EnvironmentConfig` on its own ignores unknown keys. So a `ui` section needs no change to the
+configuration mechanism:
+
+```yaml
+store: { stores: [] }
+ui:
+  theme: -R/config/liquers-theme.yaml   # a key or query, a file path, or a built-in name
+  mode: dark                            # dark | light | system
+  density: comfortable                  # comfortable | compact
+```
+
+The gap: the egui native host (`liquers-lib/src/ui/native.rs`, `egui-native-app`) does not read a
+`ConfigDocument` today, so nothing would take the `ui` section. This design would add a typed
+`UiConfig` taken by the UI hosts (native egui window, the browser host, the Python window), with
+`ui.theme` resolved as in §4.4 C. Recommended: offer both, the `ui` section as the default
+source and `AppState`'s theme reference as a per-UI override.
+
 ## 5. Open questions
 
 Kept in [Phase 1](./phase1-high-level-design.md#open-questions).

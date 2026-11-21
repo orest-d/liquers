@@ -83,6 +83,17 @@ A user tunes `-R/data/sales.csv/-/ns-pl/gt-amount-1000/sort-amount-f/head-20` (c
   (`pl/gt`, optionally with a realm)
   THEN the editor uses it instead of the registry's or the built-in value, in egui and in the
   browser; a name that does not resolve falls back as in AC-8
+- **AC-15** The highlighted query follows the theme
+  WHEN a query is shown highlighted (query field, console, editor text) in egui or the browser
+  THEN each token kind (header, resource, separator, namespace, action, parameter, entity, link,
+  filename, error) takes its colour from the theme's query-syntax tokens of the current mode,
+  replacing the colours hard-coded in `egui/widgets.rs`
+- **AC-16** The theme reaches elements and comes from configuration
+  WHEN a host is started with a configuration document holding a `ui` section (`theme`, `mode`,
+  `density`), or with none
+  THEN every element reads the resolved theme from its `UIContext` without locking the app state;
+  a theme given as a store key is reloaded when it changes; with no section the built-in theme
+  applies ([`reference-design.md`](./reference-design.md) §4.4, §4.5)
 
 Non-goals: palettes, asset or Unicode icons, a TUI (`ICONS-CANNOT-BE-ASSETS-OR-UNICODE`;
 `reference-design.md` §7); namespace metadata (`NAMESPACES-HAVE-NO-METADATA`); a full theme
@@ -99,8 +110,9 @@ design; editing inside nested pipelines (`EDITOR-CANNOT-EDIT-INSIDE-A-NESTED-PIP
 
 ## Crate Placement
 
-`liquers-lib` only: `ui/editor/` (backend-free model), `egui/editor.rs`, `ui/web/editor.rs`, a new
-theme module, and `commands`/`polars`/`image`/`records` registrations for AC-13. Phosphor enters as
+`liquers-lib` only: `ui/editor/` (backend-free model), `egui/editor.rs`, `ui/web/editor.rs`, and
+the theme in the UI part (`lui`): a renderer-neutral `ui/theme/` module (token model, YAML loading,
+`to_css()`), applied by `egui/` and `ui/web/`, reached through `UIContext` (AC-16); and `commands`/`polars`/`image`/`records` registrations for AC-13. Phosphor enters as
 an optional egui dependency (`egui-phosphor`) behind the `egui` feature and as a web font for the
 browser renderer. Nothing in `liquers-core` changes unless Phase 2 finds that spans need a core
 helper.
@@ -136,6 +148,8 @@ helper.
   for it or derive spans from parse positions.
 - `QUERY-CONSOLE-HAS-NO-QUERY-EDITOR-ON-DEMAND`: covered by AC-12 (T4), joins this design.
 - `keyboard-shortcuts` (complete): UISpec menu shortcuts; AC-9 must not collide with them.
+- `query-editor-live-validation`: also **T3** for AC-15: both change the egui query colours in
+  `styled_query_to_layout_job`; the theme keys follow its `SyntaxKind`.
 - `NAMESPACES-HAVE-NO-METADATA`: **required-by**; when it lands, the registry's namespace metadata
   slots into AC-14's precedence between the command hint and the built-in table.
 - `UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE`: **weak overlap**; the theme module may move with the
@@ -149,15 +163,19 @@ helper.
 2. Browser: structure and theme only; egui is the main target (AC-11).
 3. Compact is a setting, Compact by default in the console (AC-11).
 4. Simple is always the default mode (AC-3).
+5. (2026-11-21) Theme format: YAML authoring over one Rust token model, CSS generated for the
+   browser, DTCG later for interchange ([`theme-formats.md`](./theme-formats.md)). The theme
+   subset covers the editors and the query syntax (AC-15) and is named for reuse by other elements.
 
 ## Open Questions
 
-1. Theme file format (compared in [`theme-formats.md`](./theme-formats.md)). Recommended: YAML/TOML through serde, like every other Liquers
-   configuration, with `to_css()` generating the browser's custom properties; not CSS parsed for
-   egui (`reference-design.md` §4.1). Alternative: a theme written as CSS custom properties only,
-   which the browser uses directly and egui reads as key-value tokens. Either way the widgets ask
-   a small resolver (element, namespace, command, state → tokens), so a selector-based stylesheet
-   for egui, browser and TUI (`NO-RENDERER-NEUTRAL-STYLESHEET`, §4.2) can replace it later.
+1. How elements reach the theme (`reference-design.md` §4.4). Recommended: an `Arc<Theme>` in
+   `UIContext` (option A), sourced by the runner from the built-in default, a file or a store key
+   watched as an asset (C); `AppState` keeps only a theme reference, mode and density.
+2. Configuration (§4.5). Recommended: a `ui` host section of the configuration document
+   (`theme`, `mode`, `density`), taken by the UI hosts; `ConfigDocument` already supports host
+   sections, but the native egui host does not read a configuration document yet, which this
+   design would add.
 
 ## References
 
