@@ -700,6 +700,7 @@ mod tests {
             | Ok(AppMessage::Deserialize { .. })
             | Ok(AppMessage::Accessor { .. })
             | Ok(AppMessage::ListDirectory { .. })
+            | Ok(AppMessage::LoadIcon { .. })
             | Err(_) => None,
         }
     }
@@ -1220,7 +1221,8 @@ mod tests {
                 | AppMessage::Serialize { .. }
                 | AppMessage::Deserialize { .. }
                 | AppMessage::Accessor { .. }
-                | AppMessage::ListDirectory { .. } => panic!("Expected RequestAssetUpdates"),
+                | AppMessage::ListDirectory { .. }
+                | AppMessage::LoadIcon { .. } => panic!("Expected RequestAssetUpdates"),
             }
         }
     }

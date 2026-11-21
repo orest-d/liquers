@@ -15,7 +15,7 @@ default = ["egui", "image-support", "polars", "records", "records-ipc", "records
 cli = ["dep:clap"]
 image-support = ["imageproc"]
 # egui reference backend (optional so a webui-only build compiles no egui)
-egui = ["dep:egui", "dep:eframe", "dep:egui_plot", "dep:egui_extras", "dep:egui_commonmark", "dep:libc"]
+egui = ["dep:egui", "dep:eframe", "dep:egui_plot", "dep:egui_extras", "dep:egui_commonmark", "dep:egui-phosphor", "dep:libc"]
 # web backend (SSR strings on all targets; DOM on wasm)
 webui = ["dep:web-sys", "dep:wasm-bindgen", "dep:js-sys", "dep:wasm-bindgen-futures", "dep:pulldown-cmark", "dep:console_error_panic_hook", "dep:gloo-timers"]
 # Polars DataFrame value type + command library. Kept optional because polars
@@ -62,6 +62,7 @@ usvg = "0.45.1"
 tiny-skia = "0.11"
 futures = "0.3.34"
 egui_extras = { version = "0.36.1", optional = true }
+egui-phosphor = { version = "0.14.0", optional = true }
 chrono = { version = "0.4.45", features = ["alloc"] }
 typetag = "0.2"
 egui_commonmark = { version = "0.25.0", optional = true }

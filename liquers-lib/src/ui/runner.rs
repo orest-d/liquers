@@ -77,6 +77,7 @@ use super::message::{
     AccessorOp, AccessorUpdate, AppMessage, AppMessageReceiver, AppMessageSender, AssetSnapshot,
 };
 use super::payload::{SimpleUIPayload, UIPayload};
+use super::theme::{IconCache, IconLoad, Theme, ThemeCell, ThemeLayer, ThemeSource, UiConfig};
 use super::ui_context::UIContext;
 
 /// Entry in the monitoring map. Tracks a monitored asset and its notification channel.
@@ -112,6 +113,32 @@ struct WatchedAccessor {
     pull: bool,
 }
 
+/// What every `UIContext` the runner builds carries besides the app state.
+struct ContextParts {
+    sender: AppMessageSender,
+    registry: Arc<CommandMetadataRegistry>,
+    theme: ThemeCell,
+    icons: IconCache,
+}
+
+impl ContextParts {
+    fn context(&self, app_state: &Arc<tokio::sync::Mutex<dyn AppState>>) -> UIContext {
+        UIContext::new(app_state.clone(), self.sender.clone())
+            .with_command_registry(self.registry.clone())
+            .with_theme(self.theme.clone())
+            .with_icon_cache(self.icons.clone())
+    }
+}
+
+/// A theme layer from an asset value: YAML text, or an already structured value.
+fn theme_layer_of(value: &Value) -> Result<ThemeLayer, Error> {
+    match value.try_into_json_value() {
+        Ok(serde_json::Value::String(text)) => ThemeLayer::from_yaml(&text),
+        Ok(other) => ThemeLayer::from_value(other),
+        Err(_) => ThemeLayer::from_yaml(&value.try_into_string()?),
+    }
+}
+
 /// Result of pushing an update at an element.
 enum DeliveryOutcome {
     /// The element no longer exists — the caller stops monitoring it.
@@ -145,6 +172,13 @@ pub struct AppRunner<E: Environment> {
     /// One snapshot of the command metadata registry, given to every `UIContext` this runner
     /// builds (the editors read their widgets from it).
     registry: Arc<CommandMetadataRegistry>,
+    /// The theme every `UIContext` of this runner reads (AC-16), and the icon images loaded by
+    /// key (AC-17).
+    theme: ThemeCell,
+    icons: IconCache,
+    /// A theme given as a key or query: to load on the next `run`, then watched.
+    theme_query: Option<String>,
+    theme_watch: Option<(String, MonitoredAsset<E>)>,
 }
 
 impl<E> AppRunner<E>
@@ -173,6 +207,41 @@ where
             sender,
             events: Vec::new(),
             quit_requested: false,
+            theme: ThemeCell::default(),
+            icons: IconCache::default(),
+            theme_query: None,
+            theme_watch: None,
+        }
+    }
+
+    /// Reads the theme from `cell` (shared with the host) and, when `ui.theme` is a key or query,
+    /// loads it on the next `run` and reloads it whenever it changes (AC-16).
+    pub fn with_ui_config(mut self, ui: &UiConfig, cell: ThemeCell) -> Self {
+        self.theme = cell;
+        self.theme_query = match &ui.theme {
+            Some(ThemeSource::Query(q)) => Some(q.clone()),
+            Some(ThemeSource::Builtin(_)) | None => None,
+        };
+        self.theme_watch = None;
+        self
+    }
+
+    /// The theme cell this runner gives to every `UIContext`.
+    pub fn theme_cell(&self) -> &ThemeCell {
+        &self.theme
+    }
+
+    /// The icon images this runner has loaded by key.
+    pub fn icon_cache(&self) -> &IconCache {
+        &self.icons
+    }
+
+    fn context_parts(&self) -> ContextParts {
+        ContextParts {
+            sender: self.sender.clone(),
+            registry: self.registry.clone(),
+            theme: self.theme.clone(),
+            icons: self.icons.clone(),
         }
     }
 
@@ -190,8 +259,7 @@ where
 
     /// A context over `app_state` and this runner's channel, carrying the registry snapshot.
     fn context(&self, app_state: &Arc<tokio::sync::Mutex<dyn AppState>>) -> UIContext {
-        UIContext::new(app_state.clone(), self.sender.clone())
-            .with_command_registry(self.registry.clone())
+        self.context_parts().context(app_state)
     }
 
     /// Whether an `AppMessage::Quit` arrived since the last call; clears the request.
@@ -273,6 +341,9 @@ where
         // Phase 5: Poll editor accessors, push their changes (boxed: the wasm stack is small).
         Box::pin(self.poll_accessors(app_state)).await;
 
+        // Phase 6: Load or reload the theme given as a key or query.
+        Box::pin(self.poll_theme()).await;
+
         Ok(())
     }
 
@@ -341,10 +412,12 @@ where
                         handle,
                         UpdateMessage::UI(event),
                         app_state,
-                        &self.sender,
-                        &self.registry,
+                        &self.context_parts(),
                     )
                     .await;
+                }
+                AppMessage::LoadIcon { key } => {
+                    Box::pin(self.handle_load_icon(key)).await;
                 }
                 AppMessage::Quit => {
                     // Recorded for the host, which owns the window (or the loop) to close:
@@ -629,8 +702,7 @@ where
             handle,
             UpdateMessage::Accessor(update),
             app_state,
-            &self.sender,
-            &self.registry,
+            &self.context_parts(),
         )
         .await
     }
@@ -771,8 +843,7 @@ where
             handle,
             UpdateMessage::Directory(listing),
             app_state,
-            &self.sender,
-            &self.registry,
+            &self.context_parts(),
         )
         .await;
     }
@@ -845,8 +916,7 @@ where
                     handle,
                     UpdateMessage::AssetUpdate(snapshot),
                     app_state,
-                    &self.sender,
-                    &self.registry,
+                    &self.context_parts(),
                 )
                 .await;
                 match outcome {
@@ -882,8 +952,7 @@ where
                     handle,
                     UpdateMessage::AssetUpdate(error_snapshot),
                     app_state,
-                    &self.sender,
-                    &self.registry,
+                    &self.context_parts(),
                 )
                 .await;
                 match outcome {
@@ -902,6 +971,7 @@ where
     async fn poll_monitored_assets(&mut self, app_state: &Arc<tokio::sync::Mutex<dyn AppState>>) {
         let mut to_remove = Vec::new();
         let mut delivered = Vec::new();
+        let parts = self.context_parts();
 
         for (handle, monitored) in self.monitoring.iter_mut() {
             // Check if notification has changed (non-blocking)
@@ -919,8 +989,7 @@ where
                     *handle,
                     UpdateMessage::AssetUpdate(snapshot),
                     app_state,
-                    &self.sender,
-                    &self.registry,
+                    &parts,
                 )
                 .await;
                 match outcome {
@@ -988,8 +1057,7 @@ where
         handle: UIHandle,
         message: UpdateMessage,
         app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
-        sender: &AppMessageSender,
-        registry: &Arc<CommandMetadataRegistry>,
+        parts: &ContextParts,
     ) -> DeliveryOutcome {
         // Extract element from AppState (take_element errors if not found)
         let mut element = {
@@ -1001,9 +1069,7 @@ where
         }; // Lock released
 
         // Create UIContext and call update (lock not held)
-        let ctx = UIContext::new(app_state.clone(), sender.clone())
-            .with_command_registry(registry.clone())
-            .with_handle(Some(handle));
+        let ctx = parts.context(app_state).with_handle(Some(handle));
         let response = element.update(&message, &ctx);
 
         // Put element back, and record the element's own repaint verdict.
@@ -1047,6 +1113,94 @@ where
     /// True when the UI should keep repainting to surface async updates.
     pub fn needs_repaint(&self) -> bool {
         self.has_evaluating() || self.has_monitoring()
+    }
+
+    /// Phase 6: start loading a theme given as a key or query, and re-read it when it changes.
+    async fn poll_theme(&mut self) {
+        if let Some(query) = self.theme_query.take() {
+            match self.envref.evaluate(&query).await {
+                Ok(asset_ref) => {
+                    let mut notification_rx = asset_ref.subscribe_to_notifications().await;
+                    let _ = notification_rx.borrow_and_update();
+                    self.apply_theme_asset(&asset_ref).await;
+                    self.theme_watch = Some((query, MonitoredAsset { asset_ref, notification_rx }));
+                }
+                Err(e) => {
+                    eprintln!("theme '{query}' could not be evaluated: {e}");
+                    self.record(None, Status::Error, Some(e));
+                }
+            }
+            return;
+        }
+        let changed = match &mut self.theme_watch {
+            Some((query, watch)) if watch.notification_rx.has_changed().unwrap_or(false) => {
+                let removed = matches!(
+                    *watch.notification_rx.borrow_and_update(),
+                    AssetNotificationMessage::Removed
+                );
+                Some((query.clone(), watch.asset_ref.clone(), removed))
+            }
+            Some(_) | None => None,
+        };
+        if let Some((query, asset_ref, removed)) = changed {
+            // The theme's key was rewritten (the asset is replaced) or its value expired:
+            // evaluate the query again on the next run.
+            if removed || matches!(asset_ref.status().await, Status::Expired) {
+                self.theme_watch = None;
+                self.theme_query = Some(query);
+            } else {
+                self.apply_theme_asset(&asset_ref).await;
+            }
+        }
+    }
+
+    /// Composes the theme asset's value over the built-in theme and swaps it into the cell; a
+    /// value that is not a theme keeps the previous one (AC-16).
+    async fn apply_theme_asset(&mut self, asset_ref: &AssetRef<E>) {
+        let snapshot = Self::build_snapshot(asset_ref).await;
+        if let Some(e) = snapshot.error {
+            eprintln!("theme asset failed: {e}");
+            self.record(None, Status::Error, Some(e));
+            return;
+        }
+        let Some(value) = snapshot.value else {
+            return;
+        };
+        match theme_layer_of(&value).and_then(|layer| Theme::compose(&[layer])) {
+            Ok(theme) => {
+                self.theme.set_theme(Arc::new(theme));
+                self.icons.clear();
+            }
+            Err(e) => {
+                eprintln!("theme refused, keeping the previous one: {e}");
+                self.record(None, Status::Error, Some(e));
+            }
+        }
+    }
+
+    /// Loads an icon image by key or query into the icon cache (AC-17).
+    async fn handle_load_icon(&mut self, key: String) {
+        let query = if key.starts_with('-') { key.clone() } else { format!("-R/{key}") };
+        let load = match self.envref.evaluate(&query).await {
+            Ok(asset_ref) => match asset_ref.poll_state().await {
+                Some(state) => match state.error_result() {
+                    Ok(_) => {
+                        let value = state.data_unchecked();
+                        match value.try_into_bytes().or_else(|_| value.try_into_string().map(String::into_bytes)) {
+                            Ok(bytes) => IconLoad::Ready(Arc::from(bytes.into_boxed_slice())),
+                            Err(_) => IconLoad::Failed,
+                        }
+                    }
+                    Err(_) => IconLoad::Failed,
+                },
+                None => IconLoad::Failed,
+            },
+            Err(_) => IconLoad::Failed,
+        };
+        if matches!(load, IconLoad::Failed) {
+            eprintln!("icon '{key}' could not be loaded");
+        }
+        self.icons.set(&key, load);
     }
 
     /// Number of currently evaluating nodes.
