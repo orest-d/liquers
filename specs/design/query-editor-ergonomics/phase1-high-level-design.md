@@ -35,7 +35,8 @@ A user tunes `-R/data/sales.csv/-/ns-pl/gt-amount-1000/sort-amount-f/head-20` (c
   argument is nested under its field ([mockup 3](./mockups/03-advanced-mode.png))
 - **AC-3** Switching mode keeps the work
   WHEN the mode is toggled (switch or `Mod+B`) with edits pending
-  THEN text, pending edits and focus are kept, and the mode is saved with the element
+  THEN text, pending edits and focus are kept, and the mode is saved with the element; every
+  editor, console included, starts in Simple mode
 - **AC-4** Cards read as human steps
   WHEN a card is collapsed
   THEN it is one framed line: icon, label, dimmed `namespace/name`, state marks; expanded,
@@ -54,8 +55,9 @@ A user tunes `-R/data/sales.csv/-/ns-pl/gt-amount-1000/sort-amount-f/head-20` (c
   apply them ([mockup 5](./mockups/05-presets.png))
 - **AC-8** Every card has an icon
   WHEN a card is drawn
-  THEN the icon is the command's `hint icon` (Phosphor), else its namespace's icon and colour
-  (built-in, overridable), else a monogram ([mockup 8](./mockups/08-icons.png))
+  THEN the icon is the command's `hint icon` (Phosphor), else its namespace's icon and colour,
+  else a monogram ([mockup 8](./mockups/08-icons.png)); a theme override for the command or
+  namespace wins over both (AC-14)
 - **AC-9** Keyboard navigation
   WHEN the editor has focus
   THEN the shortcuts of `reference-design.md` §3 work (fields, cards, regions, collapse, add action)
@@ -66,7 +68,9 @@ A user tunes `-R/data/sales.csv/-/ns-pl/gt-amount-1000/sort-amount-f/head-20` (c
 - **AC-11** Theme proof of concept
   WHEN the editor is drawn in egui or the browser
   THEN colours, spacing and fonts come from one token set: dark and light, Comfortable and Compact
-  ([mockups 7](./mockups/07-light-theme.png), [10](./mockups/10-compact.png))
+  (a per-editor setting, Compact by default in the console) ([mockups 7](./mockups/07-light-theme.png),
+  [10](./mockups/10-compact.png)); egui is the main target, the browser gets the same structure
+  (cards, modes, form grid) and the tokens as CSS, while its shortcuts and jump come later
 - **AC-12** The console offers both modes
   WHEN the query console's Parameters panel is open
   THEN it switches between Simple and Advanced over the console text, without submitting
@@ -74,6 +78,11 @@ A user tunes `-R/data/sales.csv/-/ns-pl/gt-amount-1000/sort-amount-f/head-20` (c
 - **AC-13** Commands show the feature
   WHEN the default command library is registered
   THEN common `pl`, `img` and `rec` commands declare `hint icon`, and a few declare presets and next
+- **AC-14** A theme overrides icons and colours
+  WHEN a theme configuration names an icon or colour hue for a namespace (`pl`) or a command
+  (`pl/gt`, optionally with a realm)
+  THEN the editor uses it instead of the registry's or the built-in value, in egui and in the
+  browser; a name that does not resolve falls back as in AC-8
 
 Non-goals: palettes, asset or Unicode icons, a TUI (`ICONS-CANNOT-BE-ASSETS-OR-UNICODE`;
 `reference-design.md` §7); namespace metadata (`NAMESPACES-HAVE-NO-METADATA`); a full theme
@@ -127,18 +136,26 @@ helper.
   for it or derive spans from parse positions.
 - `QUERY-CONSOLE-HAS-NO-QUERY-EDITOR-ON-DEMAND`: covered by AC-12 (T4), joins this design.
 - `keyboard-shortcuts` (complete): UISpec menu shortcuts; AC-9 must not collide with them.
+- `NAMESPACES-HAVE-NO-METADATA`: **required-by**; when it lands, the registry's namespace metadata
+  slots into AC-14's precedence between the command hint and the built-in table.
 - `UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE`: **weak overlap**; the theme module may move with the
   UI split later.
 
+## Decisions at the Phase 1 gate (Orest, 2026-11-21)
+
+1. Namespace metadata lives in the command metadata registry; it is its own issue
+   (`NAMESPACES-HAVE-NO-METADATA`: label, doc, icon, colour hue). This design adds theme overrides
+   keyed by namespace and command (AC-14) and a built-in table for the bundled namespaces.
+2. Browser: structure and theme only; egui is the main target (AC-11).
+3. Compact is a setting, Compact by default in the console (AC-11).
+4. Simple is always the default mode (AC-3).
+
 ## Open Questions
 
-1. Where do the namespace icon and colour overrides of AC-8 live until
-   `NAMESPACES-HAVE-NO-METADATA` is designed? Recommended: the theme configuration.
-2. Is the browser renderer in scope for everything, or only structure and theme (cards, modes,
-   tokens as CSS), with shortcuts and the jump later? Recommended: structure and theme now.
-3. Compact density: a per-editor setting, or the default only for the console? Recommended: a
-   setting, defaulting to Compact in the console.
-4. Default mode: Simple in the console and Advanced in recipe editors? Recommended: yes.
+1. Theme file format. Recommended: YAML/TOML through serde, like every other Liquers
+   configuration, with `to_css()` generating the browser's custom properties; not CSS parsed for
+   egui (`reference-design.md` §4.1). Alternative: a theme written as CSS custom properties only,
+   which the browser uses directly and egui reads as key-value tokens.
 
 ## References
 

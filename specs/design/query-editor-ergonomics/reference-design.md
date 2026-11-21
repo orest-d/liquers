@@ -216,6 +216,47 @@ danger) and a new light set, Inter for text and a mono face for command names an
 Namespace colours (pl teal, img violet, resource blue), namespace icons and the density tokens
 (Comfortable / Compact) live in the same module. The PoC covers only what the editor needs.
 
+### 4.1 Overrides, and whether CSS can style egui
+
+**Precedence** for an icon or colour: theme override for the command (`[realm/]ns/name`) → theme
+override for the namespace → the command's `hint icon` → the namespace metadata in the registry
+(`NAMESPACES-HAVE-NO-METADATA`) → the theme's built-in table → monogram and neutral colour. A
+colour in the registry is a named hue (`teal`), which the theme maps to a dark and a light value.
+
+This is a small, keyed override table, not a selector engine, and it fits this design:
+
+```yaml
+theme: dark            # or light, or a file
+density: comfortable   # or compact
+tokens: { accent: "#2d81ff" }
+hues: { teal: { dark: "#2fb3a3", light: "#1d8a7d" } }
+namespaces: { pl: { icon: table, hue: teal }, my_ns: { icon: flask, hue: violet } }
+commands: { "pl/gt": { icon: funnel } }
+```
+
+**CSS for egui: not recommended.** Checked on 2026-11-21:
+
+- egui is immediate mode: there is no DOM and no element tree to match selectors against, so the
+  cascade, `:hover`/`:focus`, specificity and layout properties have nothing to apply to. What
+  egui can be given is a `Style`/`Visuals` (global or per `Ui` scope) and our own token values.
+- [`egui_css`](https://github.com/SergioRibera/egui_css) (0.1.1, January 2025, egui 0.29) is the
+  only crate that tries; its README calls it "very very very WIP", lists layout, media queries and
+  pseudo-classes as missing or broken, and it is two egui releases behind (Liquers is on 0.36).
+- The rest of the egui theming crates are token or utility systems, not CSS:
+  [`egui_styled`](https://docs.rs/egui_styled) (Tailwind-like utilities, active),
+  [`egui-theme`](https://docs.rs/egui-theme) (a serializable theme container, last release 2022),
+  Rerun's `re_ui` design tokens, `catppuccin-egui` palettes. They confirm the token approach;
+  none is worth a dependency for this PoC.
+- In the browser CSS is native, so the theme is emitted as custom properties
+  (`--lq-accent`, `[data-theme=dark]`, `[data-lq-ns="pl"]` for namespace hues) by `to_css()`.
+
+So the theme is data (serde), applied to egui by code and to the browser as generated CSS. A
+middle way stays open: write the theme as CSS custom properties only (`:root { --lq-accent: … }`,
+`[data-lq-ns="pl"] { --lq-ns-hue: teal }`), which the browser uses as is and egui reads as plain
+key-value tokens with a small parser (`cssparser`), never as general CSS. It is tempting because
+one file serves both renderers, but it invites users to expect real CSS in egui. Recommended:
+serde configuration now; reconsider in the later theme design.
+
 ## 5. Open questions
 
 Kept in [Phase 1](./phase1-high-level-design.md#open-questions).
