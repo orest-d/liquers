@@ -89,24 +89,31 @@ pub fn apply_theme(ctx: &egui::Context, state: &ThemeState) {
     if applied == Some(stamp(state)) {
         return;
     }
-    let fonts: Option<bool> = ctx.data(|d| d.get_temp(Id::new(FONTS_ID)));
-    if fonts != Some(true) {
-        ctx.add_font(egui::epaint::text::FontInsert::new(
-            "phosphor",
-            egui_phosphor::Variant::Regular.font_data(),
-            vec![egui::epaint::text::InsertFontFamily {
-                family: egui::FontFamily::Proportional,
-                priority: egui::epaint::text::FontPriority::Lowest,
-            }],
-        ));
-    }
+    ensure_icon_font(ctx);
     let palette = state.theme.palette(state.mode);
     ctx.set_visuals(visuals(palette, state.mode));
+    ctx.request_repaint(); // the background of this frame was painted with the old visuals
     ctx.data_mut(|d| {
-        d.insert_temp(Id::new(FONTS_ID), true);
         d.insert_temp(Id::new(APPLIED_ID), stamp(state));
         d.insert_temp(Id::new(STATE_ID), state.clone());
     });
+}
+
+/// Installs the Phosphor font as a fallback of proportional text, once per context.
+pub fn ensure_icon_font(ctx: &egui::Context) {
+    let fonts: Option<bool> = ctx.data(|d| d.get_temp(Id::new(FONTS_ID)));
+    if fonts == Some(true) {
+        return;
+    }
+    ctx.add_font(egui::epaint::text::FontInsert::new(
+        "phosphor",
+        egui_phosphor::Variant::Regular.font_data(),
+        vec![egui::epaint::text::InsertFontFamily {
+            family: egui::FontFamily::Proportional,
+            priority: egui::epaint::text::FontPriority::Lowest,
+        }],
+    ));
+    ctx.data_mut(|d| d.insert_temp(Id::new(FONTS_ID), true));
 }
 
 /// The theme last applied to `ctx` (the built-in one before any).

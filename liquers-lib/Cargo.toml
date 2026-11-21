@@ -129,6 +129,9 @@ required-features = ["egui"]
 name = "ui_query_console_app"
 required-features = ["egui"]
 [[example]]
+name = "ui_query_editor"
+required-features = ["egui"]
+[[example]]
 name = "ui_spec_demo"
 required-features = ["egui"]
 [[example]]

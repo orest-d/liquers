@@ -356,6 +356,7 @@ where
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         crate::egui::theme::apply_theme(ui.ctx(), &self.ui_context.theme());
+        ui.painter().rect_filled(ui.max_rect(), 0.0, ui.visuals().panel_fill);
         let roots = match try_sync_lock(self.driver.app_state()) {
             Ok(state) => state.roots(),
             Err(_) => {

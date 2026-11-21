@@ -19,7 +19,7 @@ There are no prerequisites. The overlapping designs (`query-editor-live-validati
 - [x] Step 3 (60bf0acb): `ThemeCell`, `UiConfig`, `IconCache`, `UIContext` and runner plumbing
 - [x] Step 4: editor model: hints, realm, active presets, spans, layout, keymap, element mode/density
 - [x] Step 5: egui theme application, icon drawing, themed query colours
-- [ ] Step 6: egui editor: cards, toolbar, form grid, chips, outline, shortcuts, jump
+- [x] Step 6: egui editor: cards, toolbar, form grid, chips, outline, shortcuts, jump
 - [ ] Step 7: browser editor, token classes, theme CSS in the mount
 - [ ] Step 8: query console Parameters panel in both modes
 - [ ] Step 9: command metadata (`hint icon`, presets, next) and registry regeneration

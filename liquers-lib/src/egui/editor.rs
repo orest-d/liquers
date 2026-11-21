@@ -63,6 +63,11 @@ use crate::ui::editor::{
 use crate::ui::theme::{Density, Palette, Spacing, ThemeState};
 use crate::ui::ui_context::UIContext;
 
+/// A Phosphor glyph by name, or `fallback` when the name is unknown.
+fn ph(name: &str, fallback: &'static str) -> &'static str {
+    crate::egui::theme::phosphor_glyph(name).unwrap_or(fallback)
+}
+
 /// What one frame of an editor produced.
 #[derive(Debug, Clone, Default)]
 pub struct EditorOutput {
@@ -119,6 +124,7 @@ pub fn show_editor(
     theme: &ThemeState,
     ui_ctx: Option<&UIContext>,
 ) -> EditorOutput {
+    crate::egui::theme::ensure_icon_font(ui.ctx());
     ui.scope(|ui| {
         spacing_style(ui.style_mut(), theme, density);
         let mut cx = Cx {
@@ -173,6 +179,7 @@ fn body(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView) {
             chips(ui, cx, view, &layout.before);
         }
         let cards = |ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView| {
+            let mut position = 0;
             for group in &layout.groups {
                 if layout.outline {
                     let title = match group.kind {
@@ -181,8 +188,8 @@ fn body(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView) {
                     };
                     ui.label(RichText::new(title).small().color(cx.muted()));
                 }
-                for (i, card_item) in group.cards.iter().enumerate() {
-                    let position = cx.cards.iter().position(|p| p == card_item.node.path()).unwrap_or(i) + 1;
+                for card_item in &group.cards {
+                    position += 1;
                     card(ui, cx, view, card_item.node, position);
                     ui.add_space(cx.sp.card_gap);
                 }
@@ -349,7 +356,7 @@ fn chips(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, chips: &[StepChi
     ui.horizontal_wrapped(|ui| {
         for (i, chip) in chips.iter().enumerate() {
             if i > 0 {
-                ui.label(RichText::new("›").color(cx.faint()));
+                ui.label(RichText::new(ph("caret-right", ">")).color(cx.faint()));
             }
             let text = RichText::new(&chip.label).color(cx.muted());
             if ui.add(egui::Button::new(text).small()).on_hover_text("Open in Advanced").clicked() {
@@ -497,14 +504,16 @@ fn card_header(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, node: &Edi
         | EditorNode::Nested { .. }
         | EditorNode::Opaque { .. } => (crate::ui::editor::node_label(node), String::new()),
     };
-    let header_id = ui.id().with(("lq-card-head", path.id()));
+    // The `ns` node shares its path with the action after it.
+    let kind = if matches!(node, EditorNode::Namespaces { .. }) { "ns" } else { "node" };
+    let header_id = ui.id().with(("lq-card-head", kind, path.id()));
     let expanded_two_lines = !collapsed && matches!(node, EditorNode::Action { .. });
     ui.horizontal(|ui| {
         for part in &parts {
             match part {
                 HeaderPart::Chevron => {
                     if cx.mode == EditorMode::Advanced {
-                        let chevron = if collapsed { "▸" } else { "▾" };
+                        let chevron = if collapsed { ph("caret-right", ">") } else { ph("caret-down", "v") };
                         if ui.add(egui::Button::new(chevron).frame(false)).on_hover_text("Collapse or expand").clicked() {
                             toggle(view, &path);
                         }
@@ -557,11 +566,12 @@ fn card_header(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, node: &Edi
                     }
                 }
                 HeaderPart::Modified => {
-                    ui.label(RichText::new("●").small().color(color(cx.palette.state.modified)))
-                        .on_hover_text("An argument differs from its default");
+                    let (rect, response) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), Sense::hover());
+                    ui.painter().circle_filled(rect.center(), 3.5, color(cx.palette.state.modified));
+                    response.on_hover_text("An argument differs from its default");
                 }
                 HeaderPart::Error => {
-                    ui.label(RichText::new("⚠").color(cx.danger())).on_hover_text("This step has a problem");
+                    ui.label(RichText::new(ph("warning", "!")).color(cx.danger())).on_hover_text("This step has a problem");
                 }
                 HeaderPart::Position(n) => {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -641,7 +651,7 @@ fn card_toolbar(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, node: &Ed
             match item {
                 ToolItem::Reset => {
                     let tip = format!("Reset every argument to its default ({})", shortcut_text(EditorKey::Reset).unwrap_or(""));
-                    if ui.small_button("↺ Reset").on_hover_text(tip).clicked() {
+                    if ui.small_button(format!("{} Reset", ph("arrow-counter-clockwise", ""))).on_hover_text(tip).clicked() {
                         reset_all(&mut cx.out, path, fields);
                     }
                 }
@@ -664,7 +674,7 @@ fn card_toolbar(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, node: &Ed
                     }
                 }
                 ToolItem::Next => {
-                    ui.menu_button("Next ▾", |ui| {
+                    ui.menu_button(format!("Next {}", ph("caret-down", "")), |ui| {
                         for (i, p) in next.iter().enumerate() {
                             if ui.button(&p.label).on_hover_text(&p.description).clicked() {
                                 cx.out.push(EditorCommand::ApplyNext { path: path.clone(), index: i });
@@ -680,19 +690,19 @@ fn card_toolbar(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, node: &Ed
                     }
                 }
                 ToolItem::MoveUp => {
-                    if ui.small_button("↑").on_hover_text("Move up (Alt+↑)").clicked() {
+                    if ui.small_button(ph("arrow-up", "Up")).on_hover_text("Move up (Alt+Up)").clicked() {
                         move_card(&mut cx.out, path, -1);
                     }
                 }
                 ToolItem::MoveDown => {
-                    if ui.small_button("↓").on_hover_text("Move down (Alt+↓)").clicked() {
+                    if ui.small_button(ph("arrow-down", "Down")).on_hover_text("Move down (Alt+Down)").clicked() {
                         move_card(&mut cx.out, path, 1);
                     }
                 }
                 ToolItem::Delete => {
                     let danger = cx.danger();
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.small_button(RichText::new("🗑 Delete").color(danger)).on_hover_text("Delete this step").clicked() {
+                        if ui.small_button(RichText::new(format!("{} Delete", ph("trash", ""))).color(danger)).on_hover_text("Delete this step").clicked() {
                             cx.out.push(EditorCommand::Remove { path: path.clone() });
                         }
                     });
@@ -772,7 +782,7 @@ fn form_grid(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, node: &Edito
             ui.vertical(|ui| {
                 row_active = field_editor(ui, cx, view, &path, field);
                 if !row.help.is_empty() {
-                    ui.label(RichText::new(&row.help).small().color(cx.faint()));
+                    ui.add(egui::Label::new(RichText::new(&row.help).small().color(cx.faint())).extend());
                 }
                 if let Some(message) = &row.message {
                     ui.colored_label(cx.danger(), message);
@@ -855,7 +865,7 @@ fn field_actions(ui: &mut egui::Ui, cx: &mut Cx, path: &NodePath, field: &Editor
     let tint = if active { cx.muted() } else { cx.faint().gamma_multiply(0.6) };
     ui.horizontal(|ui| {
         if !field.presets.is_empty() {
-            ui.menu_button(RichText::new("▾").color(tint), |ui| {
+            ui.menu_button(RichText::new(ph("caret-down", "v")).color(tint), |ui| {
                 for (i, p) in field.presets.iter().enumerate() {
                     if ui.selectable_label(p.active, &p.label).on_hover_text(&p.description).clicked() {
                         cx.out.push(EditorCommand::ApplyArgumentPreset { path: path.clone(), arg: field.name.clone(), index: i });
@@ -864,7 +874,7 @@ fn field_actions(ui: &mut egui::Ui, cx: &mut Cx, path: &NodePath, field: &Editor
             });
         }
         let is_link = matches!(field.value, FieldValue::Link { .. });
-        let switch = RichText::new(if is_link { "=" } else { "⛓" }).color(tint);
+        let switch = RichText::new(if is_link { ph("text-t", "=") } else { ph("link", "~") }).color(tint);
         let tip = format!("Switch between a value and a link ({})", shortcut_text(EditorKey::ToggleLink).unwrap_or(""));
         if ui.add(egui::Button::new(switch).frame(false)).on_hover_text(tip).clicked() {
             cx.out.push(if is_link {
@@ -873,7 +883,7 @@ fn field_actions(ui: &mut egui::Ui, cx: &mut Cx, path: &NodePath, field: &Editor
                 EditorCommand::ToLink { path: path.clone(), arg: field.name.clone() }
             });
         }
-        if ui.add(egui::Button::new(RichText::new("↺").color(tint)).frame(false)).on_hover_text("Reset to the default").clicked() {
+        if ui.add(egui::Button::new(RichText::new(ph("arrow-counter-clockwise", "R")).color(tint)).frame(false)).on_hover_text("Reset to the default").clicked() {
             cx.out.push(EditorCommand::Reset { path: path.clone(), arg: field.name.clone() });
         }
     });
@@ -888,7 +898,7 @@ fn node_body(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, node: &Edito
                 if let Some(header) = header {
                     let mut chosen = header.clone();
                     egui::ComboBox::from_id_salt(("header", path.id()))
-                        .selected_text(chosen.clone())
+                        .selected_text(if chosen.is_empty() { "(asset)".to_string() } else { chosen.clone() })
                         .width(80.0)
                         .show_ui(ui, |ui| {
                             for h in RESOURCE_HEADERS {
@@ -906,7 +916,7 @@ fn node_body(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, node: &Edito
                 if response.lost_focus() && *buffer != *key {
                     out.push(EditorCommand::SetKey { path: path.clone(), key: buffer.clone() });
                 }
-                if ui.button("📁").on_hover_text("Browse the store").clicked() {
+                if ui.button(ph("folder-open", "...")).on_hover_text("Browse the store").clicked() {
                     let folder = key.rsplit_once('/').map(|(f, _)| f.to_string()).unwrap_or_default();
                     out.push(EditorCommand::Browse { path: path.clone(), folder });
                 }
@@ -929,7 +939,7 @@ fn node_body(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, node: &Edito
                     if let Some(from) = response.dnd_release_payload::<usize>() {
                         moved = Some((*from, i));
                     }
-                    if ui.small_button("✕").on_hover_text("Remove this namespace").clicked() {
+                    if ui.small_button(ph("x", "x")).on_hover_text("Remove this namespace").clicked() {
                         let mut new = list.clone();
                         new.remove(i);
                         out.push(EditorCommand::SetNamespaces { path: path.clone(), namespaces: new });
@@ -974,7 +984,7 @@ fn node_body(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, node: &Edito
 }
 
 fn node_menu(ui: &mut egui::Ui, path: &NodePath, out: &mut Vec<EditorCommand>) {
-    ui.menu_button("⋯", |ui| {
+    ui.menu_button(ph("dots-three", "..."), |ui| {
         if ui.button("Insert action before").clicked() {
             out.push(EditorCommand::SearchCommands { insert_at: Some(path.clone()), filter: String::new() });
         }
@@ -1031,7 +1041,7 @@ fn items_ui(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, path: &NodePa
             if let Some(from) = response.dnd_release_payload::<usize>() {
                 moved = Some((*from, k));
             }
-            if ui.small_button("✕").clicked() {
+            if ui.small_button(ph("x", "x")).clicked() {
                 cx.out.push(EditorCommand::RemoveItem { path: path.clone(), arg: field.name.clone(), at: k });
             }
         }
@@ -1161,7 +1171,7 @@ fn widget(
         | ArgumentGUIInfo::None => {
             let width = match &field.widget {
                 ArgumentGUIInfo::TextField(w) | ArgumentGUIInfo::CodeField(w, _) | ArgumentGUIInfo::DateField(w) => {
-                    (*w).clamp(4, 60) as f32 * 7.0
+                    (*w).clamp(12, 60) as f32 * 7.0
                 }
                 _ => 120.0,
             };
@@ -1170,13 +1180,17 @@ fn widget(
             if let Some(d) = &field.default_text {
                 edit = edit.hint_text(d.as_str());
             }
-            let r = ui.add(edit);
-            let c = (r.lost_focus() && *buffer != text).then(|| commit(buffer.clone()));
-            if item.is_none() {
-                if let Some(d) = &field.default_text {
-                    ui.label(RichText::new(format!("default {d}")).small().weak());
+            let inner = ui.horizontal(|ui| {
+                let r = ui.add(edit);
+                if item.is_none() {
+                    if let Some(d) = &field.default_text {
+                        ui.label(RichText::new(format!("default {d}")).small().weak());
+                    }
                 }
-            }
+                r
+            });
+            let r = inner.inner;
+            let c = (r.lost_focus() && *buffer != text).then(|| commit(buffer.clone()));
             (Some(r), c)
         }
     }
