@@ -658,6 +658,7 @@ impl UiModel {
         let mut options = WindowOptions::new(title);
         options.inner_size = [size.0, size.1];
         options.poll_interval = WAIT_SLICE;
+        options.ui = self.cell.config.ui.clone();
         let model: &UiModel = self;
         let mut kept: Option<PyErr> = None;
         let mut last_attached = Instant::now();

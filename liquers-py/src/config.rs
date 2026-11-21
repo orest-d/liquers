@@ -3,7 +3,7 @@
 //! One file (or YAML text, or a dict) configures the whole host: the environment's keys (`store`,
 //! `recipes`, `assets`, `default_namespaces`), a command metadata registry file
 //! (`command_registry`), the server `env.serve()` starts (`server`) and this host's own settings
-//! (`python`). An unknown section or key fails at `lq.Environment`, naming what this host knows.
+//! (`python`) and the window `lq.UI.run()` opens (`ui`: theme, mode, density). An unknown section or key fails at `lq.Environment`, naming what this host knows.
 //! A keyword argument of `lq.Environment` or `serve` overrides the file, which overrides the
 //! built-in default.
 //!
@@ -50,6 +50,7 @@ use std::path::PathBuf;
 use liquers_axum::ServerConfig;
 use liquers_core::environment_config::{ConfigDocument, EnvironmentConfig};
 use liquers_core::error::Error;
+use liquers_lib::ui::theme::UiConfig;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString};
 
@@ -79,6 +80,8 @@ pub struct PyConfig {
     pub server: ServerConfig,
     /// The `python` section.
     pub python: PythonSettings,
+    /// The `ui` section: the theme, mode and density of the window `lq.UI.run()` opens.
+    pub ui: Option<UiConfig>,
 }
 
 impl PyConfig {
@@ -86,9 +89,10 @@ impl PyConfig {
     pub fn from_document(mut doc: ConfigDocument) -> Result<Self, Error> {
         let server = ServerConfig::from_document(&mut doc)?;
         let python = doc.take_section::<PythonSettings>("python")?.unwrap_or_default();
+        let ui = doc.take_section::<UiConfig>("ui")?;
         let command_registry = doc.command_registry_path();
         let environment = doc.finish()?;
-        Ok(PyConfig { environment, command_registry, server, python })
+        Ok(PyConfig { environment, command_registry, server, python, ui })
     }
 
     /// Reads `config=`: an `os.PathLike` names a file (`.yaml`, `.yml` or `.json`), a `str` is
@@ -172,6 +176,18 @@ mod tests {
         let error = PyConfig::from_document(ConfigDocument::from_yaml("python: {async_loops: 0}\n").unwrap())
             .unwrap_err();
         assert_eq!(error.error_type, ErrorType::ConfigurationError);
+    }
+
+    #[test]
+    fn the_ui_section_is_taken() {
+        use liquers_lib::ui::theme::{Density, ModeSetting};
+        let doc = ConfigDocument::from_yaml("ui: {theme: default, mode: light, density: compact}\n").unwrap();
+        let config = PyConfig::from_document(doc).unwrap();
+        let ui = config.ui.unwrap();
+        assert_eq!(ui.mode, Some(ModeSetting::Light));
+        assert_eq!(ui.density, Some(Density::Compact));
+        let none = PyConfig::from_document(ConfigDocument::from_yaml("python: {}\n").unwrap()).unwrap();
+        assert!(none.ui.is_none());
     }
 
     #[test]

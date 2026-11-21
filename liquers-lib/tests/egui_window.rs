@@ -124,6 +124,33 @@ fn second_window_is_refused_and_a_later_one_opens(
     Ok(())
 }
 
+/// AC-16 (query-editor-ergonomics): the `ui` section of `WindowOptions` sets the theme the window
+/// and its elements read: a fixed mode and the density reach the driver's `UIContext`.
+fn ui_section_sets_the_window_theme(runtime: &tokio::runtime::Runtime) -> Result<(), Error> {
+    use liquers_lib::ui::theme::{Density, ThemeMode, UiConfig};
+    let mut driver = driver(runtime)?;
+    let ui: UiConfig = serde_yaml::from_str("theme: default\nmode: light\ndensity: compact\n")
+        .map_err(|e| Error::general_error(e.to_string()))?;
+    let mut frames = 0;
+    let mut hook = |_: &Tick| {
+        frames += 1;
+        if frames >= 3 {
+            FrameControl::Close
+        } else {
+            FrameControl::Continue
+        }
+    };
+    run_window(options().with_ui(ui), &mut driver, runtime.handle(), &WindowCloser::default(), Some(&mut hook))?;
+    let theme = driver.ui_context().theme();
+    if theme.mode != ThemeMode::Light || theme.density != Density::Compact {
+        return Err(Error::general_error(format!(
+            "expected light and compact, got {:?} and {:?}",
+            theme.mode, theme.density
+        )));
+    }
+    Ok(())
+}
+
 fn main() {
     let has_display = std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some();
     if !has_display {
@@ -134,11 +161,12 @@ fn main() {
         Ok(runtime) => runtime,
         Err(e) => panic!("cannot build a runtime: {e}"),
     };
-    let cases: [(&str, fn(&tokio::runtime::Runtime) -> Result<(), Error>); 4] = [
+    let cases: [(&str, fn(&tokio::runtime::Runtime) -> Result<(), Error>); 5] = [
         ("window_renders_and_the_hook_closes_it", window_renders_and_the_hook_closes_it),
         ("closer_from_another_thread_closes", closer_from_another_thread_closes),
         ("quit_closes_the_window", quit_closes_the_window),
         ("second_window_is_refused_and_a_later_one_opens", second_window_is_refused_and_a_later_one_opens),
+        ("ui_section_sets_the_window_theme", ui_section_sets_the_window_theme),
     ];
     let mut failed = 0;
     for (name, case) in cases {

@@ -76,6 +76,7 @@ use super::app_state::{AppState, Invalidation};
 use super::message::{AppMessageReceiver, AppMessageSender};
 use super::payload::{SimpleUIPayload, UIPayload};
 use super::runner::{AppRunner, RunnerEvent};
+use super::theme::UiConfig;
 use super::ui_context::UIContext;
 
 /// A closure that names the environment later evaluations should use, or `None` to keep the
@@ -145,6 +146,19 @@ where
     pub fn with_current_env(mut self, current_env: CurrentEnv<E>) -> Self {
         self.current_env = Some(current_env);
         self
+    }
+
+    /// Takes the theme, mode and density from a `ui:` configuration section (AC-16):
+    /// `system_dark` answers a `system` mode until the host learns the platform's preference.
+    /// A theme given as a key or query is loaded on the next tick and reloaded when it changes.
+    pub fn with_ui_config(mut self, ui: &UiConfig, system_dark: bool) -> Self {
+        self.set_ui_config(ui, system_dark);
+        self
+    }
+
+    /// [`NativeDriver::with_ui_config`] in place.
+    pub fn set_ui_config(&mut self, ui: &UiConfig, system_dark: bool) {
+        self.runner.set_ui_config(ui, ui.cell(system_dark));
     }
 
     /// The shared `AppState`.

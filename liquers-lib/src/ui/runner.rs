@@ -217,13 +217,18 @@ where
     /// Reads the theme from `cell` (shared with the host) and, when `ui.theme` is a key or query,
     /// loads it on the next `run` and reloads it whenever it changes (AC-16).
     pub fn with_ui_config(mut self, ui: &UiConfig, cell: ThemeCell) -> Self {
+        self.set_ui_config(ui, cell);
+        self
+    }
+
+    /// [`AppRunner::with_ui_config`] in place, for a host that owns the runner already.
+    pub fn set_ui_config(&mut self, ui: &UiConfig, cell: ThemeCell) {
         self.theme = cell;
         self.theme_query = match &ui.theme {
             Some(ThemeSource::Query(q)) => Some(q.clone()),
             Some(ThemeSource::Builtin(_)) | None => None,
         };
         self.theme_watch = None;
-        self
     }
 
     /// Shares `cache` as the icon images this runner loads (builder style), for a host that
