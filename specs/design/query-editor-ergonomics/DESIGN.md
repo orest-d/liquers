@@ -36,4 +36,6 @@ theme, a compact variant, icon definitions recorded for later). Phase 1 written 
 
 - [Reference design](./reference-design.md): the detailed design, keyboard shortcut table, and the
   basis for later icon, palette and TUI designs
+- [Theme file formats](./theme-formats.md): one theme in YAML, TOML, CSS variables and DTCG JSON,
+  compared for egui, the browser and ratatui
 - [Mockups](./mockups/): eleven images, current state and reference design
