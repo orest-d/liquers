@@ -8,10 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 262
+Total rows: 263
 - P1: 1
 - P2: 69
-- P3: 192
+- P3: 193
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -129,6 +129,7 @@ Total rows: 262
 | [`PLAN-DEFAULT-LINK-PROMOTION-USES-THE-QUERYS-LAST-NS`](issues/PLAN-DEFAULT-LINK-PROMOTION-USES-THE-QUERYS-LAST-NS.md) | issue | Relative default links are promoted using the query's last ns, not each action's own | draft |  |  | P3 | S | core/plan |  | 2026-11-01 |
 | [`PY-ABI3T-WHEEL-NOT-USED`](issues/PY-ABI3T-WHEEL-NOT-USED.md) | issue | liquers-py builds a cp315t wheel because the abi3t wheel does not import | draft |  |  | P3 | S | py;build |  | 2026-11-01 |
 | [`PY-ADD-PYTHON-COMMAND-STILL-DECLARES-PYCALL-ALIASES`](issues/PY-ADD-PYTHON-COMMAND-STILL-DECLARES-PYCALL-ALIASES.md) | issue | CommandMetadataRegistry.add_python_command is still public and declares aliases of a pycall command that does not exist | draft |  |  | P3 | S | py |  | 2026-10-27 |
+| [`PY-COMMAND-CANNOT-SET-ICON-PRESETS-OR-NEXT`](issues/PY-COMMAND-CANNOT-SET-ICON-PRESETS-OR-NEXT.md) | feature | A Python @command cannot declare usage hints (the editor icon), presets or next presets | draft |  |  | P3 | S | py |  | 2026-11-21 |
 | [`PY-ERROR-INSTANCES-CANNOT-BE-PICKLED`](issues/PY-ERROR-INSTANCES-CANNOT-BE-PICKLED.md) | issue | Liquers error instances cannot be pickled in Python | draft |  |  | P3 | S | py |  | 2026-11-15 |
 | [`PY-LIVE-HANDLE-COUNT-FALLS-DURING-A-TEST`](issues/PY-LIVE-HANDLE-COUNT-FALLS-DURING-A-TEST.md) | issue | A live handle count can fall during a liquers-py test that compares it to its baseline | draft |  |  | P3 | S | py |  | 2026-11-03 |
 | [`PY-STORE-SET-OF-BYTES-IGNORES-THE-KEY-EXTENSION`](issues/PY-STORE-SET-OF-BYTES-IGNORES-THE-KEY-EXTENSION.md) | issue | Environment.store_set of bytes records the format b whatever the key's extension | draft |  |  | P3 | S | py |  | 2026-11-09 |

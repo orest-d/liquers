@@ -335,6 +335,7 @@ PY-CANNOT-OPEN-A-LIQUERS-UI-WINDOW,feature,Python cannot open the Liquers deskto
 PY-CANNOT-RENDER-TEMPLATES,feature,Python cannot declare template commands or render a template from a script or a command,closed,local,,ready,not-eligible,P2,L,py;lib/commands,,,,liquers-py-templates,,2026-11-04,specs/issues/PY-CANNOT-RENDER-TEMPLATES.md
 PY-CANNOT-START-A-WEB-SERVER,feature,Python cannot serve its environment over the Liquers HTTP API,closed,local,,ready,not-eligible,P2,L,py;axum,,,,liquers-py-web-server,,2026-11-06,specs/issues/PY-CANNOT-START-A-WEB-SERVER.md
 PY-CANNOT-USE-A-LIQUERS-UI,feature,"Python cannot hold, drive or observe a Liquers UI model on its environment",closed,local,,ready,not-eligible,P3,L,py;lib/ui,,,,liquers-py-ui,,2026-11-06,specs/issues/PY-CANNOT-USE-A-LIQUERS-UI.md
+PY-COMMAND-CANNOT-SET-ICON-PRESETS-OR-NEXT,feature,"A Python @command cannot declare usage hints (the editor icon), presets or next presets",draft,local,,,,P3,S,py,,,,,,2026-11-21,specs/issues/PY-COMMAND-CANNOT-SET-ICON-PRESETS-OR-NEXT.md
 PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA,feature,Python command decorators cannot declare per-argument metadata,draft,local,,needs-decision,not-eligible,P3,S,py,,,,py-command-decorator-declaration-keywords,,2026-10-18,specs/issues/PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA.md
 PY-COMMAND-DECORATOR-CANNOT-SET-REALM,feature,Python command decorators cannot place a command in a realm,draft,local,,needs-decision,not-eligible,P3,S,py,,,,py-command-decorator-declaration-keywords,,2026-10-18,specs/issues/PY-COMMAND-DECORATOR-CANNOT-SET-REALM.md
 PY-ENCODED-REPRS-QUOTE-THE-DEBUG-STRING,issue,"The reprs of Key, Expires and ExpirationTime put Rust debug text inside Python quotes",closed,local,,ready,eligible,P3,S,py,,,,py-encoded-reprs,,2026-10-27,specs/issues/PY-ENCODED-REPRS-QUOTE-THE-DEBUG-STRING.md
@@ -1135,7 +1136,7 @@ python/01-introduction,chapter,Introduction,ready,local,,,,,,docs,,,,,2026-11-14
 python/02-installing,chapter,Installing and setting up,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/02-installing.md
 python/03-queries,chapter,Queries,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/03-queries.md
 python/04-values,chapter,"Values, state and metadata",ready,local,,,,,,docs,,,,,2026-11-16,,docs/guides/python/04-values.md
-python/05-commands,chapter,Commands,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/05-commands.md
+python/05-commands,chapter,Commands,ready,local,,,,,,docs,,,,,2026-11-21,,docs/guides/python/05-commands.md
 python/06-stores,chapter,Stores,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/06-stores.md
 python/07-assets,chapter,"Recipes, assets and caching",ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/07-assets.md
 python/08-environment,chapter,The environment,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/08-environment.md
@@ -1156,7 +1157,7 @@ rust/01-introduction,chapter,Introduction,ready,local,,,,,,docs,,,,,2026-11-14,,
 rust/02-installing,chapter,Installing and setting up,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/02-installing.md
 rust/03-queries,chapter,Queries,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/03-queries.md
 rust/04-values,chapter,"Values, state and metadata",ready,local,,,,,,docs,,,,,2026-11-16,,docs/guides/rust/04-values.md
-rust/05-commands,chapter,Commands,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/05-commands.md
+rust/05-commands,chapter,Commands,ready,local,,,,,,docs,,,,,2026-11-21,,docs/guides/rust/05-commands.md
 rust/06-stores,chapter,Stores,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/06-stores.md
 rust/07-assets,chapter,"Recipes, assets and caching",ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/07-assets.md
 rust/08-environment,chapter,The environment,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/08-environment.md
@@ -1166,7 +1167,7 @@ rust/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-21,,docs/gu
 rust/12-serving,chapter,Serving and embedding,ready,local,,,,,,docs,,,,,2026-11-16,,docs/guides/rust/12-serving.md
 rust/13-records,chapter,Records,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/13-records.md
 rust/14-testing,chapter,Testing,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/14-testing.md
-rust/15-troubleshooting,chapter,Troubleshooting,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/15-troubleshooting.md
+rust/15-troubleshooting,chapter,Troubleshooting,ready,local,,,,,,docs,,,,,2026-11-21,,docs/guides/rust/15-troubleshooting.md
 rust/a-query-syntax,chapter,Query syntax,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/a-query-syntax.md
 rust/b-command-library,chapter,Command library,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/b-command-library.md
 rust/c-glossary,chapter,Glossary,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/c-glossary.md
@@ -1177,7 +1178,7 @@ web/01-introduction,chapter,Introduction,ready,local,,,,,,docs,,,,,2026-11-14,,d
 web/02-installing,chapter,Installing and setting up,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/02-installing.md
 web/03-queries,chapter,Queries,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/03-queries.md
 web/04-values,chapter,"Values, state and metadata",ready,local,,,,,,docs,,,,,2026-11-16,,docs/guides/web/04-values.md
-web/05-commands,chapter,Commands,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/05-commands.md
+web/05-commands,chapter,Commands,ready,local,,,,,,docs,,,,,2026-11-21,,docs/guides/web/05-commands.md
 web/06-stores,chapter,Stores,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/06-stores.md
 web/07-assets,chapter,"Recipes, assets and caching",ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/07-assets.md
 web/08-environment,chapter,The environment,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/08-environment.md
