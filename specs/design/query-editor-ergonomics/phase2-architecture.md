@@ -54,8 +54,14 @@ happens in the runner. There are no new commands and no new `ExtValue` variants.
 ### Theme — `liquers-lib/src/ui/theme/` (new)
 
 Every struct derives `Debug, Clone, PartialEq, Serialize, Deserialize` and carries
-`#[serde(rename_all = "kebab-case", deny_unknown_fields)]`, so `card-head` and `ink-muted` match
-reference-design §4.3 and a typo fails.
+`#[serde(rename_all = "kebab-case")]`, so `card-head` and `ink-muted` match reference-design §4.3.
+
+**Composition.** A theme is a nested dictionary first and a typed model second. A `ThemeLayer` is a
+partial dictionary. Layers compose by deep merge: a later layer changes the values of fields that
+exist and adds fields that don't. The typed `Theme` is a view of the composed dictionary. Keys the
+model does not know are kept, so a later element can read its own tokens by path; they are not an
+error. The built-in theme is the bottom layer. A host theme, and later a UI spec element, add
+layers on top and give only what they change.
 
 ```rust
 pub enum ThemeMode { Dark, Light }                 // Copy, Default = Dark, lowercase
@@ -86,8 +92,10 @@ pub struct IconChoice<'a> { pub names: Vec<&'a str>, pub monogram: char, pub hue
 
 impl Theme {
     pub fn builtin() -> Arc<Theme>;                        // OnceLock over a Rust constructor; cannot fail
-    pub fn from_yaml(text: &str) -> Result<Theme, Error>;  // merge over builtin, then deserialize once
-    pub fn from_json(value: &serde_json::Value) -> Result<Theme, Error>;  // a store value that is already structured
+    pub fn compose(layers: &[ThemeLayer]) -> Result<Theme, Error>;   // builtin, then each layer in order
+    pub fn with_layer(&self, layer: &ThemeLayer) -> Result<Theme, Error>;  // self's dictionary, merged with layer
+    pub fn lookup(&self, path: &str) -> Option<&serde_json::Value>;  // "editor.card.radius": known or extra keys
+    pub fn unknown_keys(&self) -> Vec<String>;   // paths outside the model: a lint, not an error
     pub fn palette(&self, mode: ThemeMode) -> &Palette;
     pub fn spacing(&self, density: Density) -> &Spacing;
     pub fn syntax(&self, mode: ThemeMode, role: SyntaxRole) -> Rgba;
@@ -96,12 +104,22 @@ impl Theme {
     pub fn icon_for<'a>(&'a self, key: &'a CommandKey, hint_icon: Option<&'a str>, ns_icon: Option<&'a str>) -> IconChoice<'a>;
     pub fn to_css(&self) -> String;   // :root vars per [data-theme] and [data-density], .lq-tok-<role>
 }
+/// A partial theme: a nested dictionary (YAML or a structured store value).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ThemeLayer(pub serde_json::Map<String, serde_json::Value>);
+impl ThemeLayer {
+    pub fn from_yaml(text: &str) -> Result<ThemeLayer, Error>;
+    pub fn from_value(value: serde_json::Value) -> Result<ThemeLayer, Error>;  // must be a mapping
+    pub fn merge(&mut self, over: &ThemeLayer);   // deep merge: maps by key, anything else replaced
+}
 pub fn is_icon_name(name: &str) -> bool;   // embedded Phosphor name list (icons.txt), both renderers
 ```
 
-The merge works on `serde_yaml::Value`. The built-in theme is serialized first. Maps then merge
-recursively, so `hues`, `namespaces` and `commands` merge by key, and scalars replace. The result
-is deserialized once. `builtin.yaml` is a test fixture asserted equal to `Theme::builtin()`. The
+`Theme` keeps its composed dictionary in a private field (`#[serde(skip)]`) beside the typed
+fields. `compose` serializes the built-in theme to a `ThemeLayer`, merges each layer in order, and
+deserializes the result once. Merging is associative, so `with_layer` on a composed theme equals
+composing the longer list; a Phase 3 test checks this. `builtin.yaml` is a test fixture asserted equal to `Theme::builtin()`. The
 Phosphor name list `ui/theme/icons.txt` is generated from `egui_phosphor::regular::ICONS`, and a
 test under the `egui` feature checks that the two agree. The browser build (no egui) therefore also
 falls back on an unknown name, as AC-14 requires.
@@ -240,7 +258,8 @@ pub fn editor_html(tree: &EditorTree, title: &str, mode: EditorMode, density: De
   - `context()` (l.193) adds `.with_theme`.
   - `deliver_update` (l.987, an associated fn) takes the cell as a parameter, like the registry.
   - For `ThemeSource::Query`, the runner evaluates the query, subscribes, and on each value calls
-    `from_yaml` (on text) or `from_json` (on a structured value), then `set_theme`.
+    `ThemeLayer::from_yaml` (on text) or `from_value` (on a structured value), then `Theme::compose`
+and `set_theme`.
   - A refused value keeps the previous theme.
   - `has_monitoring()` (l.1042) leaves `theme_watch` out, so the runner does not repaint forever.
 - `ui/native.rs` `ui_context` (l.158) passes the runner's cell.
@@ -281,7 +300,7 @@ and passes it to `WindowOptions`. There is no Python API change.
 
 | Failure | Constructor | Effect |
 |---|---|---|
-| Theme YAML or JSON is malformed, has an unknown key, or a bad colour | `Error::configuration_error(format!("theme: {e}"))` (every serde error) | Runner keeps the previous theme; stderr and a runner event |
+| Theme YAML or JSON is malformed, a known key has the wrong type, or a colour is bad | `Error::configuration_error(format!("theme: {e}"))` (every serde error) | Runner keeps the previous theme; stderr and a runner event |
 | `ui` section invalid, or an unknown built-in name | `Error::configuration_error` via `take_section` | Host start fails, as for `server` |
 | Theme query fails to evaluate | the evaluation's `Error` | Built-in theme stays; reported once |
 | Keymap entry does not parse | none (`eprintln!`, entry skipped) | A test asserts every entry parses and none repeats |
@@ -324,7 +343,7 @@ components, example); `ui/web/editor.rs`, `ui/ui_context.rs` (main components).
 | Files likely to change | ~22 in `liquers-lib`, `liquers-py/src/config.rs`, the registry |
 | Crates and workflows affected | `liquers-lib` (`egui`, `webui`), the Python window, build matrix, Playwright demo |
 | Existing tests likely to change | `ui/editor/tests.rs` (new tree fields), `widgets.rs` `query_layout_underlines_the_positioned_token_only` (signature), `registry_export`, web editor HTML assertions |
-| New validation | Layout per mode and kind; spans on the problem example (ns, link, variadic); merge, CSS snapshot, fixture equality; icon precedence and name-list agreement; keymap |
+| New validation | Layout per mode and kind; spans on the problem example (ns, link, variadic); composition (override, addition, associativity, unknown keys kept), CSS snapshot, fixture equality; icon precedence and name-list agreement; keymap |
 | Compatibility / data / concurrency / performance / security | Saved elements gain defaulted fields. The cell read lock covers one `Arc` clone. Spans re-parse on `rebuild`, not per frame. A theme is data, not code |
 | Recovery | Theme, layout, spans and commands land as separate steps |
 | Certainty and open questions | High for the model and theme. Medium for egui focus (a field inside a card expanded the same frame) and for the order of menu shortcuts versus the editor's `consume_shortcut`. AC-15 amendment above needs approval |
