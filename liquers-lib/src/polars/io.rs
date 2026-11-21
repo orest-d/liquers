@@ -1,3 +1,33 @@
+//! CSV in and out of a Polars DataFrame, as the `pl` namespace commands.
+//!
+//! # Main components
+//!
+//! - [`from_csv`] and [`to_csv`], registered by `register_polars_io_commands!` (or
+//!   [`register_commands`]) with labels and `hint icon`s.
+//!
+//! # Where it is used
+//!
+//! - [`crate::polars::register_commands`] and `register_polars_commands!` register every `pl`
+//!   command; the query editor draws each with its label and icon.
+//!
+//! # Related concepts
+//!
+//! - `specs/reference/POLARS_COMMAND_LIBRARY.md`: the command set; `super::util`: DataFrame access.
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_core::context::Environment;
+//! use liquers_lib::environment::{CommandRegistryAccess, DefaultEnvironment};
+//! use liquers_lib::value::Value;
+//!
+//! let mut env = DefaultEnvironment::<Value>::new();
+//! liquers_lib::polars::io::register_commands(env.get_mut_command_registry()).unwrap();
+//! let registry = env.get_command_metadata_registry();
+//! let md = registry.commands.iter().find(|m| m.namespace == "pl" && m.name == "from_csv").unwrap();
+//! assert_eq!(md.hints.get("icon"), Some(&serde_json::json!("file-csv")));
+//! ```
+
 use crate::value::{ExtValueInterface, Value};
 use liquers_core::{
     context::Context, error::Error, state::State, value::ValueInterface,

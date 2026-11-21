@@ -3,7 +3,7 @@ title: UI Interface Specification
 kind: reference
 audience: internal
 area: [lib/ui]
-reviewed: 2026-11-17
+reviewed: 2026-11-21
 ---
 # UI Interface Specification
 
@@ -426,15 +426,51 @@ committed edit; otherwise edits are pending until Update, and Revert reloads. A 
 changes what a command resolves to waits for Confirm; one that leaves a command unresolved is
 refused. Unknown commands and excess parameters are shown read-only and kept.
 
-**Renderers.** `egui::editor::show_editor` (collapsing tree, `gui_info` widgets, drag and drop of
-`ns` entries and list items) and `ui::web::editor::editor_html` (the `data-lq-*` markup; lists move
-with buttons) both draw the same `EditorTree` and return `EditorCommand`s; `EditorView::from_ui_event`
-decodes the browser's events. Hover text is each field's label, description, type and default.
-`UIContext::command_registry()` carries the registry snapshot every host gives its contexts; with
-none, the editor shows the text only.
+**Renderers.** `egui::editor::show_editor(ui, tree, view, mode, density, theme, ui_ctx)` and
+`ui::web::editor::editor_html(tree, title, mode, density, theme)` both draw the same `EditorTree`
+through the same backend-free layout (`ui::editor::layout`) and return `EditorCommand`s;
+`EditorView::from_ui_event` decodes the browser's events (`ed:<verb>:<path>:<rest>`). Hover text
+is each field's label, description, type and default. `UIContext::command_registry()` carries the
+registry snapshot every host gives its contexts; with none, the editor shows the text only.
+Design of the layout below: `design/query-editor-ergonomics/`.
 
-The query console's Parameters panel is the same core over the console's text, showing its last
-action; an edit rewrites the text and does not submit.
+**Modes.** `EditorMode::Simple` (the default) shows step chips for the pipeline, one card for the
+last action (`simple_card`) and "Continue with" chips from the command's `next` presets.
+`EditorMode::Advanced` shows every step as a card, an outline when there is more than one, link
+arguments nested under their field, Collapse all / Expand all and the filename field. The mode
+and an optional `Density` are serialized with the element (`with_mode`, `with_density`); the
+browser switches with `ed:mode::simple|advanced`.
+
+**Cards.** A card's header is `header_parts`: chevron, icon, realm, label, the dimmed
+`namespace/name`, modified and error marks, its position and a menu (collapsed: icon, label, id).
+An expanded card shows `toolbar_items` (Reset, Presets, Next, Filename; Move up / down in
+Advanced only) with presets as chips (at most three, the active one lit, the rest under "+N"),
+then a form grid of `form_rows` (label, editor, per-field actions, help, and a refused edit's
+message under the field it concerns). `ed:resetall:<path>:` resets every argument of a card.
+
+**Keyboard (egui).** `editor_keymap()` is the table of `ui/editor/keys.rs`, each entry with a
+scope (`Anywhere`, `Header`, `Field`) and matched most specific first: Ctrl+B mode, Ctrl+L query
+text, Ctrl+J jump, F6 / Shift+F6 regions, PageUp / PageDown / Home / End between cards (Alt+ from
+a field), Enter / Escape / Space / arrows on a header, Ctrl+Shift+[ and ] collapse and expand all,
+Alt+R reset, Alt+P presets, Alt+Shift+N next (Alt+N is the browser console's New Console),
+Alt+1…9 apply a preset, Ctrl+K add an action, Alt+Up / Down move, Ctrl+Delete delete, Alt+L
+link, Ctrl+Space complete, Ctrl+Enter update. **Ctrl+J** jumps from the query text to the field
+whose span holds the cursor (committing typed text first) and back to that field's span. The
+browser renderer has no keyboard model yet beyond the page's own focus order.
+
+**Theme and icons.** `ui::theme` is one token model for both renderers: a `Theme` composed from
+YAML `ThemeLayer`s (a nested dictionary; a later layer overrides existing keys and adds new ones),
+with a dark and a light palette, the query-syntax colours, two densities, named hues and an
+`IconTheme`. egui applies it with `egui::theme::apply_theme` once per theme generation; the
+browser writes `Theme::to_css` into `<style id="lq-theme">`. A card's icon comes from
+`Theme::icon_for`: a per-command override, the command's `hint icon`, the theme's namespace
+`icons.defaults`, then a monogram; an `Icon` is a list of variants (Phosphor or another set, a
+library icon, SVG or raster inline, embedded or by store key) with a Unicode text that is never
+empty. Icon images by key are loaded by the runner (`AppMessage::LoadIcon`) into the
+`IconCache` that `UIContext::icon_bytes` reads.
+
+The query console's Parameters panel (egui; `qc:params` in the browser) is the same core over the
+console's text, showing the whole pipeline; an edit rewrites the text and does not submit.
 
 ## Hosts
 
@@ -461,6 +497,15 @@ instead of panicking when it cannot open a window, and refuses a second window w
 A `WindowCloser` closes it from any thread, and an `on_frame` hook sees each tick with no
 `AppState` lock held and may close it. A submitted action is awaited inside a tick, so a slow one
 delays the next tick and freezes the window meanwhile (`WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS`).
+
+**The `ui` section.** A configuration document's `ui:` section (`ui::theme::UiConfig`:
+`theme` — `default` or a key or query of a theme YAML, reloaded when it changes; `mode` — `dark`,
+`light` or `system`; `density` — `comfortable` or `compact`) reaches a host as
+`WindowOptions::with_ui` for `run_window` (a `system` mode follows egui's system theme while the
+window is open), `NativeDriver::with_ui_config` / `AppRunner::with_ui_config`, `MountOptions.ui`
+in the browser (a `system` mode follows `prefers-color-scheme`), and the Python configuration's
+`ui` section for the window of `UI.run()`. Every `UIContext` of the host reads the same
+`ThemeCell`.
 
 The Python host's contract (delivery of status callbacks, `context.element`, lifetime) is
 `PYTHON_INTEGRATION.md` §18.
@@ -827,3 +872,4 @@ Candidate universal operations identified across use cases:
 | 2026-11-11 | Hosts: the native driver, the egui window and the Python host; reviewed against the implementation (that section only). | `design/egui-native-app/`, `design/liquers-py-ui/`, `design/liquers-py-ui-window/` |
 | 2026-11-16 | Value Integration: element-owned values are memory accessors; binding is left to the UI designs. Only that subsection was reviewed. | `design/settable-value-accessor/` |
 | 2026-11-17 | Editors: the editor element, its binding and message protocol, edits and renderers; UI events gain `Change(field)`. Those sections reviewed against the implementation. | `design/query-pipeline-editor/` |
+| 2026-11-21 | Editors: modes, cards, the egui keymap and Ctrl+J, theme and icons; Hosts: the `ui` section. Those parts reviewed against the implementation. | `design/query-editor-ergonomics/` |

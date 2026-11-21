@@ -63,3 +63,4 @@ have a row here (`specs/guides/USER_DOCS_EDITING_GUIDE.md`, maintenance).
 | 2026-11-16 | 04-values.md | reviewed against `design/settable-value-accessor/`: new 4.6 on editing a value through `lq.Accessor` (tokens, conflicts, projections, events); example runs |
 | 2026-11-16 | 12-serving.md | reviewed against `design/settable-value-accessor/`: the shared settings table names the opt-in `accessors` API |
 | 2026-11-16 | e-web-api.md | reviewed against `design/settable-value-accessor/`: new E.10, the Accessor API (routes, `ETag` preconditions, the WebSocket), from `_shared/web-api.md` |
+| 2026-11-21 | 11-ui.md | reviewed against `design/query-editor-ergonomics/`: new section on editing queries (Simple and Advanced modes, cards, keys, icons, themes and the `ui` section), from `_shared/ui-editors.md`; the reference section is renumbered |

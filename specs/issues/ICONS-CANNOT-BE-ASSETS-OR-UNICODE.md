@@ -2,7 +2,7 @@
 id: ICONS-CANNOT-BE-ASSETS-OR-UNICODE
 kind: feature
 title: An icon can only be named from an icon set; no SVG or PNG asset, Unicode fallback or tool palette
-status: draft
+status: closed
 priority: P3
 complexity: L
 area: [lib/ui]
@@ -46,3 +46,13 @@ design, not a requirement of `query-editor-ergonomics`.
 2026-11-21: the icon definition is absorbed by `query-editor-ergonomics` (Phase 1 AC-17, Phase 2
 `ui/theme/icon.rs`): variants (set reference, SVG, raster; inline, embedded in code or by key) with
 an always-available Unicode text. The tool palette is split off as `COMMANDS-HAVE-NO-TOOL-PALETTE`.
+
+## Resolution
+
+2026-11-21, `query-editor-ergonomics` Steps 2, 5, 7 and 9: `ui::theme::Icon` is a list of
+variants (an icon-set name, a theme library icon, an SVG or raster inline, embedded in code or by
+store key) with a Unicode text that a resolved icon always has; egui draws glyphs, SVG (resvg) and
+rasters, the browser draws Phosphor CSS with a Unicode fallback and data-URI images. The string
+syntax is the table of `ui/theme/icon.rs`; an asset icon is a key. Namespace icons come from the
+theme (`icons.namespaces`, `icons.defaults`) until `NAMESPACES-HAVE-NO-METADATA`. The palette is
+`COMMANDS-HAVE-NO-TOOL-PALETTE`. Evidence: tests 17, 17a, 19 and 26 of the design.

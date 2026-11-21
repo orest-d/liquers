@@ -35,10 +35,9 @@
 //! # Examples
 //!
 //! ```
-//! use liquers_lib::egui::editor::show_editor;
-//! use liquers_lib::ui::editor::{EditorMode, EditorTree, EditorView};
-//! use liquers_lib::ui::theme::{Density, ThemeState};
-//!
+//! # use liquers_lib::egui::editor::show_editor;
+//! # use liquers_lib::ui::editor::{EditorMode, EditorTree, EditorView};
+//! # use liquers_lib::ui::theme::{Density, ThemeState};
 //! let tree = EditorTree { text: "-R/data.csv".into(), text_editable: true, ..Default::default() };
 //! let mut view = EditorView::default();
 //! let theme = ThemeState::default();

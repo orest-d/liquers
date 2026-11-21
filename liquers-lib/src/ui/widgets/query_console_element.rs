@@ -2,8 +2,8 @@
 //!
 //! The console holds a query text with history, shows the evaluated value or its metadata, offers
 //! the next presets of the last command, and opens a Parameters panel: an editor
-//! (`ui::editor::EditorState`) of the last action, whose edits rewrite the text without
-//! submitting it.
+//! (`ui::editor::EditorState`) of the whole query, in Simple mode (the last action) or Advanced
+//! mode (every step), whose edits rewrite the text without submitting it.
 //!
 //! # Main components
 //!
@@ -17,7 +17,8 @@
 //! # Related concepts
 //!
 //! - `ui::editor`: the editors; the panel reuses their core and egui renderer.
-//! - `specs/design/query-pipeline-editor/` (the Parameters panel).
+//! - `specs/design/query-pipeline-editor/` (the Parameters panel) and
+//!   `specs/design/query-editor-ergonomics/` (its modes).
 //!
 //! # Examples
 //!
@@ -104,7 +105,7 @@ pub struct QueryConsoleElement {
     #[serde(skip)]
     last_volatile_refresh_at: Option<std::time::Instant>,
 
-    /// Whether the Parameters panel (an action editor of the last action) is open.
+    /// Whether the Parameters panel (an editor of the whole query) is open.
     #[serde(default)]
     show_parameters: bool,
 

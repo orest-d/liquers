@@ -1,3 +1,35 @@
+//! The `img` commands: loading, transforming, filtering and saving images, as one macro.
+//!
+//! # Main components
+//!
+//! - `register_image_commands!`: registers every `img` command with its label and `hint icon`,
+//!   and presets on `img/blur` (`blur-1`, `blur-3`, `blur-8`) and `img/rotate` (`rotate-90`,
+//!   `rotate-180`, `rotate-270`).
+//! - [`register_commands`]: the same, on a [`DefaultEnvironment`] taken by value.
+//!
+//! # Where it is used
+//!
+//! - `crate::commands::register_all_commands_fn` (with `image-support` on); the query editor draws
+//!   each command with its label and icon.
+//!
+//! # Related concepts
+//!
+//! - The command functions in the sibling modules of `crate::image`; images are
+//!   `ExtValue::Image` values.
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_core::context::Environment;
+//! use liquers_lib::environment::DefaultEnvironment;
+//! use liquers_lib::value::Value;
+//!
+//! let env = liquers_lib::image::commands::register_commands(DefaultEnvironment::<Value>::new()).unwrap();
+//! let registry = env.get_command_metadata_registry();
+//! let blur = registry.commands.iter().find(|m| m.namespace == "img" && m.name == "blur").unwrap();
+//! assert_eq!(blur.presets.len(), 3);
+//! ```
+
 use crate::environment::CommandRegistryAccess;
 use crate::environment::DefaultEnvironment;
 use crate::value::Value;

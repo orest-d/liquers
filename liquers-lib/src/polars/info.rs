@@ -1,3 +1,33 @@
+//! Shape and schema of a Polars DataFrame, as the `pl` namespace commands.
+//!
+//! # Main components
+//!
+//! - [`shape`], [`nrows`], [`ncols`] and [`schema`], registered by `register_polars_info_commands!`
+//!   (or [`register_commands`]) with labels and `hint icon`s.
+//!
+//! # Where it is used
+//!
+//! - [`crate::polars::register_commands`] and `register_polars_commands!` register every `pl`
+//!   command; the query editor draws each with its label and icon.
+//!
+//! # Related concepts
+//!
+//! - `specs/reference/POLARS_COMMAND_LIBRARY.md`: the command set; `super::util`: DataFrame access.
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_core::context::Environment;
+//! use liquers_lib::environment::{CommandRegistryAccess, DefaultEnvironment};
+//! use liquers_lib::value::Value;
+//!
+//! let mut env = DefaultEnvironment::<Value>::new();
+//! liquers_lib::polars::info::register_commands(env.get_mut_command_registry()).unwrap();
+//! let registry = env.get_command_metadata_registry();
+//! let md = registry.commands.iter().find(|m| m.namespace == "pl" && m.name == "shape").unwrap();
+//! assert_eq!(md.hints.get("icon"), Some(&serde_json::json!("ruler")));
+//! ```
+
 use crate::value::{simple::SimpleValue, Value};
 use liquers_core::{
     context::Context, error::Error, state::State,

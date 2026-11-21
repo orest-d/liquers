@@ -2,11 +2,11 @@
 id: USER-GUIDES-DO-NOT-DESCRIBE-THE-EDITORS
 kind: issue
 title: The user guides' UI chapters do not describe the query, action, resource and key editors
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [docs]
-design:
+design: query-editor-ergonomics
 created: 2026-11-17
 github:
 ---
@@ -31,3 +31,11 @@ what the command metadata contributes (labels, `doc`, `gui:`, presets, `next`, `
 
 Phase 5 of `query-pipeline-editor`, 2026-11-17: `docs_index.py chapters-for` lists the chapters; they
 remain true but say nothing of the editors.
+
+## Resolution
+
+2026-11-21, `query-editor-ergonomics` Step 11: a new section "Editing queries" in each
+`docs/guides/{rust,python,web}/11-ui.md` (11.7, 11.7 and 11.8), from the shared fragment
+`docs/guides/_shared/ui-editors.md`: modes, cards, presets and next, the keyboard, icons, themes
+and the `ui` section. Binding an editor to a recipe accessor is not described there yet; the
+chapters point to the console and the `ns-lui` editor commands of the reference section.

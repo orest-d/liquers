@@ -16,6 +16,35 @@
 //! | `-R/icons/brush.svg` | an image by store key (`.svg`, `.png`, `.jpg`, `.jpeg`, `.webp`) |
 //! | `{unicode: "⏷", variants: [ph:funnel, {svg: {inline: "<svg…>"}}]}` | the full form |
 //! | `[ph:funnel, u:⏷]` | a list of string forms |
+//!
+//! # Main components
+//!
+//! - [`Icon`]: the variants and the Unicode text; [`Icon::parse`] reads a string form,
+//!   [`Icon::from_hint`] a command's `hint icon` value; [`Icon::embedded_svg`] and
+//!   [`Icon::embedded_raster`] build variants from bytes compiled in.
+//! - [`IconVariant`] and [`IconSource`] (inline [`IconBytes`] or a store key).
+//! - [`IconTheme`]: the theme's `icons` section: the default set, a library of named icons,
+//!   per-command [`IconOverride`]s and `defaults` for commands without a hint.
+//!
+//! # Where it is used
+//!
+//! - `Theme::icon_for` resolves a card's icon from these; the egui and browser editors draw the
+//!   result (`crate::egui::theme::draw_icon`, `crate::ui::web::editor::icon_html`).
+//!
+//! # Related concepts
+//!
+//! - `super::icon_resolve`: resolution to a [`super::ResolvedIcon`] and the monogram fallback.
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_lib::ui::theme::{Icon, IconVariant};
+//!
+//! let icon = Icon::parse("ph:funnel").unwrap();
+//! assert!(matches!(&icon.variants[0], IconVariant::Set { name, .. } if name == "funnel"));
+//! let hinted = Icon::from_hint(&serde_json::json!(["funnel", "u:F"])).unwrap();
+//! assert_eq!(hinted.unicode.as_deref(), Some("F"));
+//! ```
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;

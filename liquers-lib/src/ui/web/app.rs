@@ -1,10 +1,35 @@
-//! Web backend entry points: SSR rendering (all targets) and, on wasm, the browser mount
-//! + driver.
+//! Web backend entry points: SSR rendering (all targets) and, on wasm, the browser mount and its
+//! driver loop.
 //!
-//! The wasm browser driver (`mount_web`, `MountHandle`, `render_element_dom`) is implemented
-//! in the M4 milestone, where it is built and exercised via `trunk` + Playwright; it only
-//! compiles for `target_arch = "wasm32"`. SSR (`render_app_ssr`) works on every target and is
-//! covered by native tests.
+//! # Main components
+//!
+//! - [`render_app_ssr`]: every root of an `AppState` as one HTML fragment, on every target.
+//! - On `wasm32` with `webui`: `mount_web` / `MountHandle` (the browser mount, its click, change
+//!   and keydown listeners and the per-tick DOM patch) and `MountOptions`, whose `ui` field is the
+//!   `ui:` configuration section. The theme is written as a `<style id="lq-theme">` of CSS
+//!   custom properties ([`crate::ui::theme::Theme::to_css`]) and rewritten when the theme
+//!   generation changes; a `system` mode follows `prefers-color-scheme`.
+//!
+//! # Where it is used
+//!
+//! - `liquers-web`'s `mountUI`, the `examples-web` demos and native SSR tests.
+//!
+//! # Related concepts
+//!
+//! - `crate::ui::runner::AppRunner`: the runner the driver loop runs; `crate::ui::web::editor`:
+//!   the editor HTML whose events (`ed:…`) the listeners send back.
+//!
+//! # Examples
+//!
+//! ```
+//! use std::sync::Arc;
+//! use liquers_lib::ui::{AppState, DirectAppState};
+//!
+//! let state: Arc<tokio::sync::Mutex<dyn AppState>> = Arc::new(tokio::sync::Mutex::new(DirectAppState::new()));
+//! let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+//! let html = runtime.block_on(liquers_lib::ui::web::app::render_app_ssr(&state)).unwrap();
+//! assert!(html.is_empty());
+//! ```
 
 use std::sync::Arc;
 

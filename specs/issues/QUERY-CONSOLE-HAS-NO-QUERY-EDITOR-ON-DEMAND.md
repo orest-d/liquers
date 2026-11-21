@@ -2,7 +2,7 @@
 id: QUERY-CONSOLE-HAS-NO-QUERY-EDITOR-ON-DEMAND
 kind: feature
 title: The query console cannot show a query editor of its whole query on demand
-status: draft
+status: closed
 priority: P3
 complexity: M
 area: [lib/ui, lib/egui, web]
@@ -44,3 +44,11 @@ share it) or keeps the direct copy the Parameters panel uses.
 
 Orest, 2026-11-17, while asking for a UI spec example with an editor
 (`liquers-lib/examples/ui_spec_editor.rs`).
+
+## Resolution
+
+2026-11-21, `query-editor-ergonomics` Step 8: the console's Parameters panel (its toggle in
+egui, the Parameters button and `qc:params` in the browser) now shows the editor over the whole
+query, in Simple or Advanced mode, not only its last action. An edit rewrites the console text
+without submitting. The panel keeps a direct copy of the text (the open point), not a memory
+accessor. Evidence: test 18 (`liquers-lib/src/ui/widgets/query_console_element.rs`).

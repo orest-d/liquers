@@ -1,3 +1,34 @@
+//! egui helpers that display Liquers values: queries, recipes, errors, status, metadata and assets.
+//!
+//! # Main components
+//!
+//! - Queries: [`edit_query`] and [`display_styled_query`] (and variants) draw a highlighted
+//!   query; [`styled_query_to_layout_job`] and [`query_to_layout_job_themed`] take the syntax
+//!   colours from a [`ThemeState`], and [`query_to_layout_job`] from the built-in theme.
+//! - Panels: [`display_recipe`], [`display_error`], [`display_status`], [`display_progress`],
+//!   [`display_metadata`], [`display_command_metadata`], [`display_asset_info`] and
+//!   [`display_asset_info_table`].
+//! - Stateful widgets: [`TextEditor`] and [`AssetStatus`].
+//!
+//! # Where it is used
+//!
+//! - The egui renderers of the UI elements (`crate::ui::widgets`, `crate::egui::editor`).
+//!
+//! # Related concepts
+//!
+//! - `crate::ui::web::widgets`: the HTML versions; `crate::egui::theme::theme_of`: the theme of a
+//!   context.
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_lib::egui::widgets::query_to_layout_job;
+//!
+//! let job = query_to_layout_job("-R/data.csv/-/head-20");
+//! assert_eq!(job.text, "-R/data.csv/-/head-20");
+//! assert!(job.sections.len() > 1);
+//! ```
+
 use image::DynamicImage;
 use liquers_core::recipes::Recipe;
 /// Display a complete Recipe structure in egui, showing all fields in a user-friendly way

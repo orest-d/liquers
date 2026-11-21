@@ -1,3 +1,34 @@
+//! Column and row selection of the `pl` namespace: pick or drop columns, take rows.
+//!
+//! # Main components
+//!
+//! - [`select_columns`], [`drop_columns`], [`tail`] and [`slice`], plus `head` as an alias of
+//!   `slice` with its own label, presets (`head-5`, `head-10`, …) and next presets; registered by
+//!   `register_polars_selection_commands!` (or [`register_commands`]).
+//!
+//! # Where it is used
+//!
+//! - [`crate::polars::register_commands`] and `register_polars_commands!` register every `pl`
+//!   command; the query editor draws each with its label and icon.
+//!
+//! # Related concepts
+//!
+//! - `specs/reference/POLARS_COMMAND_LIBRARY.md`: the command set; `super::util`: DataFrame access.
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_core::context::Environment;
+//! use liquers_lib::environment::{CommandRegistryAccess, DefaultEnvironment};
+//! use liquers_lib::value::Value;
+//!
+//! let mut env = DefaultEnvironment::<Value>::new();
+//! liquers_lib::polars::selection::register_commands(env.get_mut_command_registry()).unwrap();
+//! let registry = env.get_command_metadata_registry();
+//! let md = registry.commands.iter().find(|m| m.namespace == "pl" && m.name == "head").unwrap();
+//! assert_eq!(md.hints.get("icon"), Some(&serde_json::json!("rows")));
+//! ```
+
 use crate::value::{ExtValueInterface, Value};
 use liquers_core::{
     context::Context, error::Error, state::State,

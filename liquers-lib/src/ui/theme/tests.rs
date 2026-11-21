@@ -223,3 +223,31 @@ fn theme_cell_bumps_generation_on_change_only() {
     icons.set("-R/i.svg", IconLoad::Ready(std::sync::Arc::from(&b"<svg/>"[..])));
     assert!(icons.get_or_mark("-R/i.svg").0.is_some());
 }
+
+// The theme file of the user guides' `_shared/ui-editors.md` composes as the text says.
+#[test]
+fn user_guide_theme_example_composes() {
+    let layer = ThemeLayer::from_yaml(
+        r##"
+dark:
+  surface: { card: "#1b1f27" }
+  syntax: { action: "#7cc4ff" }
+icons:
+  commands:
+    "pl/head": { icon: rows, hue: teal }
+  namespaces:
+    pl: { icon: table }
+"##,
+    )
+    .unwrap();
+    let theme = Theme::compose(&[layer]).unwrap();
+    assert_eq!(theme.dark.syntax.action, Rgba::rgb(0x7c, 0xc4, 0xff));
+    assert_eq!(theme.light.surface.card, Theme::builtin().light.surface.card);
+    let head = CommandKey::new("", "pl", "head");
+    let icon = theme.icon_for(&head, "Get first rows", None, None);
+    assert_eq!(icon.hue, Some("teal"));
+    let gt = CommandKey::new("", "pl", "gt");
+    let hinted = Icon::parse("greater-than").unwrap();
+    let icon = theme.icon_for(&gt, "Greater than", Some(&hinted), None);
+    assert!(matches!(icon.variants[0], IconVariant::Set { name, .. } if name == "table"));
+}

@@ -36,11 +36,10 @@
 //! `crate::ui::ui_context::UIContext` carries the theme to elements; the configuration
 //! document's `ui` section names it; command hints (`hint icon`) give commands their icons.
 //!
-//! # Example
+//! # Examples
 //!
 //! ```
-//! use liquers_lib::ui::theme::{Theme, ThemeLayer, ThemeMode, Rgba};
-//!
+//! # use liquers_lib::ui::theme::{Theme, ThemeLayer, ThemeMode, Rgba};
 //! let layer = ThemeLayer::from_yaml(r##"
 //! dark: { surface: { card: "#1b1f27" } }
 //! editor: { card: { elevation: 2 } }

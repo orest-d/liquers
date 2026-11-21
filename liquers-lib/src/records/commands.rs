@@ -15,6 +15,41 @@
 //! helper it calls. The helper is therefore always invoked by its full path
 //! (`super::convert::to_record` / `super::convert::to_record_source`), never through a glob import
 //! of `convert`, so the two never shadow each other.
+//!
+//! # Main components
+//!
+//! - `register_records_commands!`: registers every `rec` command with its label, `hint icon`,
+//!   presets (`rec/head`: `head-5` … `head-100`) and next presets (`rec/sort`).
+//! - The command functions: [`rec_id`], [`row`], [`select_columns`], [`head`], [`slice`],
+//!   [`rowid`], [`to_record_source`], [`materialize`], [`to_json`], [`from_json`] and the table
+//!   operations of `super::table_ops`.
+//!
+//! # Where it is used
+//!
+//! - `crate::commands::register_all_commands_fn` (with `records` on); the query editor draws each
+//!   command with its label and icon.
+//!
+//! # Related concepts
+//!
+//! - `liquers-records`: the data model; `super::convert`: the conversions; the reference
+//!   `specs/reference/RECORD_STREAMS.md`.
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_core::context::Environment;
+//! use liquers_lib::environment::{CommandRegistryAccess, DefaultEnvironment};
+//! use liquers_lib::value::Value;
+//!
+//! # use liquers_core::{context::Context, state::State};
+//! type CommandEnvironment = DefaultEnvironment<Value>;
+//! let mut env = CommandEnvironment::new();
+//! let cr = env.get_mut_command_registry();
+//! (|| liquers_lib::register_records_commands!(cr))().unwrap();
+//! let registry = env.get_command_metadata_registry();
+//! let head = registry.commands.iter().find(|m| m.namespace == "rec" && m.name == "head").unwrap();
+//! assert_eq!(head.presets.len(), 4);
+//! ```
 
 use std::borrow::Cow;
 use std::sync::Arc;

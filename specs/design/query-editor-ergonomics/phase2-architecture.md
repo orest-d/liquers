@@ -423,3 +423,20 @@ components, example); `ui/web/editor.rs`, `ui/ui_context.rs` (main components).
 | Compatibility / data / concurrency / performance / security | Saved elements gain defaulted fields. The cell read lock covers one `Arc` clone. Spans re-parse on `rebuild`, not per frame. A theme is data, not code |
 | Recovery | Theme, layout, spans and commands land as separate steps |
 | Certainty and open questions | High for the model and theme. Medium for egui focus (a field inside a card expanded the same frame) and for the order of menu shortcuts versus the editor's `consume_shortcut`. AC-15 amendment above needs approval |
+
+## Implementation Changes
+
+Departures found during Phase 4 (2026-11-21). None changes an acceptance criterion; the reference
+documents describe the code as built.
+
+| Planned | Built | Why |
+|---|---|---|
+| `show_editor(ui, tree, view, mode, density, theme)` | adds `ui_ctx: Option<&UIContext>` | icons loaded by key need `UIContext::icon_bytes` |
+| `editor_keymap() -> &[(KeyboardShortcut, EditorKey)]` | each entry also has a `KeyScope` (`Anywhere`, `Header`, `Field`), matched most specific first | egui's `consume_shortcut` ignores extra Shift/Alt, so `Alt+Shift+N` must be tried before `Alt+N`-like entries, and header keys must not fire in a text field |
+| Next: `Alt+N` | `Alt+Shift+N` | the bundled browser console uses `Alt+N` for New Console (test 12) |
+| namespace icons in `icons.namespaces` only | the built-in table moved to `icons.defaults`, below a command's `hint icon`; `icons.namespaces` stays above it | a theme's namespace entry overrides hints, the built-in table must not |
+| egui reads `ctx.theme()` for `system` | `run_window` reads `ctx.system_theme()` while `WindowOptions.ui` has a `system` mode; `NativeDriver::with_ui_config` and `AppRunner::set_ui_config` added | the host owns the mode; `ctx.theme()` is the applied one |
+| the browser renderer has the keyboard model | the browser has the layout, modes and events but no editor keys | the keydown dispatcher of the mount is shared with menus; `WEB-EDITOR-HAS-NO-KEYBOARD-MODEL` |
+| the console panel shows the last action | the panel shows the whole query (Simple: the last action's card; Advanced: every step) | `QUERY-CONSOLE-HAS-NO-QUERY-EDITOR-ON-DEMAND` was cheaper to close here |
+| icon images by key in the browser | egui loads them through the runner; the browser draws inline and embedded images, and a keyed image falls back to Unicode | the browser mount has no asset loader for icons yet (`WEB-EDITOR-HAS-NO-KEYBOARD-MODEL`) |
+| `mountUI` unchanged | unchanged, so a page cannot pick a theme | `WEB-MOUNTUI-HAS-NO-THEME-OPTION` |

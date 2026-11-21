@@ -1,3 +1,34 @@
+//! The context every UI element renders with: shared state, messages, metadata and the theme.
+//!
+//! # Main components
+//!
+//! - [`UIContext`]: the shared `AppState`, the message sender, the current element's handle, the
+//!   command metadata registry ([`UIContext::command_registry`]), the theme
+//!   ([`UIContext::theme`], [`UIContext::theme_cell`]) and icon images loaded by key
+//!   ([`UIContext::icon_bytes`]). Its methods submit queries, send events and request quit.
+//!
+//! # Where it is used
+//!
+//! - The runner and every host build one (`AppRunner`, `NativeDriver::ui_context`, the browser
+//!   mount); `show_in_egui` and the web renderers of every element receive it.
+//!
+//! # Related concepts
+//!
+//! - [`super::theme::ThemeCell`]: the theme a host swaps; [`super::message::AppMessage`]: what
+//!   the context sends.
+//!
+//! # Examples
+//!
+//! ```
+//! use std::sync::Arc;
+//! use liquers_lib::ui::{app_message_channel, AppState, DirectAppState, UIContext};
+//!
+//! let state: Arc<tokio::sync::Mutex<dyn AppState>> = Arc::new(tokio::sync::Mutex::new(DirectAppState::new()));
+//! let (sender, _receiver) = app_message_channel();
+//! let ctx = UIContext::new(state, sender);
+//! assert!(ctx.handle().is_none() && ctx.theme_cell().is_none());
+//! ```
+
 use std::sync::Arc;
 
 use liquers_core::command_metadata::CommandMetadataRegistry;

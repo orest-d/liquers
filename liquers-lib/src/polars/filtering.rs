@@ -1,3 +1,35 @@
+//! Row filters of the `pl` namespace: comparisons, membership, nulls and string matches.
+//!
+//! # Main components
+//!
+//! - [`eq`], [`ne`], [`gt`], [`gte`], [`lt`], [`lte`], [`is_in`], [`is_null`], [`is_not_null`],
+//!   [`starts_with`], [`ends_with`] and [`contains`], registered by
+//!   `register_polars_filtering_commands!` (or [`register_commands`]) with labels, `hint icon`s and
+//!   next presets.
+//!
+//! # Where it is used
+//!
+//! - [`crate::polars::register_commands`] and `register_polars_commands!` register every `pl`
+//!   command; the query editor draws each with its label and icon.
+//!
+//! # Related concepts
+//!
+//! - `specs/reference/POLARS_COMMAND_LIBRARY.md`: the command set; `super::util`: DataFrame access.
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_core::context::Environment;
+//! use liquers_lib::environment::{CommandRegistryAccess, DefaultEnvironment};
+//! use liquers_lib::value::Value;
+//!
+//! let mut env = DefaultEnvironment::<Value>::new();
+//! liquers_lib::polars::filtering::register_commands(env.get_mut_command_registry()).unwrap();
+//! let registry = env.get_command_metadata_registry();
+//! let md = registry.commands.iter().find(|m| m.namespace == "pl" && m.name == "eq").unwrap();
+//! assert_eq!(md.hints.get("icon"), Some(&serde_json::json!("equals")));
+//! ```
+
 use crate::value::{ExtValueInterface, Value};
 use liquers_core::{
     context::Context, error::Error, state::State,
