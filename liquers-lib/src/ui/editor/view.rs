@@ -32,6 +32,21 @@ pub struct EditorView {
     pub pending_jump: Option<usize>,
     /// A jump target that Simple mode does not show; the renderer offers "Open in Advanced".
     pub simple_offer: Option<NodePath>,
+    /// `focus` changed in code: the renderer moves its keyboard focus there on the next frame.
+    pub focus_pending: bool,
+    /// A card list opened from the keyboard (`Alt+P`, `Alt+Shift+N`, `Ctrl+Space`).
+    pub open_menu: Option<(NodePath, CardMenu)>,
+    /// The field last committed, by [`field_id`]: a refused edit's message shows under it.
+    pub last_field: Option<String>,
+}
+
+/// A list a card shows on request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CardMenu {
+    Presets,
+    Next,
+    /// The presets or alternatives of one argument.
+    Argument(String),
 }
 
 /// In Simple mode a link stays its field's text, so a target inside a link focuses the link's
@@ -115,6 +130,7 @@ impl EditorView {
         if let Some(target) = target {
             self.jump_back = Some(span.range.clone());
             self.focus = Some(target);
+            self.focus_pending = true;
         }
     }
 
@@ -131,6 +147,7 @@ impl EditorView {
         let range = tree.span_of(&path, &target).or_else(|| self.jump_back.clone())?;
         self.jump_back = None;
         self.focus = Some(FocusTarget::Text);
+        self.focus_pending = true;
         Some(range)
     }
 

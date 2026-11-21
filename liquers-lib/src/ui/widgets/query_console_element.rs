@@ -602,11 +602,21 @@ impl UIElement for QueryConsoleElement {
                 match self.parameters_tree(ctx) {
                     Some(tree) => {
                         let mut view = std::mem::take(&mut self.parameters_view);
+                        let theme = ctx.theme();
                         let commands = ui
                             .push_id("lq-console-parameters", |ui| {
-                                crate::egui::editor::show_editor(ui, &tree, &mut view)
+                                crate::egui::editor::show_editor(
+                                    ui,
+                                    &tree,
+                                    &mut view,
+                                    crate::ui::editor::EditorMode::Simple,
+                                    crate::ui::theme::Density::Compact,
+                                    &theme,
+                                    Some(ctx),
+                                )
                             })
-                            .inner;
+                            .inner
+                            .commands;
                         self.parameters_view = view;
                         self.apply_parameter_commands(commands, ctx);
                     }

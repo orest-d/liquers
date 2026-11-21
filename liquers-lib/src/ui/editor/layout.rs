@@ -200,3 +200,150 @@ pub fn editor_layout(tree: &EditorTree, mode: EditorMode) -> EditorLayout<'_> {
         }
     }
 }
+
+/// A button of an expanded card's toolbar (AC-5), in drawing order: Delete stays far right,
+/// away from Reset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolItem {
+    Reset,
+    Presets,
+    Next,
+    Filename,
+    MoveUp,
+    MoveDown,
+    Delete,
+}
+
+/// The toolbar of an expanded card of `node` in `mode`: Presets and Next only when the command
+/// has some, Move only in Advanced.
+pub fn toolbar_items(node: &EditorNode, mode: EditorMode) -> Vec<ToolItem> {
+    let mut items = Vec::new();
+    if let EditorNode::Action { presets, next, filename, fields, .. } = node {
+        if !fields.is_empty() {
+            items.push(ToolItem::Reset);
+        }
+        if !presets.is_empty() {
+            items.push(ToolItem::Presets);
+        }
+        if !next.is_empty() {
+            items.push(ToolItem::Next);
+        }
+        if filename.is_some() {
+            items.push(ToolItem::Filename);
+        }
+    }
+    let movable = node.path().last_element().is_some_and(|at| at > 0);
+    if mode == EditorMode::Advanced && movable {
+        items.push(ToolItem::MoveUp);
+        items.push(ToolItem::MoveDown);
+    }
+    if !node.path().0.is_empty() {
+        items.push(ToolItem::Delete);
+    }
+    items
+}
+
+/// One part of a card header (AC-4), in drawing order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HeaderPart {
+    Chevron,
+    Icon,
+    /// The command's realm, when the registry has several.
+    Realm(String),
+    /// The label: the human step ("Greater than").
+    Label(String),
+    /// The dimmed `namespace/name`.
+    CommandId(String),
+    Modified,
+    Error,
+    /// The card's 1-based position in the editor.
+    Position(usize),
+    Menu,
+}
+
+/// The `namespace/name` of a command.
+pub fn command_id(command: &CommandKey) -> String {
+    if command.namespace.is_empty() {
+        command.name.clone()
+    } else {
+        format!("{}/{}", command.namespace, command.name)
+    }
+}
+
+/// The header of the card of `node`: collapsed it reads icon, label, then the dimmed
+/// `namespace/name`; expanded the `[realm] namespace/name` line comes above the label.
+pub fn header_parts(tree: &EditorTree, node: &EditorNode, collapsed: bool, position: usize) -> Vec<HeaderPart> {
+    let marks = card_marks(tree, node);
+    let mut parts = vec![HeaderPart::Chevron, HeaderPart::Icon];
+    let label = HeaderPart::Label(node_label(node));
+    match node {
+        EditorNode::Action { command, .. } => {
+            let id = HeaderPart::CommandId(command_id(command));
+            let realm = (tree.show_realm && !command.realm.is_empty()).then(|| HeaderPart::Realm(command.realm.clone()));
+            if collapsed {
+                parts.push(label);
+                parts.push(id);
+            } else {
+                parts.extend(realm);
+                parts.push(id);
+                parts.push(label);
+            }
+        }
+        EditorNode::Resource { .. }
+        | EditorNode::Namespaces { .. }
+        | EditorNode::Directive { .. }
+        | EditorNode::Value { .. }
+        | EditorNode::Nested { .. }
+        | EditorNode::Opaque { .. } => parts.push(label),
+    }
+    if marks.modified {
+        parts.push(HeaderPart::Modified);
+    }
+    if marks.error {
+        parts.push(HeaderPart::Error);
+    }
+    parts.push(HeaderPart::Position(position));
+    parts.push(HeaderPart::Menu);
+    parts
+}
+
+/// One row of a card's form grid (AC-6): the label column, the editor, the help line and a
+/// refused edit's message under the field.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FormRow<'t> {
+    pub field: &'t super::tree::EditorField,
+    pub label: String,
+    /// No default: the query must give it.
+    pub required: bool,
+    /// The argument description, under the editor.
+    pub help: String,
+    /// The last refused edit's message, when it was this field's.
+    pub message: Option<String>,
+}
+
+/// The form rows of `node`. `last_field` is the field id ([`super::view::field_id`]) last
+/// committed: a message concerning the node shows under that field, else under the first.
+pub fn form_rows<'t>(tree: &EditorTree, node: &'t EditorNode, last_field: Option<&str>) -> Vec<FormRow<'t>> {
+    let fields = node.fields();
+    let message = tree.message.as_ref().filter(|(p, _)| p == node.path()).map(|(_, m)| m.clone());
+    let owner = message.as_ref().map(|_| {
+        fields
+            .iter()
+            .position(|f| {
+                let base = super::view::field_id(node.path(), &f.name, None);
+                last_field.is_some_and(|id| id == base || id.strip_prefix(base.as_str()).is_some_and(|r| r.starts_with(':')))
+            })
+            .unwrap_or(0)
+    });
+    fields
+        .iter()
+        .enumerate()
+        .map(|(i, field)| FormRow {
+            field,
+            label: if field.label.is_empty() { field.name.clone() } else { field.label.clone() },
+            required: field.default_text.is_none() && !field.multiple,
+            help: field.description.clone(),
+            message: if owner == Some(i) { message.clone() } else { None },
+        })
+        .collect()
+}

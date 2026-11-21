@@ -403,8 +403,17 @@ impl UIElement for EditorElement {
             return ui.label("Editor: no command registry");
         };
         let tree = state.tree().clone();
-        let inner = ui.push_id(id, |ui| crate::egui::editor::show_editor(ui, &tree, &mut self.view));
-        self.apply_commands(inner.inner, ctx);
+        let theme = ctx.theme();
+        let density = self.effective_density(&theme);
+        let mode = self.mode;
+        let view = &mut self.view;
+        let inner = ui.push_id(id, |ui| {
+            crate::egui::editor::show_editor(ui, &tree, view, mode, density, &theme, Some(ctx))
+        });
+        if let Some(mode) = inner.inner.mode {
+            self.mode = mode;
+        }
+        self.apply_commands(inner.inner.commands, ctx);
         inner.response
     }
 
