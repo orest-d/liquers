@@ -226,6 +226,13 @@ where
         self
     }
 
+    /// Shares `cache` as the icon images this runner loads (builder style), for a host that
+    /// builds its own `UIContext`.
+    pub fn with_icon_cache(mut self, cache: IconCache) -> Self {
+        self.icons = cache;
+        self
+    }
+
     /// The theme cell this runner gives to every `UIContext`.
     pub fn theme_cell(&self) -> &ThemeCell {
         &self.theme

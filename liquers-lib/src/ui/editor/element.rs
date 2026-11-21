@@ -369,6 +369,10 @@ impl UIElement for EditorElement {
                 UpdateResponse::NeedsRepaint
             }
             UpdateMessage::UI(event) => {
+                if let Some(mode) = EditorView::mode_event(event) {
+                    self.mode = mode;
+                    return UpdateResponse::NeedsRepaint;
+                }
                 let commands = match self.tree() {
                     Some(tree) => EditorView::from_ui_event(event, tree),
                     None => vec![],
@@ -423,7 +427,11 @@ impl UIElement for EditorElement {
         match self.tree() {
             Some(tree) => format!(
                 "<div id=\"{dom_id}\" class=\"lq-element lq-EditorElement\">{}</div>",
-                crate::ui::web::editor::editor_html(tree, &self.title)
+                {
+                    let theme = self.theme_state();
+                    let density = self.effective_density(&theme);
+                    crate::ui::web::editor::editor_html(tree, &self.title, self.mode, density, &theme.theme)
+                }
             ),
             None => format!(
                 "<div id=\"{dom_id}\" class=\"lq-element lq-EditorElement\">{}</div>",

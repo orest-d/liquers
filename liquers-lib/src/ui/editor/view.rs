@@ -181,7 +181,10 @@ impl EditorView {
     pub fn from_ui_event(event: &UIEvent, tree: &EditorTree) -> Vec<EditorCommand> {
         let field_text = |name: &str| event.field(name).and_then(|v| v.try_into_string().ok());
         match &event.kind {
-            UIEventKind::Named(name) => decode_named(name, &field_text).into_iter().collect(),
+            UIEventKind::Named(name) => match name.strip_prefix("ed:resetall:") {
+                Some(rest) => reset_all(rest, tree),
+                None => decode_named(name, &field_text).into_iter().collect(),
+            },
             UIEventKind::Change(field) => match field_text(field) {
                 Some(value) => decode_field(field, &value, tree).into_iter().collect(),
                 None => vec![],
@@ -199,6 +202,41 @@ impl EditorView {
             }
         }
     }
+}
+
+impl EditorView {
+    /// The mode a browser event asks for: `ed:mode:<path>:simple` or `…:advanced` (the mode
+    /// switch and the step chips of `ui::web::editor`).
+    pub fn mode_event(event: &UIEvent) -> Option<EditorMode> {
+        let UIEventKind::Named(name) = &event.kind else {
+            return None;
+        };
+        let rest = name.strip_prefix("ed:mode:")?;
+        match rest.rsplit(':').next()? {
+            "simple" => Some(EditorMode::Simple),
+            "advanced" => Some(EditorMode::Advanced),
+            _ => None,
+        }
+    }
+}
+
+/// `Reset` of every argument of the action at `rest` (`<path>:`) that is not at its default.
+fn reset_all(rest: &str, tree: &EditorTree) -> Vec<EditorCommand> {
+    let id = rest.split(':').next().unwrap_or("");
+    let Ok(path) = NodePath::from_id(id) else {
+        return vec![];
+    };
+    let Some(node) = find_node(&tree.nodes, &path) else {
+        return vec![];
+    };
+    node.fields()
+        .iter()
+        .filter(|f| {
+            let default = matches!(&f.value, FieldValue::Text(t) if f.default_text.as_deref() == Some(t.as_str()));
+            !default && !matches!(f.value, FieldValue::Unset)
+        })
+        .map(|f| EditorCommand::Reset { path: path.clone(), arg: f.name.clone() })
+        .collect()
 }
 
 /// The id of an argument field: `f:<path>:<arg>`, or `f:<path>:<arg>:<item>` for a variadic item.

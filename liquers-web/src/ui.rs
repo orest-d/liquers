@@ -859,6 +859,7 @@ pub async fn mount_ui_with(
         envref,
         current_env,
         on_tick: Some(on_tick),
+        ui: None,
     };
     let handle =
         liquers_lib::ui::mount_web_with(root, mount_options, app_state, sender, receiver).await?;

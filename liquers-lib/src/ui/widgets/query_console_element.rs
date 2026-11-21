@@ -42,7 +42,8 @@ use liquers_core::state::State;
 use liquers_core::value::ValueInterface;
 
 use crate::ui::app_state::AppState;
-use crate::ui::editor::{EditorCommand, EditorEffect, EditorKind, EditorNode, EditorState, EditorTree, EditorView};
+use crate::ui::editor::{EditorCommand, EditorEffect, EditorKind, EditorMode, EditorState, EditorTree, EditorView};
+use crate::ui::theme::Density;
 use crate::ui::element::{UIElement, UpdateMessage, UpdateResponse};
 use crate::ui::event::{UIEvent, UIEventKind};
 use crate::ui::handle::UIHandle;
@@ -107,6 +108,18 @@ pub struct QueryConsoleElement {
     #[serde(default)]
     show_parameters: bool,
 
+    /// The Parameters panel's mode (AC-12): Simple, the last action, unless switched.
+    #[serde(default)]
+    mode: EditorMode,
+
+    /// The Parameters panel's density; Compact when not set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    density: Option<Density>,
+
+    /// The theme last seen through the context, for `render_web`.
+    #[serde(skip)]
+    theme: Option<crate::ui::theme::ThemeState>,
+
     /// The editor behind the Parameters panel, over the console's query text.
     #[serde(skip)]
     parameters: Option<EditorState>,
@@ -115,6 +128,14 @@ pub struct QueryConsoleElement {
     #[serde(skip)]
     #[cfg_attr(not(feature = "egui"), allow(dead_code))]
     parameters_view: EditorView,
+}
+
+/// The Parameters panel's view of an editor tree.
+fn panel_tree(tree: &EditorTree) -> EditorTree {
+    let mut tree = tree.clone();
+    tree.text_editable = false;
+    tree.has_filename = false;
+    tree
 }
 
 impl QueryConsoleElement {
@@ -135,6 +156,9 @@ impl QueryConsoleElement {
             ui_element: None,
             last_volatile_refresh_at: None,
             show_parameters: false,
+            mode: EditorMode::Simple,
+            density: None,
+            theme: None,
             parameters: None,
             parameters_view: EditorView::default(),
         }
@@ -150,8 +174,29 @@ impl QueryConsoleElement {
         self.show_parameters = on;
     }
 
-    /// The Parameters panel's tree: the last action of the query text, with its fields, presets
-    /// and next presets. `None` when the text does not parse or there is no registry.
+    /// The Parameters panel's mode.
+    pub fn mode(&self) -> EditorMode {
+        self.mode
+    }
+
+    /// Switches the Parameters panel's mode; nothing is submitted (AC-12).
+    pub fn set_mode(&mut self, mode: EditorMode) {
+        self.mode = mode;
+    }
+
+    /// The Parameters panel's density: its own, else Compact.
+    pub fn density(&self) -> Density {
+        self.density.unwrap_or(Density::Compact)
+    }
+
+    /// Sets or clears the Parameters panel's own density.
+    pub fn set_density(&mut self, density: Option<Density>) {
+        self.density = density;
+    }
+
+    /// The Parameters panel's tree: the query text's tree without its own text field (the
+    /// console has one) or filename; Simple mode shows its last action as the card. `None` when
+    /// the text does not parse or there is no registry.
     pub fn parameters_tree(&mut self, ctx: &UIContext) -> Option<EditorTree> {
         let registry = ctx.command_registry()?.clone();
         let query = liquers_core::parse::parse_query(&self.query_text).ok()?;
@@ -166,18 +211,7 @@ impl QueryConsoleElement {
             state.on_snapshot(&Value::from_query(&query), None).ok()?;
             self.parameters = Some(state);
         }
-        let mut tree = self.parameters.as_ref()?.tree().clone();
-        let last = tree
-            .nodes
-            .iter()
-            .rposition(|n| matches!(n, EditorNode::Action { .. } | EditorNode::Opaque { .. }));
-        tree.nodes = match last {
-            Some(at) => vec![tree.nodes.swap_remove(at)],
-            None => Vec::new(),
-        };
-        tree.text_editable = false;
-        tree.has_filename = false;
-        Some(tree)
+        Some(panel_tree(self.parameters.as_ref()?.tree()))
     }
 
     /// Applies edits made in the Parameters panel: each accepted edit rewrites the query text,
@@ -244,6 +278,10 @@ impl QueryConsoleElement {
     /// `query_text` otherwise (egui edits it in place), then submits.
     fn handle_ui_event(&mut self, event: &UIEvent, ctx: &UIContext) -> UpdateResponse {
         match &event.kind {
+            UIEventKind::Submit if self.parameter_event(event, ctx) == UpdateResponse::NeedsRepaint => {
+                // Enter in a Parameters field edits the query; it never submits (AC-12).
+                UpdateResponse::NeedsRepaint
+            }
             UIEventKind::Submit => {
                 use liquers_core::value::ValueInterface;
                 if let Some(text) = event.field("query").and_then(|v| v.try_into_string().ok()) {
@@ -252,8 +290,40 @@ impl QueryConsoleElement {
                 self.submit_query(ctx);
                 UpdateResponse::NeedsRepaint
             }
-            UIEventKind::Named(_) | UIEventKind::Change(_) => UpdateResponse::Unchanged,
+            UIEventKind::Named(name) if name == "qc:params" => {
+                self.show_parameters = !self.show_parameters;
+                if self.show_parameters {
+                    let _ = self.parameters_tree(ctx);
+                }
+                UpdateResponse::NeedsRepaint
+            }
+            UIEventKind::Named(_) | UIEventKind::Change(_) => {
+                if let Some(mode) = EditorView::mode_event(event) {
+                    self.mode = mode;
+                    return UpdateResponse::NeedsRepaint;
+                }
+                self.parameter_event(event, ctx)
+            }
         }
+    }
+
+    /// A browser event of the Parameters panel, decoded and applied to the query text.
+    fn parameter_event(&mut self, event: &UIEvent, ctx: &UIContext) -> UpdateResponse {
+        if !self.show_parameters {
+            return UpdateResponse::Unchanged;
+        }
+        let Some(tree) = self.parameters_tree(ctx) else {
+            return UpdateResponse::Unchanged;
+        };
+        let commands: Vec<EditorCommand> = EditorView::from_ui_event(event, &tree)
+            .into_iter()
+            .filter(|c| !matches!(c, EditorCommand::SetText(_)))
+            .collect();
+        if commands.is_empty() {
+            return UpdateResponse::Unchanged;
+        }
+        self.apply_parameter_commands(commands, ctx);
+        UpdateResponse::NeedsRepaint
     }
 
     /// Request fresh updates for the current query without resetting current value/UI state.
@@ -534,6 +604,7 @@ impl UIElement for QueryConsoleElement {
     }
 
     fn update(&mut self, message: &UpdateMessage, ctx: &UIContext) -> UpdateResponse {
+        self.theme = Some(ctx.theme());
         match message {
             UpdateMessage::AssetUpdate(snapshot) => {
                 // Full snapshot pushed by AppRunner.
@@ -603,20 +674,16 @@ impl UIElement for QueryConsoleElement {
                     Some(tree) => {
                         let mut view = std::mem::take(&mut self.parameters_view);
                         let theme = ctx.theme();
-                        let commands = ui
+                        let (mode, density) = (self.mode, self.density());
+                        let output = ui
                             .push_id("lq-console-parameters", |ui| {
-                                crate::egui::editor::show_editor(
-                                    ui,
-                                    &tree,
-                                    &mut view,
-                                    crate::ui::editor::EditorMode::Simple,
-                                    crate::ui::theme::Density::Compact,
-                                    &theme,
-                                    Some(ctx),
-                                )
+                                crate::egui::editor::show_editor(ui, &tree, &mut view, mode, density, &theme, Some(ctx))
                             })
-                            .inner
-                            .commands;
+                            .inner;
+                        if let Some(mode) = output.mode {
+                            self.mode = mode;
+                        }
+                        let commands = output.commands;
                         self.parameters_view = view;
                         self.apply_parameter_commands(commands, ctx);
                     }
@@ -644,14 +711,27 @@ impl UIElement for QueryConsoleElement {
         // `Submit` UI event to this element, carrying the typed text.
         let submit = event_attr(&UIEventKind::Submit);
         let toolbar = format!(
-            "<div class=\"lq-qc-toolbar\"><input id=\"{}\" class=\"lq-query-input\" value=\"{}\"{}{}/><button type=\"button\" class=\"lq-go\"{}>Go</button>{}</div>",
+            "<div class=\"lq-qc-toolbar\"><input id=\"{}\" class=\"lq-query-input\" value=\"{}\"{}{}/><button type=\"button\" class=\"lq-go\"{}>Go</button><button type=\"button\" class=\"lq-qc-params{}\"{}>Parameters</button>{}</div>",
             input_id,
             escape_html(&self.query_text),
             field_attr("query"),
             submit,
             submit,
+            if self.show_parameters { " lq-mode-on" } else { "" },
+            event_attr(&UIEventKind::Named("qc:params".to_string())),
             widgets::status_html(self.status)
         );
+        // The Parameters panel (AC-12), from the editor the last event built.
+        let parameters = match (&self.parameters, self.show_parameters) {
+            (Some(state), true) => crate::ui::web::editor::editor_html(
+                &panel_tree(state.tree()),
+                "Parameters",
+                self.mode,
+                self.density(),
+                &self.theme.clone().unwrap_or_default().theme,
+            ),
+            (Some(_), false) | (None, true) | (None, false) => String::new(),
+        };
 
         // Content: data view (value) or metadata pane.
         let content = if self.data_view {
@@ -674,8 +754,8 @@ impl UIElement for QueryConsoleElement {
         };
 
         format!(
-            "<div id=\"{}\" class=\"lq-element lq-QueryConsoleElement\">{}<div class=\"lq-qc-content\">{}{}</div></div>",
-            dom_id, toolbar, error, content
+            "<div id=\"{}\" class=\"lq-element lq-QueryConsoleElement\">{}{}<div class=\"lq-qc-content\">{}{}</div></div>",
+            dom_id, toolbar, parameters, error, content
         )
     }
 }
@@ -1163,8 +1243,8 @@ mod tests {
         c.set_handle(UIHandle(1));
         c.set_show_parameters(true);
         let tree = c.parameters_tree(&ctx).expect("tree");
-        assert_eq!(tree.nodes.len(), 1);
-        let path = tree.nodes[0].path().clone();
+        assert!(!tree.text_editable && !tree.has_filename);
+        let path = tree.nodes[tree.last_action().expect("head")].path().clone();
         let changed = c.apply_parameter_commands(
             vec![EditorCommand::SetField { path: path.clone(), arg: "n".into(), text: "7".into() }],
             &ctx,
@@ -1178,6 +1258,50 @@ mod tests {
             &ctx,
         );
         assert_eq!(c.query_text, "-R/a.csv/-/head");
+    }
+
+    // Test 18 (AC-12).
+    #[test]
+    fn parameters_panel_switches_mode_without_submit() {
+        use liquers_core::command_metadata::{ArgumentInfo, CommandMetadata};
+        let mut cmr = CommandMetadataRegistry::new();
+        let mut head = CommandMetadata::new("head");
+        head.with_argument(ArgumentInfo::integer_argument("n", false).with_default(5));
+        cmr.add_command(&head);
+        let (ctx, mut rx) = create_test_context();
+        let ctx = ctx.with_command_registry(Arc::new(cmr));
+        let mut c = QueryConsoleElement::new("C".to_string(), "-R/a.csv/-/head-3".to_string());
+        c.set_handle(UIHandle(1));
+        assert_eq!(c.mode(), EditorMode::Simple);
+        assert_eq!(c.density(), Density::Compact);
+
+        let toggle = UIEvent::new(UIEventKind::Named("qc:params".into()));
+        assert_eq!(c.update(&UpdateMessage::UI(toggle), &ctx), UpdateResponse::NeedsRepaint);
+        assert!(c.show_parameters());
+        let advanced = UIEvent::new(UIEventKind::Named("ed:mode::advanced".into()));
+        assert_eq!(c.update(&UpdateMessage::UI(advanced), &ctx), UpdateResponse::NeedsRepaint);
+        assert_eq!(c.mode(), EditorMode::Advanced);
+        assert!(rx.try_recv().is_err(), "switching the mode submits nothing");
+
+        // Enter in a Parameters field edits the query and submits nothing.
+        let tree = c.parameters_tree(&ctx).expect("tree");
+        let path = tree.nodes[tree.last_action().expect("head")].path().clone();
+        let field = crate::ui::editor::field_id(&path, "n", None);
+        let enter = UIEvent::new(UIEventKind::Submit)
+            .with_field("query", Value::from("-R/a.csv/-/head-3".to_string()))
+            .with_field(&field, Value::from("9".to_string()));
+        c.update(&UpdateMessage::UI(enter), &ctx);
+        assert_eq!(c.query_text, "-R/a.csv/-/head-9");
+        assert!(rx.try_recv().is_err(), "nothing is submitted");
+
+        #[cfg(feature = "webui")]
+        {
+            let html = c.render_web(&DirectAppState::new());
+            assert!(html.contains("data-lq-mode=\"advanced\"") && html.contains("data-lq-density=\"compact\""), "{html}");
+        }
+        let json = serde_json::to_value(&c).expect("json");
+        let back: QueryConsoleElement = serde_json::from_value(json).expect("back");
+        assert_eq!(back.mode(), EditorMode::Advanced);
     }
 
     #[test]
