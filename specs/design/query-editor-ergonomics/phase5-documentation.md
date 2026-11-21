@@ -136,7 +136,7 @@ accepts these results.
   `ui_section_sets_the_window_theme` included.
 - `cargo test -p liquers-lib --test registry_export`: 7 passed after regeneration.
 - `bash scripts/test-liquers-py.sh`: pytest 688 passed (35 skipped), Rust unit tests 51 passed.
-- `bash scripts/check-build-matrix.sh`: see the PR (run after Step 11).
+- `bash scripts/check-build-matrix.sh`: all 49 configurations OK (wasm32 included).
 - `cargo run -p liquers-docs -- check --release`: 0 errors, 0 warnings; `cargo test -p liquers-docs`
   passes.
 - `python3 scripts/docs_index.py --check`: 0 errors (26 warnings, none from this design).
