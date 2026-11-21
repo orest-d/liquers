@@ -1,13 +1,15 @@
 //! UI-local editor state shared by the renderers, and the markup names the browser renderer and
 //! [`EditorView::from_ui_event`] agree on.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::ops::Range;
 
 use liquers_core::command_metadata::CommandKey;
 use liquers_core::value::ValueInterface;
 
 use super::command::{EditorCommand, NewElement};
-use super::tree::{EditorNode, EditorTree, FieldValue, NodePath};
+use super::layout::{simple_card, EditorMode};
+use super::tree::{EditorNode, EditorTree, FieldValue, NodePath, PathStep, SpanTarget};
 use crate::ui::event::{UIEvent, UIEventKind};
 
 /// What the user is typing, between frames: text buffers keyed by field id, so a field keeps
@@ -20,9 +22,118 @@ pub struct EditorView {
     pub buffers: HashMap<String, (String, String)>,
     /// The namespace to append, per `ns` node path id.
     pub new_namespace: HashMap<String, String>,
+    /// What has keyboard focus (AC-9), when the editor has it.
+    pub focus: Option<FocusTarget>,
+    /// Collapsed cards, by node path id (AC-4).
+    pub collapsed: HashSet<String>,
+    /// The text range a field was jumped to from, so `Ctrl+J` in the field jumps back (AC-10).
+    pub jump_back: Option<Range<usize>>,
+    /// A jump waiting for the typed text to be committed and the tree rebuilt: the text offset.
+    pub pending_jump: Option<usize>,
+    /// A jump target that Simple mode does not show; the renderer offers "Open in Advanced".
+    pub simple_offer: Option<NodePath>,
+}
+
+/// In Simple mode a link stays its field's text, so a target inside a link focuses the link's
+/// own argument field.
+fn simple_target(path: &NodePath, target: FocusTarget) -> FocusTarget {
+    match (path.0.first(), path.0.get(1)) {
+        (Some(first), Some(PathStep::Argument(arg))) => {
+            FocusTarget::Field { path: NodePath(vec![first.clone()]), arg: arg.clone(), item: None }
+        }
+        (Some(_), Some(_)) | (Some(_), None) | (None, _) => target,
+    }
+}
+
+/// What has keyboard focus in an editor (AC-9).
+#[derive(Debug, Clone, PartialEq)]
+pub enum FocusTarget {
+    /// The query text.
+    Text,
+    /// A card header.
+    Node(NodePath),
+    /// A field of a card; `item` is a variadic item.
+    Field { path: NodePath, arg: String, item: Option<usize> },
 }
 
 impl EditorView {
+    /// `Ctrl+J` in the query text with the cursor at byte `offset` (AC-10). When the typed text
+    /// is not the tree's yet, the jump waits ([`EditorView::pending_jump`]) and the returned
+    /// `SetText` commits it; [`EditorView::resume_jump`] finishes it after the rebuild. Otherwise
+    /// focus moves to the field under the cursor, or, for a node Simple mode does not show,
+    /// [`EditorView::simple_offer`] is set. Returns the command to apply, if any.
+    pub fn jump_from_text(&mut self, tree: &EditorTree, mode: EditorMode, offset: usize) -> Option<EditorCommand> {
+        if let Some((typed, _)) = &self.text {
+            if typed != &tree.text {
+                self.pending_jump = Some(offset);
+                return Some(EditorCommand::SetText(typed.clone()));
+            }
+        }
+        self.pending_jump = None;
+        self.jump_to(tree, mode, offset);
+        None
+    }
+
+    /// Finishes a jump that waited for its text to be committed, once the tree has it.
+    pub fn resume_jump(&mut self, tree: &EditorTree, mode: EditorMode) {
+        let Some(offset) = self.pending_jump else {
+            return;
+        };
+        if self.text.as_ref().is_some_and(|(typed, _)| typed != &tree.text) {
+            return; // not rebuilt yet
+        }
+        self.pending_jump = None;
+        self.jump_to(tree, mode, offset);
+    }
+
+    fn jump_to(&mut self, tree: &EditorTree, mode: EditorMode, offset: usize) {
+        self.simple_offer = None;
+        let Some(span) = tree.locate(offset) else {
+            return;
+        };
+        let target = match &span.target {
+            SpanTarget::Element | SpanTarget::Namespaces => FocusTarget::Node(span.path.clone()),
+            SpanTarget::Argument { arg, item } => {
+                FocusTarget::Field { path: span.path.clone(), arg: arg.clone(), item: *item }
+            }
+        };
+        let target = match mode {
+            EditorMode::Advanced => Some(target),
+            EditorMode::Simple => {
+                let card = simple_card(tree).and_then(|i| tree.nodes.get(i)).map(|n| n.path().clone());
+                let shown = card.as_ref().is_some_and(|c| span.path.0.first() == c.0.first())
+                    && span.target != SpanTarget::Namespaces;
+                if !shown {
+                    let top = span.path.0.first().cloned().map(|s| NodePath(vec![s])).unwrap_or_default();
+                    self.simple_offer = Some(top);
+                    None
+                } else {
+                    Some(simple_target(&span.path, target))
+                }
+            }
+        };
+        if let Some(target) = target {
+            self.jump_back = Some(span.range.clone());
+            self.focus = Some(target);
+        }
+    }
+
+    /// `Ctrl+J` in a field: the text range to select in the query text, the one the jump came
+    /// from when it was this field, else the focused field's own span (AC-10).
+    pub fn jump_to_text(&mut self, tree: &EditorTree) -> Option<std::ops::Range<usize>> {
+        let (path, target) = match self.focus.as_ref()? {
+            FocusTarget::Text => return None,
+            FocusTarget::Node(path) => (path.clone(), SpanTarget::Element),
+            FocusTarget::Field { path, arg, item } => {
+                (path.clone(), SpanTarget::Argument { arg: arg.clone(), item: *item })
+            }
+        };
+        let range = tree.span_of(&path, &target).or_else(|| self.jump_back.clone())?;
+        self.jump_back = None;
+        self.focus = Some(FocusTarget::Text);
+        Some(range)
+    }
+
     /// The buffer of field `id`, reset to `current` when the tree's value changed under it.
     pub fn buffer(&mut self, id: &str, current: &str) -> &mut String {
         let entry = self

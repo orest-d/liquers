@@ -83,6 +83,8 @@ impl NodePath {
 pub struct PresetEntry {
     pub label: String,
     pub description: String,
+    /// The action already is this preset (AC-7): its text equals the preset's.
+    pub active: bool,
 }
 
 /// The value a field shows.
@@ -169,6 +171,8 @@ pub enum EditorNode {
         filename: Option<String>,
         fields: Vec<EditorField>,
         excess: Vec<String>,
+        /// The command's `hint icon` (AC-8), `None` when absent or malformed.
+        hint_icon: Option<crate::ui::theme::Icon>,
     },
     /// A `q` (quote) or `v` (volatile) directive.
     Directive { path: NodePath, name: String },
@@ -291,6 +295,49 @@ pub struct EditorTree {
     pub picker: Option<Picker>,
     pub browser: Option<Browser>,
     pub confirmation: Option<Confirmation>,
+    /// Source ranges of the text's elements and arguments (AC-10); empty while `stale`.
+    pub spans: Vec<TextSpan>,
+    /// The registry has more than one realm, so card headers show the realm (AC-4).
+    pub show_realm: bool,
+}
+
+/// What a [`TextSpan`] covers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SpanTarget {
+    /// The whole element at the span's path.
+    Element,
+    /// The `ns` instruction before the action at the span's path.
+    Namespaces,
+    /// One argument of the action at the span's path; `item` for an item of a variadic argument.
+    Argument { arg: String, item: Option<usize> },
+}
+
+/// A byte range of [`EditorTree::text`] and the tree node (or argument) it is the text of.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextSpan {
+    pub path: NodePath,
+    pub target: SpanTarget,
+    pub range: std::ops::Range<usize>,
+}
+
+impl EditorTree {
+    /// The innermost span holding byte `offset` (a cursor at the end of a span is still in it).
+    pub fn locate(&self, offset: usize) -> Option<&TextSpan> {
+        self.spans
+            .iter()
+            .filter(|s| s.range.start <= offset && offset <= s.range.end)
+            .min_by_key(|s| (s.range.end - s.range.start, std::cmp::Reverse(s.path.0.len())))
+    }
+
+    /// The range of `target` at `path`, when the text has one.
+    pub fn span_of(&self, path: &NodePath, target: &SpanTarget) -> Option<std::ops::Range<usize>> {
+        self.spans.iter().find(|s| &s.path == path && &s.target == target).map(|s| s.range.clone())
+    }
+
+    /// The index of the last action node of the top level.
+    pub fn last_action(&self) -> Option<usize> {
+        self.nodes.iter().rposition(|n| matches!(n, EditorNode::Action { .. }))
+    }
 }
 
 /// The widget an argument is edited with (AC-2): its declared `gui_info`, unless that is the

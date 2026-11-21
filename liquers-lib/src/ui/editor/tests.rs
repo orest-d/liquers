@@ -556,3 +556,350 @@ fn editor_without_registry_shows_text_only() {
     let element = EditorElement::new("E", EditorKind::Query, EditorBinding::Memory("-R/a.csv".into()));
     assert!(element.tree().is_none());
 }
+
+// ---------------------------------------------------------------------------------------------
+// query-editor-ergonomics (`specs/design/query-editor-ergonomics/phase3-examples.md`)
+// ---------------------------------------------------------------------------------------------
+
+/// The problem example `P` of the ergonomics design.
+const P: &str = "-R/data/sales.csv/-/ns-pl/gt-amount-1000/sort-amount-f/head-20";
+/// `P` with a link argument.
+const L: &str = "-R/data/sales.csv/-/ns-pl/gt-amount-~X~-R/config/limit.txt~E/head-20";
+
+fn ergonomics_registry() -> CommandMetadataRegistry {
+    let mut cmr = CommandMetadataRegistry::new();
+    let mut gt = CommandMetadata::new("gt");
+    gt.with_namespace("pl")
+        .with_label("Greater than")
+        .with_hint("icon", serde_json::json!("ph:funnel-simple"))
+        .with_argument(ArgumentInfo::string_argument("column"))
+        .with_argument(ArgumentInfo::string_argument("value"));
+    cmr.add_command(&gt);
+
+    let mut sort = CommandMetadata::new("sort");
+    sort.with_namespace("pl")
+        .with_label("Sort by column")
+        .with_hint("icon", serde_json::json!(42)) // malformed: no icon
+        .with_argument(ArgumentInfo::string_argument("column"))
+        .with_argument(ArgumentInfo::boolean_argument("ascending").with_default(true));
+    cmr.add_command(&sort);
+
+    let mut head = CommandMetadata::new("head");
+    head.with_namespace("pl").with_label("Get first rows");
+    head.with_argument(ArgumentInfo::integer_argument("n", false).with_default(5).with_description("Number of rows"));
+    for (q, label) in [("head-5", "Top 5"), ("head-20", "Top 20"), ("head-100", "Top 100")] {
+        head.presets.push(CommandPreset::new(q, label, "").expect("preset"));
+    }
+    cmr.add_command(&head);
+
+    let mut select = CommandMetadata::new("select_columns");
+    select
+        .with_namespace("pl")
+        .with_label("Select columns")
+        .with_argument(ArgumentInfo::string_argument("columns").set_multiple());
+    cmr.add_command(&select);
+    cmr
+}
+
+fn ergonomics_editor(query: &str) -> EditorState {
+    let mut state = EditorState::new(EditorKind::Query, Arc::new(ergonomics_registry()));
+    state.on_snapshot(&Value::from_query(&parse_query(query).expect("query")), Some(fp(1))).expect("snapshot");
+    state
+}
+
+fn chip_labels(chips: &[StepChip]) -> Vec<&str> {
+    chips.iter().map(|c| c.label.as_str()).collect()
+}
+
+// Test 3 (AC-1).
+#[test]
+fn simple_layout_of_the_problem_example() {
+    let state = ergonomics_editor(P);
+    let layout = editor_layout(state.tree(), EditorMode::Simple);
+    assert_eq!(chip_labels(&layout.before), ["sales.csv", "Greater than", "Sort by column"]);
+    assert!(layout.after.is_empty());
+    assert_eq!(layout.groups.len(), 1);
+    assert_eq!(layout.groups[0].kind, CardGroupKind::QueryPart);
+    assert!(matches!(layout.groups[0].cards[0].node, EditorNode::Action { label, .. } if label == "Get first rows"));
+    assert!(!layout.outline);
+
+    // A link argument stays its field's text: `gt` is a chip, its link no card.
+    let state = ergonomics_editor(L);
+    let layout = editor_layout(state.tree(), EditorMode::Simple);
+    assert_eq!(chip_labels(&layout.before), ["sales.csv", "Greater than"]);
+    assert_eq!(layout.groups[0].cards.len(), 1);
+}
+
+// Test 4 (AC-2).
+#[test]
+fn advanced_layout_groups_key_and_query_parts() {
+    let state = ergonomics_editor(L);
+    let layout = editor_layout(state.tree(), EditorMode::Advanced);
+    assert!(layout.outline);
+    assert!(layout.before.is_empty() && layout.after.is_empty());
+    let kinds: Vec<_> = layout.groups.iter().map(|g| g.kind).collect();
+    assert_eq!(kinds, [CardGroupKind::KeyPart, CardGroupKind::QueryPart]);
+    assert_eq!(layout.groups[0].cards.len(), 1);
+    let gt = layout.groups[1]
+        .cards
+        .iter()
+        .find(|c| matches!(c.node, EditorNode::Action { command, .. } if command.name == "gt"))
+        .expect("gt card");
+    assert!(gt.marks.link);
+    let value = gt.node.fields().iter().find(|f| f.name == "value").expect("value");
+    assert!(matches!(&value.value, FieldValue::Link { .. }), "{:?}", value.value);
+}
+
+// Test 5 (AC-1).
+#[test]
+fn simple_layout_keeps_trailing_directives_as_chips() {
+    let state = ergonomics_editor("-R/data/sales.csv/-/ns-pl/gt-amount-1000/sort-amount-f/head-20/q");
+    let layout = editor_layout(state.tree(), EditorMode::Simple);
+    assert_eq!(chip_labels(&layout.after), ["q"]);
+    assert!(matches!(layout.groups[0].cards[0].node, EditorNode::Action { label, .. } if label == "Get first rows"));
+
+    // `ns-pl` directly before the last action is no chip.
+    let state = ergonomics_editor("-R/data/sales.csv/-/ns-pl/head-20");
+    let layout = editor_layout(state.tree(), EditorMode::Simple);
+    assert_eq!(chip_labels(&layout.before), ["sales.csv"]);
+
+    // No action: the resource is the card.
+    let state = ergonomics_editor("-R/data/sales.csv");
+    let layout = editor_layout(state.tree(), EditorMode::Simple);
+    assert_eq!(layout.groups[0].kind, CardGroupKind::KeyPart);
+}
+
+// Test 6 (AC-3).
+#[test]
+fn mode_switch_keeps_text_edits_and_focus() {
+    let mut state = ergonomics_editor(P);
+    let head = state.tree().nodes[state.tree().last_action().expect("head")].path().clone();
+    state
+        .apply(EditorCommand::SetField { path: head.clone(), arg: "n".into(), text: "30".into() })
+        .expect("edit");
+    let mut view = EditorView { focus: Some(FocusTarget::Node(head.clone())), ..EditorView::default() };
+    let simple = editor_layout(state.tree(), EditorMode::Simple);
+    let advanced = editor_layout(state.tree(), EditorMode::Advanced);
+    assert!(simple.groups[0].cards[0].node.path() == &head);
+    assert!(advanced.groups.iter().flat_map(|g| &g.cards).any(|c| c.node.path() == &head));
+    assert!(state.tree().text.ends_with("head-30"));
+    view.collapsed.insert(head.id());
+    assert_eq!(view.focus, Some(FocusTarget::Node(head)));
+
+    let mut element = EditorElement::new("Query", EditorKind::Query, EditorBinding::Memory(P.into()));
+    assert_eq!(element.mode(), EditorMode::Simple);
+    element.set_mode(element.mode().toggled());
+    let json = serde_json::to_value(&element).expect("json");
+    assert_eq!(json["mode"], "advanced");
+    let back: EditorElement = serde_json::from_value(json.clone()).expect("back");
+    assert_eq!(back.mode(), EditorMode::Advanced);
+
+    // A saved element without `mode` / `density` loads as Simple, density from the theme.
+    let mut old = json;
+    old.as_object_mut().expect("object").remove("mode");
+    let old: EditorElement = serde_json::from_value(old).expect("old");
+    assert_eq!(old.mode(), EditorMode::Simple);
+    assert_eq!(old.density(), None);
+    let theme = crate::ui::theme::ThemeState::default();
+    assert_eq!(old.effective_density(&theme), theme.density);
+}
+
+// Test 7 (AC-4, AC-8).
+#[test]
+fn card_header_marks_and_realm() {
+    let mut state = ergonomics_editor(L);
+    let tree = state.tree();
+    assert!(!tree.show_realm);
+    let gt = tree.nodes.iter().find(|n| matches!(n, EditorNode::Action { command, .. } if command.name == "gt")).expect("gt");
+    let marks = card_marks(tree, gt);
+    assert!(marks.link && marks.modified && !marks.error);
+    match gt {
+        EditorNode::Action { hint_icon, .. } => assert!(hint_icon.is_some()),
+        other => panic!("{other:?}"),
+    }
+    let head = &tree.nodes[tree.last_action().expect("head")];
+    let marks = card_marks(tree, head);
+    assert!(marks.modified, "20 differs from the default 5");
+    assert!(!marks.link);
+
+    // A refused edit marks its card.
+    let at = state.tree().last_action().expect("head");
+    let path = state.tree().nodes[at].path().clone();
+    assert!(state
+        .apply(EditorCommand::SetField { path, arg: "n".into(), text: "abc".into() })
+        .is_err());
+    let tree = state.tree();
+    assert!(card_marks(tree, &tree.nodes[at]).error);
+
+    let state = ergonomics_editor(P);
+    let sort = state
+        .tree()
+        .nodes
+        .iter()
+        .find(|n| matches!(n, EditorNode::Action { command, .. } if command.name == "sort"))
+        .expect("sort");
+    assert!(matches!(sort, EditorNode::Action { hint_icon: None, .. }), "a malformed hint gives no icon");
+
+    // A second realm shows the realm on the headers.
+    let mut cmr = ergonomics_registry();
+    let mut gui = CommandMetadata::new("draw");
+    gui.with_realm("gui");
+    cmr.add_command(&gui);
+    let mut state = EditorState::new(EditorKind::Query, Arc::new(cmr));
+    state.on_snapshot(&Value::from_query(&parse_query(P).expect("q")), Some(fp(1))).expect("snapshot");
+    assert!(state.tree().show_realm);
+}
+
+// Test 10 (AC-7).
+#[test]
+fn active_preset_matches_the_action() {
+    let mut state = ergonomics_editor(P);
+    let at = state.tree().last_action().expect("head");
+    let path = state.tree().nodes[at].path().clone();
+    let active = |state: &EditorState| match &state.tree().nodes[at] {
+        EditorNode::Action { presets, .. } => {
+            presets.iter().filter(|p| p.active).map(|p| p.label.clone()).collect::<Vec<_>>()
+        }
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(active(&state), ["Top 20"]);
+    state.apply(EditorCommand::ApplyPreset { path: path.clone(), index: 2 }).expect("preset");
+    assert!(state.tree().text.ends_with("head-100"));
+    assert_eq!(active(&state), ["Top 100"]);
+    state
+        .apply(EditorCommand::SetField { path, arg: "n".into(), text: "7".into() })
+        .expect("edit");
+    assert!(active(&state).is_empty());
+}
+
+/// Every `shortcut:` of the menus of the bundled UI specs (examples).
+fn bundled_menu_shortcuts() -> Vec<String> {
+    let sources = [
+        include_str!("../../../examples/ui_query_console_app.rs"),
+        include_str!("../../../examples/ui_spec_interactive.rs"),
+        include_str!("../../../examples-web/ui_query_console_app/src/lib.rs"),
+        include_str!("../widgets/ui_spec_element.rs"),
+    ];
+    let mut out = Vec::new();
+    for source in sources {
+        for line in source.lines() {
+            let Some(rest) = line.trim().strip_prefix("shortcut:") else {
+                continue;
+            };
+            let rest = rest.trim().trim_end_matches(',');
+            let text = rest
+                .strip_prefix("Some(\"")
+                .and_then(|r| r.split('"').next())
+                .unwrap_or(rest)
+                .trim();
+            if !text.is_empty() && text != "None" && !text.starts_with("Option<") {
+                out.push(text.to_string());
+            }
+        }
+    }
+    out
+}
+
+// Test 12 (AC-9).
+#[test]
+fn keymap_parses_and_has_no_duplicates() {
+    use crate::ui::shortcuts::KeyboardShortcut;
+    let table: Vec<_> = keymap_table().collect();
+    let map = editor_keymap();
+    assert_eq!(map.len(), table.len(), "every entry parses");
+    for (i, (a, _, scope_a)) in map.iter().enumerate() {
+        for (b, _, scope_b) in &map[i + 1..] {
+            assert!(!(a == b && scope_a == scope_b), "{a} twice in {scope_a:?}");
+        }
+    }
+    assert_eq!(shortcut_text(EditorKey::Jump), Some("Ctrl+J"));
+    assert!(map.iter().any(|(_, k, _)| *k == EditorKey::ApplyPreset(1)));
+
+    let menus = bundled_menu_shortcuts();
+    assert!(menus.iter().any(|m| m == "Ctrl+Q"), "{menus:?}");
+    for text in menus {
+        let menu: KeyboardShortcut = text.parse().expect("menu shortcut parses");
+        for (key, what, _) in map {
+            assert!(key != &menu, "{text} is both a menu shortcut and {what:?}");
+        }
+    }
+}
+
+// Test 14 (AC-10).
+#[test]
+fn spans_of_the_problem_example() {
+    let state = ergonomics_editor(P);
+    let tree = state.tree();
+    let text = |r: &std::ops::Range<usize>| &tree.text[r.clone()];
+    let resource = tree.span_of(&NodePath::element(0), &SpanTarget::Element).expect("resource");
+    assert_eq!(text(&resource), "-R/data/sales.csv");
+    let gt = NodePath::element(1);
+    assert_eq!(text(&tree.span_of(&gt, &SpanTarget::Namespaces).expect("ns")), "ns-pl");
+    assert_eq!(text(&tree.span_of(&gt, &SpanTarget::Element).expect("gt")), "gt-amount-1000");
+    let value = SpanTarget::Argument { arg: "value".into(), item: None };
+    assert_eq!(text(&tree.span_of(&gt, &value).expect("value")), "1000");
+    let head = tree.nodes[tree.last_action().expect("head")].path().clone();
+    let n = SpanTarget::Argument { arg: "n".into(), item: None };
+    assert_eq!(text(&tree.span_of(&head, &n).expect("n")), "20");
+
+    // Variadic items.
+    let state = ergonomics_editor("-R/data/sales.csv/-/ns-pl/select_columns-region-amount/head-5");
+    let tree = state.tree();
+    let at = NodePath::element(1);
+    let second = SpanTarget::Argument { arg: "columns".into(), item: Some(1) };
+    assert_eq!(&tree.text[tree.span_of(&at, &second).expect("item")], "amount");
+
+    // A link: its own tree's spans hang under the argument.
+    let state = ergonomics_editor(L);
+    let tree = state.tree();
+    let at = tree.text.find("limit.txt").expect("link");
+    let span = tree.locate(at).expect("inner span");
+    assert_eq!(span.path.0[..2], [PathStep::Element(1), PathStep::Argument("value".into())]);
+
+    // Stale text: no spans.
+    let mut state = ergonomics_editor(P);
+    let _ = state.apply(EditorCommand::SetText("-R/data/sales.csv/-/ns-pl/gt-".into()));
+    if state.tree().stale {
+        assert!(state.tree().spans.is_empty());
+    }
+}
+
+// Test 15 (AC-10).
+#[test]
+fn jump_round_trip_and_simple_offer() {
+    let mut state = ergonomics_editor(P);
+    let tree = state.tree().clone();
+    let at = tree.text.rfind("20").expect("20");
+    let span = tree.locate(at).expect("span").clone();
+    assert_eq!(span.target, SpanTarget::Argument { arg: "n".into(), item: None });
+    assert_eq!(tree.span_of(&span.path, &span.target), Some(span.range.clone()));
+
+    let mut view = EditorView::default();
+    assert!(view.jump_from_text(&tree, EditorMode::Simple, at).is_none());
+    assert_eq!(
+        view.focus,
+        Some(FocusTarget::Field { path: span.path.clone(), arg: "n".into(), item: None })
+    );
+    assert_eq!(view.jump_to_text(&tree), Some(span.range.clone()));
+    assert_eq!(view.focus, Some(FocusTarget::Text));
+
+    // `1000` is outside the Simple card: offer Advanced, keep focus.
+    let at = tree.text.find("1000").expect("1000");
+    view.jump_from_text(&tree, EditorMode::Simple, at);
+    assert_eq!(view.simple_offer, Some(NodePath::element(1)));
+    assert_eq!(view.focus, Some(FocusTarget::Text));
+    view.jump_from_text(&tree, EditorMode::Advanced, at);
+    assert!(view.simple_offer.is_none());
+    assert!(matches!(&view.focus, Some(FocusTarget::Field { arg, .. }) if arg == "value"));
+
+    // Typed but not committed: commit first, jump after the rebuild.
+    let typed = tree.text.replace("head-20", "head-30");
+    view.text = Some((typed.clone(), tree.text.clone()));
+    let at = typed.rfind("30").expect("30");
+    let command = view.jump_from_text(&tree, EditorMode::Simple, at).expect("commit");
+    assert_eq!(view.pending_jump, Some(at));
+    state.apply(command).expect("set text");
+    view.resume_jump(state.tree(), EditorMode::Simple);
+    assert!(view.pending_jump.is_none());
+    assert!(matches!(&view.focus, Some(FocusTarget::Field { arg, .. }) if arg == "n"));
+}

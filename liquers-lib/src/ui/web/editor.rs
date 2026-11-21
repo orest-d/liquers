@@ -239,7 +239,7 @@ fn node_html(h: &mut String, node: &EditorNode) {
             }
             h.push_str("</div>");
         }
-        EditorNode::Action { path, command, label, doc, presets, next, filename, fields, excess } => {
+        EditorNode::Action { path, command, label, doc, presets, next, filename, fields, excess, .. } => {
             h.push_str(&format!(
                 "<details open class=\"lq-ed-action\"><summary title=\"{}\">{}</summary>",
                 escape_html(&format!("{label}\n{doc}")),
