@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [lib/ui, lib/egui, web]
-design:
+design: query-editor-ergonomics
 created: 2026-11-17
 github:
 ---

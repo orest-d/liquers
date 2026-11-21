@@ -261,6 +261,7 @@ on wasm.
 - **egui asset-manager adapter** — planned → [`issues/EGUI-ASSET-MANAGER-INTEGRATION.md`](issues/EGUI-ASSET-MANAGER-INTEGRATION.md)
 - **Native UI driver and egui window (`NativeDriver`, `spawn_headless`, `run_window`)** — built → [`design/egui-native-app/`](design/egui-native-app/)
 - **Query, pipeline, action and resource editors (tree view, `gui_info` widgets, presets, store file selector, accessor binding; supersedes `command-parameter-editor`)** — complete → [`design/query-pipeline-editor/`](design/query-pipeline-editor/)
+- **Query editor ergonomics (action cards, Simple and Advanced modes, icons, shortcuts, jump from text to field, theme proof of concept)** — designing → [`design/query-editor-ergonomics/`](design/query-editor-ergonomics/)
 - **Liquers UI from Python (the model, and an egui window)** — built → [`design/liquers-py-ui/`](design/liquers-py-ui/), [`design/liquers-py-ui-window/`](design/liquers-py-ui-window/)
 - **UI redesign: UI crate(s), one trait per technique, client-server protocol** — planned → [`issues/UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE.md`](issues/UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE.md) *(investigation: [`design/ui-split-elements/`](design/ui-split-elements/))*
 
@@ -664,6 +665,7 @@ deliberately folded behind a broader line.
 - feature `EXTENDED-SCALARS-NOT-MAPPED-BY-LANGUAGE-BRIDGES`
 - feature `EXTERNAL-INDEX-HAS-NO-RECONCILIATION-CONTRACT`
 - feature `HTTP-ACCEPT-HEADER-NOT-NEGOTIATED`
+- feature `ICONS-CANNOT-BE-ASSETS-OR-UNICODE`
 - feature `INDEX-PAGE-IS-A-FIXED-REDIRECT`
 - feature `ISSUE-REPORT-PLAN-AND-METADATA-LOGGING`
 - feature `LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`
@@ -673,6 +675,7 @@ deliberately folded behind a broader line.
 - feature `MANIFEST-TEMPLATE-BATCH-ONLY-AT-THE-END-OF-THE-QUERY`
 - feature `MARKDOWN-CODE-BLOCKS-FRONT-MATTER-AND-BACKLINKS-ARE-NOT-COMMANDS`
 - feature `MCP-SERVER-APPLIES-NO-ACCESS-POLICY`
+- feature `NAMESPACES-HAVE-NO-METADATA`
 - feature `NO-COMPACT-BINARY-DATA-FORMAT`
 - feature `NO-RELATIONAL-DATABASE-ACCESS-LAYER`
 - feature `NO-REMOTE-STORE-OR-ASSET-MANAGER`
