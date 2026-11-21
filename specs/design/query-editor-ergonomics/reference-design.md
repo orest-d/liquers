@@ -257,6 +257,33 @@ key-value tokens with a small parser (`cssparser`), never as general CSS. It is 
 one file serves both renderers, but it invites users to expect real CSS in egui. Recommended:
 serde configuration now; reconsider in the later theme design.
 
+### 4.2 A universal CSS-like resolver for egui, the browser and a TUI?
+
+Asked by Orest on 2026-11-21; surveyed on crates.io the same day.
+
+| Candidate | What it is | Fit |
+|---|---|---|
+| [`selectors`](https://crates.io/crates/selectors) (servo) | Selector parsing and matching over **any** tree that implements its `Element` trait; specificity included. MPL-2.0, ~40M recent downloads, part of servo/stylo | **Best building block.** Our element paths implement `Element`; the cascade is ours |
+| [`cssparser`](https://crates.io/crates/cssparser) (servo) | Tokenizer and rule/declaration parser. MPL-2.0 | Building block for reading a stylesheet |
+| [`lightningcss`](https://crates.io/crates/lightningcss) | Parser, transformer, minifier for browser CSS | Parsing only; heavier than `cssparser`, no matching over our tree |
+| [`stylo`](https://crates.io/crates/stylo) | Servo/Firefox's complete style engine | Computes browser properties for a DOM; far too heavy for tokens |
+| [`egui_css`](https://github.com/SergioRibera/egui_css) | CSS for egui | "Very very very WIP", egui 0.29, pseudo-classes broken |
+| [`ratatui-style`](https://crates.io/crates/ratatui-style) | Cascade with selectors, specificity, pseudo-states for ratatui | Proves the idea for a TUI, but outputs ratatui types only |
+| [`style-cascade`](https://crates.io/crates/style-cascade) | Cascade with `var()` and `@media` | Tied to its own accessibility DOM; first release 2026-11-06 |
+| `style-engine`, `csscascade`, `muskitty-cascade` | Generic cascade engines | One release or pre-release each; too young to depend on |
+
+No universal library fits as is. What would work, later, is a **style query**: a widget describes
+itself as a short path (`editor > card[ns=pl][command=gt]:focus > field[type=int]`), the theme
+resolves it with `selectors` matching and our own cascade, and returns **tokens** that each
+renderer maps (egui `Visuals`/`Frame`, terminal styles; the browser can use real CSS). In egui the
+path is built while drawing, so no DOM is needed, and results are cached by path. Python's
+Textual does this for terminals with its own CSS dialect, a useful reference.
+
+For this design: the editor asks the theme through a small resolver interface (element kind,
+namespace, command, realm, state → tokens) implemented with the keyed overrides of §4.1, so a
+selector-backed resolver can replace it without touching the widgets. The resolver itself is
+filed as `NO-RENDERER-NEUTRAL-STYLESHEET` for the later theme design.
+
 ## 5. Open questions
 
 Kept in [Phase 1](./phase1-high-level-design.md#open-questions).

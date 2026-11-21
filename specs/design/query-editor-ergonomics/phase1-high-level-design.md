@@ -155,7 +155,9 @@ helper.
 1. Theme file format. Recommended: YAML/TOML through serde, like every other Liquers
    configuration, with `to_css()` generating the browser's custom properties; not CSS parsed for
    egui (`reference-design.md` §4.1). Alternative: a theme written as CSS custom properties only,
-   which the browser uses directly and egui reads as key-value tokens.
+   which the browser uses directly and egui reads as key-value tokens. Either way the widgets ask
+   a small resolver (element, namespace, command, state → tokens), so a selector-based stylesheet
+   for egui, browser and TUI (`NO-RENDERER-NEUTRAL-STYLESHEET`, §4.2) can replace it later.
 
 ## References
 
