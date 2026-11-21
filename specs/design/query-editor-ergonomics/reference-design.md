@@ -391,6 +391,11 @@ whether an asset icon is a query (cached, versioned like any asset) or a plain k
 for SVG (recolour to the text colour or keep its colours), PNG sizes for high-DPI, and a check at
 registration that a set name exists.
 
+**Decided 2026-11-21:** the icon definition is now in scope (Phase 1 AC-17; types in Phase 2,
+`ui/theme/icon.rs`): an icon is a list of variants (set reference, SVG, raster; inline, embedded
+in code or by key) with an always-available Unicode text. Palettes stay out
+(`COMMANDS-HAVE-NO-TOOL-PALETTE`).
+
 **Unicode and the TUI.** A terminal UI is planned; it can show neither SVGs nor icon fonts reliably,
 so Unicode icons (and the monogram) are what it draws. That argues for letting every built-in
 command and namespace carry a Unicode fallback from the start. Asset metadata already has a

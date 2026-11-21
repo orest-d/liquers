@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: L
 area: [lib/ui]
-design: 
+design: query-editor-ergonomics
 created: 2026-11-21
 github:
 ---
@@ -40,3 +40,9 @@ applying a command, possibly with a preset) builds on it. Basis:
 Orest's notes of 2026-11-21 on the query editor design: icons must be definable by users, tools
 may be picked from a palette, and a future TUI needs Unicode icons. Recorded as a basis for a later
 design, not a requirement of `query-editor-ergonomics`.
+
+## Design
+
+2026-11-21: the icon definition is absorbed by `query-editor-ergonomics` (Phase 1 AC-17, Phase 2
+`ui/theme/icon.rs`): variants (set reference, SVG, raster; inline, embedded in code or by key) with
+an always-available Unicode text. The tool palette is split off as `COMMANDS-HAVE-NO-TOOL-PALETTE`.

@@ -55,9 +55,9 @@ A user tunes `-R/data/sales.csv/-/ns-pl/gt-amount-1000/sort-amount-f/head-20` (c
   apply them ([mockup 5](./mockups/05-presets.png))
 - **AC-8** Every card has an icon
   WHEN a card is drawn
-  THEN the icon is the command's `hint icon` (Phosphor), else its namespace's icon and colour,
-  else a monogram ([mockup 8](./mockups/08-icons.png)); a theme override for the command or
-  namespace wins over both (AC-14)
+  THEN the icon is the command's `hint icon`, else its namespace's icon and colour, else a
+  monogram ([mockup 8](./mockups/08-icons.png)); a theme override for the command or namespace
+  wins over both (AC-14); the renderer draws the first variant it can (AC-17)
 - **AC-9** Keyboard navigation
   WHEN the editor has focus
   THEN the shortcuts of `reference-design.md` §3 work (fields, cards, regions, collapse, add action)
@@ -93,10 +93,16 @@ A user tunes `-R/data/sales.csv/-/ns-pl/gt-amount-1000/sort-amount-f/head-20` (c
   `density`), or with none
   THEN every element reads the resolved theme from its `UIContext` without locking the app state;
   a theme given as a store key is reloaded when it changes; with no section the built-in theme
-  applies ([`reference-design.md`](./reference-design.md) §4.4, §4.5)
+  applies ([`reference-design.md`](./reference-design.md) §4.4, §4.5); themes compose as nested
+  dictionaries, a later layer changing existing fields and adding new ones
+- **AC-17** An icon is a list of variants with a Unicode fallback (added 2026-11-21)
+  WHEN an icon is declared in a command hint, a theme or code
+  THEN it lists alternative variants (an icon-set reference such as Phosphor, an SVG, a raster
+  image), each image given inline, embedded in code or by store key, plus a Unicode text that is
+  always available; egui and the browser draw the first variant they can, a text-only surface the
+  Unicode (absorbs the icon part of `ICONS-CANNOT-BE-ASSETS-OR-UNICODE`)
 
-Non-goals: palettes, asset or Unicode icons, a TUI (`ICONS-CANNOT-BE-ASSETS-OR-UNICODE`;
-`reference-design.md` §7); namespace metadata (`NAMESPACES-HAVE-NO-METADATA`); a full theme
+Non-goals: tool palettes (`COMMANDS-HAVE-NO-TOOL-PALETTE`), a TUI (`reference-design.md` §7); namespace metadata (`NAMESPACES-HAVE-NO-METADATA`); a full theme
 design; editing inside nested pipelines (`EDITOR-CANNOT-EDIT-INSIDE-A-NESTED-PIPELINE`).
 
 ## Core Interactions

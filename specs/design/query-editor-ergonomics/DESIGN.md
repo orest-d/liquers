@@ -8,7 +8,7 @@ phase: architecture
 priority: P2
 complexity: L
 area: [lib/ui, lib/egui]
-issues: [QUERY-CONSOLE-HAS-NO-QUERY-EDITOR-ON-DEMAND]
+issues: [QUERY-CONSOLE-HAS-NO-QUERY-EDITOR-ON-DEMAND, ICONS-CANNOT-BE-ASSETS-OR-UNICODE]
 affects_docs: [specs/reference/UI_INTERFACE_FSD.md, specs/guides/COMMAND_REGISTRATION_GUIDE.md, docs/guides/rust/11-ui.md, docs/guides/python/11-ui.md, docs/guides/web/11-ui.md]
 created: 2026-11-21
 ---
@@ -26,7 +26,7 @@ theme, a compact variant, icon definitions recorded for later). Phase 1 written 
 
 ## Phases
 
-- [Phase 1](./phase1-high-level-design.md): AC-1 to AC-16
+- [Phase 1](./phase1-high-level-design.md): AC-1 to AC-17
 - [Phase 2](./phase2-architecture.md)
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)

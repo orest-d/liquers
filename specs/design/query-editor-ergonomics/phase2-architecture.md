@@ -80,15 +80,17 @@ pub struct Hue { pub dark: Rgba, pub light: Rgba }
 pub struct Spacing { pub control_height: f32, pub row_gap: f32, pub card_gap: f32, pub card_radius: f32,
                      pub card_padding: f32, pub label_width: f32, pub icon_size: f32 }
 pub struct Typography { pub font_ui: String, pub font_mono: String, pub size_body: f32, pub size_small: f32, pub size_title: f32 }
-pub struct IconOverride { pub icon: Option<String>, pub hue: Option<String> }
-pub struct IconTheme { pub icon_set: String,
+pub struct IconOverride { pub icon: Option<Icon>, pub hue: Option<String> }
+pub struct IconTheme { pub icon_set: String,                                // default set: "phosphor"
+                       pub library: BTreeMap<String, Icon>,              // named icons: "brush"
                        pub namespaces: BTreeMap<String, IconOverride>,   // "pl"
                        pub commands: BTreeMap<String, IconOverride> }    // "pl/gt", "realm:pl/gt"
 pub struct Theme { pub name: String, pub dark: Palette, pub light: Palette, pub comfortable: Spacing,
                    pub compact: Spacing, pub typography: Typography, pub hues: BTreeMap<String, Hue>, pub icons: IconTheme }
 
-/// Candidates in precedence order (AC-8, AC-14); each renderer draws the first it knows.
-pub struct IconChoice<'a> { pub names: Vec<&'a str>, pub monogram: char, pub hue: Option<&'a str> }
+/// The icon to draw (AC-8, AC-14, AC-17): every candidate's variants in precedence order, and a
+/// Unicode text that is never empty (the first candidate's, else the label's monogram).
+pub struct ResolvedIcon<'a> { pub variants: Vec<&'a IconVariant>, pub unicode: &'a str, pub hue: Option<&'a str> }
 
 impl Theme {
     pub fn builtin() -> Arc<Theme>;                        // OnceLock over a Rust constructor; cannot fail
@@ -101,7 +103,7 @@ impl Theme {
     pub fn syntax(&self, mode: ThemeMode, role: SyntaxRole) -> Rgba;
     pub fn hue(&self, name: &str, mode: ThemeMode) -> Option<Rgba>;
     /// Theme command → theme namespace → `hint icon` → namespace icon (registry, later) → built-in table.
-    pub fn icon_for<'a>(&'a self, key: &'a CommandKey, hint_icon: Option<&'a str>, ns_icon: Option<&'a str>) -> IconChoice<'a>;
+    pub fn icon_for<'a>(&'a self, key: &'a CommandKey, label: &'a str, hint: Option<&'a Icon>, ns_icon: Option<&'a Icon>) -> ResolvedIcon<'a>;
     pub fn to_css(&self) -> String;   // :root vars per [data-theme] and [data-density], .lq-tok-<role>
 }
 /// A partial theme: a nested dictionary (YAML or a structured store value).
@@ -115,6 +117,76 @@ impl ThemeLayer {
 }
 pub fn is_icon_name(name: &str) -> bool;   // embedded Phosphor name list (icons.txt), both renderers
 ```
+
+### Icons — `ui/theme/icon.rs` (new; AC-17)
+
+```rust
+/// An icon: alternative variants, best first, and a Unicode text for any surface that draws none.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "IconSpec", into = "IconSpec")]
+pub struct Icon { pub variants: Vec<IconVariant>, pub unicode: Option<String> }
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum IconVariant {
+    Set { set: String, name: String },   // "ph:funnel"; set defaults to `icons.icon-set`
+    Library(String),                     // "lib:brush": an entry of `icons.library`
+    Svg(IconSource),
+    Raster(IconSource),                  // png, jpeg, webp: what `image` decodes
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum IconSource {
+    Inline(IconBytes),                   // SVG text, or base64 for a raster, in YAML
+    Key(String),                         // a store key or query: "-R/icons/brush.svg"
+}
+/// Bytes that code can embed without copying (`include_bytes!`) and YAML can carry
+/// (hand-written serde: a string for SVG, base64 for a raster).
+#[derive(Debug, Clone, PartialEq)]
+pub struct IconBytes(pub Cow<'static, [u8]>);
+impl Icon {
+    pub fn unicode(text: impl Into<String>) -> Icon;
+    pub fn set(name: &str) -> Icon;
+    pub const fn embedded_svg(bytes: &'static [u8]) -> IconVariant;    // code-embedded
+    pub const fn embedded_raster(bytes: &'static [u8]) -> IconVariant;
+    pub fn with(self, variant: IconVariant) -> Icon;
+    pub fn with_unicode(self, text: impl Into<String>) -> Icon;
+}
+/// What an element asks for a `Key` variant; the runner loads it (async) and fills the cache.
+#[derive(Debug, Clone, Default)]
+pub struct IconCache(Arc<std::sync::RwLock<HashMap<String, IconLoad>>>);
+#[derive(Debug, Clone)]
+pub enum IconLoad { Pending, Ready(Arc<[u8]>), Failed }
+impl IconCache { pub fn get_or_request(&self, key: &str, tx: &AppMessageSender) -> Option<Arc<[u8]>>; }
+```
+
+In YAML, an icon is written either as one string or as a structure. The string forms are:
+- `ph:funnel` (an icon-set reference)
+- `lib:brush` (a library icon)
+- `u:⏷` (Unicode only)
+- a key ending in `.svg`, `.png`, `.jpg` or `.webp`
+
+The structure is `{unicode: "⏷", variants: [ph:funnel, {svg: {inline: "<svg…>"}}]}`. A
+`hint icon` takes the same string, and the macro's `hint icon:` stays a string.
+
+Code embeds an icon either as a variant (`Icon::set("funnel").with(Icon::embedded_svg(include_bytes!(…)))`)
+or as a library entry in a code-built `ThemeLayer`, so a command can declare `hint icon: "lib:brush"`.
+
+`Theme::icon_for` follows the precedence of AC-8 and AC-14 and concatenates each candidate's
+variants, so a theme override that has only a raster still falls back to the command's Phosphor
+name. A `Library` variant expands in place, one level deep (a cycle is refused when the layer is
+composed). The Unicode text is the first candidate's, or the monogram, so it is never empty.
+
+Each renderer takes the first variant it can draw:
+- **egui:** `Set` through the Phosphor font when `is_icon_name`. `Svg` is rasterized with `resvg`
+  (already a dependency) at `icon-size × pixels_per_point`. `Raster` is decoded with `image`.
+  Textures are cached by bytes hash and size.
+- **Browser:** `Set` as `<i class="ph ph-…">`. `Svg` is sanitized and inlined (no scripts). An inline
+  `Raster` becomes a `data:` URI.
+- **Text (later TUI, terminal output):** the Unicode text.
+
+A `Key` variant is drawn from `IconCache`. Until the runner has loaded the key (`AppMessage::LoadIcon`,
+evaluated like any query and kept while the theme lives), the renderer moves on to the next variant.
+A failed key is not retried until the theme changes.
 
 `Theme` keeps its composed dictionary in a private field (`#[serde(skip)]`) beside the typed
 fields. `compose` serializes the built-in theme to a `ThemeLayer`, merges each layer in order, and
@@ -168,7 +240,7 @@ pub enum SpanTarget { Element, Namespaces, Argument { arg: String, item: Option<
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextSpan { pub path: NodePath, pub target: SpanTarget, pub range: Range<usize> }
 // EditorTree gains: spans: Vec<TextSpan> (empty while `stale`), show_realm: bool (registry has > 1 realm)
-// EditorNode::Action gains: realm: String, hint_icon: Option<String>
+// EditorNode::Action gains: realm: String, hint_icon: Option<Icon> (parsed from hints["icon"])
 // PresetEntry gains: active: bool (the preset whose parameters equal the action's, AC-7)
 impl EditorTree {
     pub fn locate(&self, offset: usize) -> Option<&TextSpan>;   // innermost span holding offset
@@ -253,6 +325,8 @@ pub fn editor_html(tree: &EditorTree, title: &str, mode: EditorMode, density: De
 **`liquers-lib`**
 - `ui/theme/{mod.rs, model.rs, merge.rs, icons.rs, icons.txt, css.rs, config.rs, builtin.yaml}` (new).
 - `ui/ui_context.rs`: `theme: Option<ThemeCell>`, `with_theme`, `theme()`.
+- `ui/ui_context.rs` also gains `icon_cache: IconCache` (shared per runner) and `icon_cache()`;
+  `ui/message.rs` `AppMessage` gains `LoadIcon(String)`, which the runner evaluates and stores.
 - `ui/runner.rs`:
   - `AppRunner` gains `theme: ThemeCell` and `theme_watch: Option<MonitoredAsset<E>>`.
   - `context()` (l.193) adds `.with_theme`.
@@ -304,7 +378,9 @@ and passes it to `WindowOptions`. There is no Python API change.
 | `ui` section invalid, or an unknown built-in name | `Error::configuration_error` via `take_section` | Host start fails, as for `server` |
 | Theme query fails to evaluate | the evaluation's `Error` | Built-in theme stays; reported once |
 | Keymap entry does not parse | none (`eprintln!`, entry skipped) | A test asserts every entry parses and none repeats |
-| Icon name unknown | none | Next candidate, then monogram (AC-14) |
+| Icon name unknown, image undecodable, key not loaded yet or failed | none | Next variant, finally the Unicode text (AC-14, AC-17) |
+| `hint icon` or theme icon string malformed | `Error::configuration_error` (theme compose; a hint is reported by the registry check and drawn as its monogram) | Theme refused / monogram |
+| `lib:` cycle | `Error::configuration_error` | Theme refused |
 | Jump target outside the last action in Simple | none | `simple_offer`: "Open in Advanced" |
 
 ## Relevant Commands
