@@ -323,7 +323,7 @@ pub fn editor_html(tree: &EditorTree, title: &str, mode: EditorMode, density: De
 ## Integration Points
 
 **`liquers-lib`**
-- `ui/theme/{mod.rs, model.rs, merge.rs, icons.rs, icons.txt, css.rs, config.rs, builtin.yaml}` (new).
+- `ui/theme/{mod.rs, model.rs, layer.rs, icon.rs, icons.txt, cell.rs, css.rs, config.rs, builtin.yaml}` (new).
 - `ui/ui_context.rs`: `theme: Option<ThemeCell>`, `with_theme`, `theme()`.
 - `ui/ui_context.rs` also gains `icon_cache: IconCache` (shared per runner) and `icon_cache()`;
   `ui/message.rs` `AppMessage` gains `LoadIcon(String)`, which the runner evaluates and stores.
@@ -365,8 +365,8 @@ and `set_theme`.
 - `Cargo.toml`: `egui-phosphor = { version = "0.14", optional = true }` (egui 0.36), and
   `"dep:egui-phosphor"` in the `egui` feature. The build matrix is rerun.
 
-**`liquers-py`**: the window entry point takes the `ui` section beside `python` (`src/config.rs`)
-and passes it to `WindowOptions`. There is no Python API change.
+**`liquers-py`**: `src/config.rs` takes the `ui` section beside `python`, and the window entry point
+(`src/ui.rs`) passes it to `WindowOptions`. There is no Python API change.
 
 **`liquers-core`**: none.
 

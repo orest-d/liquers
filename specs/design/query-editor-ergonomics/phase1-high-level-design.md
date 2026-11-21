@@ -85,8 +85,9 @@ A user tunes `-R/data/sales.csv/-/ns-pl/gt-amount-1000/sort-amount-f/head-20` (c
   browser; a name that does not resolve falls back as in AC-8
 - **AC-15** The highlighted query follows the theme
   WHEN a query is shown highlighted (query field, console, editor text) in egui or the browser
-  THEN each token kind (header, resource, separator, namespace, action, parameter, entity, link,
-  filename, error) takes its colour from the theme's query-syntax tokens of the current mode,
+  THEN each token kind the highlighter produces (today header, resource, separator, action,
+  parameter, entity, highlight; namespace, link, filename and error with live validation's
+  `SyntaxKind`) takes its colour from the theme's query-syntax tokens of the current mode,
   replacing the colours hard-coded in `egui/widgets.rs`
 - **AC-16** The theme reaches elements and comes from configuration
   WHEN a host is started with a configuration document holding a `ui` section (`theme`, `mode`,
@@ -173,15 +174,28 @@ helper.
    browser, DTCG later for interchange ([`theme-formats.md`](./theme-formats.md)). The theme
    subset covers the editors and the query syntax (AC-15) and is named for reuse by other elements.
 
-## Open Questions
+## Design Readiness
 
-1. How elements reach the theme (`reference-design.md` §4.4). Recommended: an `Arc<Theme>` in
-   `UIContext` (option A), sourced by the runner from the built-in default, a file or a store key
-   watched as an asset (C); `AppState` keeps only a theme reference, mode and density.
-2. Configuration (§4.5). Recommended: a `ui` host section of the configuration document
-   (`theme`, `mode`, `density`), taken by the UI hosts; `ConfigDocument` already supports host
-   sections, but the native egui host does not read a configuration document yet, which this
-   design would add.
+Decision log under `proceed all` (pre-approved after Phase 2 on 2026-11-21).
+
+- **Readiness:** ready
+- **Automatic fixing:** not-eligible (complexity L, new UI behaviour, design-level decisions)
+- **Leading issue:** None
+- **Explanation:** Phase 2 resolved the two Phase 1 questions: the theme is reached through a
+  `ThemeCell` in `UIContext`, sourced from the `ui` host section, with a store key watched by the
+  runner. A per-document theme is deferred to `UI-DOCUMENT-CANNOT-NAME-ITS-THEME`.
+- **Decided at the Phase 2 gate (`proceed all`):** AC-15 covers the token kinds today's
+  highlighter produces. `namespace`, `link`, `filename` and `error` follow
+  `query-editor-live-validation`'s `SyntaxKind`.
+- **Open questions:** None
+
+## Scope Changes
+
+- 2026-11-21: themes compose as nested dictionaries (Orest). AC-16 extended; Phase 2 `ThemeLayer`;
+  size unchanged. Approved by request.
+- 2026-11-21: icons are lists of variants with a Unicode fallback (Orest). AC-8 amended, AC-17
+  added, icon part of `ICONS-CANNOT-BE-ASSETS-OR-UNICODE` absorbed, palettes split off as
+  `COMMANDS-HAVE-NO-TOOL-PALETTE`; adds about two implementation steps. Approved by request.
 
 ## References
 

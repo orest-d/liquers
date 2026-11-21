@@ -4,7 +4,7 @@ kind: design
 title: Query editor ergonomics - action cards, Simple and Advanced modes, icons, shortcuts and a theme proof of concept
 workflow: liquers-project
 status: in_review
-phase: architecture
+phase: implementation
 priority: P2
 complexity: L
 area: [lib/ui, lib/egui]
@@ -22,7 +22,7 @@ densities as a proof of concept for a later theme design.
 
 Started from Orest's request of 2026-11-21; the reference design and mockups were discussed and
 revised with him the same day (label-first headers, preset chips, Phosphor, one design with the
-theme, a compact variant, icon definitions recorded for later). Phase 1 written on 2026-11-21.
+theme, a compact variant, icon definitions recorded for later). Phase 1 written on 2026-11-21. Pre-approved after Phase 2 on 2026-11-21 (`proceed all`).
 
 ## Phases
 
