@@ -4,12 +4,12 @@ kind: design
 title: Query editor ergonomics - action cards, Simple and Advanced modes, icons, shortcuts and a theme proof of concept
 workflow: liquers-project
 status: in_review
-phase: high-level
+phase: architecture
 priority: P2
 complexity: L
 area: [lib/ui, lib/egui]
 issues: [QUERY-CONSOLE-HAS-NO-QUERY-EDITOR-ON-DEMAND]
-affects_docs: [specs/reference/UI_INTERFACE_FSD.md, specs/guides/COMMAND_REGISTRATION_GUIDE.md]
+affects_docs: [specs/reference/UI_INTERFACE_FSD.md, specs/guides/COMMAND_REGISTRATION_GUIDE.md, docs/guides/rust/11-ui.md, docs/guides/python/11-ui.md, docs/guides/web/11-ui.md]
 created: 2026-11-21
 ---
 # Query editor ergonomics

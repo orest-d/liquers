@@ -8,10 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 260
+Total rows: 261
 - P1: 1
 - P2: 69
-- P3: 190
+- P3: 191
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -142,6 +142,7 @@ Total rows: 260
 | [`STORE-PATHS-ARE-NOT-RELATIVE-TO-THE-CONFIGURATION-FILE`](issues/STORE-PATHS-ARE-NOT-RELATIVE-TO-THE-CONFIGURATION-FILE.md) | issue | A relative filesystem path in a store configuration resolves against the working directory, not the configuration file | draft |  |  | P3 | S | core/store |  | 2026-11-07 |
 | [`TEMPLATE-DIAGNOSTICS-CHECK-COMMANDS-A-Q-QUOTES`](issues/TEMPLATE-DIAGNOSTICS-CHECK-COMMANDS-A-Q-QUOTES.md) | issue | Template diagnostics report unknown commands in a query part that a later q quotes, which the planner never resolves | draft |  |  | P3 | S | core/query;lib/commands |  | 2026-10-26 |
 | [`TOP-LEVEL-RELATIVE-RESOURCE-QUERY-LOOKS-UP-A-RELATIVE-RECIPES-KEY`](issues/TOP-LEVEL-RELATIVE-RESOURCE-QUERY-LOOKS-UP-A-RELATIVE-RECIPES-KEY.md) | issue | A top-level query reading a relative key fails on './recipes.yaml', while its pipeline form resolves the key | draft |  |  | P3 | S | core/assets |  | 2026-11-04 |
+| [`UI-DOCUMENT-CANNOT-NAME-ITS-THEME`](issues/UI-DOCUMENT-CANNOT-NAME-ITS-THEME.md) | feature | A saved UI document cannot name the theme, colour mode or density it opens with | draft |  |  | P3 | S | lib/ui |  | 2026-11-21 |
 | [`UI-ELEMENT-KEEPS-AN-EXPIRED-VALUE-AND-NEVER-RE-REQUESTS`](issues/UI-ELEMENT-KEEPS-AN-EXPIRED-VALUE-AND-NEVER-RE-REQUESTS.md) | issue | A UI element keeps an expired asset's value and never requests the query again | draft |  |  | P3 | S | lib/ui |  | 2026-11-15 |
 | [`USER-GUIDES-DO-NOT-DESCRIBE-THE-EDITORS`](issues/USER-GUIDES-DO-NOT-DESCRIBE-THE-EDITORS.md) | issue | The user guides' UI chapters do not describe the query, action, resource and key editors | draft |  |  | P3 | S | docs |  | 2026-11-17 |
 | [`VALIDATE-PHASE-COMPACT-SIZE-IGNORES-SOURCE-COMPLEXITY`](issues/VALIDATE-PHASE-COMPACT-SIZE-IGNORES-SOURCE-COMPLEXITY.md) | issue | validate_phase.py checks every compact design against the M size limit | draft |  |  | P3 | S | docs;build |  | 2026-10-27 |
