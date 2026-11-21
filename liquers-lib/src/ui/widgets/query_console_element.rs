@@ -382,10 +382,12 @@ impl QueryConsoleElement {
             let qt = self.query_text.clone();
             // The layouter may outlive this borrow of `self`, so retain the small position value.
             let error_position = self.error_position().cloned();
+            let theme = ctx.theme();
             let mut layouter = |ui: &egui::Ui, _buf: &dyn egui::TextBuffer, _wrap_width: f32| {
-                let layout_job = crate::egui::widgets::query_to_layout_job_with_position(
+                let layout_job = crate::egui::widgets::query_to_layout_job_themed(
                     &qt,
                     error_position.as_ref(),
+                    &theme,
                 );
                 ui.fonts_mut(|f| f.layout_job(layout_job))
             };

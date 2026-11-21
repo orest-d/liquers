@@ -223,7 +223,7 @@ fn node_ui(ui: &mut egui::Ui, node: &EditorNode, view: &mut EditorView, out: &mu
                 });
             });
         }
-        EditorNode::Action { path, command, label, doc, presets, next, filename, fields, excess } => {
+        EditorNode::Action { path, command, label, doc, presets, next, filename, fields, excess, .. } => {
             let header = egui::CollapsingHeader::new(RichText::new(&command.name).strong())
                 .id_salt(("action", path.id()))
                 .default_open(true);

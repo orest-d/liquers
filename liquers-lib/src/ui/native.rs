@@ -157,6 +157,8 @@ where
     pub fn ui_context(&self) -> UIContext {
         UIContext::new(self.app_state.clone(), self.sender.clone())
             .with_command_registry(self.runner.command_registry().clone())
+            .with_theme(self.runner.theme_cell().clone())
+            .with_icon_cache(self.runner.icon_cache().clone())
     }
 
     /// The counter a host increments after each change it makes to the model from outside a

@@ -69,6 +69,8 @@ pub fn display_recipe(ui: &mut egui::Ui, recipe: &Recipe) -> egui::Response {
 }
 use std::{fmt::Display, sync::Arc};
 
+use crate::egui::theme::{color as theme_color, theme_of};
+use crate::ui::theme::{SyntaxRole, ThemeState};
 use egui::{text::LayoutJob, Align, Color32, FontSelection, RichText, Style, TextEdit, Widget};
 use liquers_core::{
     assets::{AssetManager, AssetRef},
@@ -330,7 +332,7 @@ impl<E: Environment> WidgetValue for AssetStatus<E> {
 pub fn edit_query(ui: &mut egui::Ui, query_text: &mut String) -> egui::Response {
     let qt = query_text.clone();
     let mut layouter = |ui: &egui::Ui, _buf: &dyn egui::TextBuffer, _wrap_width: f32| {
-        let layout_job = query_to_layout_job(&qt);
+        let layout_job = query_to_layout_job_themed(&qt, None, &theme_of(ui.ctx()));
         ui.fonts_mut(|f| f.layout_job(layout_job))
     };
     ui.horizontal(|ui| {
@@ -348,83 +350,34 @@ pub fn edit_query(ui: &mut egui::Ui, query_text: &mut String) -> egui::Response 
     .response
 }
 
-/// Helper function to display styled query tokens (used by both display functions)
-fn styled_query_to_layout_job(styled_query: &StyledQuery) -> LayoutJob {
+/// The layout job of a styled query, coloured by the syntax roles of `theme` in its mode
+/// (AC-15); the highlighted token is also underlined.
+pub fn styled_query_to_layout_job(styled_query: &StyledQuery, theme: &ThemeState) -> LayoutJob {
     let style = Style::default();
     let mut layout_job = LayoutJob::default();
     for token in styled_query.tokens.iter() {
-        match token {
-            StyledQueryToken::StringParameter(text) => RichText::new(text)
-                .color(Color32::from_hex("#0b89ffff").unwrap())
-                .monospace()
-                .append_to(
-                    &mut layout_job,
-                    &style,
-                    FontSelection::default(),
-                    Align::LEFT,
-                ), // Green
-            StyledQueryToken::Entity(text) => RichText::new(text)
-                .color(Color32::from_hex("#c5e243ff").unwrap())
-                .monospace()
-                .append_to(
-                    &mut layout_job,
-                    &style,
-                    FontSelection::default(),
-                    Align::LEFT,
-                ), // Orange
-            StyledQueryToken::Separator(text) => RichText::new(text)
-                .color(Color32::from_hex("#afd1daff").unwrap())
-                .monospace()
-                .append_to(
-                    &mut layout_job,
-                    &style,
-                    FontSelection::default(),
-                    Align::LEFT,
-                ), // Gray
-            StyledQueryToken::ResourceName(text) => RichText::new(text)
-                .color(Color32::from_hex("#22aa4aff").unwrap())
-                .monospace()
-                .append_to(
-                    &mut layout_job,
-                    &style,
-                    FontSelection::default(),
-                    Align::LEFT,
-                ), // Blue
-            StyledQueryToken::ActionName(text) => RichText::new(text)
-                .color(Color32::from_hex("#6543ffff").unwrap())
-                .monospace()
-                .append_to(
-                    &mut layout_job,
-                    &style,
-                    FontSelection::default(),
-                    Align::LEFT,
-                ), // Light Orange
-            StyledQueryToken::Header(text) => RichText::new(text)
-                .color(Color32::from_hex("#c359f9ff").unwrap())
-                .monospace()
-                .append_to(
-                    &mut layout_job,
-                    &style,
-                    FontSelection::default(),
-                    Align::LEFT,
-                ), // Purple
-            StyledQueryToken::Highlight(text) => RichText::new(text)
-                .color(Color32::from_rgb(255, 100, 100))
-                .monospace()
-                .underline()
-                .append_to(
-                    &mut layout_job,
-                    &style,
-                    FontSelection::default(),
-                    Align::LEFT,
-                ), // Yellow
+        let role = SyntaxRole::from(token);
+        let text = match token {
+            StyledQueryToken::StringParameter(t)
+            | StyledQueryToken::Entity(t)
+            | StyledQueryToken::Separator(t)
+            | StyledQueryToken::ResourceName(t)
+            | StyledQueryToken::ActionName(t)
+            | StyledQueryToken::Header(t)
+            | StyledQueryToken::Highlight(t) => t,
         };
+        let mut rich = RichText::new(text).color(theme_color(theme.theme.syntax(theme.mode, role))).monospace();
+        if matches!(token, StyledQueryToken::Highlight(_)) {
+            rich = rich.underline();
+        }
+        rich.append_to(&mut layout_job, &style, FontSelection::default(), Align::LEFT);
     }
     layout_job
 }
 
+/// The layout job of a query in the built-in dark theme; see [`query_to_layout_job_themed`].
 pub fn query_to_layout_job<Q: TryToQuery + Display + Clone>(q: Q) -> LayoutJob {
-    query_to_layout_job_with_position(q, None)
+    query_to_layout_job_themed(q, None, &ThemeState::default())
 }
 
 /// Convert a query to an egui layout job, highlighting the token at `position` when known.
@@ -435,17 +388,27 @@ pub fn query_to_layout_job_with_position<Q: TryToQuery + Display + Clone>(
     q: Q,
     position: Option<&Position>,
 ) -> LayoutJob {
+    query_to_layout_job_themed(q, position, &ThemeState::default())
+}
+
+/// A query as a layout job coloured by `theme` (AC-15), highlighting the token at `position`; a
+/// text that does not parse is shown plain.
+pub fn query_to_layout_job_themed<Q: TryToQuery + Display + Clone>(
+    q: Q,
+    position: Option<&Position>,
+    theme: &ThemeState,
+) -> LayoutJob {
     let rquery = q.clone().try_to_query();
     if let Ok(query) = rquery {
         let styled_query = match position {
             Some(position) => StyledQuery::from_query(&query, position),
             None => StyledQuery::from(query),
         };
-        styled_query_to_layout_job(&styled_query)
+        styled_query_to_layout_job(&styled_query, theme)
     } else {
         let mut layout_job = LayoutJob::default();
         RichText::new(format!("{}", &q))
-            .color(Color32::from_rgb(200, 200, 200))
+            .color(theme_color(theme.theme.syntax(theme.mode, SyntaxRole::Plain)))
             .monospace()
             .append_to(
                 &mut layout_job,
@@ -460,6 +423,7 @@ pub fn query_to_layout_job_with_position<Q: TryToQuery + Display + Clone>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::theme::ThemeMode;
 
     #[test]
     fn query_layout_underlines_the_positioned_token_only() {
@@ -476,11 +440,29 @@ mod tests {
             .iter()
             .all(|section| section.format.underline.width == 0.0));
     }
+
+    // Test 20a (AC-15): the colours follow the theme's mode.
+    #[test]
+    fn layout_job_colours_follow_the_theme() {
+        let dark = ThemeState::default();
+        let light = ThemeState { mode: ThemeMode::Light, ..ThemeState::default() };
+        let q = "-R/data/sales.csv/-/head-20";
+        let colours = |state: &ThemeState| {
+            query_to_layout_job_themed(q, None, state)
+                .sections
+                .iter()
+                .map(|s| s.format.color)
+                .collect::<Vec<_>>()
+        };
+        assert_ne!(colours(&dark), colours(&light));
+        let action = theme_color(dark.theme.syntax(ThemeMode::Dark, SyntaxRole::Action));
+        assert!(colours(&dark).contains(&action));
+    }
 }
 
 /// Helper function to display styled query tokens (used by both display functions)
 fn display_styled_query_tokens(ui: &mut egui::Ui, styled_query: &StyledQuery) {
-    let layout_job = styled_query_to_layout_job(styled_query);
+    let layout_job = styled_query_to_layout_job(styled_query, &theme_of(ui.ctx()));
     ui.label(layout_job);
 }
 
