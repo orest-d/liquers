@@ -44,6 +44,8 @@ macro_rules! register_polars_sorting_commands {
             fn sort(state, column: String, ascending: bool = true, nulls_last: bool = false) -> result
             namespace: "pl"
             label: "Sort by column"
+            hint icon: "sort-ascending"
+            next: "head" (label: "First rows", description: "Keep the first rows")
             doc: "Stable sort by one column; ascending unless ascending=f, nulls first unless nulls_last"
 
         version: auto

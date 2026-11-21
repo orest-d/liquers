@@ -183,6 +183,7 @@ macro_rules! register_polars_aggregation_commands {
             fn sum(state) -> result
             namespace: "pl"
             label: "Sum"
+            hint icon: "sigma"
             doc: "Sum of all numeric columns"
 
         version: auto
@@ -192,6 +193,7 @@ macro_rules! register_polars_aggregation_commands {
             fn mean(state) -> result
             namespace: "pl"
             label: "Mean"
+            hint icon: "chart-bar"
             doc: "Mean of all numeric columns"
 
         version: auto
@@ -201,6 +203,7 @@ macro_rules! register_polars_aggregation_commands {
             fn median(state) -> result
             namespace: "pl"
             label: "Median"
+            hint icon: "chart-bar"
             doc: "Median of all numeric columns"
 
         version: auto
@@ -210,6 +213,7 @@ macro_rules! register_polars_aggregation_commands {
             fn min(state) -> result
             namespace: "pl"
             label: "Minimum"
+            hint icon: "chart-bar"
             doc: "Minimum of all numeric columns"
 
         version: auto
@@ -219,6 +223,7 @@ macro_rules! register_polars_aggregation_commands {
             fn max(state) -> result
             namespace: "pl"
             label: "Maximum"
+            hint icon: "chart-bar"
             doc: "Maximum of all numeric columns"
 
         version: auto
@@ -228,6 +233,7 @@ macro_rules! register_polars_aggregation_commands {
             fn std(state) -> result
             namespace: "pl"
             label: "Standard Deviation"
+            hint icon: "chart-bar"
             doc: "Standard deviation of all numeric columns"
 
         version: auto
@@ -237,6 +243,7 @@ macro_rules! register_polars_aggregation_commands {
             fn count(state) -> result
             namespace: "pl"
             label: "Count"
+            hint icon: "hash"
             doc: "Count non-null values per column"
 
         version: auto
@@ -246,6 +253,7 @@ macro_rules! register_polars_aggregation_commands {
             fn describe(state) -> result
             namespace: "pl"
             label: "Describe"
+            hint icon: "info"
             doc: "Statistical summary of DataFrame"
 
         version: auto

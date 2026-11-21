@@ -408,6 +408,7 @@ macro_rules! register_polars_filtering_commands {
             fn eq(state, column: String, value: String) -> result
             namespace: "pl"
             label: "Equal to"
+            hint icon: "equals"
             doc: "Filter rows where column equals value"
 
         version: auto
@@ -417,6 +418,7 @@ macro_rules! register_polars_filtering_commands {
             fn ne(state, column: String, value: String) -> result
             namespace: "pl"
             label: "Not equal to"
+            hint icon: "not-equals"
             doc: "Filter rows where column does not equal value"
 
         version: auto
@@ -426,6 +428,9 @@ macro_rules! register_polars_filtering_commands {
             fn gt(state, column: String, value: String) -> result
             namespace: "pl"
             label: "Greater than"
+            hint icon: "greater-than"
+            next: "sort" (label: "Sort", description: "Sort the kept rows")
+            next: "head" (label: "First rows", description: "Keep the first rows")
             doc: "Filter rows where column is greater than value"
 
         version: auto
@@ -435,6 +440,7 @@ macro_rules! register_polars_filtering_commands {
             fn gte(state, column: String, value: String) -> result
             namespace: "pl"
             label: "Greater than or equal"
+            hint icon: "greater-than"
             doc: "Filter rows where column is greater than or equal to value"
 
         version: auto
@@ -444,6 +450,7 @@ macro_rules! register_polars_filtering_commands {
             fn lt(state, column: String, value: String) -> result
             namespace: "pl"
             label: "Less than"
+            hint icon: "less-than"
             doc: "Filter rows where column is less than value"
 
         version: auto
@@ -453,6 +460,7 @@ macro_rules! register_polars_filtering_commands {
             fn lte(state, column: String, value: String) -> result
             namespace: "pl"
             label: "Less than or equal"
+            hint icon: "less-than"
             doc: "Filter rows where column is less than or equal to value"
 
         version: auto
@@ -462,6 +470,7 @@ macro_rules! register_polars_filtering_commands {
             fn is_in(state, column: String, values: Vec<String> multiple) -> result
             namespace: "pl"
             label: "Is in"
+            hint icon: "funnel"
             doc: "Filter rows where column equals one of the values"
 
         version: auto
@@ -471,6 +480,7 @@ macro_rules! register_polars_filtering_commands {
             fn is_null(state, column: String) -> result
             namespace: "pl"
             label: "Is null"
+            hint icon: "funnel-x"
             doc: "Filter rows where column is null"
 
         version: auto
@@ -480,6 +490,7 @@ macro_rules! register_polars_filtering_commands {
             fn is_not_null(state, column: String) -> result
             namespace: "pl"
             label: "Is not null"
+            hint icon: "funnel-simple"
             doc: "Filter rows where column is not null"
 
         version: auto
@@ -489,6 +500,7 @@ macro_rules! register_polars_filtering_commands {
             fn starts_with(state, column: String, text: String, case_sensitive: bool = false) -> result
             namespace: "pl"
             label: "Starts with"
+            hint icon: "text-aa"
             doc: "Filter rows whose text starts with the given text, taken literally; case-insensitive unless case_sensitive"
 
         version: auto
@@ -498,6 +510,7 @@ macro_rules! register_polars_filtering_commands {
             fn ends_with(state, column: String, text: String, case_sensitive: bool = false) -> result
             namespace: "pl"
             label: "Ends with"
+            hint icon: "text-aa"
             doc: "Filter rows whose text ends with the given text, taken literally; case-insensitive unless case_sensitive"
 
         version: auto
@@ -507,6 +520,7 @@ macro_rules! register_polars_filtering_commands {
             fn contains(state, column: String, text: String, case_sensitive: bool = false) -> result
             namespace: "pl"
             label: "Contains"
+            hint icon: "magnifying-glass"
             doc: "Filter rows whose text contains the given text, taken literally; case-insensitive unless case_sensitive"
 
         version: auto

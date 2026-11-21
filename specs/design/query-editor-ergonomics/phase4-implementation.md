@@ -22,7 +22,7 @@ There are no prerequisites. The overlapping designs (`query-editor-live-validati
 - [x] Step 6: egui editor: cards, toolbar, form grid, chips, outline, shortcuts, jump
 - [x] Step 7: browser editor, token classes, theme CSS in the mount
 - [x] Step 8: query console Parameters panel in both modes
-- [ ] Step 9: command metadata (`hint icon`, presets, next) and registry regeneration
+- [x] Step 9: command metadata (`hint icon`, presets, next) and registry regeneration
 - [ ] Step 10: hosts read the `ui` section (egui window, Python window, web mount)
 - [ ] Step 11: documentation, API docs, issues
 

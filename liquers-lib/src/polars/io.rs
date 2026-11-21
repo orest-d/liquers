@@ -64,6 +64,7 @@ macro_rules! register_polars_io_commands {
             fn from_csv(state, separator: String = "") -> result
             namespace: "pl"
             label: "Load DataFrame from CSV"
+            hint icon: "file-csv"
             doc: "Parse CSV data into a Polars DataFrame. Supports custom separators: comma (default), tab, semicolon, pipe."
             filename: "data.csv"
 
@@ -74,6 +75,7 @@ macro_rules! register_polars_io_commands {
             fn to_csv(state) -> result
             namespace: "pl"
             label: "Export DataFrame to CSV"
+            hint icon: "export"
             doc: "Convert DataFrame to CSV string with comma separator"
             filename: "data.csv"
 

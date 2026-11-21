@@ -1,4 +1,27 @@
-//! Web analogs of `egui/widgets.rs` helpers — all return HTML strings.
+//! Web analogs of the `egui/widgets.rs` helpers: each returns an HTML string.
+//!
+//! # Main components
+//!
+//! - [`query_to_html`]: a query as `<code>` with one `lq-tok-<role>` span per highlighter token,
+//!   coloured by the theme CSS (`query-editor-ergonomics`, AC-15).
+//! - [`status_html`], [`progress_html`], [`asset_info_html`], [`error_html`]: asset panels.
+//!
+//! # Where it is used
+//!
+//! - The browser renderers of the query console and the editors (`ui::web::editor`).
+//!
+//! # Related concepts
+//!
+//! - `crate::egui::widgets`: the egui versions; [`crate::ui::theme::Theme::to_css`]: the colours.
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_lib::ui::web::widgets::query_to_html;
+//!
+//! let html = query_to_html("-R/data.csv/-/head-20");
+//! assert!(html.contains("<span class=\"lq-tok-action\">head</span>"));
+//! ```
 
 use liquers_core::error::Error;
 use liquers_core::metadata::{AssetInfo, ProgressEntry, Status};

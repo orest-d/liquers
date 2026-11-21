@@ -64,6 +64,7 @@ macro_rules! register_polars_info_commands {
             fn shape(state) -> result
             namespace: "pl"
             label: "Shape"
+            hint icon: "ruler"
             doc: "Get DataFrame shape (rows and columns)"
 
         version: auto
@@ -73,6 +74,7 @@ macro_rules! register_polars_info_commands {
             fn nrows(state) -> result
             namespace: "pl"
             label: "Number of rows"
+            hint icon: "hash"
             doc: "Get number of rows in DataFrame"
 
         version: auto
@@ -82,6 +84,7 @@ macro_rules! register_polars_info_commands {
             fn ncols(state) -> result
             namespace: "pl"
             label: "Number of columns"
+            hint icon: "hash"
             doc: "Get number of columns in DataFrame"
 
         version: auto
@@ -91,6 +94,7 @@ macro_rules! register_polars_info_commands {
             fn schema(state) -> result
             namespace: "pl"
             label: "Schema"
+            hint icon: "list-dashes"
             doc: "Get DataFrame schema (column names and types)"
 
         version: auto

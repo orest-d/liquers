@@ -591,6 +591,7 @@ macro_rules! register_records_commands {
             async fn select_columns(state, columns: Vec<String> multiple, context) -> result
             namespace: "rec"
             label: "Select columns"
+            hint icon: "columns"
             doc: "Column projection; keeps the Id/Source columns whether named or not"
         )?;
 
@@ -598,6 +599,11 @@ macro_rules! register_records_commands {
             async fn head(state, n: i64 = 5, context) -> result
             namespace: "rec"
             label: "Head"
+            hint icon: "rows"
+            preset: "head-5" (label: "Top 5")
+            preset: "head-10" (label: "Top 10")
+            preset: "head-20" (label: "Top 20")
+            preset: "head-100" (label: "Top 100")
             doc: "The first n rows (default 5), materialized"
         )?;
 
@@ -605,6 +611,7 @@ macro_rules! register_records_commands {
             async fn slice(state, offset: i64, length: i64, context) -> result
             namespace: "rec"
             label: "Slice"
+            hint icon: "scissors"
             doc: "A row range, as a view"
         )?;
 
@@ -634,6 +641,7 @@ macro_rules! register_records_commands {
             async fn schema(state, context) -> result
             namespace: "rec"
             label: "Schema"
+            hint icon: "list-dashes"
             doc: "The schema as JSON text: what a schema argument or a manifest's uniform_schema accepts"
         )?;
         $cr.register_alias(
@@ -648,126 +656,148 @@ macro_rules! register_records_commands {
             async fn eq(state, column: String, value: String, context) -> result
             namespace: "rec"
             label: "Equal to"
+            hint icon: "equals"
             doc: "Rows where the column compares equal to the value, parsed to the column's type"
         )?;
         register_command!($cr,
             async fn ne(state, column: String, value: String, context) -> result
             namespace: "rec"
             label: "Not equal to"
+            hint icon: "not-equals"
             doc: "Rows where the column compares not equal to the value, parsed to the column's type"
         )?;
         register_command!($cr,
             async fn gt(state, column: String, value: String, context) -> result
             namespace: "rec"
             label: "Greater than"
+            hint icon: "greater-than"
             doc: "Rows where the column compares greater than the value, parsed to the column's type"
         )?;
         register_command!($cr,
             async fn gte(state, column: String, value: String, context) -> result
             namespace: "rec"
             label: "Greater than or equal"
+            hint icon: "greater-than"
             doc: "Rows where the column compares greater than or equal the value, parsed to the column's type"
         )?;
         register_command!($cr,
             async fn lt(state, column: String, value: String, context) -> result
             namespace: "rec"
             label: "Less than"
+            hint icon: "less-than"
             doc: "Rows where the column compares less than the value, parsed to the column's type"
         )?;
         register_command!($cr,
             async fn lte(state, column: String, value: String, context) -> result
             namespace: "rec"
             label: "Less than or equal"
+            hint icon: "less-than"
             doc: "Rows where the column compares less than or equal the value, parsed to the column's type"
         )?;
         register_command!($cr,
             async fn starts_with(state, column: String, text: String, case_sensitive: bool = false, context) -> result
             namespace: "rec"
             label: "Starts with"
+            hint icon: "text-aa"
             doc: "Rows whose text starts with the given text, taken literally; case-insensitive unless case_sensitive"
         )?;
         register_command!($cr,
             async fn ends_with(state, column: String, text: String, case_sensitive: bool = false, context) -> result
             namespace: "rec"
             label: "Ends with"
+            hint icon: "text-aa"
             doc: "Rows whose text ends with the given text, taken literally; case-insensitive unless case_sensitive"
         )?;
         register_command!($cr,
             async fn contains(state, column: String, text: String, case_sensitive: bool = false, context) -> result
             namespace: "rec"
             label: "Contains"
+            hint icon: "magnifying-glass"
             doc: "Rows whose text contains the given text, taken literally; case-insensitive unless case_sensitive"
         )?;
         register_command!($cr,
             async fn glob(state, column: String, pattern: String, case_sensitive: bool = false, context) -> result
             namespace: "rec"
             label: "Glob"
+            hint icon: "magnifying-glass"
             doc: "Rows whose text matches a * / ? pattern; case-insensitive unless case_sensitive"
         )?;
         register_command!($cr,
             async fn is_in(state, column: String, values: Vec<String> multiple, context) -> result
             namespace: "rec"
             label: "Is in"
+            hint icon: "funnel"
             doc: "Rows whose column equals one of the values"
         )?;
         register_command!($cr,
             async fn is_null(state, column: String, context) -> result
             namespace: "rec"
             label: "Is null"
+            hint icon: "funnel-x"
             doc: "Rows where the column is null"
         )?;
         register_command!($cr,
             async fn is_not_null(state, column: String, context) -> result
             namespace: "rec"
             label: "Is not null"
+            hint icon: "funnel-simple"
             doc: "Rows where the column is not null"
         )?;
         register_command!($cr,
             async fn filter(state, query: String = "", context) -> result
             namespace: "rec"
             label: "Filter"
+            hint icon: "funnel"
             doc: "Rows matching a search expression: ns-search/search with rank=false and no limit"
         )?;
         register_command!($cr,
             async fn sort(state, column: String, ascending: bool = true, nulls_last: bool = false, context) -> result
             namespace: "rec"
             label: "Sort by column"
+            hint icon: "sort-ascending"
+            next: "head" (label: "First rows", description: "Keep the first rows")
             doc: "Stable sort by one column; nulls first unless nulls_last (as ns-pl/sort)"
         )?;
         register_command!($cr,
             async fn tail(state, n: i64 = 5, context) -> result
             namespace: "rec"
             label: "Last rows"
+            hint icon: "rows"
             doc: "The last n rows, materialized"
         )?;
         register_command!($cr,
             async fn drop_columns(state, columns: Vec<String> multiple, context) -> result
             namespace: "rec"
             label: "Drop columns"
+            hint icon: "minus-circle"
             doc: "Every column but the named ones; the Id and Source columns cannot be dropped"
         )?;
         register_command!($cr,
             async fn nrows(state, context) -> result
             namespace: "rec"
             label: "Number of rows"
+            hint icon: "hash"
             doc: "The row count; over a source, counted chunk by chunk"
         )?;
         register_command!($cr,
             async fn ncols(state, context) -> result
             namespace: "rec"
             label: "Number of columns"
+            hint icon: "hash"
             doc: "The column count"
         )?;
         register_command!($cr,
             async fn shape(state, context) -> result
             namespace: "rec"
             label: "Shape"
+            hint icon: "ruler"
             doc: "{nrows, ncols}, as ns-pl/shape"
         )?;
         register_command!($cr,
             async fn count(state, context) -> result
             namespace: "rec"
             label: "Count"
+            hint icon: "hash"
             doc: "One row: the non-null count of every column, as ns-pl/count"
         )?;
 
@@ -775,6 +805,7 @@ macro_rules! register_records_commands {
             async fn to_json(state, orient: String = "records", context) -> result
             namespace: "rec"
             label: "To JSON"
+            hint icon: "brackets-curly"
             doc: "A view as one of the seven JSON table shapes"
         )?;
 
@@ -782,6 +813,7 @@ macro_rules! register_records_commands {
             async fn from_json(state, orient: String = "auto", schema: String = "", context) -> result
             namespace: "rec"
             label: "From JSON"
+            hint icon: "brackets-curly"
             doc: "A JSON value, text or bytes as a table"
         )?;
 
@@ -789,6 +821,7 @@ macro_rules! register_records_commands {
             async fn to_record(state, format: String = "", header: bool = true, schema: String = "", context) -> result
             namespace: "rec"
             label: "To record"
+            hint icon: "table"
             doc: "Any input a table can be made from, turned into a RecordView"
         )?;
 

@@ -105,6 +105,7 @@ macro_rules! register_polars_selection_commands {
             fn select_columns(state, columns: Vec<String> multiple) -> result
             namespace: "pl"
             label: "Select columns"
+            hint icon: "columns"
             doc: "Select columns by name, one parameter per column"
 
         version: auto
@@ -114,6 +115,7 @@ macro_rules! register_polars_selection_commands {
             fn drop_columns(state, columns: Vec<String> multiple) -> result
             namespace: "pl"
             label: "Drop columns"
+            hint icon: "minus-circle"
             doc: "Remove columns by name, one parameter per column"
 
         version: auto
@@ -123,6 +125,7 @@ macro_rules! register_polars_selection_commands {
             fn tail(state, n: i32 = 5) -> result
             namespace: "pl"
             label: "Get last rows"
+            hint icon: "rows"
             doc: "Return last N rows (default: 5)"
 
         version: auto
@@ -132,6 +135,7 @@ macro_rules! register_polars_selection_commands {
             fn slice(state, offset: i32, length: i32) -> result
             namespace: "pl"
             label: "Slice rows"
+            hint icon: "scissors"
             doc: "Extract rows by range (offset, length)"
 
         version: auto
@@ -139,15 +143,22 @@ macro_rules! register_polars_selection_commands {
 
         // `head` is `slice` from the first row: an alias, not a second implementation.
         // See specs/reference/COMMAND_ALIASES.md.
-        $cr.register_alias(
+        let head = $cr.register_alias(
             liquers_core::command_metadata::CommandKey::new("", "pl", "head"),
             liquers_core::command_metadata::CommandKey::new("", "pl", "slice"),
             vec![liquers_core::command_metadata::CommandParameterValue::Value(0.into())],
             vec![liquers_core::command_metadata::ArgumentInfo::integer_argument("n", false)
-                .with_default(5)],
-        )?
-        .with_label("Get first rows")
-        .with_doc("Return first N rows (default: 5)");
+                .with_default(5)
+                .with_label("Number of rows")],
+        )?;
+        head.with_label("Get first rows")
+            .with_doc("Return first N rows (default: 5)")
+            .with_hint("icon", serde_json::json!("rows"));
+        for (query, label) in [("head-5", "Top 5"), ("head-10", "Top 10"), ("head-20", "Top 20"), ("head-100", "Top 100")] {
+            head.presets.push(liquers_core::command_metadata::CommandPreset::new(query, label, "")?);
+        }
+        head.next.push(liquers_core::command_metadata::CommandPreset::new("sort", "Sort", "Sort the rows")?);
+        head.next.push(liquers_core::command_metadata::CommandPreset::new("describe", "Describe", "Summary statistics")?);
 
         Ok::<(), liquers_core::error::Error>(())
     }};
