@@ -6,7 +6,7 @@ status: draft
 priority: P1
 complexity: XL
 area: [lib/ui, web, axum]
-design: 
+design: ui-redesign
 created: 2026-11-17
 github:
 ---
