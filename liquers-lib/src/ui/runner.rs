@@ -179,6 +179,8 @@ pub struct AppRunner<E: Environment> {
     /// A theme given as a key or query: to load on the next `run`, then watched.
     theme_query: Option<String>,
     theme_watch: Option<(String, MonitoredAsset<E>)>,
+    /// Icon images whose assets were still queued or evaluating (key, asset).
+    icon_loads: Vec<(String, AssetRef<E>)>,
 }
 
 impl<E> AppRunner<E>
@@ -211,6 +213,7 @@ where
             icons: IconCache::default(),
             theme_query: None,
             theme_watch: None,
+            icon_loads: Vec::new(),
         }
     }
 
@@ -355,6 +358,9 @@ where
 
         // Phase 6: Load or reload the theme given as a key or query.
         Box::pin(self.poll_theme()).await;
+
+        // Phase 7: Finish icon images that were still loading.
+        Box::pin(self.poll_icons()).await;
 
         Ok(())
     }
@@ -1114,7 +1120,7 @@ where
 
     /// Check if there are any in-flight evaluations.
     pub fn has_evaluating(&self) -> bool {
-        !self.evaluating.is_empty()
+        !self.evaluating.is_empty() || !self.icon_loads.is_empty()
     }
 
     /// True when there are live monitored assets that can publish snapshots.
@@ -1190,29 +1196,62 @@ where
         }
     }
 
-    /// Loads an icon image by key or query into the icon cache (AC-17).
+    /// Starts loading an icon image by key or query into the icon cache (AC-17). The entry stays
+    /// `Pending` until the asset finishes: an asset still queued or evaluating is kept in
+    /// `icon_loads` and finished by [`Self::poll_icons`] on a later run.
     async fn handle_load_icon(&mut self, key: String) {
         let query = if key.starts_with('-') { key.clone() } else { format!("-R/{key}") };
-        let load = match self.envref.evaluate(&query).await {
-            Ok(asset_ref) => match asset_ref.poll_state().await {
-                Some(state) => match state.error_result() {
-                    Ok(_) => {
-                        let value = state.data_unchecked();
-                        match value.try_into_bytes().or_else(|_| value.try_into_string().map(String::into_bytes)) {
-                            Ok(bytes) => IconLoad::Ready(Arc::from(bytes.into_boxed_slice())),
-                            Err(_) => IconLoad::Failed,
-                        }
+        match self.envref.evaluate(&query).await {
+            Ok(asset_ref) => {
+                if !self.finish_icon(&key, &asset_ref).await {
+                    self.icons.set(&key, IconLoad::Pending);
+                    self.icon_loads.push((key, asset_ref));
+                }
+            }
+            Err(e) => {
+                eprintln!("icon '{key}' could not be loaded: {e}");
+                self.icons.set(&key, IconLoad::Failed);
+            }
+        }
+    }
+
+    /// Records the icon when its asset has finished; `false` while it is still on its way.
+    async fn finish_icon(&mut self, key: &str, asset_ref: &AssetRef<E>) -> bool {
+        let status = asset_ref.status().await;
+        if !status.is_finished() {
+            return false;
+        }
+        let load = match asset_ref.poll_state().await {
+            Some(state) => match state.error_result() {
+                Ok(_) => {
+                    let value = state.data_unchecked();
+                    match value.try_into_bytes().or_else(|_| value.try_into_string().map(String::into_bytes)) {
+                        Ok(bytes) => IconLoad::Ready(Arc::from(bytes.into_boxed_slice())),
+                        Err(_) => IconLoad::Failed,
                     }
-                    Err(_) => IconLoad::Failed,
-                },
-                None => IconLoad::Failed,
+                }
+                Err(_) => IconLoad::Failed,
             },
-            Err(_) => IconLoad::Failed,
+            None => IconLoad::Failed,
         };
         if matches!(load, IconLoad::Failed) {
-            eprintln!("icon '{key}' could not be loaded");
+            eprintln!("icon '{key}' could not be loaded (status {status:?})");
         }
-        self.icons.set(&key, load);
+        self.icons.set(key, load);
+        true
+    }
+
+    /// Phase 7: finishes the icon loads whose assets have completed since the last run.
+    async fn poll_icons(&mut self) {
+        if self.icon_loads.is_empty() {
+            return;
+        }
+        let loads = std::mem::take(&mut self.icon_loads);
+        for (key, asset_ref) in loads {
+            if !self.finish_icon(&key, &asset_ref).await {
+                self.icon_loads.push((key, asset_ref));
+            }
+        }
     }
 
     /// Number of currently evaluating nodes.

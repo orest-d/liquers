@@ -370,6 +370,12 @@ impl UIElement for EditorElement {
             }
             UpdateMessage::UI(event) => {
                 if let Some(mode) = EditorView::mode_event(event) {
+                    // Commit what was typed but not yet submitted, then switch (AC-3).
+                    let drafts = match self.tree() {
+                        Some(tree) => EditorView::draft_commands(event, tree),
+                        None => vec![],
+                    };
+                    self.apply_commands(drafts, ctx);
                     self.mode = mode;
                     return UpdateResponse::NeedsRepaint;
                 }

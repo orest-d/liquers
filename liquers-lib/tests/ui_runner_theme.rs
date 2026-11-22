@@ -106,3 +106,49 @@ async fn icon_by_key_is_loaded_into_the_cache() {
     }
     assert!(matches!(cache.peek("-R/icons/missing.svg"), Some(liquers_lib::ui::theme::IconLoad::Failed)));
 }
+
+async fn slow_icon(state: liquers_core::state::State<Value>) -> Result<Value, liquers_core::error::Error> {
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    Ok(Value::from(state.try_into_string()?))
+}
+
+// Codex review of PR #278: an icon whose asset is still evaluating when the load starts is
+// finished on a later run instead of being cached as failed.
+#[tokio::test]
+async fn icon_still_evaluating_is_loaded_later() {
+    let mut env = CommandEnvironment::new();
+    env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
+    {
+        use liquers_lib::environment::CommandRegistryAccess;
+        use liquers_core::context::Context;
+        use liquers_macro::register_command;
+        let cr = env.get_mut_command_registry();
+        register_command!(cr, async fn slow_icon(state) -> result).expect("register");
+    }
+    let envref = env.to_ref();
+    put(&envref, "icons/brush.svg", "<svg xmlns=\"http://www.w3.org/2000/svg\"/>").await;
+    let app_state: Arc<tokio::sync::Mutex<dyn AppState>> =
+        Arc::new(tokio::sync::Mutex::new(DirectAppState::new()));
+    let (tx, rx) = app_message_channel();
+    let mut runner = AppRunner::new(envref, rx, tx.clone());
+    let key = "-R/icons/brush.svg/-/slow_icon".to_string();
+    tx.send(AppMessage::LoadIcon { key: key.clone() }).expect("send");
+    runner.run(&app_state).await.expect("run");
+    assert!(
+        matches!(runner.icon_cache().peek(&key), Some(liquers_lib::ui::theme::IconLoad::Pending)),
+        "a load still on its way is pending, not failed: {:?}",
+        runner.icon_cache().peek(&key)
+    );
+    assert!(runner.has_evaluating(), "the host keeps ticking until the icon arrives");
+    for _ in 0..50 {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        runner.run(&app_state).await.expect("run");
+        if !runner.has_evaluating() {
+            break;
+        }
+    }
+    match runner.icon_cache().peek(&key) {
+        Some(liquers_lib::ui::theme::IconLoad::Ready(bytes)) => assert!(bytes.starts_with(b"<svg")),
+        other => panic!("not loaded: {other:?}"),
+    }
+}

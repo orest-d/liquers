@@ -53,6 +53,10 @@ use crate::ui::ui_context::UIContext;
 use crate::utils::NextPreset;
 use crate::value::Value;
 
+/// The event Enter in a Parameters panel field sends in the browser: it edits the query and never
+/// submits it, unlike the console's own `Submit` (Enter in the query input, Go).
+const PARAMETERS_SUBMIT: &str = "qc:apply";
+
 /// Browser-like interactive query console widget.
 ///
 /// Manages query history, command preset resolution, and data/metadata view toggle.
@@ -279,10 +283,6 @@ impl QueryConsoleElement {
     /// `query_text` otherwise (egui edits it in place), then submits.
     fn handle_ui_event(&mut self, event: &UIEvent, ctx: &UIContext) -> UpdateResponse {
         match &event.kind {
-            UIEventKind::Submit if self.parameter_event(event, ctx) == UpdateResponse::NeedsRepaint => {
-                // Enter in a Parameters field edits the query; it never submits (AC-12).
-                UpdateResponse::NeedsRepaint
-            }
             UIEventKind::Submit => {
                 use liquers_core::value::ValueInterface;
                 if let Some(text) = event.field("query").and_then(|v| v.try_into_string().ok()) {
@@ -298,8 +298,15 @@ impl QueryConsoleElement {
                 }
                 UpdateResponse::NeedsRepaint
             }
+            UIEventKind::Named(name) if name == PARAMETERS_SUBMIT => {
+                // Enter in a Parameters field edits the query; it never submits (AC-12).
+                self.parameter_drafts(event, ctx);
+                UpdateResponse::NeedsRepaint
+            }
             UIEventKind::Named(_) | UIEventKind::Change(_) => {
                 if let Some(mode) = EditorView::mode_event(event) {
+                    // Keep what was typed in the panel, then switch (AC-3).
+                    self.parameter_drafts(event, ctx);
                     self.mode = mode;
                     return UpdateResponse::NeedsRepaint;
                 }
@@ -310,16 +317,31 @@ impl QueryConsoleElement {
 
     /// A browser event of the Parameters panel, decoded and applied to the query text.
     fn parameter_event(&mut self, event: &UIEvent, ctx: &UIContext) -> UpdateResponse {
-        if !self.show_parameters {
-            return UpdateResponse::Unchanged;
-        }
-        let Some(tree) = self.parameters_tree(ctx) else {
+        let Some(tree) = self.open_parameters(ctx) else {
             return UpdateResponse::Unchanged;
         };
-        let commands: Vec<EditorCommand> = EditorView::from_ui_event(event, &tree)
-            .into_iter()
-            .filter(|c| !matches!(c, EditorCommand::SetText(_)))
-            .collect();
+        self.apply_panel(EditorView::from_ui_event(event, &tree), ctx)
+    }
+
+    /// The field values an event carries from the Parameters panel, applied as edits.
+    fn parameter_drafts(&mut self, event: &UIEvent, ctx: &UIContext) -> UpdateResponse {
+        let Some(tree) = self.open_parameters(ctx) else {
+            return UpdateResponse::Unchanged;
+        };
+        self.apply_panel(EditorView::draft_commands(event, &tree), ctx)
+    }
+
+    fn open_parameters(&mut self, ctx: &UIContext) -> Option<EditorTree> {
+        if !self.show_parameters {
+            return None;
+        }
+        self.parameters_tree(ctx)
+    }
+
+    /// Applies panel edits; the panel never sets the console's text directly.
+    fn apply_panel(&mut self, commands: Vec<EditorCommand>, ctx: &UIContext) -> UpdateResponse {
+        let commands: Vec<EditorCommand> =
+            commands.into_iter().filter(|c| !matches!(c, EditorCommand::SetText(_))).collect();
         if commands.is_empty() {
             return UpdateResponse::Unchanged;
         }
@@ -724,13 +746,16 @@ impl UIElement for QueryConsoleElement {
         );
         // The Parameters panel (AC-12), from the editor the last event built.
         let parameters = match (&self.parameters, self.show_parameters) {
+            // Enter in a panel field sends `qc:apply`, so it is never taken for the console's
+            // own Submit (the browser sends every field of the element with either).
             (Some(state), true) => crate::ui::web::editor::editor_html(
                 &panel_tree(state.tree()),
                 "Parameters",
                 self.mode,
                 self.density(),
                 &self.theme.clone().unwrap_or_default().theme,
-            ),
+            )
+            .replace(&submit, &event_attr(&UIEventKind::Named(PARAMETERS_SUBMIT.to_string()))),
             (Some(_), false) | (None, true) | (None, false) => String::new(),
         };
 
@@ -1288,17 +1313,38 @@ mod tests {
         let tree = c.parameters_tree(&ctx).expect("tree");
         let path = tree.nodes[tree.last_action().expect("head")].path().clone();
         let field = crate::ui::editor::field_id(&path, "n", None);
-        let enter = UIEvent::new(UIEventKind::Submit)
+        let enter = UIEvent::new(UIEventKind::Named(PARAMETERS_SUBMIT.into()))
             .with_field("query", Value::from("-R/a.csv/-/head-3".to_string()))
             .with_field(&field, Value::from("9".to_string()));
-        c.update(&UpdateMessage::UI(enter), &ctx);
+        c.update(&UpdateMessage::UI(enter.clone()), &ctx);
         assert_eq!(c.query_text, "-R/a.csv/-/head-9");
         assert!(rx.try_recv().is_err(), "nothing is submitted");
+        // Codex review of PR #278: Enter in an unchanged field submits nothing either.
+        c.update(&UpdateMessage::UI(enter), &ctx);
+        assert!(rx.try_recv().is_err(), "an unchanged field submits nothing");
+
+        // A mode switch keeps a value typed in the panel.
+        let simple = UIEvent::new(UIEventKind::Named("ed:mode::simple".into()))
+            .with_field(&field, Value::from("11".to_string()));
+        c.update(&UpdateMessage::UI(simple), &ctx);
+        assert_eq!((c.mode(), c.query_text.as_str()), (EditorMode::Simple, "-R/a.csv/-/head-11"));
+        c.set_mode(EditorMode::Advanced);
+
+        // Go submits the query input even while a panel field holds an uncommitted edit.
+        let go = UIEvent::new(UIEventKind::Submit)
+            .with_field("query", Value::from("-R/a.csv/-/head-4".to_string()))
+            .with_field(&field, Value::from("12".to_string()));
+        c.update(&UpdateMessage::UI(go), &ctx);
+        assert_eq!(c.query_text, "-R/a.csv/-/head-4");
+        assert!(rx.try_recv().is_ok(), "Go submits");
 
         #[cfg(feature = "webui")]
         {
             let html = c.render_web(&DirectAppState::new());
             assert!(html.contains("data-lq-mode=\"advanced\"") && html.contains("data-lq-density=\"compact\""), "{html}");
+            assert!(html.contains("data-lq-event=\"qc:apply\""), "panel fields send qc:apply: {html}");
+            let panel = &html[html.find("lq-editor").expect("panel")..];
+            assert!(!panel.contains("data-lq-event=\"submit\""), "the panel sends no console Submit");
         }
         let json = serde_json::to_value(&c).expect("json");
         let back: QueryConsoleElement = serde_json::from_value(json).expect("back");

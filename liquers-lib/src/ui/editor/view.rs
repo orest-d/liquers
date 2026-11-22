@@ -189,18 +189,23 @@ impl EditorView {
                 Some(value) => decode_field(field, &value, tree).into_iter().collect(),
                 None => vec![],
             },
-            UIEventKind::Submit => {
-                let mut out = Vec::new();
-                for (name, value) in event.fields.iter() {
-                    if let Ok(text) = value.try_into_string() {
-                        if let Some(command) = decode_field(name, &text, tree) {
-                            out.push(command);
-                        }
-                    }
+            UIEventKind::Submit => Self::draft_commands(event, tree),
+        }
+    }
+
+    /// The edits an event's field values carry: one command per field whose value differs from
+    /// the tree (the query text, the filename, keys, headers and arguments). A Submit is these
+    /// edits; a mode switch commits them before switching, so typed text is not lost.
+    pub fn draft_commands(event: &UIEvent, tree: &EditorTree) -> Vec<EditorCommand> {
+        let mut out = Vec::new();
+        for (name, value) in event.fields.iter() {
+            if let Ok(text) = value.try_into_string() {
+                if let Some(command) = decode_field(name, &text, tree) {
+                    out.push(command);
                 }
-                out
             }
         }
+        out
     }
 }
 

@@ -93,6 +93,9 @@ struct Cx<'a> {
     ours: Vec<Id>,
     /// The id of the query text field.
     text_id: Id,
+    /// This editor's id scope: every explicit widget id derives from it, so two editors showing
+    /// the same path and argument never share focus or text state.
+    base: Id,
     /// The cards in drawing order, for card navigation.
     cards: Vec<NodePath>,
 }
@@ -137,6 +140,7 @@ pub fn show_editor(
             mode_change: None,
             ours: Vec::new(),
             text_id: ui.id().with("lq-editor-text"),
+            base: ui.id(),
             cards: Vec::new(),
         };
         view.resume_jump(tree, mode);
@@ -836,7 +840,7 @@ fn field_editor(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, path: &No
                 items_ui(ui, cx, view, path, field, &[]);
                 None
             } else {
-                let (response, command) = widget(ui, path, field, &text, None, view);
+                let (response, command) = widget(ui, cx.base, path, field, &text, None, view);
                 if let Some(command) = command {
                     cx.out.push(command);
                     view.last_field = Some(field_id(path, &field.name, None));
@@ -929,7 +933,7 @@ fn node_body(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, node: &Edito
                 ui.label("ns").on_hover_text("The namespaces the following commands are looked up in");
                 let mut moved: Option<(usize, usize)> = None;
                 for (i, ns) in list.iter().enumerate() {
-                    let id = egui::Id::new(("ns", path.id(), i));
+                    let id = cx.base.with(("ns", path.id(), i));
                     let response = ui
                         .dnd_drag_source(id, i, |ui| {
                             ui.label(RichText::new(ns).monospace());
@@ -1008,12 +1012,12 @@ fn items_ui(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, path: &NodePa
     ui.horizontal_wrapped(|ui| {
         let mut moved: Option<(usize, usize)> = None;
         for (k, item) in items.iter().enumerate() {
-            let id = egui::Id::new(("item", path.id(), &field.name, k));
+            let id = cx.base.with(("item", path.id(), &field.name, k));
             let target = FocusTarget::Field { path: path.clone(), arg: field.name.clone(), item: Some(k) };
             let response = ui
                 .dnd_drag_source(id, k, |ui| match item {
                     FieldValue::Text(text) => {
-                        let (response, command) = widget(ui, path, field, text, Some(k), view);
+                        let (response, command) = widget(ui, cx.base, path, field, text, Some(k), view);
                         if let Some(command) = command {
                             cx.out.push(command);
                             view.last_field = Some(field_id(path, &field.name, Some(k)));
@@ -1067,6 +1071,7 @@ fn items_ui(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, path: &NodePa
 /// The widget of one value (AC-2): its response, and a command when the value was committed.
 fn widget(
     ui: &mut egui::Ui,
+    base: Id,
     path: &NodePath,
     field: &EditorField,
     text: &str,
@@ -1175,7 +1180,7 @@ fn widget(
                 _ => 120.0,
             };
             let buffer = view.buffer(&id, text);
-            let mut edit = egui::TextEdit::singleline(buffer).desired_width(width).id(egui::Id::new(("lq-field", &id)));
+            let mut edit = egui::TextEdit::singleline(buffer).desired_width(width).id(base.with(("lq-field", &id)));
             if let Some(d) = &field.default_text {
                 edit = edit.hint_text(d.as_str());
             }
@@ -1728,5 +1733,40 @@ mod tests {
         let (a, b) = (range.primary.index.0.min(range.secondary.index.0), range.primary.index.0.max(range.secondary.index.0));
         let selected: String = query.chars().skip(a).take(b - a).collect();
         assert_eq!(selected, "20");
+    }
+
+    // Codex review of PR #278: two editors showing the same argument do not share its widget.
+    #[test]
+    fn two_editors_do_not_share_field_state() {
+        let tree = tree_of(P);
+        let head = head_path(&tree);
+        let ctx = egui::Context::default();
+        let theme = ThemeState::default();
+        let field = FocusTarget::Field { path: head.clone(), arg: "n".into(), item: None };
+        let mut a = EditorView { focus: Some(field), focus_pending: true, ..EditorView::default() };
+        let mut b = EditorView::default();
+        let mut both = |events: Vec<egui::Event>, a: &mut EditorView, b: &mut EditorView| {
+            let input = egui::RawInput { events, ..Default::default() };
+            let mut outs = (EditorOutput::default(), EditorOutput::default());
+            let mut output = ctx.run_ui(input, |ui| {
+                ui.push_id("a", |ui| outs.0 = show_editor(ui, &tree, a, EditorMode::Simple, Density::Comfortable, &theme, None));
+                ui.push_id("b", |ui| outs.1 = show_editor(ui, &tree, b, EditorMode::Simple, Density::Comfortable, &theme, None));
+            });
+            output.textures_delta.clear();
+            outs
+        };
+        both(vec![], &mut a, &mut b);
+        both(vec![], &mut a, &mut b);
+        let (out_a, out_b) = both(
+            vec![egui::Event::Text("7".into()), key(egui::Key::Enter, egui::Modifiers::NONE)],
+            &mut a,
+            &mut b,
+        );
+        assert!(
+            out_a.commands.iter().any(|c| matches!(c, EditorCommand::SetField { arg, .. } if arg == "n")),
+            "{:?}",
+            out_a.commands
+        );
+        assert!(out_b.commands.is_empty(), "the other editor's field took the typing: {:?}", out_b.commands);
     }
 }

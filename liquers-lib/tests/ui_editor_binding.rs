@@ -243,3 +243,26 @@ async fn binding_that_is_not_an_accessor_is_read_only() {
     h.settle().await;
     assert!(h.tree(handles[0]).await.nodes.is_empty());
 }
+
+/// Codex review of PR #278 (query-editor-ergonomics AC-3): switching mode in the browser commits
+/// the text typed into a field, instead of repainting it away.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn browser_mode_switch_keeps_typed_field_text() {
+    use liquers_lib::ui::editor::{field_id, EditorMode};
+    use liquers_lib::ui::{UIEvent, UIEventKind, UpdateMessage};
+    let (mut h, handles) = Harness::new(vec![recipe_editor(EditorKind::Query, RECIPE_QUERY)]).await;
+    h.settle().await;
+    let tree = h.tree(handles[0]).await;
+    let head = tree.nodes[tree.last_action().expect("head")].path().clone();
+    let event = UIEvent::new(UIEventKind::Named(format!("ed:mode:{}:advanced", head.id())))
+        .with_field(field_id(&head, "n", None), Value::from("25".to_string()));
+    let mode = h
+        .with_element(handles[0], |e, ctx| {
+            e.update(&UpdateMessage::UI(event), ctx);
+            e.mode()
+        })
+        .await;
+    assert_eq!(mode, EditorMode::Advanced);
+    h.settle().await;
+    assert!(h.tree(handles[0]).await.text.contains("head-25"), "{}", h.tree(handles[0]).await.text);
+}
