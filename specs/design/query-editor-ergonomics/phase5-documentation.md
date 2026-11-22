@@ -97,7 +97,7 @@ Each has a `HISTORY.md` row and `reviewed: 2026-11-21`; no `CHECK:` markers.
 
 ## Issues Filed
 
-- `THEME-ICON-SET-SETTING-IS-IGNORED`: `icons.icon-set` is declared but not read.
+- `ICON-SETS-OTHER-THAN-PHOSPHOR-ARE-NOT-DRAWN`: a theme can name another set, but only Phosphor is drawn.
 - `WEB-EDITOR-HAS-NO-KEYBOARD-MODEL`: the browser editor binds no keys and skips icon images by key.
 - `WEB-MOUNTUI-HAS-NO-THEME-OPTION`: `mountUI` passes no `ui` section.
 - `PY-COMMAND-CANNOT-SET-ICON-PRESETS-OR-NEXT`: the Python decorators lack `hints`, `presets`, `next`.
@@ -106,7 +106,8 @@ Each has a `HISTORY.md` row and `reviewed: 2026-11-21`; no `CHECK:` markers.
 - Earlier in the design: `COMMANDS-HAVE-NO-TOOL-PALETTE` (split from the icon issue).
 
 Closed: `QUERY-CONSOLE-HAS-NO-QUERY-EDITOR-ON-DEMAND` (AC-12), `ICONS-CANNOT-BE-ASSETS-OR-UNICODE`
-(AC-17), `USER-GUIDES-DO-NOT-DESCRIBE-THE-EDITORS`.
+(AC-17), `USER-GUIDES-DO-NOT-DESCRIBE-THE-EDITORS`, and `THEME-ICON-SET-SETTING-IS-IGNORED`
+(2026-11-22: a bare icon name now follows `icons.icon-set`, Phosphor by default).
 
 ## Important Learning
 
@@ -131,8 +132,11 @@ Closed: `QUERY-CONSOLE-HAS-NO-QUERY-EDITOR-ON-DEMAND` (AC-12), `ICONS-CANNOT-BE-
 | AC-9, AC-10 | implemented in egui; the browser part was deferred by AC-11 itself (`WEB-EDITOR-HAS-NO-KEYBOARD-MODEL`) |
 | AC-11 | implemented: one token set, dark/light, Comfortable/Compact, Compact default in the console |
 
-Nothing requested is left without an issue. The design moves to `complete` when the owner
-accepts these results.
+Nothing requested is left without an issue. Orest accepted these results on 2026-11-22 and the
+design is `complete`. With the acceptance came two last changes: `icons.icon-set` was kept and
+made to work (a bare name follows it, Phosphor by default), and the `ui_spec_editor` example
+shows a theme override from its store that gives the demo commands icons, a hue and an accent
+(`specs/guides/THEME_GUIDE.md` §1.7).
 
 ## Validation
 

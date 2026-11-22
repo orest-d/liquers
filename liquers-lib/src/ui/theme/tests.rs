@@ -88,7 +88,7 @@ fn layers_override_add_and_associate() {
 // Test 25 (AC-17): string forms, the structured form, lib: checks and the Unicode fallback.
 #[test]
 fn icon_variants_and_unicode_fallback() {
-    assert_eq!(Icon::parse("funnel").expect("bare"), Icon::set("funnel"));
+    assert_eq!(Icon::parse("funnel").expect("bare"), Icon::named("funnel"));
     assert_eq!(Icon::parse("ph:funnel").expect("ph"), Icon::set("funnel"));
     assert_eq!(Icon::parse("u:⏷").expect("u"), Icon::unicode("⏷"));
     assert_eq!(Icon::parse("lib:brush").expect("lib").variants, vec![IconVariant::Library("brush".into())]);
@@ -105,16 +105,16 @@ fn icon_variants_and_unicode_fallback() {
     assert_eq!(back, icon);
     let list: Icon = serde_yaml::from_str("[ph:funnel, \"u:⏷\"]").expect("list");
     assert_eq!(list, Icon::set("funnel").with_unicode("⏷"));
-    assert_eq!(Icon::from_hint(&json!("rows")).expect("hint"), Icon::set("rows"));
+    assert_eq!(Icon::from_hint(&json!("rows")).expect("hint"), Icon::named("rows"));
 
     let ok = ThemeLayer::from_yaml("icons: { library: { brush: { unicode: \"🖌\", variants: [ph:paint-brush] } }, commands: { img/draw: { icon: lib:brush } } }").expect("layer");
     let theme = Theme::compose(&[ok]).expect("compose");
     let draw = CommandKey::new("", "img", "draw");
     let r = theme.icon_for(&draw, "Draw", None, None);
-    assert_eq!(r.variants[0], &IconVariant::Set { set: PHOSPHOR.into(), name: "paint-brush".into() });
+    assert_eq!(*r.variants[0], IconVariant::Set { set: Some(PHOSPHOR.into()), name: "paint-brush".into() });
     assert_eq!(r.unicode, "🖌");
     // The namespace default follows: `img` → image.
-    assert!(r.variants.iter().any(|v| **v == IconVariant::Set { set: PHOSPHOR.into(), name: "image".into() }));
+    assert!(r.variants.iter().any(|v| **v == IconVariant::Set { set: Some(PHOSPHOR.into()), name: "image".into() }));
 
     let missing = ThemeLayer::from_yaml("icons: { commands: { img/draw: { icon: lib:nope } } }").expect("layer");
     assert!(Theme::compose(&[missing]).is_err());
@@ -129,13 +129,43 @@ fn icon_variants_and_unicode_fallback() {
     assert_eq!(r.unicode, "F");
 }
 
+// A bare name means the theme's `icons.icon-set`: Phosphor unless a theme changes it; `ph:`
+// always means Phosphor.
+#[test]
+fn bare_icon_names_follow_the_icon_set() {
+    let key = CommandKey::new("", "pl", "gt");
+    let bare = Icon::parse("funnel").expect("bare");
+    let explicit = Icon::parse("ph:funnel").expect("ph");
+    let set_of = |t: &Theme, hint: &Icon| match &*t.icon_for(&key, "x", Some(hint), None).variants[0] {
+        IconVariant::Set { set, .. } => set.clone(),
+        other => panic!("not a set icon: {other:?}"),
+    };
+    let builtin = Theme::builtin();
+    assert_eq!(builtin.icons.icon_set, PHOSPHOR);
+    assert_eq!(set_of(&builtin, &bare).as_deref(), Some(PHOSPHOR));
+    assert!(is_known_set_icon(&builtin.icons.resolve_set(&bare.variants[0])));
+
+    let lucide = Theme::compose(&[ThemeLayer::from_yaml("icons: { icon-set: lucide }").expect("l")]).expect("c");
+    assert_eq!(set_of(&lucide, &bare).as_deref(), Some("lucide"));
+    assert_eq!(set_of(&lucide, &explicit).as_deref(), Some(PHOSPHOR));
+    assert!(!is_known_set_icon(&lucide.icons.resolve_set(&bare.variants[0])));
+    // The built-in namespace table names Phosphor icons explicitly, so it still draws.
+    let r = lucide.icon_for(&key, "x", None, None);
+    assert!(is_known_set_icon(&r.variants[0]));
+
+    assert!(Theme::compose(&[ThemeLayer::from_yaml("icons: { icon-set: \"no good\" }").expect("l")]).is_err());
+    // A short form round-trips: bare stays bare.
+    assert_eq!(serde_json::to_value(&bare).expect("ser"), json!("funnel"));
+    assert_eq!(serde_json::to_value(&explicit).expect("ser"), json!("ph:funnel"));
+}
+
 // Test 11 (AC-8, AC-14): precedence theme command > theme namespace > hint > namespace default.
 #[test]
 fn icon_precedence() {
     let key = CommandKey::new("", "pl", "gt");
     let hint = Icon::set("funnel");
-    let first = |t: &Theme, hint: Option<&Icon>| t.icon_for(&key, "Greater than", hint, None).variants.first().map(|v| (*v).clone());
-    let ph = |n: &str| Some(IconVariant::Set { set: PHOSPHOR.into(), name: n.into() });
+    let first = |t: &Theme, hint: Option<&Icon>| t.icon_for(&key, "Greater than", hint, None).variants.first().map(|v| v.clone().into_owned());
+    let ph = |n: &str| Some(IconVariant::Set { set: Some(PHOSPHOR.into()), name: n.into() });
 
     let builtin = Theme::builtin();
     assert_eq!(first(&builtin, None), ph("table"));          // namespace default
@@ -150,11 +180,11 @@ fn icon_precedence() {
     assert_eq!(first(&cmd, Some(&hint)), ph("funnel-simple"));
 
     let realm = cmd.with_layer(&ThemeLayer::from_yaml("icons: { commands: { \"r1:pl/gt\": { icon: ph:hash } } }").expect("l")).expect("c");
-    assert_eq!(realm.icon_for(&CommandKey::new("r1", "pl", "gt"), "x", None, None).variants[0], &ph("hash").expect("v"));
+    assert_eq!(*realm.icon_for(&CommandKey::new("r1", "pl", "gt"), "x", None, None).variants[0], ph("hash").expect("v"));
     assert_eq!(first(&realm, None), ph("funnel-simple"));    // the realm entry applies only in its realm
 
     // An unknown Phosphor name is kept as a candidate; renderers skip it (is_known_set_icon).
-    let unknown = IconVariant::Set { set: PHOSPHOR.into(), name: "no-such-icon".into() };
+    let unknown = IconVariant::Set { set: Some(PHOSPHOR.into()), name: "no-such-icon".into() };
     assert!(!is_known_set_icon(&unknown));
     assert!(is_known_set_icon(&ph("funnel").expect("v")));
 }
@@ -249,7 +279,7 @@ icons:
     let gt = CommandKey::new("", "pl", "gt");
     let hinted = Icon::parse("greater-than").unwrap();
     let icon = theme.icon_for(&gt, "Greater than", Some(&hinted), None);
-    assert!(matches!(icon.variants[0], IconVariant::Set { name, .. } if name == "table"));
+    assert!(matches!(&*icon.variants[0], IconVariant::Set { name, .. } if name == "table"));
 }
 
 // The examples of `specs/guides/THEME_GUIDE.md` §1 compose and resolve as the guide says.
@@ -292,7 +322,7 @@ icons:
     assert_eq!((r.unicode.as_str(), r.hue), ("$", Some("coral")));
     let forecast = CommandKey::new("", "sales", "forecast");
     let r = theme.icon_for(&forecast, "Forecast", None, None);
-    assert!(matches!(r.variants[0], IconVariant::Svg(_)), "{:?}", r.variants);
+    assert!(matches!(*r.variants[0], IconVariant::Svg(_)), "{:?}", r.variants);
     assert_eq!(r.unicode, "◇");
     let extra = Theme::compose(&[ThemeLayer::from_yaml("editor:\n  card: { elevation: 2 }\n").unwrap()]).unwrap();
     assert_eq!(extra.lookup("editor.card.elevation"), Some(&json!(2)));

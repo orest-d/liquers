@@ -3,8 +3,7 @@ id: QUERY-EDITOR-ERGONOMICS
 kind: design
 title: Query editor ergonomics - action cards, Simple and Advanced modes, icons, shortcuts and a theme proof of concept
 workflow: liquers-project
-status: in_review
-phase: implementation
+status: complete
 priority: P2
 complexity: L
 area: [lib/ui, lib/egui]

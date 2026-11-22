@@ -85,7 +85,7 @@ icons:
     pl: { icon: table }                     # every command of a namespace
 ```
 
-An icon in a theme or a hint is a name (`funnel` is Phosphor's, `ph:funnel` the same written in
-full), `u:` and a Unicode text (`u:⏷`), an image by key (`-R/icons/brush.svg`, also `.png`,
+An icon in a theme or a hint is a name (`funnel`, from the theme's icon set, which is Phosphor
+unless the theme says otherwise; `ph:funnel` is always Phosphor's), `u:` and a Unicode text (`u:⏷`), an image by key (`-R/icons/brush.svg`, also `.png`,
 `.jpg`, `.webp`), or a list of these, best first: a surface draws the first one it can, and a
 Unicode text is always there to fall back on.

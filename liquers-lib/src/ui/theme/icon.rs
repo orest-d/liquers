@@ -9,7 +9,8 @@
 //!
 //! | Form | Meaning |
 //! |---|---|
-//! | `funnel` or `ph:funnel` | Phosphor icon `funnel` |
+//! | `funnel` | icon `funnel` of the theme's default set (`icons.icon-set`, Phosphor unless a theme changes it) |
+//! | `ph:funnel` | Phosphor icon `funnel`, whatever the default set |
 //! | `<set>:<name>` | an icon of another set |
 //! | `lib:brush` | the theme library's icon `brush` |
 //! | `u:⏷` | Unicode text only |
@@ -84,8 +85,10 @@ pub enum IconSource {
 /// One way of drawing an icon.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum IconVariant {
-    /// An icon of an icon set (`set` is [`PHOSPHOR`] unless given).
-    Set { set: String, name: String },
+    /// An icon of an icon set. `set` is `None` for a bare name, which means the theme's
+    /// `icons.icon-set` ([`PHOSPHOR`] unless a theme changes it); `Theme::icon_for` replaces it
+    /// with that set, so a renderer always sees a named set.
+    Set { set: Option<String>, name: String },
     /// An icon of the theme's library (`icons.library`).
     Library(String),
     /// An SVG image.
@@ -107,9 +110,13 @@ impl Icon {
     pub fn unicode(text: impl Into<String>) -> Icon {
         Icon { variants: vec![], unicode: Some(text.into()) }
     }
-    /// A Phosphor icon.
+    /// A Phosphor icon (`ph:<name>`).
     pub fn set(name: &str) -> Icon {
-        Icon { variants: vec![IconVariant::Set { set: PHOSPHOR.to_string(), name: name.to_string() }], unicode: None }
+        Icon { variants: vec![IconVariant::Set { set: Some(PHOSPHOR.to_string()), name: name.to_string() }], unicode: None }
+    }
+    /// An icon of the theme's default set (a bare `<name>`).
+    pub fn named(name: &str) -> Icon {
+        Icon { variants: vec![IconVariant::Set { set: None, name: name.to_string() }], unicode: None }
     }
     /// An SVG embedded in code.
     pub const fn embedded_svg(bytes: &'static [u8]) -> IconVariant {
@@ -185,23 +192,24 @@ impl IconVariant {
                     Err(Error::configuration_error(format!("icon '{text}': bad library name")))
                 };
             }
-            Some(("ph", name)) => (PHOSPHOR, name),
-            Some((set, name)) => (set, name),
-            None => (PHOSPHOR, text),
+            Some(("ph", name)) => (Some(PHOSPHOR), name),
+            Some((set, name)) => (Some(set), name),
+            None => (None, text),
         };
-        if !valid_name(set) || !valid_name(name) {
+        if !set.map_or(true, valid_name) || !valid_name(name) {
             return Err(Error::configuration_error(format!(
                 "icon '{text}' is not a set name, 'lib:', 'u:' or an image key"
             )));
         }
-        Ok(IconVariant::Set { set: set.to_string(), name: name.to_string() })
+        Ok(IconVariant::Set { set: set.map(str::to_string), name: name.to_string() })
     }
 
     /// The short string form, when the variant has one.
     pub fn short_form(&self) -> Option<String> {
         match self {
-            IconVariant::Set { set, name } if set == PHOSPHOR => Some(format!("ph:{name}")),
-            IconVariant::Set { set, name } => Some(format!("{set}:{name}")),
+            IconVariant::Set { set: None, name } => Some(name.clone()),
+            IconVariant::Set { set: Some(set), name } if set == PHOSPHOR => Some(format!("ph:{name}")),
+            IconVariant::Set { set: Some(set), name } => Some(format!("{set}:{name}")),
             IconVariant::Library(name) => Some(format!("lib:{name}")),
             IconVariant::Svg(IconSource::Key(k)) | IconVariant::Raster(IconSource::Key(k)) => {
                 image_key(k).map(|_| k.clone())
@@ -256,8 +264,8 @@ fn variant_from_json(value: &Json) -> Result<Vec<IconVariant>, Error> {
                 return Ok(vec![IconVariant::Library(name.to_string())]);
             }
             if let Some(name) = obj.get("name").and_then(Json::as_str) {
-                let set = obj.get("set").and_then(Json::as_str).unwrap_or(PHOSPHOR);
-                return Ok(vec![IconVariant::Set { set: set.to_string(), name: name.to_string() }]);
+                let set = obj.get("set").and_then(Json::as_str).map(str::to_string);
+                return Ok(vec![IconVariant::Set { set, name: name.to_string() }]);
             }
             Err(Error::configuration_error(format!("unknown icon variant {value}")))
         }
@@ -354,7 +362,8 @@ pub struct IconOverride {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct IconTheme {
-    /// The set a bare name refers to.
+    /// The set a bare name refers to: [`PHOSPHOR`] unless a theme gives another.
+    #[serde(default = "default_icon_set")]
     pub icon_set: String,
     /// Named icons, referred to as `lib:<name>`.
     #[serde(default)]
@@ -369,4 +378,24 @@ pub struct IconTheme {
     /// namespaces lives here, below everything a theme or command declares.
     #[serde(default)]
     pub defaults: BTreeMap<String, IconOverride>,
+}
+
+fn default_icon_set() -> String {
+    PHOSPHOR.to_string()
+}
+
+impl IconTheme {
+    /// `variant` with a bare name's set filled in from [`IconTheme::icon_set`]; any other
+    /// variant unchanged.
+    pub fn resolve_set<'a>(&self, variant: &'a IconVariant) -> Cow<'a, IconVariant> {
+        match variant {
+            IconVariant::Set { set: None, name } => {
+                Cow::Owned(IconVariant::Set { set: Some(self.icon_set.clone()), name: name.clone() })
+            }
+            IconVariant::Set { set: Some(_), .. }
+            | IconVariant::Library(_)
+            | IconVariant::Svg(_)
+            | IconVariant::Raster(_) => Cow::Borrowed(variant),
+        }
+    }
 }

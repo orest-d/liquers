@@ -65,3 +65,4 @@ have a row here (`specs/guides/USER_DOCS_EDITING_GUIDE.md`, maintenance).
 | 2026-11-16 | e-web-api.md | reviewed against `design/settable-value-accessor/`: new E.10, the Accessor API (routes, `ETag` preconditions, the WebSocket), from `_shared/web-api.md` |
 | 2026-11-21 | 11-ui.md | reviewed against `design/query-editor-ergonomics/`: new section on editing queries (Simple and Advanced modes, cards, keys, icons, themes and the `ui` section), from `_shared/ui-editors.md`; the reference section is renumbered |
 | 2026-11-21 | 05-commands.md | reviewed against `design/query-editor-ergonomics/`: still true; a Python command cannot set an icon, presets or next yet, recorded as an issue |
+| 2026-11-22 | 11-ui.md | reviewed: a bare icon name means the theme's icon set, Phosphor unless the theme changes it; `ph:` is always Phosphor |

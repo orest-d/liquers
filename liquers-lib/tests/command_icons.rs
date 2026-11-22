@@ -9,7 +9,7 @@ use liquers_core::error::Error;
 use liquers_core::state::State;
 use liquers_lib::environment::{CommandRegistryAccess, DefaultEnvironment};
 use liquers_lib::ui::payload::SimpleUIPayload;
-use liquers_lib::ui::theme::{is_known_set_icon, Icon};
+use liquers_lib::ui::theme::{is_known_set_icon, Icon, Theme};
 use liquers_lib::value::Value;
 
 type CommandEnvironment = DefaultEnvironment<Value, SimpleUIPayload>;
@@ -29,6 +29,7 @@ fn environment() -> Result<CommandEnvironment, Error> {
 fn bundled_commands_declare_icons_and_valid_presets() {
     let env = environment().expect("commands");
     let registry = env.get_command_metadata_registry();
+    let builtin = Theme::builtin();
     let mut with_icon = std::collections::BTreeMap::<String, usize>::new();
     for md in &registry.commands {
         let ns = md.namespace.as_str();
@@ -38,7 +39,7 @@ fn bundled_commands_declare_icons_and_valid_presets() {
         if let Some(hint) = md.hints.get("icon") {
             let icon = Icon::from_hint(hint).unwrap_or_else(|e| panic!("{ns}/{}: {e}", md.name));
             assert!(
-                icon.variants.iter().all(is_known_set_icon),
+                icon.variants.iter().all(|v| is_known_set_icon(&builtin.icons.resolve_set(v))),
                 "{ns}/{}: unknown icon {hint}",
                 md.name
             );

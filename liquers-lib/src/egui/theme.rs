@@ -229,9 +229,10 @@ fn pick(
     ui_ctx: Option<&UIContext>,
 ) -> (DrawnIcon, Option<TextureHandle>) {
     for variant in &icon.variants {
+        let variant: &IconVariant = variant;
         match variant {
             IconVariant::Set { set, name } => {
-                if set == PHOSPHOR {
+                if set.as_deref() == Some(PHOSPHOR) {
                     if let Some(glyph) = phosphor_glyph(name) {
                         return (DrawnIcon::Glyph(glyph), None);
                     }
@@ -313,8 +314,8 @@ mod tests {
     fn egui_draws_first_drawable_variant() {
         let ctx = egui::Context::default();
         apply_theme(&ctx, &ThemeState::default());
-        let set = IconVariant::Set { set: PHOSPHOR.into(), name: "funnel".into() };
-        let unknown = IconVariant::Set { set: PHOSPHOR.into(), name: "no-such-icon".into() };
+        let set = IconVariant::Set { set: Some(PHOSPHOR.into()), name: "funnel".into() };
+        let unknown = IconVariant::Set { set: Some(PHOSPHOR.into()), name: "no-such-icon".into() };
         const SVG: &[u8] = b"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M2 14L14 2' stroke='black'/></svg>";
         let svg = IconVariant::Svg(IconSource::Inline(IconBytes::embedded(SVG)));
         let key = IconVariant::Svg(IconSource::Key("-R/icons/brush.svg".into()));
@@ -328,7 +329,7 @@ mod tests {
             let cases: [Vec<&IconVariant>; 4] =
                 [vec![&unknown, &set], vec![&svg], vec![&key, &unknown], vec![&key, &svg]];
             for variants in cases {
-                let icon = ResolvedIcon { variants, unicode: "⚙".into(), hue: None };
+                let icon = ResolvedIcon { variants: variants.into_iter().map(std::borrow::Cow::Borrowed).collect(), unicode: "⚙".into(), hue: None };
                 drawn.push(draw_icon(ui, &icon, 18.0, Color32::WHITE, Some(&ui_ctx)).1);
             }
         });

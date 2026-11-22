@@ -103,6 +103,10 @@ icons:
 
 - Prefer a Phosphor name (<https://phosphoricons.com>, the kebab-case names of
   `ui/theme/icons.txt`); every renderer that knows Phosphor draws it without loading anything.
+  A bare name means the default set, `icons.icon-set`, which is Phosphor unless a theme changes
+  it, so you never need to give it. Write `ph:<name>` where an icon must stay Phosphor even
+  under a theme with another set; no renderer draws a set other than Phosphor yet, so such a
+  theme's icons fall through to their next variant or their Unicode text.
 - Add a Unicode text (`u:…` in a list, `unicode:` in the full form) to any icon that matters on a
   text-only surface; otherwise the monogram of the label is used.
 - An inline SVG should draw with `fill="currentColor"` or `stroke="currentColor"` so it takes the
@@ -126,6 +130,14 @@ editor:
 
 Read it with `theme.lookup("editor.card.elevation")`. Such keys show in `unknown_keys()`; list
 them in the component's documentation so a reader knows they are deliberate.
+
+### 1.7 A worked example
+
+`liquers-lib/examples/ui_spec_editor.rs` stores a theme override in its store and names it in
+the `ui` section: a `demo` namespace icon and hue, icons for its commands (one replacing the
+command's own `hint icon`) and a new accent. Run it with
+`cargo run -p liquers-lib --example ui_spec_editor -- light compact`; `--check` prints each
+command's resolved icon instead of opening a window.
 
 ## 2. Use the theme in UI code
 
@@ -181,4 +193,5 @@ To add a built-in theme, add a `BuiltinTheme` variant and its name to `BuiltinTh
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-22 | §1.5: bare names follow `icons.icon-set` (Phosphor by default); §1.7: the `ui_spec_editor` example. | `issues/THEME-ICON-SET-SETTING-IS-IGNORED.md` |
 | 2026-11-22 | Created: writing a theme, using it from UI code, extending the model. | `design/query-editor-ergonomics/` |

@@ -627,10 +627,10 @@ fn icon_tile(ui: &mut egui::Ui, cx: &mut Cx, node: &EditorNode) {
                 EditorNode::Opaque { .. } | EditorNode::Action { .. } => ("question", "?"),
             };
             fallback = (
-                crate::ui::theme::IconVariant::Set { set: crate::ui::theme::PHOSPHOR.into(), name: name.into() },
+                crate::ui::theme::IconVariant::Set { set: Some(crate::ui::theme::PHOSPHOR.into()), name: name.into() },
                 unicode,
             );
-            resolved = crate::ui::theme::ResolvedIcon { variants: vec![&fallback.0], unicode: fallback.1.into(), hue: None };
+            resolved = crate::ui::theme::ResolvedIcon { variants: vec![std::borrow::Cow::Borrowed(&fallback.0)], unicode: fallback.1.into(), hue: None };
             &resolved
         }
     };
@@ -1745,7 +1745,7 @@ mod tests {
         let field = FocusTarget::Field { path: head.clone(), arg: "n".into(), item: None };
         let mut a = EditorView { focus: Some(field), focus_pending: true, ..EditorView::default() };
         let mut b = EditorView::default();
-        let mut both = |events: Vec<egui::Event>, a: &mut EditorView, b: &mut EditorView| {
+        let both = |events: Vec<egui::Event>, a: &mut EditorView, b: &mut EditorView| {
             let input = egui::RawInput { events, ..Default::default() };
             let mut outs = (EditorOutput::default(), EditorOutput::default());
             let mut output = ctx.run_ui(input, |ui| {

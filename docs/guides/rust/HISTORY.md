@@ -49,3 +49,4 @@ have a row here (`specs/guides/USER_DOCS_EDITING_GUIDE.md`, maintenance).
 | 2026-11-21 | 11-ui.md | reviewed against `design/query-editor-ergonomics/`: new section on editing queries (Simple and Advanced modes, cards, keys, icons, themes and the `ui` section), from `_shared/ui-editors.md`; the reference section is renumbered |
 | 2026-11-21 | 05-commands.md | reviewed against `design/query-editor-ergonomics/`: the options table gains `hint icon` (the card icon of the query editor) |
 | 2026-11-21 | 15-troubleshooting.md | reviewed against `design/query-editor-ergonomics/`: still true, no change |
+| 2026-11-22 | 11-ui.md | reviewed: a bare icon name means the theme's icon set, Phosphor unless the theme changes it; `ph:` is always Phosphor |

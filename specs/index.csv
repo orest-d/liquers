@@ -215,6 +215,7 @@ GUIDE-SECTION-ANCHORS-DIFFER-BETWEEN-RENDERERS,issue,Section links between chapt
 HOSTS-READ-CONFIGURATION-DOCUMENTS-DIFFERENTLY,issue,Each host parses its configuration document on its own and ignores sections it does not know,draft,local,,ready,not-eligible,P3,L,core/context;mcp;web;py,,,,configuration-document,,2026-11-07,specs/issues/HOSTS-READ-CONFIGURATION-DOCUMENTS-DIFFERENTLY.md
 HTTP-ACCEPT-HEADER-NOT-NEGOTIATED,feature,"The HTTP API reads Accept only for its envelope encoding, never to convert and serialize the value",draft,local,,needs-decision,not-eligible,P3,L,axum;core/value,,,,http-accept-negotiation,,2026-10-26,specs/issues/HTTP-ACCEPT-HEADER-NOT-NEGOTIATED.md
 HTTP-STORE-METADATA-DROPS-THE-EXTENSION-MEDIA-TYPE,issue,liquers-web's http store reports no media type for a key whose extension determines one,closed,local,,,,P2,S,web;core/store,,,,store-conformance-backlog,,2026-09-27,specs/issues/HTTP-STORE-METADATA-DROPS-THE-EXTENSION-MEDIA-TYPE.md
+ICON-SETS-OTHER-THAN-PHOSPHOR-ARE-NOT-DRAWN,feature,Renderers draw only Phosphor set icons; a theme cannot supply another icon set,draft,local,,,,P3,M,lib/ui;lib/egui,,,,query-editor-ergonomics,,2026-11-22,specs/issues/ICON-SETS-OTHER-THAN-PHOSPHOR-ARE-NOT-DRAWN.md
 ICONS-CANNOT-BE-ASSETS-OR-UNICODE,feature,"An icon can only be named from an icon set; no SVG or PNG asset, Unicode fallback or tool palette",closed,local,,,,P3,L,lib/ui,,,,query-editor-ergonomics,,2026-11-21,specs/issues/ICONS-CANNOT-BE-ASSETS-OR-UNICODE.md
 IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE,issue,"On the immediate manager, an elapsed deadline expires the asset but not its dependents",closed,local,,ready,,P3,S,core/assets,,,,immediate-lazy-expiry-cascade,,2026-10-02,specs/issues/IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE.md
 IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES,issue,ImmediateAssetManager's lazy deadline expiry tests a condition that can never be true,closed,local,,,,P2,S,core/assets,,,,dependency-audit-and-expiry-provenance,,2026-09-28,specs/issues/IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES.md
@@ -528,7 +529,7 @@ TEMPORARY-ASSET-NEVER-RUN-IS-KEPT-ALIVE-BY-ITS-SERVICE-LOOP,issue,A temporary as
 TEMPORARY-ASSETS-SHARE-ID-ZERO,issue,"Every temporary asset has id 0, so code that identifies assets by id can confuse them",closed,local,,ready,eligible,P3,S,core/assets,,,,temporary-asset-unique-id,,2026-10-18,specs/issues/TEMPORARY-ASSETS-SHARE-ID-ZERO.md
 TEXT-EDITOR-EDITS-ARE-NEVER-SAVED,feature,The text_editor widget edits a copy of the text and never writes it back,draft,local,,needs-decision,not-eligible,P3,M,lib/egui;lib/ui,,,,text-editor-save,,2026-10-19,specs/issues/TEXT-EDITOR-EDITS-ARE-NEVER-SAVED.md
 TEXT-VALUE-CANNOT-BE-STORED-AS-MARKDOWN,issue,A Text value cannot be stored with data format md,closed,local,,ready,not-eligible,P2,S,core/value,,,,text-value-markdown-format,,2026-09-27,specs/issues/TEXT-VALUE-CANNOT-BE-STORED-AS-MARKDOWN.md
-THEME-ICON-SET-SETTING-IS-IGNORED,issue,A theme's icons.icon-set is declared but a bare icon name always means Phosphor,draft,local,,,,P3,S,lib/ui,,,,query-editor-ergonomics,,2026-11-22,specs/issues/THEME-ICON-SET-SETTING-IS-IGNORED.md
+THEME-ICON-SET-SETTING-IS-IGNORED,issue,A theme's icons.icon-set is declared but a bare icon name always means Phosphor,closed,local,,,,P3,S,lib/ui,,,,query-editor-ergonomics,,2026-11-22,specs/issues/THEME-ICON-SET-SETTING-IS-IGNORED.md
 TO-OVERRIDE-KEEPS-THE-PENDING-EXPIRATION-DEADLINE,issue,A value pinned with to_override still expires at the deadline its recipe scheduled,draft,local,,needs-decision,not-eligible,P3,S,core/assets,,,,override-ignores-recipe-deadline,,2026-10-20,specs/issues/TO-OVERRIDE-KEEPS-THE-PENDING-EXPIRATION-DEADLINE.md
 TOP-LEVEL-RELATIVE-RESOURCE-QUERY-LOOKS-UP-A-RELATIVE-RECIPES-KEY,issue,"A top-level query reading a relative key fails on './recipes.yaml', while its pipeline form resolves the key",draft,local,,,,P3,S,core/assets,,,,,,2026-11-04,specs/issues/TOP-LEVEL-RELATIVE-RESOURCE-QUERY-LOOKS-UP-A-RELATIVE-RECIPES-KEY.md
 TYPE-IDENTIFIED-IN-HAS-NO-IMPLEMENTATIONS,issue,"No type implements TypeIdentifiedIn, so the documented to_type_identifier example does not compile",closed,local,,ready,eligible,P3,S,core/value;lib/value;docs,,,,type-identified-in-docs,,2026-10-20,specs/issues/TYPE-IDENTIFIED-IN-HAS-NO-IMPLEMENTATIONS.md
@@ -897,7 +898,7 @@ QUERY-BUILDER,design,"A validating query builder in liquers-core, and a liquers-
 QUERY-CACHE-DIRECTIVES,design,Positional cache directives that mark which intermediates of a query are kept,in_review,local,implementation,needs-decision,not-eligible,P3,M,core/plan;core/assets;core/query,,,,query-cache-directives,,2026-10-20,specs/design/query-cache-directives/DESIGN.md
 QUERY-CONSOLE-ELEMENT,design,Query console UI element,complete,local,,,,,,lib/ui,,,,query-console-element,,2026-03-02,specs/design/query-console-element/DESIGN.md
 QUERY-DATA-FORMAT-COMMAND,design,A data_format command lets a query declare the data format and its refinement,in_review,local,implementation,needs-decision,not-eligible,P2,M,lib/commands;core/context;core/value,,,,query-data-format-command,,2026-10-26,specs/design/query-data-format-command/DESIGN.md
-QUERY-EDITOR-ERGONOMICS,design,"Query editor ergonomics - action cards, Simple and Advanced modes, icons, shortcuts and a theme proof of concept",in_review,local,implementation,,,,,lib/ui;lib/egui,,,,query-editor-ergonomics,,2026-11-21,specs/design/query-editor-ergonomics/DESIGN.md
+QUERY-EDITOR-ERGONOMICS,design,"Query editor ergonomics - action cards, Simple and Advanced modes, icons, shortcuts and a theme proof of concept",complete,local,,,,,,lib/ui;lib/egui,,,,query-editor-ergonomics,,2026-11-21,specs/design/query-editor-ergonomics/DESIGN.md
 QUERY-EDITOR-LIVE-VALIDATION,design,A query editor that tokenizes and validates the text being typed,in_review,local,implementation,needs-decision,not-eligible,P2,L,lib/ui;lib/egui;core/query,,,,query-editor-live-validation,,2026-10-21,specs/design/query-editor-live-validation/DESIGN.md
 ACTIVE-08,design,Design for QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS,complete,local,,ready,not-eligible,P3,S,core/query,,119,,query-leading-slash-field,,2026-09-03,specs/design/query-leading-slash-field/DESIGN.md
 QUERY-LINK-PARSER,design,Action-parameter link parsing (~X~~E),complete,local,,,,,,core/query,,17,,query-link-parser,,2026-03-02,specs/design/query-link-parser/DESIGN.md
@@ -1112,7 +1113,7 @@ ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,curr
 autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_bulk_design.md
 autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_issue_fixing.md
 COMMAND_DESIGN_GUIDE,guide,Command Design Guide,current,local,,,,,,core/commands,,,,,2026-11-04,,specs/guides/COMMAND_DESIGN_GUIDE.md
-COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,core/commands;macro,,,,,2026-11-21,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
+COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,core/commands;macro,,,,,2026-11-22,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 DEPENDENCY_CONSISTENCY_GUIDE,guide,Dependency Consistency Guide,current,local,,,,,,core/assets,,,,,2026-10-08,,specs/guides/DEPENDENCY_CONSISTENCY_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,,core/context;core/assets;core/store,,,,,2026-11-09,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
 GITHUB_ACTIONS_GUIDE,guide,GitHub Actions Guide,current,local,,,,,,build;docs,,,,,2026-11-11,,specs/guides/GITHUB_ACTIONS_GUIDE.md
@@ -1145,7 +1146,7 @@ python/07-assets,chapter,"Recipes, assets and caching",ready,local,,,,,,docs,,,,
 python/08-environment,chapter,The environment,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/08-environment.md
 python/09-data,chapter,Working with data,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/09-data.md
 python/10-templates,chapter,Templates,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/10-templates.md
-python/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-21,,docs/guides/python/11-ui.md
+python/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-22,,docs/guides/python/11-ui.md
 python/12-serving,chapter,Serving and embedding,ready,local,,,,,,docs,,,,,2026-11-16,,docs/guides/python/12-serving.md
 python/13-records,chapter,Records,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/13-records.md
 python/14-testing,chapter,Testing,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/14-testing.md
@@ -1166,7 +1167,7 @@ rust/07-assets,chapter,"Recipes, assets and caching",ready,local,,,,,,docs,,,,,2
 rust/08-environment,chapter,The environment,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/08-environment.md
 rust/09-data,chapter,Working with data,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/09-data.md
 rust/10-templates,chapter,Templates,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/10-templates.md
-rust/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-21,,docs/guides/rust/11-ui.md
+rust/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-22,,docs/guides/rust/11-ui.md
 rust/12-serving,chapter,Serving and embedding,ready,local,,,,,,docs,,,,,2026-11-16,,docs/guides/rust/12-serving.md
 rust/13-records,chapter,Records,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/13-records.md
 rust/14-testing,chapter,Testing,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/14-testing.md
@@ -1187,7 +1188,7 @@ web/07-assets,chapter,"Recipes, assets and caching",ready,local,,,,,,docs,,,,,20
 web/08-environment,chapter,The environment,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/08-environment.md
 web/09-data,chapter,Working with data,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/09-data.md
 web/10-templates,chapter,Templates,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/10-templates.md
-web/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-21,,docs/guides/web/11-ui.md
+web/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-22,,docs/guides/web/11-ui.md
 web/12-serving,chapter,Serving and embedding,ready,local,,,,,,docs,,,,,2026-11-16,,docs/guides/web/12-serving.md
 web/13-records,chapter,Records,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/13-records.md
 web/14-testing,chapter,Testing,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/14-testing.md

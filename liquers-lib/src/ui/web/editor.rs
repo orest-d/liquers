@@ -221,9 +221,10 @@ fn raster_type(bytes: &[u8]) -> Option<&'static str> {
 pub fn icon_html(icon: &ResolvedIcon<'_>) -> String {
     let b64 = |bytes: &[u8]| base64::engine::general_purpose::STANDARD.encode(bytes);
     for variant in &icon.variants {
+        let variant: &IconVariant = variant;
         match variant {
             IconVariant::Set { set, name } => {
-                if set == PHOSPHOR && crate::ui::theme::is_icon_name(name) {
+                if set.as_deref() == Some(PHOSPHOR) && crate::ui::theme::is_icon_name(name) {
                     return format!(
                         "<i class=\"ph ph-{}\" aria-hidden=\"true\" data-fallback=\"{}\"></i>",
                         escape_html(name),
@@ -257,7 +258,7 @@ fn node_icon<'t>(theme: &'t Theme, node: &'t EditorNode, fallback: &'t IconVaria
         | EditorNode::Directive { .. }
         | EditorNode::Value { .. }
         | EditorNode::Nested { .. }
-        | EditorNode::Opaque { .. } => ResolvedIcon { variants: vec![fallback], unicode: "▤".into(), hue: None },
+        | EditorNode::Opaque { .. } => ResolvedIcon { variants: vec![std::borrow::Cow::Borrowed(fallback)], unicode: "▤".into(), hue: None },
     }
 }
 
@@ -270,7 +271,7 @@ fn fallback_icon(node: &EditorNode) -> IconVariant {
         EditorNode::Nested { .. } => "tree-structure",
         EditorNode::Opaque { .. } | EditorNode::Action { .. } => "question",
     };
-    IconVariant::Set { set: PHOSPHOR.into(), name: name.into() }
+    IconVariant::Set { set: Some(PHOSPHOR.into()), name: name.into() }
 }
 
 /// The editor's markup in `mode` and `density`, with the icons of `theme`.
@@ -918,17 +919,17 @@ mod tests {
         let svg = IconVariant::Svg(IconSource::Inline(crate::ui::theme::IconBytes::embedded(
             b"<svg onload=\"alert(1)\"><script>alert(2)</script><path d='M0 0'/></svg>",
         )));
-        let icon = ResolvedIcon { variants: vec![&svg], unicode: "x".into(), hue: None };
+        let icon = ResolvedIcon { variants: vec![std::borrow::Cow::Borrowed(&svg)], unicode: "x".into(), hue: None };
         let out = icon_html(&icon);
         let b64 = out.split("base64,").nth(1).and_then(|r| r.split('"').next()).expect("data uri");
         let decoded = String::from_utf8(base64::engine::general_purpose::STANDARD.decode(b64).expect("b64")).expect("utf8");
         assert!(!decoded.contains("<script") && !decoded.contains("onload"), "{decoded}");
         assert!(decoded.contains("<path"));
         let png = IconVariant::Raster(IconSource::Inline(crate::ui::theme::IconBytes::embedded(b"\x89PNG\r\n\x1a\n....")));
-        let icon = ResolvedIcon { variants: vec![&png], unicode: "x".into(), hue: None };
+        let icon = ResolvedIcon { variants: vec![std::borrow::Cow::Borrowed(&png)], unicode: "x".into(), hue: None };
         assert!(icon_html(&icon).contains("data:image/png;base64,"));
         let key = IconVariant::Svg(IconSource::Key("-R/icons/a.svg".into()));
-        let icon = ResolvedIcon { variants: vec![&key], unicode: "⚙".into(), hue: None };
+        let icon = ResolvedIcon { variants: vec![std::borrow::Cow::Borrowed(&key)], unicode: "⚙".into(), hue: None };
         assert!(icon_html(&icon).contains("⚙"));
     }
 

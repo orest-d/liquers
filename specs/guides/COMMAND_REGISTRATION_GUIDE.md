@@ -3,7 +3,7 @@ title: Command Registration Guide
 kind: guide
 audience: internal
 area: [core/commands, macro]
-reviewed: 2026-11-21
+reviewed: 2026-11-22
 ---
 # Command Registration Guide
 
@@ -1026,7 +1026,8 @@ list of them, best first):
 
 | Form | Meaning |
 |---|---|
-| `funnel`, `ph:funnel` | a Phosphor icon (kebab-case name) |
+| `funnel` | an icon of the theme's default set (`icons.icon-set`, Phosphor unless the theme changes it) |
+| `ph:funnel` | a Phosphor icon (kebab-case name), whatever the default set |
 | `<set>:<name>` | an icon of another set |
 | `lib:<name>` | the theme library's icon |
 | `u:⏷` | Unicode text only |
@@ -1149,6 +1150,7 @@ only) action is that command ([`AGENT_MEMORY_SERVICE.md`](../reference/AGENT_MEM
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-22 | §5: a bare `hint icon` name means the theme's icon set (Phosphor by default); `ph:` is always Phosphor. | `issues/THEME-ICON-SET-SETTING-IS-IGNORED.md` |
 | 2026-11-21 | §5 Provide Comprehensive Metadata: `hint icon` forms, presets as chips, `next:` as Simple mode's "Continue with". | `design/query-editor-ergonomics/` |
 | 2026-11-17 | §5 Provide Comprehensive Metadata: what the editors show from the metadata. | `design/query-pipeline-editor/` |
 | 2026-11-04 | Default links from Python: `lq.link(query)`. | `design/liquers-py-templates/` |

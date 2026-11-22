@@ -1,6 +1,7 @@
 //! Which icon a card draws: the precedence of AC-8 and AC-14, `lib:` expansion and the Unicode
 //! fallback of AC-17.
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
@@ -20,10 +21,11 @@ pub fn is_icon_name(name: &str) -> bool {
         .contains(name)
 }
 
-/// Whether a renderer that knows only Phosphor can draw `variant` without loading anything.
+/// Whether a renderer that knows only Phosphor can draw `variant` without loading anything. A
+/// bare name (no set) is not resolved here: pass it through [`IconTheme::resolve_set`] first.
 pub fn is_known_set_icon(variant: &IconVariant) -> bool {
     match variant {
-        IconVariant::Set { set, name } => set == PHOSPHOR && is_icon_name(name),
+        IconVariant::Set { set, name } => set.as_deref() == Some(PHOSPHOR) && is_icon_name(name),
         IconVariant::Library(_) | IconVariant::Svg(_) | IconVariant::Raster(_) => false,
     }
 }
@@ -32,7 +34,8 @@ pub fn is_known_set_icon(variant: &IconVariant) -> bool {
 /// never empty.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedIcon<'a> {
-    pub variants: Vec<&'a IconVariant>,
+    /// Every bare name's set is filled in from the theme's `icons.icon-set`.
+    pub variants: Vec<Cow<'a, IconVariant>>,
     pub unicode: String,
     pub hue: Option<&'a str>,
 }
@@ -49,6 +52,14 @@ pub fn monogram(label: &str) -> String {
 /// Refuses a `lib:` reference to a missing library icon, or to another library icon (a library
 /// icon is expanded one level deep, so a chain could not be drawn and a cycle could not end).
 pub(crate) fn check_library(icons: &IconTheme) -> Result<(), Error> {
+    if icons.icon_set.is_empty()
+        || !icons.icon_set.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(Error::configuration_error(format!(
+            "theme: icons.icon-set '{}' is not a set name",
+            icons.icon_set
+        )));
+    }
     for (name, icon) in &icons.library {
         for variant in &icon.variants {
             match variant {
@@ -119,21 +130,21 @@ impl Theme {
         candidates.extend(namespace_icon);
         take(self.icons.defaults.get(&key.namespace), &mut candidates);
 
-        let mut variants: Vec<&'a IconVariant> = Vec::new();
+        let mut variants: Vec<Cow<'a, IconVariant>> = Vec::new();
         let mut unicode: Option<String> = None;
         for icon in candidates {
             for variant in &icon.variants {
                 match variant {
                     IconVariant::Library(name) => {
                         if let Some(lib) = self.icons.library.get(name) {
-                            variants.extend(lib.variants.iter());
+                            variants.extend(lib.variants.iter().map(|v| self.icons.resolve_set(v)));
                             if unicode.is_none() {
                                 unicode = lib.unicode.clone();
                             }
                         }
                     }
                     IconVariant::Set { .. } | IconVariant::Svg(_) | IconVariant::Raster(_) => {
-                        variants.push(variant)
+                        variants.push(self.icons.resolve_set(variant))
                     }
                 }
             }

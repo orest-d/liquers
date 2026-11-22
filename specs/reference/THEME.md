@@ -128,8 +128,8 @@ Everywhere an icon is written (a theme, a command's `hint icon`), these forms ar
 
 | Form | Meaning |
 |---|---|
-| `funnel` | the Phosphor icon `funnel` (kebab-case names of `ui/theme/icons.txt`) |
-| `ph:funnel` | the same, explicit |
+| `funnel` | the icon `funnel` of the theme's default set, `icons.icon-set`: Phosphor unless a theme changes it (kebab-case names of `ui/theme/icons.txt`) |
+| `ph:funnel` | the Phosphor icon `funnel`, whatever the default set |
 | `<set>:<name>` | an icon of another set (not drawn yet; the next variant is used) |
 | `lib:brush` | the theme library's icon `brush` |
 | `u:⏷` | only a Unicode text |
@@ -148,7 +148,7 @@ digits, `-` and `_`.
 
 | Key | Type | Meaning |
 |---|---|---|
-| `icon-set` | string | the default icon set, `phosphor`. Declared but not read yet: a bare name always means Phosphor (`THEME-ICON-SET-SETTING-IS-IGNORED`) |
+| `icon-set` | string | the set a bare name refers to; `phosphor` in the built-in theme, so a theme never has to give it. A set name (ASCII letters, digits, `-`, `_`), else composition fails. The built-in namespace table names its icons `ph:` explicitly, so it keeps drawing when a theme changes the set |
 | `library` | map name → icon | named icons, referred to as `lib:<name>`. A library icon may not refer to another library icon |
 | `commands` | map key → entry | by command: `pl/gt`, or `realm:pl/gt` for one realm |
 | `namespaces` | map namespace → entry | every command of a namespace (`pl`; `""` is the root namespace) |
@@ -169,7 +169,9 @@ order:
 5. `icons.defaults["ns"]`.
 
 The variants of every candidate are concatenated in that order, with `lib:` references expanded,
-so a renderer that cannot draw the first falls through to the next. The Unicode text is the first
+so a renderer that cannot draw the first falls through to the next. A bare name's set is filled
+in from `icons.icon-set` here (`IconTheme::resolve_set`), so a renderer only sees named sets;
+`ResolvedIcon::variants` holds `Cow`s for that reason. The Unicode text is the first
 candidate's that has one, else the *monogram* (the first letter or digit of the label, upper
 case). The hue is the first one a theme entry gives. A `ResolvedIcon` therefore always has a
 Unicode text.
@@ -312,4 +314,5 @@ the Python configuration's `ui` section for `UI.run()`. `liquers-web`'s `mountUI
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-22 | §2.2, §2.3, §2.4: a bare icon name means `icons.icon-set` (Phosphor by default), resolved by `icon_for`; `ph:` is always Phosphor. | `design/query-editor-ergonomics/`, `issues/THEME-ICON-SET-SETTING-IS-IGNORED.md` |
 | 2026-11-22 | Created: the model, icons, layers, renderers, run time and configuration, reviewed against the implementation. | `design/query-editor-ergonomics/` |
