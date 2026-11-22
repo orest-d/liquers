@@ -23,10 +23,10 @@ the protocol.
 - [Idea map](./idea-map.md) — every goal (G1–G14) and brainstormed addition (B1–B16), what exists,
   and the coverage table of every open UI-related issue.
 - [Plan](./plan.md) — target architecture sketch, designs D1–D21 with dependencies, spikes S1–S4,
-  milestones M0–M7 and the questions for Orest.
+  milestones M0–M7 and Orest's decisions.
 
 ## Status
 
 - [ ] Idea map reviewed by Orest
-- [ ] Plan reviewed by Orest (questions in plan §7 answered)
+- [x] Plan questions answered by Orest, 2026-11-22 (plan §7)
 - [ ] M0 started: spikes S1/S2, and D1 `ui-core-crate` created with Phase 1

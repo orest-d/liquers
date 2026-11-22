@@ -243,6 +243,13 @@ layer for common chart types, frontend-specific extras, basic ratatui charts.
   The common subset maps to all three backends; each backend declares which kinds it supports.
 - Backends: egui `egui_plot` (interactive zoom/pan, linked axes); web ECharts option JSON generated
   from the spec (loaded from a CDN or bundled); ratatui `Chart`, `BarChart`, `Sparkline` (braille).
+- **Direction (Orest, 2026-11-22):** our own `ChartSpec` plus per-backend extensions, built on
+  Liquers queries and theming, possibly reusing `UISpec` layout for multi-panel figures, shaped
+  after ECharts for an easy web port. Backends are not only the UI frontends: matplotlib (a
+  `ChartSpec` rendered from Python), later plotly and others, even XMGrace. hvPlot's high-level,
+  data-first API (`df.plot.line(x=…, y=…)`, one call for many backends) is a model. Liquers is
+  both an integration layer and "batteries included", so the variety of backends is used to find
+  the patterns that work across them.
 - Escape hatch per frontend: an `echarts` or `egui_plot` extension block for what only that backend
   has, ignored elsewhere with a fallback to the common spec.
 - Static render for reports and the TUI-less contexts: SVG/PNG (`plotters` or ECharts SSR) so a
@@ -532,4 +539,4 @@ In-review designs on the old UI (`ui-asset-snapshot-boundary`, `ui-display-conve
 `text-editor-save`, `template-editor-ui`, `template-syntax-highlighter`,
 `query-editor-live-validation`, `web-query-editor-live-preview`, `console-mounts-nested-element`)
 are listed with the plan design that would absorb or re-target them; what to do with each is
-plan question Q2.
+plan decision 2: absorbed into D1/D2 or re-targeted at the new crates in M4.

@@ -37,16 +37,48 @@ its milestone starts; the slugs are proposals. Sizes use `DOCS_STRUCTURE_GUIDE.m
   `TuiView`). Monolithic = in-process transport with values by pointer; split = an encoding
   transport (WebSocket, Tauri IPC). Today's `UIElement` survives as a *fused element* behind an
   adapter, so the old and new UI run side by side (decided 2026-11-17).
-- **Frontends are crates.** Adding a frontend adds a crate and view impls; `liquers-ui` never
-  learns about it. Three first-class frontends from the start validate the traits: egui
-  (immediate), web (retained DOM), ratatui (cells).
+- **Frontends are crates; logic is in the core** (decided 2026-11-22). Adding a frontend adds a
+  crate and view impls; `liquers-ui` never learns about it. As much logic as possible lives in
+  `liquers-ui`: state, validation, editing, paging, focus, keymaps, layout decisions, theme
+  resolution. A frontend crate only draws and turns native input into `UIEvent`s. The core also
+  defines the common rendering patterns, so each frontend picks one instead of inventing its own:
+  an **immediate-mode** pattern (egui, ratatui: draw the whole view each frame from the view state)
+  and a **retained-mode** pattern (DOM, later Slint or GTK: build once, then apply the change set
+  of `webui-fixes`' invalidations). Three first-class frontends validate the traits from the start:
+  egui (immediate), web (retained DOM), ratatui (immediate, character cells).
 - **Data stays where it lives.** The client receives projections (pages, PNG, chart data windows)
   unless it declares the type (`realm-type-registry`); light work may run in a client environment
   (realms), heavy work on the server.
 - **Identity is pluggable.** An `Authenticator` produces a `Principal`; the access policy of
   `access-policy-at-entry-points` decides; IdP-specific code lives in optional crates.
 
-The crate split itself (how many crates, where the server half lives) is question Q1.
+### 1.1 The web from the start
+
+In the old UI the web came last (`render_web` beside `show_in_egui`). Here it shapes the core
+from D1 on. What the core and D7 must account for:
+
+- **One thread, never block:** wasm in a page has a single thread and no `block_on`; the runner,
+  subscriptions and every element API are async-safe and non-blocking (B1).
+- **Retained DOM:** views build nodes once and apply change sets (`webui-fixes` invalidations);
+  element identity and keys must be stable across updates; no full re-render per event.
+- **CSS is native:** the theme is emitted as custom properties, and styling stays in CSS rather
+  than inline drawing; style queries (D10) map to selectors.
+- **URLs and history:** a view state has an address (deep links into a `UISpec` document, a
+  selected tab, a table page); back/forward work.
+- **Responsive layout and touch:** layouts adapt to width; touch and pointer events feed the
+  controls of D13.
+- **Accessibility:** semantic elements and ARIA roles, focus order, keyboard-only operation.
+- **Native text input:** browser text fields, IME and spell-check instead of drawn text, so
+  editors use a web editor engine (CodeMirror or Monaco) rather than a port of the egui one.
+- **Browser services:** clipboard permissions, file upload and download, Web MIDI, Web Workers
+  for heavy client work, storage quotas.
+- **Size and loading:** the client wasm stays small (no polars, no image codecs by default:
+  `WEB-RELEASE-MODULE-IS-20-MB`); lazy loading of large views (charts, editors).
+- **Embedding:** a Liquers UI mounts into an existing page and its framework (custom elements,
+  `liquers-web` `mountUI`), several mounts per page with separate focus scopes
+  (`WEBUI-SHORTCUTS-RUN-IN-EVERY-MOUNT`).
+- **SSR:** server-rendered first paint stays possible (`webui`'s `render_app_ssr`), then the
+  client takes over.
 
 ## 2. Designs
 
@@ -66,7 +98,7 @@ The crate split itself (how many crates, where the server half lives) is questio
 | D12 | `ui-spec-v2` | `UISpec` as an application language: accessor bindings, forms, actions, components and includes, docking, per-element theme overrides, validation; likely splits into *bindings and forms* and *layout and components* | XL | `VALUE-ACCESSOR-CANNOT-LOCK`, `YAML-DOCUMENT-EDIT-DROPS-COMMENTS`, `UI-ELEMENT-NESTED-IN-CONSOLE-HAS-NO-HANDLE`, `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS` (form side), later `ACCESSOR-CANNOT-BE-IMPLEMENTED-IN-PYTHON-OR-JAVASCRIPT`; absorbs `console-mounts-nested-element` | D1, D2; D5 for split forms |
 | D13 | `ui-function-mapping` | Controls vocabulary (scalar, angle, vec2, vec3, range, choice, step, trigger, toggle); command and element hints; sources (pointer, keyboard, touch, gamepad); unified keymap and focus scopes | L (research first) | `UI-EVENTS-HAVE-NO-POINTER-DRAG-OR-CHANGE-KINDS`, `WEB-EDITOR-HAS-NO-KEYBOARD-MODEL` (keyboard) | D1; spike S4 |
 | D14 | `ui-midi-mapping` | MIDI as a control source: device profiles, mapping file, learn mode, ranges, relative encoders, soft takeover, feedback; `midir`, Web MIDI, Tauri | M | — (new; lessons from `egui-midi-test`) | D13, D11 |
-| D15 | `ui-charts` | `ChartSpec` value (not an egui closure) with a common subset: time axes, line, area, bar, scatter, OHLC candlestick with a volume panel; egui `egui_plot` (candles drawn by us), web ECharts, ratatui braille lines and sparklines; per-frontend extensions; theme hues for series; live updates on expiry with append-only pages; static SVG/PNG; `ns-chart` commands; downsampling | L | — (new); replaces `stockplottertest`'s `simple_plot` | D2, D6, D7, D8; spike S3 |
+| D15 | `ui-charts` | `ChartSpec` value (not an egui closure) with a common subset: time axes, line, area, bar, scatter, OHLC candlestick with a volume panel; egui `egui_plot` (candles drawn by us), web ECharts, ratatui braille lines and sparklines, matplotlib from Python (plotly later); an hvPlot-like high-level API; per-frontend extensions; theme hues for series; live updates on expiry with append-only pages; static SVG/PNG; `ns-chart` commands; downsampling | L | — (new); replaces `stockplottertest`'s `simple_plot` | D2, D6, D7, D8; spike S3 |
 | D16 | `ui-table-tools` | Paged table viewer/editor over `RecordView` for records, DataFrames and SQL; SQL editor and schema browser; spreadsheet-like grid (research) | L | — (new) | D2, D18; `relational-database-access`, `sql-over-tables` |
 | D17 | `ui-asset-store-tools` | Asset manager, orthodox two-pane store manager, process monitor (queue, jobs, events, cancel) | L | — (new) | D3 for the server view; `assets-api-admin-operations`, `asset-events-over-websocket`, `unmanaged-asset-registry` |
 | D18 | `ui-text-editors` | One editor element with syntax modes (query, template, YAML, JSON, SQL, Markdown, code), diagnostics, save; Markdown editor with preview; per-frontend editor engines | L | `TEXT-EDITOR-EDITS-ARE-NEVER-SAVED`, `TEMPLATE-HAS-NO-HIGHLIGHTER`; absorbs `text-editor-save`, `template-syntax-highlighter` | D1, D6, D7 |
@@ -86,15 +118,16 @@ question.
 | Spike | Question | Feeds |
 |---|---|---|
 | S1 ratatui | Do the draft `ElementModel` + view traits work for an immediate GUI, a DOM and a terminal? Render asset view, text and a list in all three | D1, D8 |
-| S2 Tauri | Tauri IPC (`invoke` + `Channel`) or loopback WebSocket for the split transport; binary throughput, startup, mobile build | D3, D9 |
-| S3 charts | Port `stockplottertest`'s `simple_plot` to a `ChartSpec`: `brownian_quotes` (live, 100 ms expiry) and `merge_historical_data-AAPL` as candlesticks + volume + close line, rendered by `egui_plot`, ECharts and ratatui | D15 |
+| S2 transports | The transport abstraction over WebSocket (required) and Tauri IPC (`invoke` + `Channel`): binary throughput, latency, startup, mobile background behaviour; a paper check that MQTT (topics per session, MQTT 5 response topics, broker auth, message size limits) fits the same abstraction | D3, D9 |
+| S3 charts | Survey ECharts, `egui_plot`, matplotlib, plotly and hvPlot for common patterns (series, axes, panels, styling, interaction); then port `stockplottertest`'s `simple_plot` to a draft `ChartSpec`: `brownian_quotes` (live, 100 ms expiry) and `merge_historical_data-AAPL` as candlesticks + volume + close line, rendered by `egui_plot`, ECharts and ratatui | D15 |
+| S5 Slint | A second retained-mode frontend, Slint (chosen 2026-11-22; check its licence first), renders the M1 element set, so the core's retained pattern is checked against a toolkit without a DOM | D1 |
 | S4 controls | Catalogue functions across `ns-img`, `ns-pl` and charts; drive three of them from keyboard, wheel and a MIDI controller (`egui-midi-test` as base) | D13, D14 |
 
 ## 4. Dependencies
 
 ```mermaid
 graph LR
-  S1 --> D1; S2 --> D3; S2 --> D9; S3 --> D15; S4 --> D13
+  S1 --> D1; S5 --> D1; S2 --> D3; S2 --> D9; S3 --> D15; S4 --> D13
   D1 --> D2 --> D3
   D1 --> D6; D1 --> D8; D1 --> D10; D1 --> D11; D1 --> D21
   D2 --> D6; D2 --> D7; D2 --> D8; D3 --> D7
@@ -115,18 +148,20 @@ are approved.
 ## 5. Milestones (proposed priority)
 
 Each milestone ends with something runnable. The old UI keeps working throughout; only fixes land
-on it (Q2).
+on it (decision 2).
 
-**M0 — Architecture decided** (no product change). Spikes S1, S2. D1 and D2 through Phase 2, D3
+**M0 — Architecture decided** (no product change). Spikes S1, S2, S5. D1 and D2 through Phase 2, D3
 through Phase 1. Exit: the trait signatures and crate layout approved; the "proceed" gates of D1/D2
 passed.
 
-**M1 — New core, monolithic egui and ratatui.** D1 and D2 implemented; D6 and D8 for the basic
-element set (asset view, text, Markdown, table page, image, layouts, menu); D10 part 1 (theme moved
-to `liquers-ui`, TUI mapping); D11; D21 skeleton. Exit: one `UISpec` document runs natively in egui
-and in a terminal on the new crates, next to the old UI.
+**M1 — New core, monolithic egui, ratatui and web.** D1 and D2 implemented; D6, D8 and D7's
+monolithic part (wasm in the page) for the basic element set (asset view, text, Markdown, table
+page, image, layouts, menu); D10 part 1 (theme moved to `liquers-ui`, TUI mapping, CSS); D11; D21
+skeleton. Exit: one `UISpec` document runs natively in egui, in a terminal and in a browser on the
+new crates, next to the old UI. The web is in M1 on purpose (decided 2026-11-22): egui and ratatui
+are both immediate-mode, and the web is the retained-mode frontend that must shape the core.
 
-**M2 — Web and split mode.** D3 implemented; D7 (monolithic wasm and the split client); D4 part 1
+**M2 — Split mode.** D3 implemented; D7's split client; D4 part 1
 (single session; `none` and token authenticators; loopback bind by default); D9 desktop. Exit: a
 browser, the egui app and a Tauri app attach to a `liquers-axum` UI session and show the M1
 document; `ui-split-elements` AC-1..AC-9 pass.
@@ -170,27 +205,37 @@ desktop, Tauri and development; D4 Phase 1–2 can still be written early so M2 
   D9, D13–D17, D21); small eligible bugs listed "fix now" in the idea map are fixed on the old UI
   in their own branches rather than waiting.
 
-## 7. Questions for Orest
+## 7. Decisions (questions answered by Orest on 2026-11-22)
 
-1. **Crate split.** One model crate (`liquers-ui`) plus one crate per frontend plus
-   `liquers-ui-server`, with `liquers-lib` contributing value projections — or fewer crates
-   (frontends as features of one `liquers-ui`)? Recommended: separate crates; features would put
-   all frontends back into one feature matrix.
+1. **Crate split — answered 2026-11-22:** one core crate plus one crate per frontend (and
+   `liquers-ui-server`). The core holds as much logic as possible and defines the common patterns,
+   among them support for both immediate-mode and retained-mode frontends (§1).
 2. **In-review designs on the old UI** (`ui-asset-snapshot-boundary`, `ui-display-conversion`,
    `text-editor-save`, `template-editor-ui`, `template-syntax-highlighter`,
    `query-editor-live-validation`, `web-query-editor-live-preview`,
    `console-mounts-nested-element`): finish them on the old UI, or absorb them into D1/D2/D18/D19
-   and implement only on the new crates? Recommended: absorb the first two into D1/D2 (they are
-   architecture), re-target the editor designs at M4, keep fixing bugs on the old UI.
-3. **Milestone order.** Egui + ratatui monolithic first (M1), then web and split (M2) — or web and
-   split first, since they are the newest capability? Recommended: as written, because egui is the
-   reference backend and the TUI validates the traits cheaply.
-4. **Chart specification.** Our own small `ChartSpec`, or adopt an existing grammar (Vega-Lite
-   subset, or ECharts option JSON as the canonical form)? Recommended: our own subset with a
-   per-frontend extension block, shaped by the stock charts of `stockplottertest`; confirm after S3.
-5. **Tauri transport.** IPC or loopback WebSocket by default? Recommended: decide in S2; the
-   transport trait allows both.
-6. **Inputs versus multi-user.** Is MIDI and function mapping (M5) more urgent than multi-user (M6)?
-7. **`stockplottertest` as the chart acceptance app.** Should S3 and D15 use it as the reference
-   application (its stock queries rewritten to return a `ChartSpec`), and should it move to the
-   new crates at M3 as the first real app on them? Recommended: yes to both.
+   and implement only on the new crates? **Answered 2026-11-22: absorb and re-target.** The first
+   two fold into D1/D2, the editor designs move to the new crates at M4, and only bug fixes land on
+   the old UI.
+3. **Milestone order — answered 2026-11-22:** egui, ratatui and web together in M1 (monolithic),
+   split mode in M2. The web must be designed in from the start, not added afterwards (§1.1). A
+   second retained-mode frontend triangulates the architecture: spike S5.
+4. **Chart specification — answered 2026-11-22:** our own `ChartSpec` with per-backend
+   extensions. It uses Liquers queries (data, and charts as query results) and theming, and may
+   reuse `UISpec` mechanisms such as layout for multi-panel figures. Its shape takes inspiration
+   from ECharts, to make the web port easy. Backends beyond the UI frontends are in view:
+   matplotlib (from Python), later plotly and others (even XMGrace). hvPlot is a model for the
+   high-level API. Liquers is an integration layer that should play well with other systems, and
+   "batteries included" with the major libraries, so D15 surveys these backends to find the
+   patterns that work across them.
+5. **Transports — answered 2026-11-22:** one transport abstraction below the protocol. WebSocket
+   is required; Tauri IPC is investigated in S2 as a second implementation; other channels are
+   possible, MQTT in particular (interesting for a future embedded Liquers, "lqe"). D3 defines the
+   abstraction as an ordered, bidirectional channel of envelope frames with connect, close and
+   reconnect, so sessions, revisions and resync sit above it and do not change per transport.
+   Candidates: in-process (monolithic), WebSocket, Tauri IPC, MQTT, a Web Worker `postMessage`
+   (engine in a worker, view in the page), stdio (a TUI or test client in a subprocess).
+6. **Inputs versus multi-user — answered 2026-11-22:** inputs first (M5), multi-user after (M6).
+7. **`stockplottertest` as the chart acceptance app — answered 2026-11-22: yes to both.** S3 and
+   D15 use it as the reference application (its stock queries rewritten to return a `ChartSpec`),
+   and it moves to the new crates at M3 as the first real app on them.
