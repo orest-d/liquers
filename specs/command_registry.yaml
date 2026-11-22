@@ -2,7 +2,7 @@
 # Regenerate: cargo run -p liquers-lib --features cli --bin export-command-registry -- \
 #               --format yaml -o specs/command_registry.yaml
 # Origin:   groups=core,lui,egui,image,polars,records,search,template,mem,markdown,accessor,store_config  features=egui,image-support,polars,records,templates,mem,markdown
-# Commands: 188
+# Commands: 192
 # CHANGELOG-BEGIN
 # 2026-08-02  initial export (95 commands: img 47, pl 26, lui 14, root 6, dep 2)
 # 2026-08-25  pl/select_columns and pl/drop_columns take a variadic `columns` argument
@@ -57,6 +57,10 @@
 #             commands (impl_version only).
 # 2026-11-16  settable-value-accessor: new group accessor (ns-acc: accessor, store, recipe,
 #             query, pipeline, action, argument, field, item, get) returning value accessors.
+# 2026-11-17  query-pipeline-editor Step 11: lui query_editor, action_editor,
+#             resource_editor and key_editor (editor elements bound to an accessor).
+# 2026-11-21  query-editor-ergonomics Step 9: hint icon on 110 pl/img/rec commands; presets on
+#             pl/head, rec/head, img/blur, img/rotate; next on pl/gt, pl/sort, rec/sort.
 # CHANGELOG-END
 commands:
 - realm: store_config
@@ -757,6 +761,58 @@ commands:
   definition: Registered
   impl_version: 353776d67c163324e56c942bfbcfe6b0
 - namespace: lui
+  name: query_editor
+  label: Query editor
+  doc: 'An editor of a query or pipeline: a tree of its steps beside the highlighted text'
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 9b61655c0546b153272c93366cfe00c7
+- namespace: lui
+  name: action_editor
+  label: Action editor
+  doc: An editor of one action's arguments, from the command's argument metadata
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: a2ed32fadf9a9a7b135bc3410de0eb15
+- namespace: lui
+  name: resource_editor
+  label: Resource editor
+  doc: 'An editor of a resource query: its header and its key, with a store file selector'
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 9da6abf7a500f71dbf3f1c1093b70137
+- namespace: lui
+  name: key_editor
+  label: Key editor
+  doc: An editor of a key, with a store file selector
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 1b71a6d76d06f8fff92a7950d09bfd3d
+- namespace: lui
   name: submit
   label: Submit
   doc: Interpret the input state as a query string and submit it for the current element
@@ -816,6 +872,8 @@ commands:
   name: from_bytes
   label: From bytes
   doc: Load image from bytes with auto-detected format
+  hints:
+    icon: image
   state_argument:
     name: state
     label: state
@@ -829,6 +887,8 @@ commands:
   name: from_format
   label: From format
   doc: Load image from bytes with explicitly specified format
+  hints:
+    icon: image
   state_argument:
     name: state
     label: state
@@ -866,6 +926,8 @@ commands:
   name: svg_to_image
   label: SVG to image
   doc: Render SVG to raster image with specified dimensions
+  hints:
+    icon: file-svg
   state_argument:
     name: state
     label: state
@@ -890,6 +952,8 @@ commands:
   name: to_png
   label: To PNG
   doc: Convert image to PNG format (returns bytes)
+  hints:
+    icon: file-image
   state_argument:
     name: state
     label: state
@@ -903,6 +967,8 @@ commands:
   name: to_jpeg
   label: To JPEG
   doc: Convert image to JPEG format with specified quality (1-100)
+  hints:
+    icon: file-image
   state_argument:
     name: state
     label: state
@@ -922,6 +988,8 @@ commands:
   name: to_dataurl
   label: To data URL
   doc: Convert image to base64 data URL with specified format (png, jpeg, webp, etc.)
+  hints:
+    icon: link
   state_argument:
     name: state
     label: state
@@ -994,6 +1062,8 @@ commands:
   name: resize
   label: Resize
   doc: Resize image to exact dimensions in pixels
+  hints:
+    icon: arrows-out
   state_argument:
     name: state
     label: state
@@ -1037,6 +1107,8 @@ commands:
   name: resize_by
   label: Resize by percentage
   doc: Resize image by percentage (uniform scaling)
+  hints:
+    icon: arrows-out
   state_argument:
     name: state
     label: state
@@ -1075,6 +1147,8 @@ commands:
   name: thumb
   label: Thumbnail
   doc: Resize image preserving aspect ratio (fits within max dimensions)
+  hints:
+    icon: arrows-out
   state_argument:
     name: state
     label: state
@@ -1118,6 +1192,8 @@ commands:
   name: crop
   label: Crop
   doc: Crop image to rectangle (x, y, width, height)
+  hints:
+    icon: crop
   state_argument:
     name: state
     label: state
@@ -1152,6 +1228,51 @@ commands:
   name: rotate
   label: Rotate
   doc: Rotate image by arbitrary angle in degrees (positive = clockwise)
+  hints:
+    icon: arrow-clockwise
+  presets:
+  - action:
+      name: rotate
+      parameters:
+      - !String
+        - '90'
+        - offset: 7
+          line: 1
+          column: 8
+      position:
+        offset: 0
+        line: 1
+        column: 1
+    label: 90°
+    description: ''
+  - action:
+      name: rotate
+      parameters:
+      - !String
+        - '180'
+        - offset: 7
+          line: 1
+          column: 8
+      position:
+        offset: 0
+        line: 1
+        column: 1
+    label: 180°
+    description: ''
+  - action:
+      name: rotate
+      parameters:
+      - !String
+        - '270'
+        - offset: 7
+          line: 1
+          column: 8
+      position:
+        offset: 0
+        line: 1
+        column: 1
+    label: 270°
+    description: ''
   state_argument:
     name: state
     label: state
@@ -1171,6 +1292,8 @@ commands:
   name: rot90
   label: Rotate 90°
   doc: Rotate image 90 degrees clockwise
+  hints:
+    icon: arrow-clockwise
   state_argument:
     name: state
     label: state
@@ -1184,6 +1307,8 @@ commands:
   name: rot180
   label: Rotate 180°
   doc: Rotate image 180 degrees
+  hints:
+    icon: arrow-clockwise
   state_argument:
     name: state
     label: state
@@ -1197,6 +1322,8 @@ commands:
   name: rot270
   label: Rotate 270°
   doc: Rotate image 270 degrees clockwise (90 degrees counter-clockwise)
+  hints:
+    icon: arrow-clockwise
   state_argument:
     name: state
     label: state
@@ -1210,6 +1337,8 @@ commands:
   name: fliph
   label: Flip horizontal
   doc: Flip image horizontally
+  hints:
+    icon: flip-horizontal
   state_argument:
     name: state
     label: state
@@ -1223,6 +1352,8 @@ commands:
   name: flipv
   label: Flip vertical
   doc: Flip image vertically
+  hints:
+    icon: flip-vertical
   state_argument:
     name: state
     label: state
@@ -1236,6 +1367,8 @@ commands:
   name: gray
   label: Grayscale
   doc: Convert image to grayscale
+  hints:
+    icon: drop-half
   state_argument:
     name: state
     label: state
@@ -1249,6 +1382,8 @@ commands:
   name: invert
   label: Invert
   doc: Invert image colors (negative)
+  hints:
+    icon: circle-half
   state_argument:
     name: state
     label: state
@@ -1262,6 +1397,8 @@ commands:
   name: brighten
   label: Brighten
   doc: Adjust brightness (positive = brighten, negative = darken)
+  hints:
+    icon: sun
   state_argument:
     name: state
     label: state
@@ -1281,6 +1418,8 @@ commands:
   name: contrast
   label: Contrast
   doc: Adjust contrast (positive = increase, negative = decrease)
+  hints:
+    icon: circle-half-tilt
   state_argument:
     name: state
     label: state
@@ -1319,6 +1458,51 @@ commands:
   name: blur
   label: Blur
   doc: Apply Gaussian blur with specified sigma value
+  hints:
+    icon: drop
+  presets:
+  - action:
+      name: blur
+      parameters:
+      - !String
+        - '1'
+        - offset: 5
+          line: 1
+          column: 6
+      position:
+        offset: 0
+        line: 1
+        column: 1
+    label: Light
+    description: ''
+  - action:
+      name: blur
+      parameters:
+      - !String
+        - '3'
+        - offset: 5
+          line: 1
+          column: 6
+      position:
+        offset: 0
+        line: 1
+        column: 1
+    label: Medium
+    description: ''
+  - action:
+      name: blur
+      parameters:
+      - !String
+        - '8'
+        - offset: 5
+          line: 1
+          column: 6
+      position:
+        offset: 0
+        line: 1
+        column: 1
+    label: Strong
+    description: ''
   state_argument:
     name: state
     label: state
@@ -1338,6 +1522,8 @@ commands:
   name: sharpen
   label: Sharpen
   doc: Sharpen image using unsharp mask
+  hints:
+    icon: diamond
   state_argument:
     name: state
     label: state
@@ -1351,6 +1537,8 @@ commands:
   name: dims
   label: Dimensions
   doc: Get image dimensions as 'WIDTHxHEIGHT' string
+  hints:
+    icon: ruler
   state_argument:
     name: state
     label: state
@@ -1364,6 +1552,8 @@ commands:
   name: width
   label: Width
   doc: Get image width in pixels
+  hints:
+    icon: ruler
   state_argument:
     name: state
     label: state
@@ -1377,6 +1567,8 @@ commands:
   name: height
   label: Height
   doc: Get image height in pixels
+  hints:
+    icon: ruler
   state_argument:
     name: state
     label: state
@@ -1403,6 +1595,8 @@ commands:
   name: to_webp
   label: To WebP
   doc: Convert image to WebP format (returns bytes)
+  hints:
+    icon: file-image
   state_argument:
     name: state
     label: state
@@ -1416,6 +1610,8 @@ commands:
   name: to_gif
   label: To GIF
   doc: Convert image to GIF format (returns bytes)
+  hints:
+    icon: file-image
   state_argument:
     name: state
     label: state
@@ -1429,6 +1625,8 @@ commands:
   name: to_bmp
   label: To BMP
   doc: Convert image to BMP format (returns bytes)
+  hints:
+    icon: file-image
   state_argument:
     name: state
     label: state
@@ -1594,6 +1792,8 @@ commands:
   name: draw_line
   label: Draw line
   doc: Draw line from (x1,y1) to (x2,y2) with specified color
+  hints:
+    icon: line-segment
   state_argument:
     name: state
     label: state
@@ -1633,6 +1833,8 @@ commands:
   name: draw_rect
   label: Draw rectangle
   doc: Draw rectangle outline at (x,y) with specified dimensions and color
+  hints:
+    icon: square
   state_argument:
     name: state
     label: state
@@ -1672,6 +1874,8 @@ commands:
   name: draw_filled_rect
   label: Draw filled rectangle
   doc: Draw filled rectangle at (x,y) with specified dimensions and color
+  hints:
+    icon: square
   state_argument:
     name: state
     label: state
@@ -1711,6 +1915,8 @@ commands:
   name: draw_circle
   label: Draw circle
   doc: Draw circle outline at (x,y) with specified radius and color
+  hints:
+    icon: circle
   state_argument:
     name: state
     label: state
@@ -1745,6 +1951,8 @@ commands:
   name: draw_filled_circle
   label: Draw filled circle
   doc: Draw filled circle at (x,y) with specified radius and color
+  hints:
+    icon: circle
   state_argument:
     name: state
     label: state
@@ -1779,6 +1987,8 @@ commands:
   name: draw_text
   label: Draw text
   doc: Draw text at (x,y) with specified font size and color
+  hints:
+    icon: text-t
   state_argument:
     name: state
     label: state
@@ -1818,6 +2028,8 @@ commands:
   name: sobel
   label: Sobel edge detection
   doc: Apply Sobel edge detection (horizontal + vertical edges)
+  hints:
+    icon: graph
   state_argument:
     name: state
     label: state
@@ -1831,6 +2043,8 @@ commands:
   name: canny
   label: Canny edge detection
   doc: Apply Canny edge detection with low and high thresholds
+  hints:
+    icon: graph
   state_argument:
     name: state
     label: state
@@ -1855,6 +2069,8 @@ commands:
   name: from_csv
   label: Load DataFrame from CSV
   doc: 'Parse CSV data into a Polars DataFrame. Supports custom separators: comma (default), tab, semicolon, pipe.'
+  hints:
+    icon: file-csv
   filename: data.csv
   state_argument:
     name: state
@@ -1875,6 +2091,8 @@ commands:
   name: to_csv
   label: Export DataFrame to CSV
   doc: Convert DataFrame to CSV string with comma separator
+  hints:
+    icon: export
   filename: data.csv
   state_argument:
     name: state
@@ -1889,6 +2107,8 @@ commands:
   name: select_columns
   label: Select columns
   doc: Select columns by name, one parameter per column
+  hints:
+    icon: columns
   state_argument:
     name: state
     label: state
@@ -1909,6 +2129,8 @@ commands:
   name: drop_columns
   label: Drop columns
   doc: Remove columns by name, one parameter per column
+  hints:
+    icon: minus-circle
   state_argument:
     name: state
     label: state
@@ -1929,6 +2151,8 @@ commands:
   name: tail
   label: Get last rows
   doc: 'Return last N rows (default: 5)'
+  hints:
+    icon: rows
   state_argument:
     name: state
     label: state
@@ -1948,6 +2172,8 @@ commands:
   name: slice
   label: Slice rows
   doc: Extract rows by range (offset, length)
+  hints:
+    icon: scissors
   state_argument:
     name: state
     label: state
@@ -1972,6 +2198,84 @@ commands:
   name: head
   label: Get first rows
   doc: 'Return first N rows (default: 5)'
+  hints:
+    icon: rows
+  presets:
+  - action:
+      name: head
+      parameters:
+      - !String
+        - '5'
+        - offset: 5
+          line: 1
+          column: 6
+      position:
+        offset: 0
+        line: 1
+        column: 1
+    label: Top 5
+    description: ''
+  - action:
+      name: head
+      parameters:
+      - !String
+        - '10'
+        - offset: 5
+          line: 1
+          column: 6
+      position:
+        offset: 0
+        line: 1
+        column: 1
+    label: Top 10
+    description: ''
+  - action:
+      name: head
+      parameters:
+      - !String
+        - '20'
+        - offset: 5
+          line: 1
+          column: 6
+      position:
+        offset: 0
+        line: 1
+        column: 1
+    label: Top 20
+    description: ''
+  - action:
+      name: head
+      parameters:
+      - !String
+        - '100'
+        - offset: 5
+          line: 1
+          column: 6
+      position:
+        offset: 0
+        line: 1
+        column: 1
+    label: Top 100
+    description: ''
+  next:
+  - action:
+      name: sort
+      parameters: []
+      position:
+        offset: 0
+        line: 1
+        column: 1
+    label: Sort
+    description: Sort the rows
+  - action:
+      name: describe
+      parameters: []
+      position:
+        offset: 0
+        line: 1
+        column: 1
+    label: Describe
+    description: Summary statistics
   state_argument:
     name: state
     label: state
@@ -1979,7 +2283,7 @@ commands:
     gui_info: !TextField 40
   arguments:
   - name: n
-    label: n
+    label: Number of rows
     default: !Value 5
     argument_type: int
     gui_info: IntegerField
@@ -1996,6 +2300,8 @@ commands:
   name: eq
   label: Equal to
   doc: Filter rows where column equals value
+  hints:
+    icon: equals
   state_argument:
     name: state
     label: state
@@ -2020,6 +2326,8 @@ commands:
   name: ne
   label: Not equal to
   doc: Filter rows where column does not equal value
+  hints:
+    icon: not-equals
   state_argument:
     name: state
     label: state
@@ -2044,6 +2352,27 @@ commands:
   name: gt
   label: Greater than
   doc: Filter rows where column is greater than value
+  hints:
+    icon: greater-than
+  next:
+  - action:
+      name: sort
+      parameters: []
+      position:
+        offset: 0
+        line: 1
+        column: 1
+    label: Sort
+    description: Sort the kept rows
+  - action:
+      name: head
+      parameters: []
+      position:
+        offset: 0
+        line: 1
+        column: 1
+    label: First rows
+    description: Keep the first rows
   state_argument:
     name: state
     label: state
@@ -2068,6 +2397,8 @@ commands:
   name: gte
   label: Greater than or equal
   doc: Filter rows where column is greater than or equal to value
+  hints:
+    icon: greater-than
   state_argument:
     name: state
     label: state
@@ -2092,6 +2423,8 @@ commands:
   name: lt
   label: Less than
   doc: Filter rows where column is less than value
+  hints:
+    icon: less-than
   state_argument:
     name: state
     label: state
@@ -2116,6 +2449,8 @@ commands:
   name: lte
   label: Less than or equal
   doc: Filter rows where column is less than or equal to value
+  hints:
+    icon: less-than
   state_argument:
     name: state
     label: state
@@ -2140,6 +2475,8 @@ commands:
   name: is_in
   label: Is in
   doc: Filter rows where column equals one of the values
+  hints:
+    icon: funnel
   state_argument:
     name: state
     label: state
@@ -2165,6 +2502,8 @@ commands:
   name: is_null
   label: Is null
   doc: Filter rows where column is null
+  hints:
+    icon: funnel-x
   state_argument:
     name: state
     label: state
@@ -2184,6 +2523,8 @@ commands:
   name: is_not_null
   label: Is not null
   doc: Filter rows where column is not null
+  hints:
+    icon: funnel-simple
   state_argument:
     name: state
     label: state
@@ -2203,6 +2544,8 @@ commands:
   name: starts_with
   label: Starts with
   doc: Filter rows whose text starts with the given text, taken literally; case-insensitive unless case_sensitive
+  hints:
+    icon: text-aa
   state_argument:
     name: state
     label: state
@@ -2232,6 +2575,8 @@ commands:
   name: ends_with
   label: Ends with
   doc: Filter rows whose text ends with the given text, taken literally; case-insensitive unless case_sensitive
+  hints:
+    icon: text-aa
   state_argument:
     name: state
     label: state
@@ -2261,6 +2606,8 @@ commands:
   name: contains
   label: Contains
   doc: Filter rows whose text contains the given text, taken literally; case-insensitive unless case_sensitive
+  hints:
+    icon: magnifying-glass
   state_argument:
     name: state
     label: state
@@ -2290,6 +2637,18 @@ commands:
   name: sort
   label: Sort by column
   doc: Stable sort by one column; ascending unless ascending=f, nulls first unless nulls_last
+  hints:
+    icon: sort-ascending
+  next:
+  - action:
+      name: head
+      parameters: []
+      position:
+        offset: 0
+        line: 1
+        column: 1
+    label: First rows
+    description: Keep the first rows
   state_argument:
     name: state
     label: state
@@ -2319,6 +2678,8 @@ commands:
   name: sum
   label: Sum
   doc: Sum of all numeric columns
+  hints:
+    icon: sigma
   state_argument:
     name: state
     label: state
@@ -2332,6 +2693,8 @@ commands:
   name: mean
   label: Mean
   doc: Mean of all numeric columns
+  hints:
+    icon: chart-bar
   state_argument:
     name: state
     label: state
@@ -2345,6 +2708,8 @@ commands:
   name: median
   label: Median
   doc: Median of all numeric columns
+  hints:
+    icon: chart-bar
   state_argument:
     name: state
     label: state
@@ -2358,6 +2723,8 @@ commands:
   name: min
   label: Minimum
   doc: Minimum of all numeric columns
+  hints:
+    icon: chart-bar
   state_argument:
     name: state
     label: state
@@ -2371,6 +2738,8 @@ commands:
   name: max
   label: Maximum
   doc: Maximum of all numeric columns
+  hints:
+    icon: chart-bar
   state_argument:
     name: state
     label: state
@@ -2384,6 +2753,8 @@ commands:
   name: std
   label: Standard Deviation
   doc: Standard deviation of all numeric columns
+  hints:
+    icon: chart-bar
   state_argument:
     name: state
     label: state
@@ -2397,6 +2768,8 @@ commands:
   name: count
   label: Count
   doc: Count non-null values per column
+  hints:
+    icon: hash
   state_argument:
     name: state
     label: state
@@ -2410,6 +2783,8 @@ commands:
   name: describe
   label: Describe
   doc: Statistical summary of DataFrame
+  hints:
+    icon: info
   state_argument:
     name: state
     label: state
@@ -2423,6 +2798,8 @@ commands:
   name: shape
   label: Shape
   doc: Get DataFrame shape (rows and columns)
+  hints:
+    icon: ruler
   state_argument:
     name: state
     label: state
@@ -2436,6 +2813,8 @@ commands:
   name: nrows
   label: Number of rows
   doc: Get number of rows in DataFrame
+  hints:
+    icon: hash
   state_argument:
     name: state
     label: state
@@ -2449,6 +2828,8 @@ commands:
   name: ncols
   label: Number of columns
   doc: Get number of columns in DataFrame
+  hints:
+    icon: hash
   state_argument:
     name: state
     label: state
@@ -2462,6 +2843,8 @@ commands:
   name: schema
   label: Schema
   doc: Get DataFrame schema (column names and types)
+  hints:
+    icon: list-dashes
   state_argument:
     name: state
     label: state
@@ -2590,6 +2973,8 @@ commands:
   name: select_columns
   label: Select columns
   doc: Column projection; keeps the Id/Source columns whether named or not
+  hints:
+    icon: columns
   state_argument:
     name: state
     label: state
@@ -2610,6 +2995,65 @@ commands:
   name: head
   label: Head
   doc: The first n rows (default 5), materialized
+  hints:
+    icon: rows
+  presets:
+  - action:
+      name: head
+      parameters:
+      - !String
+        - '5'
+        - offset: 5
+          line: 1
+          column: 6
+      position:
+        offset: 0
+        line: 1
+        column: 1
+    label: Top 5
+    description: ''
+  - action:
+      name: head
+      parameters:
+      - !String
+        - '10'
+        - offset: 5
+          line: 1
+          column: 6
+      position:
+        offset: 0
+        line: 1
+        column: 1
+    label: Top 10
+    description: ''
+  - action:
+      name: head
+      parameters:
+      - !String
+        - '20'
+        - offset: 5
+          line: 1
+          column: 6
+      position:
+        offset: 0
+        line: 1
+        column: 1
+    label: Top 20
+    description: ''
+  - action:
+      name: head
+      parameters:
+      - !String
+        - '100'
+        - offset: 5
+          line: 1
+          column: 6
+      position:
+        offset: 0
+        line: 1
+        column: 1
+    label: Top 100
+    description: ''
   state_argument:
     name: state
     label: state
@@ -2629,6 +3073,8 @@ commands:
   name: slice
   label: Slice
   doc: A row range, as a view
+  hints:
+    icon: scissors
   state_argument:
     name: state
     label: state
@@ -2715,6 +3161,8 @@ commands:
   name: schema
   label: Schema
   doc: 'The schema as JSON text: what a schema argument or a manifest''s uniform_schema accepts'
+  hints:
+    icon: list-dashes
   state_argument:
     name: state
     label: state
@@ -2746,6 +3194,8 @@ commands:
   name: eq
   label: Equal to
   doc: Rows where the column compares equal to the value, parsed to the column's type
+  hints:
+    icon: equals
   state_argument:
     name: state
     label: state
@@ -2770,6 +3220,8 @@ commands:
   name: ne
   label: Not equal to
   doc: Rows where the column compares not equal to the value, parsed to the column's type
+  hints:
+    icon: not-equals
   state_argument:
     name: state
     label: state
@@ -2794,6 +3246,8 @@ commands:
   name: gt
   label: Greater than
   doc: Rows where the column compares greater than the value, parsed to the column's type
+  hints:
+    icon: greater-than
   state_argument:
     name: state
     label: state
@@ -2818,6 +3272,8 @@ commands:
   name: gte
   label: Greater than or equal
   doc: Rows where the column compares greater than or equal the value, parsed to the column's type
+  hints:
+    icon: greater-than
   state_argument:
     name: state
     label: state
@@ -2842,6 +3298,8 @@ commands:
   name: lt
   label: Less than
   doc: Rows where the column compares less than the value, parsed to the column's type
+  hints:
+    icon: less-than
   state_argument:
     name: state
     label: state
@@ -2866,6 +3324,8 @@ commands:
   name: lte
   label: Less than or equal
   doc: Rows where the column compares less than or equal the value, parsed to the column's type
+  hints:
+    icon: less-than
   state_argument:
     name: state
     label: state
@@ -2890,6 +3350,8 @@ commands:
   name: starts_with
   label: Starts with
   doc: Rows whose text starts with the given text, taken literally; case-insensitive unless case_sensitive
+  hints:
+    icon: text-aa
   state_argument:
     name: state
     label: state
@@ -2919,6 +3381,8 @@ commands:
   name: ends_with
   label: Ends with
   doc: Rows whose text ends with the given text, taken literally; case-insensitive unless case_sensitive
+  hints:
+    icon: text-aa
   state_argument:
     name: state
     label: state
@@ -2948,6 +3412,8 @@ commands:
   name: contains
   label: Contains
   doc: Rows whose text contains the given text, taken literally; case-insensitive unless case_sensitive
+  hints:
+    icon: magnifying-glass
   state_argument:
     name: state
     label: state
@@ -2977,6 +3443,8 @@ commands:
   name: glob
   label: Glob
   doc: Rows whose text matches a * / ? pattern; case-insensitive unless case_sensitive
+  hints:
+    icon: magnifying-glass
   state_argument:
     name: state
     label: state
@@ -3006,6 +3474,8 @@ commands:
   name: is_in
   label: Is in
   doc: Rows whose column equals one of the values
+  hints:
+    icon: funnel
   state_argument:
     name: state
     label: state
@@ -3031,6 +3501,8 @@ commands:
   name: is_null
   label: Is null
   doc: Rows where the column is null
+  hints:
+    icon: funnel-x
   state_argument:
     name: state
     label: state
@@ -3050,6 +3522,8 @@ commands:
   name: is_not_null
   label: Is not null
   doc: Rows where the column is not null
+  hints:
+    icon: funnel-simple
   state_argument:
     name: state
     label: state
@@ -3069,6 +3543,8 @@ commands:
   name: filter
   label: Filter
   doc: 'Rows matching a search expression: ns-search/search with rank=false and no limit'
+  hints:
+    icon: funnel
   state_argument:
     name: state
     label: state
@@ -3088,6 +3564,18 @@ commands:
   name: sort
   label: Sort by column
   doc: Stable sort by one column; nulls first unless nulls_last (as ns-pl/sort)
+  hints:
+    icon: sort-ascending
+  next:
+  - action:
+      name: head
+      parameters: []
+      position:
+        offset: 0
+        line: 1
+        column: 1
+    label: First rows
+    description: Keep the first rows
   state_argument:
     name: state
     label: state
@@ -3117,6 +3605,8 @@ commands:
   name: tail
   label: Last rows
   doc: The last n rows, materialized
+  hints:
+    icon: rows
   state_argument:
     name: state
     label: state
@@ -3136,6 +3626,8 @@ commands:
   name: drop_columns
   label: Drop columns
   doc: Every column but the named ones; the Id and Source columns cannot be dropped
+  hints:
+    icon: minus-circle
   state_argument:
     name: state
     label: state
@@ -3156,6 +3648,8 @@ commands:
   name: nrows
   label: Number of rows
   doc: The row count; over a source, counted chunk by chunk
+  hints:
+    icon: hash
   state_argument:
     name: state
     label: state
@@ -3169,6 +3663,8 @@ commands:
   name: ncols
   label: Number of columns
   doc: The column count
+  hints:
+    icon: hash
   state_argument:
     name: state
     label: state
@@ -3182,6 +3678,8 @@ commands:
   name: shape
   label: Shape
   doc: '{nrows, ncols}, as ns-pl/shape'
+  hints:
+    icon: ruler
   state_argument:
     name: state
     label: state
@@ -3195,6 +3693,8 @@ commands:
   name: count
   label: Count
   doc: 'One row: the non-null count of every column, as ns-pl/count'
+  hints:
+    icon: hash
   state_argument:
     name: state
     label: state
@@ -3208,6 +3708,8 @@ commands:
   name: to_json
   label: To JSON
   doc: A view as one of the seven JSON table shapes
+  hints:
+    icon: brackets-curly
   state_argument:
     name: state
     label: state
@@ -3227,6 +3729,8 @@ commands:
   name: from_json
   label: From JSON
   doc: A JSON value, text or bytes as a table
+  hints:
+    icon: brackets-curly
   state_argument:
     name: state
     label: state
@@ -3251,6 +3755,8 @@ commands:
   name: to_record
   label: To record
   doc: Any input a table can be made from, turned into a RecordView
+  hints:
+    icon: table
   state_argument:
     name: state
     label: state

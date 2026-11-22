@@ -55,7 +55,7 @@ changed signatures, never existing code. A design that cannot fit is two designs
 
 | # | `phase:` | Purpose | Must contain | Apply |
 |---|---|---|---|---|
-| 1 | `high-level` | What and why | Purpose; problem example; acceptance scenarios (`AC-<n>`, WHEN/THEN); systems touched; crate placement; documentation intent, with its `API docs:` line; open questions | Overlap triage first |
+| 1 | `high-level` | What and why | Purpose; problem example; acceptance scenarios (`AC-<n>`, WHEN/THEN); systems touched; crate placement; language integration impact (new features); documentation intent, with its `API docs:` and `User guides:` lines; open questions | Overlap triage first |
 | 2 | `architecture` | How | Chosen solution and rejected alternatives; known-issue preflight; new and changed interfaces; integration points; errors; sync/async; commands; documentation architecture, module docs included; risks | `rust-best-practices` |
 | 3 | `examples` | Proof | Overview table; primary and secondary example; edge and error cases; test plan with exact test names, each citing its scenarios | `liquers-unittest`, `liquers-validate` |
 | 4 | `implementation` | Steps | Progress checklist; ordered steps with files, symbols, validation command and rollback; testing plan; documentation updates | `rust-best-practices` |
@@ -67,10 +67,26 @@ Phase-specific rules:
   today; what should happen. Validate any query in it with `liquers-validate`. Acceptance criteria
   are scenarios: `- **AC-<n>** <name>` with a WHEN line and a THEN line (`DOCS_STRUCTURE_GUIDE.md`
   §5.2.1); the problem example is usually AC-1. Ids are never renumbered or reused.
+- **Phase 1, completely new feature: language integration and user documentation.** A new
+  capability (not a fix or an internal refactor) settles, before the gate, whether the language
+  integrations are impacted: Python (`liquers-py`), JavaScript (`liquers-web`) and the feature
+  catalogue of `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md`. In `## Language Integration` record
+  (1) whether that guide needs a new or extended feature ID (§4-§5) or new design questions, and
+  (2) for each existing integration one decision: **in scope** (bindings, tests and conformance
+  matrix change in this design), **later** (a follow-up issue is filed and linked, naming the
+  guide's feature ID), or **not needed** (with the reason, e.g. Rust-only internals). An unclear
+  answer is an open question for the user at the gate. Also decide which user documentation
+  changes: the chapters of `docs/guides/{rust,python,web}/` (candidates from
+  `python3 scripts/docs_index.py chapters-for <affects_docs>` and the chapter list), recorded on
+  the `User guides:` line of Documentation Intent. A guide whose integration is *later* or *not
+  needed* gets no chapter for the feature, at most a note that it is not available there yet.
 - **Phase 2 known-issue preflight:** check open issues linked to the design or touching its areas
   and integration points. For each relevant one record whether it must be fixed first and whether it
   blocks. A blocker is resolved first or designed around; it is at least `P1` (`P0` only when it meets
   §4.4). List the command namespaces involved (e.g. `pl`, `lui`); the user confirms them at the gate.
+  For each integration Phase 1 put **in scope**, Phase 2 names the binding changes
+  (`liquers-py/src/`, `liquers-web/src/`, type stubs) and the change to the language integration
+  guide; its documentation architecture lists the user-guide chapters to edit.
 - **Phase 3** uses runnable tests by default. Use conceptual examples only where execution is
   impossible, and say why. Every scenario is cited (`AC-<n>`) by at least one test, and no test
   cites an undefined one; `validate_phase.py` and `docs_index.py --check` enforce this whenever
@@ -88,8 +104,9 @@ Phase-specific rules:
   behaviour (`DOCS_STRUCTURE_GUIDE.md` §9) and every module doc the design touched against
   `specs/guides/API_DOCUMENTATION_GUIDE.md` §3; update `specs/README.md` links; set every completed issue
   to `closed` / `closed_not_planned` with a resolution note (§4.3); list every problem discovered
-  during the work with its triage and spin-off outcome. After approval set `status: complete` and
-  remove `phase`.
+  during the work with its triage and spin-off outcome; confirm each Phase 1 language-integration
+  decision held (in scope: shipped and in the conformance matrix; later: its issue exists). After
+  approval set `status: complete` and remove `phase`.
 
 `DESIGN.md` bookkeeping: set `phase:` at every transition and `status:` per §5.1 (`draft` while
 writing, `in_review` at a gate, `approved` after it). A design with `gh_pr` carries no derived status

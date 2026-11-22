@@ -3,7 +3,7 @@ title: UI Interface Specification
 kind: reference
 audience: internal
 area: [lib/ui]
-reviewed: 2026-11-16
+reviewed: 2026-11-22
 ---
 # UI Interface Specification
 
@@ -314,8 +314,9 @@ fn render_table(state: &State<Value>) -> Result<Value, Error> {
 A value an element owns, with no home in the store or in an asset (a form field's draft, a
 selection), is a memory accessor (`liquers_core::accessor::memory_accessor`,
 [`VALUE_ACCESSORS.md`](VALUE_ACCESSORS.md)): a variable every clone of the handle shares, with
-conflicts, projections and change events like any other accessor. Binding an element to an accessor
-(redrawing on `Changed`, writing on an edit) is not specified here; it belongs to the UI designs.
+conflicts, projections and change events like any other accessor. How an element binds to an
+accessor (redrawing on `Changed`, writing on an edit) is specified for the editors in
+[Editors](#editors).
 
 ## Event Handling
 
@@ -350,7 +351,7 @@ recorded as `UIChange::Replaced`. An event for a removed element is dropped. Del
 owning element only: there is no propagation.
 
 ```rust
-pub enum UIEventKind { Submit, Named(String) }      // closed; a new kind is a deliberate change
+pub enum UIEventKind { Submit, Named(String), Change(String) } // closed; a new kind is deliberate
 pub struct UIEvent { pub kind: UIEventKind, pub fields: Vec<(String, Value)> }
 ```
 
@@ -367,6 +368,7 @@ channel (the query console's Enter does), so both backends share one handling pa
 |---|---|---|
 | `data-lq-field="name"` | `<input>`, `<textarea>` | its live value travels with the owner's events as field `name` |
 | `data-lq-event="submit"` / `"name"` | any node | a click sends that event to the owning element; on a single-line input, so does Enter |
+| `data-lq-event="change:<field>"` | `<input>`, `<select>` | the browser's `change` (a checkbox toggled, a choice made, a field left) sends `Change(<field>)` with the fields; a checkbox's value is `"true"` / `"false"` |
 | `data-lq-shortcut="Alt+N"` | a node with `data-lq-action` | the key combination runs that node's action |
 | `data-lq-action='…'` | any node | a click runs the serialized `UiAction` |
 
@@ -385,8 +387,90 @@ physical code, so macOS Option combinations and non-Latin layouts still match.
 **Limits.** Browsers never deliver some combinations to a page (Chrome: Ctrl+N, Ctrl+T, Ctrl+W),
 so a web menu should not rely on them; the query console example uses Alt+N. In egui, menu
 shortcuts are consumed by `UISpecElement` itself (`consume_shortcut`) and run their `UiAction`;
-in neither backend is a shortcut a `UIEvent`. Kinds beyond `Submit` and `Named` (field change,
-drop, focus, pointer) are not yet defined (`UI-EVENTS-HAVE-NO-POINTER-DRAG-OR-CHANGE-KINDS`).
+in neither backend is a shortcut a `UIEvent`. `Change(field)` commits one field without submitting
+(`UIEventKind::from_name("change:<field>")`). Drop, focus and pointer kinds are not yet defined
+(`UI-EVENTS-HAVE-NO-POINTER-DRAG-OR-CHANGE-KINDS`).
+
+## Editors
+
+Query, pipeline, action, resource and key editors are one `UIElement`,
+`liquers-lib/src/ui/editor/` `EditorElement` (design `design/query-pipeline-editor/`). Reviewed
+against the implementation on 2026-11-17.
+
+| Kind (`EditorKind`) | Edits | Created by |
+|---|---|---|
+| `Query` | a query or pipeline: a tree of its steps (resource, `ns`, actions, `q` / `v`, values; a link argument is a subtree) beside the highlighted text | `lui/query_editor` |
+| `Action` | the one-element pipeline of an action accessor | `lui/action_editor` |
+| `Resource` | the first resource of a query: header dropdown, key, store file selector | `lui/resource_editor` |
+| `Key` | a key, with the file selector | `lui/key_editor` |
+
+**Binding.** `EditorBinding::Accessor(query)` names the accessor (for example
+`-R-key/reports/recipes.yaml/-/ns-acc/accessor/recipe-0/query`); `Memory(text)` keeps the value in a
+memory accessor for the session. The `lui` commands take an accessor value's `address()`; an
+accessor made in code (empty address) is adopted as it is (`AccessorOp::Adopt`) and saved as
+`Memory`. A binding that does not give an accessor makes the editor read-only with the error.
+
+**Protocol.** The element never awaits. It sends `AppMessage::Accessor { handle, binding, op }`
+(`Watch`, `Adopt`, `Get`, `SetIf { value, expected }`) and `AppMessage::ListDirectory { handle,
+folder }`; `AppRunner` answers with `UpdateMessage::Accessor(AccessorUpdate)` (`Bound`, `Snapshot`,
+`Written`, `Conflict` with the live value, `Failed`) and `UpdateMessage::Directory`. The runner
+keeps one watched accessor per handle and turns each `Changed` event into a fresh snapshot, so a
+second editor of the same recipe follows. A write is `set_if` against the fingerprint the copy was
+loaded from: a conflict reloads the live value and reports the refused text. At most one write is
+in flight; edits made meanwhile are written when it completes.
+
+**Edits.** `EditorState` (backend-free) applies each `EditorCommand` as a validated edit of a
+`liquers_core::pipeline::QueryEditor` / `PipelineEditor` working copy: a refused edit changes
+nothing and is shown at its node. "Update immediately" (`continuous`, default on) writes each
+committed edit; otherwise edits are pending until Update, and Revert reloads. A namespace edit that
+changes what a command resolves to waits for Confirm; one that leaves a command unresolved is
+refused. Unknown commands and excess parameters are shown read-only and kept.
+
+**Renderers.** `egui::editor::show_editor(ui, tree, view, mode, density, theme, ui_ctx)` and
+`ui::web::editor::editor_html(tree, title, mode, density, theme)` both draw the same `EditorTree`
+through the same backend-free layout (`ui::editor::layout`) and return `EditorCommand`s;
+`EditorView::from_ui_event` decodes the browser's events (`ed:<verb>:<path>:<rest>`). Hover text
+is each field's label, description, type and default. `UIContext::command_registry()` carries the
+registry snapshot every host gives its contexts; with none, the editor shows the text only.
+Design of the layout below: `design/query-editor-ergonomics/`.
+
+**Modes.** `EditorMode::Simple` (the default) shows step chips for the pipeline, one card for the
+last action (`simple_card`) and "Continue with" chips from the command's `next` presets.
+`EditorMode::Advanced` shows every step as a card, an outline when there is more than one, link
+arguments nested under their field, Collapse all / Expand all and the filename field. The mode
+and an optional `Density` are serialized with the element (`with_mode`, `with_density`); the
+browser switches with `ed:mode::simple|advanced`.
+
+**Cards.** A card's header is `header_parts`: chevron, icon, realm, label, the dimmed
+`namespace/name`, modified and error marks, its position and a menu (collapsed: icon, label, id).
+An expanded card shows `toolbar_items` (Reset, Presets, Next, Filename; Move up / down in
+Advanced only) with presets as chips (at most three, the active one lit, the rest under "+N"),
+then a form grid of `form_rows` (label, editor, per-field actions, help, and a refused edit's
+message under the field it concerns). `ed:resetall:<path>:` resets every argument of a card.
+
+**Keyboard (egui).** `editor_keymap()` is the table of `ui/editor/keys.rs`, each entry with a
+scope (`Anywhere`, `Header`, `Field`) and matched most specific first: Ctrl+B mode, Ctrl+L query
+text, Ctrl+J jump, F6 / Shift+F6 regions, PageUp / PageDown / Home / End between cards (Alt+ from
+a field), Enter / Escape / Space / arrows on a header, Ctrl+Shift+[ and ] collapse and expand all,
+Alt+R reset, Alt+P presets, Alt+Shift+N next (Alt+N is the browser console's New Console),
+Alt+1…9 apply a preset, Ctrl+K add an action, Alt+Up / Down move, Ctrl+Delete delete, Alt+L
+link, Ctrl+Space complete, Ctrl+Enter update. **Ctrl+J** jumps from the query text to the field
+whose span holds the cursor (committing typed text first) and back to that field's span. The
+browser renderer has no keyboard model yet beyond the page's own focus order.
+
+**Theme and icons** (full reference: [`THEME.md`](THEME.md)). `ui::theme` is one token model for both renderers: a `Theme` composed from
+YAML `ThemeLayer`s (a nested dictionary; a later layer overrides existing keys and adds new ones),
+with a dark and a light palette, the query-syntax colours, two densities, named hues and an
+`IconTheme`. egui applies it with `egui::theme::apply_theme` once per theme generation; the
+browser writes `Theme::to_css` into `<style id="lq-theme">`. A card's icon comes from
+`Theme::icon_for`: a per-command override, the command's `hint icon`, the theme's namespace
+`icons.defaults`, then a monogram; an `Icon` is a list of variants (Phosphor or another set, a
+library icon, SVG or raster inline, embedded or by store key) with a Unicode text that is never
+empty. Icon images by key are loaded by the runner (`AppMessage::LoadIcon`) into the
+`IconCache` that `UIContext::icon_bytes` reads.
+
+The query console's Parameters panel (egui; `qc:params` in the browser) is the same core over the
+console's text, showing the whole pipeline; an edit rewrites the text and does not submit.
 
 ## Hosts
 
@@ -413,6 +497,15 @@ instead of panicking when it cannot open a window, and refuses a second window w
 A `WindowCloser` closes it from any thread, and an `on_frame` hook sees each tick with no
 `AppState` lock held and may close it. A submitted action is awaited inside a tick, so a slow one
 delays the next tick and freezes the window meanwhile (`WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS`).
+
+**The `ui` section.** A configuration document's `ui:` section (`ui::theme::UiConfig`:
+`theme` — `default` or a key or query of a theme YAML, reloaded when it changes; `mode` — `dark`,
+`light` or `system`; `density` — `comfortable` or `compact`) reaches a host as
+`WindowOptions::with_ui` for `run_window` (a `system` mode follows egui's system theme while the
+window is open), `NativeDriver::with_ui_config` / `AppRunner::with_ui_config`, `MountOptions.ui`
+in the browser (a `system` mode follows `prefers-color-scheme`), and the Python configuration's
+`ui` section for the window of `UI.run()`. Every `UIContext` of the host reads the same
+`ThemeCell`.
 
 The Python host's contract (delivery of status callbacks, `context.element`, lifetime) is
 `PYTHON_INTEGRATION.md` §18.
@@ -778,3 +871,6 @@ Candidate universal operations identified across use cases:
 | 2026-10-30 | Event Handling: implemented UI events (`UIEvent`, `data-lq-*` markup, keyboard precedence, limits). Only that section was reviewed against the implementation. | ui-events |
 | 2026-11-11 | Hosts: the native driver, the egui window and the Python host; reviewed against the implementation (that section only). | `design/egui-native-app/`, `design/liquers-py-ui/`, `design/liquers-py-ui-window/` |
 | 2026-11-16 | Value Integration: element-owned values are memory accessors; binding is left to the UI designs. Only that subsection was reviewed. | `design/settable-value-accessor/` |
+| 2026-11-17 | Editors: the editor element, its binding and message protocol, edits and renderers; UI events gain `Change(field)`. Those sections reviewed against the implementation. | `design/query-pipeline-editor/` |
+| 2026-11-21 | Editors: modes, cards, the egui keymap and Ctrl+J, theme and icons; Hosts: the `ui` section. Those parts reviewed against the implementation. | `design/query-editor-ergonomics/` |
+| 2026-11-22 | Editors: links the new theme reference. | `design/query-editor-ergonomics/` |

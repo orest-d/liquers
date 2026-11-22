@@ -1,3 +1,34 @@
+//! Sorting a Polars DataFrame by a column, as `pl/sort`.
+//!
+//! # Main components
+//!
+//! - [`sort`]: stable, ascending by default, nulls first unless `nulls_last`; registered by
+//!   `register_polars_sorting_commands!` (or [`register_commands`]) with a label, a `hint icon` and
+//!   next presets.
+//!
+//! # Where it is used
+//!
+//! - [`crate::polars::register_commands`] and `register_polars_commands!` register every `pl`
+//!   command; the query editor draws each with its label and icon.
+//!
+//! # Related concepts
+//!
+//! - `specs/reference/POLARS_COMMAND_LIBRARY.md`: the command set; `super::util`: DataFrame access.
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_core::context::Environment;
+//! use liquers_lib::environment::{CommandRegistryAccess, DefaultEnvironment};
+//! use liquers_lib::value::Value;
+//!
+//! let mut env = DefaultEnvironment::<Value>::new();
+//! liquers_lib::polars::sorting::register_commands(env.get_mut_command_registry()).unwrap();
+//! let registry = env.get_command_metadata_registry();
+//! let md = registry.commands.iter().find(|m| m.namespace == "pl" && m.name == "sort").unwrap();
+//! assert_eq!(md.hints.get("icon"), Some(&serde_json::json!("sort-ascending")));
+//! ```
+
 use crate::value::{ExtValueInterface, Value};
 use liquers_core::{
     context::Context, error::Error, state::State,
@@ -44,6 +75,8 @@ macro_rules! register_polars_sorting_commands {
             fn sort(state, column: String, ascending: bool = true, nulls_last: bool = false) -> result
             namespace: "pl"
             label: "Sort by column"
+            hint icon: "sort-ascending"
+            next: "head" (label: "First rows", description: "Keep the first rows")
             doc: "Stable sort by one column; ascending unless ascending=f, nulls first unless nulls_last"
 
         version: auto

@@ -3,7 +3,7 @@ title: Command Registration Guide
 kind: guide
 audience: internal
 area: [core/commands, macro]
-reviewed: 2026-11-04
+reviewed: 2026-11-22
 ---
 # Command Registration Guide
 
@@ -1013,6 +1013,30 @@ register_command!(cr,
 register_command!(cr, fn process_data(state, format: String) -> result)?;
 ```
 
+This metadata is the user interface of the command: the query and action editors
+(`lui/query_editor`, `lui/action_editor`) show `label`, `doc`, each argument's `label`,
+`description`, type and default on hover, draw the widget its `gui:` names (or one picked from the
+type), and offer its argument presets, the command's `preset:` and `next:` entries, and a button for
+its `filename:`.
+
+The card of a command shows its `hint icon` and its presets as chips (the first three, the rest
+under "+N"); in Simple mode its `next:` entries are the "Continue with" chips, so give a command
+that is usually followed by another a `next:`. `hint icon` takes one of these string forms (or a
+list of them, best first):
+
+| Form | Meaning |
+|---|---|
+| `funnel` | an icon of the theme's default set (`icons.icon-set`, Phosphor unless the theme changes it) |
+| `ph:funnel` | a Phosphor icon (kebab-case name), whatever the default set |
+| `<set>:<name>` | an icon of another set |
+| `lib:<name>` | the theme library's icon |
+| `u:⏷` | Unicode text only |
+| `-R/icons/brush.svg` | an image by store key (`.svg`, `.png`, `.jpg`, `.jpeg`, `.webp`) |
+
+A command without one gets its namespace's default from the theme (`icons.defaults`), then a
+monogram of its label. A theme can override any command's icon. The bundled `pl`, `img` and `rec`
+commands use Phosphor names (`liquers-lib/tests/command_icons.rs` checks they exist).
+
 ### Keep Command Functions Pure
 
 ```rust
@@ -1126,6 +1150,9 @@ only) action is that command ([`AGENT_MEMORY_SERVICE.md`](../reference/AGENT_MEM
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-22 | §5: a bare `hint icon` name means the theme's icon set (Phosphor by default); `ph:` is always Phosphor. | `issues/THEME-ICON-SET-SETTING-IS-IGNORED.md` |
+| 2026-11-21 | §5 Provide Comprehensive Metadata: `hint icon` forms, presets as chips, `next:` as Simple mode's "Continue with". | `design/query-editor-ergonomics/` |
+| 2026-11-17 | §5 Provide Comprehensive Metadata: what the editors show from the metadata. | `design/query-pipeline-editor/` |
 | 2026-11-04 | Default links from Python: `lq.link(query)`. | `design/liquers-py-templates/` |
 | 2026-11-04 | New §Registering a pipeline command. | phase-5, `design/composite-command-definition/` |
 | 2026-10-20 | Links to `reference/api/DOC_08_RECIPES_PLANS.md` follow its promotion to `reference/RECIPES_AND_PLANS.md`. | DOC-08 promotion |

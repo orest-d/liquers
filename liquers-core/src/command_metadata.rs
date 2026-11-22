@@ -529,6 +529,29 @@ pub struct ParameterPreset {
     description: String,
 }
 
+impl ParameterPreset {
+    /// A preset named `name` that sets the argument to `value`.
+    pub fn new(name: &str, value: CommandParameterValue, description: &str) -> Self {
+        ParameterPreset {
+            name: name.to_owned(),
+            value,
+            description: description.to_owned(),
+        }
+    }
+    /// The preset's name, shown in a presets menu.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    /// The value the preset sets: a literal or a query (a link).
+    pub fn value(&self) -> &CommandParameterValue {
+        &self.value
+    }
+    /// What the preset is for, shown on hover.
+    pub fn description(&self) -> &str {
+        &self.description
+    }
+}
+
 fn is_false(b: &bool) -> bool {
     *b == false
 }
@@ -610,6 +633,11 @@ pub struct ArgumentInfo {
 }
 
 impl ArgumentInfo {
+    /// Adds a preset (builder style).
+    pub fn with_preset(mut self, preset: ParameterPreset) -> Self {
+        self.presets.push(preset);
+        self
+    }
     pub fn any_argument(name: &str) -> Self {
         ArgumentInfo {
             name: name.to_string(),
@@ -1669,6 +1697,20 @@ impl CommandMetadataRegistry {
         report
     }
 
+    /// The namespaces that have commands in `realm`, sorted, without the root namespace (`""`),
+    /// which every lookup includes anyway.
+    pub fn namespaces(&self, realm: &str) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .commands
+            .iter()
+            .filter(|c| c.realm == realm && !c.namespace.is_empty())
+            .map(|c| c.namespace.clone())
+            .collect();
+        names.sort();
+        names.dedup();
+        names
+    }
+
     /// The namespaces an action is looked up in, highest priority first: `explicit` — the
     /// parameters of the last `ns` before the action in its transform segment — then
     /// [`Self::default_namespaces`]. [`Self::find_command_in_namespaces`] takes the first match.
@@ -1886,6 +1928,23 @@ impl CommandMetadataRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// query-pipeline-editor AC-24: argument presets are built and read through accessors.
+    #[test]
+    fn parameter_preset_accessors() {
+        let preset = ParameterPreset::new(
+            "red",
+            CommandParameterValue::Value(Value::String("FF0000".into())),
+            "Pure red",
+        );
+        let info = ArgumentInfo::string_argument("color").with_preset(preset.clone());
+        assert_eq!(info.presets, vec![preset.clone()]);
+        assert_eq!(preset.name(), "red");
+        assert_eq!(preset.description(), "Pure red");
+        assert_eq!(preset.value(), &CommandParameterValue::Value(Value::String("FF0000".into())));
+        let yaml = serde_yaml::to_string(&info).unwrap();
+        assert!(yaml.contains("name: red"), "{yaml}");
+    }
 
     #[test]
     fn with_default_link_sets_query_default() {

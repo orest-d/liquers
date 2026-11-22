@@ -2,7 +2,7 @@
 title: Commands
 status: ready
 sources: [guides/COMMAND_REGISTRATION_GUIDE.md, guides/COMMAND_DESIGN_GUIDE.md, reference/COMMAND_DECLARATION.md, reference/REGISTER_COMMAND_FSD.md, reference/PIPELINES.md, guides/PIPELINE_GUIDE.md, guides/TEMPLATE_GUIDE.md]
-reviewed: 2026-11-10
+reviewed: 2026-11-21
 ---
 # 5. Commands
 
@@ -371,6 +371,7 @@ assert_eq!(state.status(), Status::Volatile);
 | `version: auto` | the result depends on the code of the function. With `#[liquers_macro::command_version]` on the function, a change of its body makes stored results out of date |
 | `filename: "report.html"` | the default file name of the result |
 | `preset:`, `next:` | queries that a user interface offers together with the command |
+| `hint icon: "funnel"` | the icon of the command's card in the query editor: a [Phosphor](https://phosphoricons.com) name, or another form of section 11.7 |
 | `realm:` | a third level above the namespace, for commands that run in another place than the rest |
 
 Choose `volatile`, `expires` and `version` with care, because they decide when a result is

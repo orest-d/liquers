@@ -56,21 +56,28 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use liquers_core::accessor::{memory_accessor, AccessorEvent, SetOptions, ValueAccessor};
+use liquers_core::command_metadata::CommandMetadataRegistry;
 use liquers_core::assets::{AssetManager, AssetNotificationMessage, AssetRef};
 use liquers_core::context::{EnvRef, Environment};
-use liquers_core::error::Error;
+use liquers_core::error::{Error, ErrorType};
 use liquers_core::metadata::{Metadata, Status};
-use liquers_core::parse::parse_query;
+use liquers_core::parse::{parse_key, parse_query};
 use liquers_core::recipes::Recipe;
 use liquers_core::state::State;
+use liquers_core::value::ValueInterface;
 
 use crate::value::{ExtValueInterface, Value};
 
 use super::app_state::{AppState, UIChange};
 use super::element::{AssetViewElement, ElementSource, UpdateMessage, UpdateResponse};
 use super::handle::UIHandle;
-use super::message::{AppMessage, AppMessageReceiver, AppMessageSender, AssetSnapshot};
+use super::editor::{DirectoryEntry, DirectoryListing, EditorBinding};
+use super::message::{
+    AccessorOp, AccessorUpdate, AppMessage, AppMessageReceiver, AppMessageSender, AssetSnapshot,
+};
 use super::payload::{SimpleUIPayload, UIPayload};
+use super::theme::{IconCache, IconLoad, Theme, ThemeCell, ThemeLayer, ThemeSource, UiConfig};
 use super::ui_context::UIContext;
 
 /// Entry in the monitoring map. Tracks a monitored asset and its notification channel.
@@ -98,6 +105,40 @@ pub struct RunnerEvent {
 /// examples) loses the oldest instead of growing without bound.
 const MAX_PENDING_EVENTS: usize = 1024;
 
+/// An editor's accessor (`AppMessage::Accessor`), with its event receiver.
+struct WatchedAccessor {
+    accessor: Arc<dyn ValueAccessor<Value>>,
+    events: tokio::sync::watch::Receiver<AccessorEvent>,
+    /// The source pushes no events: the runner calls `refresh` each tick instead.
+    pull: bool,
+}
+
+/// What every `UIContext` the runner builds carries besides the app state.
+struct ContextParts {
+    sender: AppMessageSender,
+    registry: Arc<CommandMetadataRegistry>,
+    theme: ThemeCell,
+    icons: IconCache,
+}
+
+impl ContextParts {
+    fn context(&self, app_state: &Arc<tokio::sync::Mutex<dyn AppState>>) -> UIContext {
+        UIContext::new(app_state.clone(), self.sender.clone())
+            .with_command_registry(self.registry.clone())
+            .with_theme(self.theme.clone())
+            .with_icon_cache(self.icons.clone())
+    }
+}
+
+/// A theme layer from an asset value: YAML text, or an already structured value.
+fn theme_layer_of(value: &Value) -> Result<ThemeLayer, Error> {
+    match value.try_into_json_value() {
+        Ok(serde_json::Value::String(text)) => ThemeLayer::from_yaml(&text),
+        Ok(other) => ThemeLayer::from_value(other),
+        Err(_) => ThemeLayer::from_yaml(&value.try_into_string()?),
+    }
+}
+
 /// Result of pushing an update at an element.
 enum DeliveryOutcome {
     /// The element no longer exists — the caller stops monitoring it.
@@ -122,10 +163,24 @@ pub struct AppRunner<E: Environment> {
     /// meanwhile is evaluated again instead of receiving the stale result.
     evaluating: HashMap<UIHandle, (AssetRef<E>, String)>,
     monitoring: HashMap<UIHandle, MonitoredAsset<E>>,
+    /// The accessors of editor elements, by handle; removed with the element.
+    accessors: HashMap<UIHandle, WatchedAccessor>,
     message_rx: AppMessageReceiver,
     sender: AppMessageSender,
     events: Vec<RunnerEvent>,
     quit_requested: bool,
+    /// One snapshot of the command metadata registry, given to every `UIContext` this runner
+    /// builds (the editors read their widgets from it).
+    registry: Arc<CommandMetadataRegistry>,
+    /// The theme every `UIContext` of this runner reads (AC-16), and the icon images loaded by
+    /// key (AC-17).
+    theme: ThemeCell,
+    icons: IconCache,
+    /// A theme given as a key or query: to load on the next `run`, then watched.
+    theme_query: Option<String>,
+    theme_watch: Option<(String, MonitoredAsset<E>)>,
+    /// Icon images whose assets were still queued or evaluating (key, asset).
+    icon_loads: Vec<(String, AssetRef<E>)>,
 }
 
 impl<E> AppRunner<E>
@@ -143,21 +198,83 @@ where
         message_rx: AppMessageReceiver,
         sender: AppMessageSender,
     ) -> Self {
+        let registry = envref.command_metadata_snapshot();
         Self {
             envref,
+            registry,
             evaluating: HashMap::new(),
             monitoring: HashMap::new(),
+            accessors: HashMap::new(),
             message_rx,
             sender,
             events: Vec::new(),
             quit_requested: false,
+            theme: ThemeCell::default(),
+            icons: IconCache::default(),
+            theme_query: None,
+            theme_watch: None,
+            icon_loads: Vec::new(),
+        }
+    }
+
+    /// Reads the theme from `cell` (shared with the host) and, when `ui.theme` is a key or query,
+    /// loads it on the next `run` and reloads it whenever it changes (AC-16).
+    pub fn with_ui_config(mut self, ui: &UiConfig, cell: ThemeCell) -> Self {
+        self.set_ui_config(ui, cell);
+        self
+    }
+
+    /// [`AppRunner::with_ui_config`] in place, for a host that owns the runner already.
+    pub fn set_ui_config(&mut self, ui: &UiConfig, cell: ThemeCell) {
+        self.theme = cell;
+        self.theme_query = match &ui.theme {
+            Some(ThemeSource::Query(q)) => Some(q.clone()),
+            Some(ThemeSource::Builtin(_)) | None => None,
+        };
+        self.theme_watch = None;
+    }
+
+    /// Shares `cache` as the icon images this runner loads (builder style), for a host that
+    /// builds its own `UIContext`.
+    pub fn with_icon_cache(mut self, cache: IconCache) -> Self {
+        self.icons = cache;
+        self
+    }
+
+    /// The theme cell this runner gives to every `UIContext`.
+    pub fn theme_cell(&self) -> &ThemeCell {
+        &self.theme
+    }
+
+    /// The icon images this runner has loaded by key.
+    pub fn icon_cache(&self) -> &IconCache {
+        &self.icons
+    }
+
+    fn context_parts(&self) -> ContextParts {
+        ContextParts {
+            sender: self.sender.clone(),
+            registry: self.registry.clone(),
+            theme: self.theme.clone(),
+            icons: self.icons.clone(),
         }
     }
 
     /// Uses `envref` for every evaluation started from now on. Evaluations already in flight keep
     /// the environment they started in.
     pub fn replace_envref(&mut self, envref: EnvRef<E>) {
+        self.registry = envref.command_metadata_snapshot();
         self.envref = envref;
+    }
+
+    /// The command metadata registry snapshot this runner gives to every `UIContext`.
+    pub fn command_registry(&self) -> &Arc<CommandMetadataRegistry> {
+        &self.registry
+    }
+
+    /// A context over `app_state` and this runner's channel, carrying the registry snapshot.
+    fn context(&self, app_state: &Arc<tokio::sync::Mutex<dyn AppState>>) -> UIContext {
+        self.context_parts().context(app_state)
     }
 
     /// Whether an `AppMessage::Quit` arrived since the last call; clears the request.
@@ -236,6 +353,15 @@ where
         // Phase 4: Poll monitored assets, push snapshots
         self.poll_monitored_assets(app_state).await;
 
+        // Phase 5: Poll editor accessors, push their changes (boxed: the wasm stack is small).
+        Box::pin(self.poll_accessors(app_state)).await;
+
+        // Phase 6: Load or reload the theme given as a key or query.
+        Box::pin(self.poll_theme()).await;
+
+        // Phase 7: Finish icon images that were still loading.
+        Box::pin(self.poll_icons()).await;
+
         Ok(())
     }
 
@@ -250,7 +376,7 @@ where
             match msg {
                 AppMessage::SubmitQuery { handle, query } => {
                     let ui_context =
-                        UIContext::new(app_state.clone(), self.sender.clone()).with_handle(handle);
+                        self.context(app_state).with_handle(handle);
 
                     // 1. Create payload with handle
                     let payload: E::Payload = SimpleUIPayload::new(ui_context.clone()).into();
@@ -304,9 +430,12 @@ where
                         handle,
                         UpdateMessage::UI(event),
                         app_state,
-                        &self.sender,
+                        &self.context_parts(),
                     )
                     .await;
+                }
+                AppMessage::LoadIcon { key } => {
+                    Box::pin(self.handle_load_icon(key)).await;
                 }
                 AppMessage::Quit => {
                     // Recorded for the host, which owns the window (or the loop) to close:
@@ -320,6 +449,16 @@ where
                 AppMessage::Deserialize { path: _ } => {
                     // Deserialization is application-specific.
                     // The app layer should handle this.
+                }
+                AppMessage::Accessor {
+                    handle,
+                    binding,
+                    op,
+                } => {
+                    Box::pin(self.handle_accessor(handle, binding, op, app_state)).await;
+                }
+                AppMessage::ListDirectory { handle, folder } => {
+                    Box::pin(self.handle_list_directory(handle, folder, app_state)).await;
                 }
                 AppMessage::RequestAssetUpdates { handle, query } => {
                     self.handle_request_asset_updates(handle, query, app_state)
@@ -348,7 +487,7 @@ where
         app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
     ) {
         let ui_context =
-            UIContext::new(app_state.clone(), self.sender.clone()).with_handle(Some(handle));
+            self.context(app_state).with_handle(Some(handle));
         let payload: E::Payload = SimpleUIPayload::new(ui_context.clone()).into();
 
         let input_state = State::from_parts(
@@ -422,7 +561,7 @@ where
 
         for (handle, query) in pending {
             let ui_context =
-                UIContext::new(app_state.clone(), self.sender.clone()).with_handle(Some(handle));
+                self.context(app_state).with_handle(Some(handle));
 
             self.evaluating.remove(&handle);
 
@@ -493,7 +632,7 @@ where
                 None => continue,
             };
             let ui_context =
-                UIContext::new(app_state.clone(), self.sender.clone()).with_handle(Some(handle));
+                self.context(app_state).with_handle(Some(handle));
 
             // Poll state (already confirmed available above)
             let state = match asset_ref.poll_state().await {
@@ -555,6 +694,222 @@ where
         }
     }
 
+    /// Binds the accessor of `binding`: evaluates an accessor query and takes the accessor it
+    /// gives, or keeps a memory binding's value in a memory accessor.
+    async fn bind_accessor(&self, binding: &EditorBinding) -> Result<Arc<dyn ValueAccessor<Value>>, Error> {
+        match binding {
+            EditorBinding::Accessor(query) => {
+                let query = parse_query(query)?;
+                let state = self.envref.evaluate(&query).await?.get().await?;
+                state.value()?.try_into_accessor()
+            }
+            EditorBinding::Memory(text) => Ok(memory_accessor(
+                Some(State::new().with_data(Value::from(text.clone()))),
+                liquers_core::query::Query::new(),
+            )),
+        }
+    }
+
+    async fn deliver_accessor(
+        &self,
+        handle: UIHandle,
+        update: AccessorUpdate,
+        app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
+    ) -> DeliveryOutcome {
+        Self::deliver_update(
+            handle,
+            UpdateMessage::Accessor(update),
+            app_state,
+            &self.context_parts(),
+        )
+        .await
+    }
+
+    /// The accessor's current value, as an update.
+    async fn read_accessor(accessor: &Arc<dyn ValueAccessor<Value>>) -> AccessorUpdate {
+        match accessor.get().await {
+            Ok(snapshot) => AccessorUpdate::Snapshot {
+                value: snapshot.state.data_unchecked().clone(),
+                fingerprint: Some(snapshot.fingerprint),
+            },
+            Err(e) => AccessorUpdate::Failed(e),
+        }
+    }
+
+    /// Handle `AppMessage::Accessor`: bind, read or write an editor's accessor.
+    async fn handle_accessor(
+        &mut self,
+        handle: UIHandle,
+        binding: EditorBinding,
+        op: AccessorOp,
+        app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
+    ) {
+        let rebind = matches!(op, AccessorOp::Watch | AccessorOp::Adopt(_))
+            || !self.accessors.contains_key(&handle);
+        if rebind {
+            let bound = match &op {
+                AccessorOp::Adopt(accessor) => Ok(accessor.clone()),
+                AccessorOp::Watch | AccessorOp::Get | AccessorOp::SetIf { .. } => {
+                    self.bind_accessor(&binding).await
+                }
+            };
+            match bound {
+                Ok(accessor) => {
+                    if let Some(driver) = accessor.driver() {
+                        super::spawn_ui_task(driver);
+                    }
+                    let mut events = accessor.subscribe();
+                    events.borrow_and_update();
+                    let capabilities = accessor.capabilities();
+                    let bound = AccessorUpdate::Bound {
+                        address: accessor.address().encode(),
+                        writable: capabilities.write,
+                    };
+                    self.accessors.insert(
+                        handle,
+                        WatchedAccessor {
+                            accessor: accessor.clone(),
+                            events,
+                            pull: cfg!(target_arch = "wasm32") || !capabilities.notify,
+                        },
+                    );
+                    if let DeliveryOutcome::Missing = self.deliver_accessor(handle, bound, app_state).await {
+                        self.accessors.remove(&handle);
+                        return;
+                    }
+                }
+                Err(e) => {
+                    self.record(Some(handle), Status::Error, Some(e.clone()));
+                    let _ = self.deliver_accessor(handle, AccessorUpdate::Failed(e), app_state).await;
+                    return;
+                }
+            }
+        }
+        let Some(accessor) = self.accessors.get(&handle).map(|w| w.accessor.clone()) else {
+            return;
+        };
+        let update = match op {
+            AccessorOp::Watch | AccessorOp::Adopt(_) | AccessorOp::Get => {
+                Self::read_accessor(&accessor).await
+            }
+            AccessorOp::SetIf { value, expected } => {
+                match accessor.set_if(value, expected, SetOptions::default()).await {
+                    Ok(snapshot) => {
+                        // The writer's own change event is not news to it.
+                        if let Some(w) = self.accessors.get_mut(&handle) {
+                            w.events.borrow_and_update();
+                        }
+                        AccessorUpdate::Written {
+                            fingerprint: snapshot.fingerprint,
+                        }
+                    }
+                    Err(e) if e.error_type == ErrorType::StatusConflict => match accessor.get().await {
+                        Ok(live) => AccessorUpdate::Conflict {
+                            value: live.state.data_unchecked().clone(),
+                            fingerprint: Some(live.fingerprint),
+                        },
+                        Err(_) => AccessorUpdate::Failed(e),
+                    },
+                    Err(e) => AccessorUpdate::Failed(e),
+                }
+            }
+        };
+        if let DeliveryOutcome::Missing = self.deliver_accessor(handle, update, app_state).await {
+            self.accessors.remove(&handle);
+        }
+    }
+
+    /// Handle `AppMessage::ListDirectory`: the asset manager's listing of `folder` (recipe keys
+    /// included), for an editor's file selector.
+    async fn handle_list_directory(
+        &mut self,
+        handle: UIHandle,
+        folder: String,
+        app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
+    ) {
+        let listing = match parse_key(&folder) {
+            Ok(key) => match self.envref.get_asset_manager().listdir_asset_info(&key).await {
+                Ok(infos) => DirectoryListing {
+                    folder: folder.clone(),
+                    entries: infos
+                        .into_iter()
+                        .map(|info| DirectoryEntry {
+                            name: info
+                                .filename
+                                .clone()
+                                .filter(|f| !f.is_empty())
+                                .or_else(|| info.key.as_ref().and_then(|k| k.filename().map(|f| f.to_string())))
+                                .unwrap_or_default(),
+                            is_dir: info.is_dir,
+                        })
+                        .collect(),
+                    error: None,
+                },
+                Err(e) => DirectoryListing {
+                    folder: folder.clone(),
+                    entries: vec![],
+                    error: Some(e.to_string()),
+                },
+            },
+            Err(e) => DirectoryListing {
+                folder: folder.clone(),
+                entries: vec![],
+                error: Some(e.to_string()),
+            },
+        };
+        let _ = Self::deliver_update(
+            handle,
+            UpdateMessage::Directory(listing),
+            app_state,
+            &self.context_parts(),
+        )
+        .await;
+    }
+
+    /// Phase 5: delivers each editor accessor's change as a fresh read, and drops the accessors
+    /// of elements that are gone.
+    async fn poll_accessors(&mut self, app_state: &Arc<tokio::sync::Mutex<dyn AppState>>) {
+        let handles: Vec<UIHandle> = self.accessors.keys().copied().collect();
+        let mut to_remove = Vec::new();
+        for handle in handles {
+            let exists = app_state.lock().await.node_exists(handle);
+            if !exists {
+                to_remove.push(handle);
+                continue;
+            }
+            let Some(watched) = self.accessors.get_mut(&handle) else {
+                continue;
+            };
+            if watched.pull {
+                let _ = watched.accessor.refresh().await;
+            }
+            if !watched.events.has_changed().unwrap_or(false) {
+                continue;
+            }
+            let event = watched.events.borrow_and_update().clone();
+            let accessor = watched.accessor.clone();
+            let update = match event {
+                AccessorEvent::Changed(_)
+                | AccessorEvent::Invalidated
+                | AccessorEvent::Status(Status::Expired) => Self::read_accessor(&accessor).await,
+                AccessorEvent::Removed => AccessorUpdate::Failed(Error::general_error(
+                    "the edited value was removed".to_string(),
+                )),
+                AccessorEvent::Initial
+                | AccessorEvent::Status(_)
+                | AccessorEvent::PrimaryProgress(_)
+                | AccessorEvent::SecondaryProgress(_)
+                | AccessorEvent::Log(_) => continue,
+            };
+            if let DeliveryOutcome::Missing = self.deliver_accessor(handle, update, app_state).await {
+                to_remove.push(handle);
+            }
+        }
+        for handle in to_remove {
+            self.accessors.remove(&handle);
+        }
+    }
+
     /// Handle RequestAssetUpdates: evaluate query, subscribe to notifications,
     /// build initial snapshot, deliver to widget, store in monitoring map.
     async fn handle_request_asset_updates(
@@ -579,7 +934,7 @@ where
                     handle,
                     UpdateMessage::AssetUpdate(snapshot),
                     app_state,
-                    &self.sender,
+                    &self.context_parts(),
                 )
                 .await;
                 match outcome {
@@ -615,7 +970,7 @@ where
                     handle,
                     UpdateMessage::AssetUpdate(error_snapshot),
                     app_state,
-                    &self.sender,
+                    &self.context_parts(),
                 )
                 .await;
                 match outcome {
@@ -634,6 +989,7 @@ where
     async fn poll_monitored_assets(&mut self, app_state: &Arc<tokio::sync::Mutex<dyn AppState>>) {
         let mut to_remove = Vec::new();
         let mut delivered = Vec::new();
+        let parts = self.context_parts();
 
         for (handle, monitored) in self.monitoring.iter_mut() {
             // Check if notification has changed (non-blocking)
@@ -651,7 +1007,7 @@ where
                     *handle,
                     UpdateMessage::AssetUpdate(snapshot),
                     app_state,
-                    &self.sender,
+                    &parts,
                 )
                 .await;
                 match outcome {
@@ -719,7 +1075,7 @@ where
         handle: UIHandle,
         message: UpdateMessage,
         app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
-        sender: &AppMessageSender,
+        parts: &ContextParts,
     ) -> DeliveryOutcome {
         // Extract element from AppState (take_element errors if not found)
         let mut element = {
@@ -731,7 +1087,7 @@ where
         }; // Lock released
 
         // Create UIContext and call update (lock not held)
-        let ctx = UIContext::new(app_state.clone(), sender.clone()).with_handle(Some(handle));
+        let ctx = parts.context(app_state).with_handle(Some(handle));
         let response = element.update(&message, &ctx);
 
         // Put element back, and record the element's own repaint verdict.
@@ -764,7 +1120,7 @@ where
 
     /// Check if there are any in-flight evaluations.
     pub fn has_evaluating(&self) -> bool {
-        !self.evaluating.is_empty()
+        !self.evaluating.is_empty() || !self.icon_loads.is_empty()
     }
 
     /// True when there are live monitored assets that can publish snapshots.
@@ -775,6 +1131,127 @@ where
     /// True when the UI should keep repainting to surface async updates.
     pub fn needs_repaint(&self) -> bool {
         self.has_evaluating() || self.has_monitoring()
+    }
+
+    /// Phase 6: start loading a theme given as a key or query, and re-read it when it changes.
+    async fn poll_theme(&mut self) {
+        if let Some(query) = self.theme_query.take() {
+            match self.envref.evaluate(&query).await {
+                Ok(asset_ref) => {
+                    let mut notification_rx = asset_ref.subscribe_to_notifications().await;
+                    let _ = notification_rx.borrow_and_update();
+                    self.apply_theme_asset(&asset_ref).await;
+                    self.theme_watch = Some((query, MonitoredAsset { asset_ref, notification_rx }));
+                }
+                Err(e) => {
+                    eprintln!("theme '{query}' could not be evaluated: {e}");
+                    self.record(None, Status::Error, Some(e));
+                }
+            }
+            return;
+        }
+        let changed = match &mut self.theme_watch {
+            Some((query, watch)) if watch.notification_rx.has_changed().unwrap_or(false) => {
+                let removed = matches!(
+                    *watch.notification_rx.borrow_and_update(),
+                    AssetNotificationMessage::Removed
+                );
+                Some((query.clone(), watch.asset_ref.clone(), removed))
+            }
+            Some(_) | None => None,
+        };
+        if let Some((query, asset_ref, removed)) = changed {
+            // The theme's key was rewritten (the asset is replaced) or its value expired:
+            // evaluate the query again on the next run.
+            if removed || matches!(asset_ref.status().await, Status::Expired) {
+                self.theme_watch = None;
+                self.theme_query = Some(query);
+            } else {
+                self.apply_theme_asset(&asset_ref).await;
+            }
+        }
+    }
+
+    /// Composes the theme asset's value over the built-in theme and swaps it into the cell; a
+    /// value that is not a theme keeps the previous one (AC-16).
+    async fn apply_theme_asset(&mut self, asset_ref: &AssetRef<E>) {
+        let snapshot = Self::build_snapshot(asset_ref).await;
+        if let Some(e) = snapshot.error {
+            eprintln!("theme asset failed: {e}");
+            self.record(None, Status::Error, Some(e));
+            return;
+        }
+        let Some(value) = snapshot.value else {
+            return;
+        };
+        match theme_layer_of(&value).and_then(|layer| Theme::compose(&[layer])) {
+            Ok(theme) => {
+                self.theme.set_theme(Arc::new(theme));
+                self.icons.clear();
+            }
+            Err(e) => {
+                eprintln!("theme refused, keeping the previous one: {e}");
+                self.record(None, Status::Error, Some(e));
+            }
+        }
+    }
+
+    /// Starts loading an icon image by key or query into the icon cache (AC-17). The entry stays
+    /// `Pending` until the asset finishes: an asset still queued or evaluating is kept in
+    /// `icon_loads` and finished by [`Self::poll_icons`] on a later run.
+    async fn handle_load_icon(&mut self, key: String) {
+        let query = if key.starts_with('-') { key.clone() } else { format!("-R/{key}") };
+        match self.envref.evaluate(&query).await {
+            Ok(asset_ref) => {
+                if !self.finish_icon(&key, &asset_ref).await {
+                    self.icons.set(&key, IconLoad::Pending);
+                    self.icon_loads.push((key, asset_ref));
+                }
+            }
+            Err(e) => {
+                eprintln!("icon '{key}' could not be loaded: {e}");
+                self.icons.set(&key, IconLoad::Failed);
+            }
+        }
+    }
+
+    /// Records the icon when its asset has finished; `false` while it is still on its way.
+    async fn finish_icon(&mut self, key: &str, asset_ref: &AssetRef<E>) -> bool {
+        let status = asset_ref.status().await;
+        if !status.is_finished() {
+            return false;
+        }
+        let load = match asset_ref.poll_state().await {
+            Some(state) => match state.error_result() {
+                Ok(_) => {
+                    let value = state.data_unchecked();
+                    match value.try_into_bytes().or_else(|_| value.try_into_string().map(String::into_bytes)) {
+                        Ok(bytes) => IconLoad::Ready(Arc::from(bytes.into_boxed_slice())),
+                        Err(_) => IconLoad::Failed,
+                    }
+                }
+                Err(_) => IconLoad::Failed,
+            },
+            None => IconLoad::Failed,
+        };
+        if matches!(load, IconLoad::Failed) {
+            eprintln!("icon '{key}' could not be loaded (status {status:?})");
+        }
+        self.icons.set(key, load);
+        true
+    }
+
+    /// Phase 7: finishes the icon loads whose assets have completed since the last run.
+    async fn poll_icons(&mut self) {
+        if self.icon_loads.is_empty() {
+            return;
+        }
+        let loads = std::mem::take(&mut self.icon_loads);
+        for (key, asset_ref) in loads {
+            if !self.finish_icon(&key, &asset_ref).await {
+                self.icon_loads.push((key, asset_ref));
+            }
+        }
     }
 
     /// Number of currently evaluating nodes.

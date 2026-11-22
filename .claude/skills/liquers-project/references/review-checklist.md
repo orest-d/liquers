@@ -28,8 +28,12 @@ that does not apply is skipped, not padded.
   `specs/reference/VISION.md`.
 - [ ] The design serves a use case or vision point in `specs/reference/VISION.md` and crosses no
   non-goal; a conflict is a finding to raise, not a reason to edit that document.
-- [ ] Documentation intent answers all five: reference, guide, other documents, documents to update,
-  API docs (the modules whose module doc is created or changed, or `none` with the reason).
+- [ ] Documentation intent answers all six: reference, guide, other documents, documents to update,
+  API docs (the modules whose module doc is created or changed, or `none` with the reason), user
+  guides (the `docs/guides/{rust,python,web}/` chapters, or `none` with the reason).
+- [ ] A completely new feature has `## Language Integration`: the change to
+  `LANGUAGE-INTEGRATION_GUIDE.md` (or why none), and for Python and JavaScript one of in scope /
+  later (issue filed and linked) / not needed (reason). An unclear one is an open question.
 
 ## Phase 2: architecture
 
@@ -48,6 +52,8 @@ that does not apply is skipped, not padded.
   `Context` or inferred from the input.
 - [ ] Documentation architecture gives exact paths and changes, the module docs that change (which
   of the five parts of `API_DOCUMENTATION_GUIDE.md` §3), and the proposed `affects_docs`.
+- [ ] Every integration Phase 1 put in scope has its binding changes, tests and integration-guide
+  change named; the user-guide chapters to edit are in the documentation architecture.
 - [ ] The risk table is filled in, with no category left empty without a reason.
 
 ## Phase 3: examples and tests
@@ -87,6 +93,8 @@ find.
 - [ ] Planned reference and guide documents exist; `specs/README.md` links to them.
 - [ ] User-guide chapters whose `sources:` intersect `affects_docs` (`docs_index.py chapters-for`)
   reviewed: `reviewed:` and a `HISTORY.md` row, a fix, or a `CHECK:` marker with an issue.
+- [ ] Each Phase 1 language-integration decision held: in-scope bindings shipped and the
+  integration's conformance matrix updated; each deferred one has its issue.
 - [ ] Completed issues `closed` with a resolution note; discovered problems triaged, each with its
   outcome.
 - [ ] `python3 scripts/docs_index.py --check` passes.

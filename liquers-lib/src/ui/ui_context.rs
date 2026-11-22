@@ -1,8 +1,42 @@
+//! The context every UI element renders with: shared state, messages, metadata and the theme.
+//!
+//! # Main components
+//!
+//! - [`UIContext`]: the shared `AppState`, the message sender, the current element's handle, the
+//!   command metadata registry ([`UIContext::command_registry`]), the theme
+//!   ([`UIContext::theme`], [`UIContext::theme_cell`]) and icon images loaded by key
+//!   ([`UIContext::icon_bytes`]). Its methods submit queries, send events and request quit.
+//!
+//! # Where it is used
+//!
+//! - The runner and every host build one (`AppRunner`, `NativeDriver::ui_context`, the browser
+//!   mount); `show_in_egui` and the web renderers of every element receive it.
+//!
+//! # Related concepts
+//!
+//! - [`super::theme::ThemeCell`]: the theme a host swaps; [`super::message::AppMessage`]: what
+//!   the context sends.
+//!
+//! # Examples
+//!
+//! ```
+//! use std::sync::Arc;
+//! use liquers_lib::ui::{app_message_channel, AppState, DirectAppState, UIContext};
+//!
+//! let state: Arc<tokio::sync::Mutex<dyn AppState>> = Arc::new(tokio::sync::Mutex::new(DirectAppState::new()));
+//! let (sender, _receiver) = app_message_channel();
+//! let ctx = UIContext::new(state, sender);
+//! assert!(ctx.handle().is_none() && ctx.theme_cell().is_none());
+//! ```
+
 use std::sync::Arc;
+
+use liquers_core::command_metadata::CommandMetadataRegistry;
 
 use super::app_state::AppState;
 use super::handle::UIHandle;
 use super::message::{AppMessage, AppMessageSender};
+use super::theme::{IconCache, ThemeCell, ThemeState};
 
 /// Context provided to `show_in_egui` and other rendering code.
 ///
@@ -19,6 +53,12 @@ pub struct UIContext {
     app_state: Arc<tokio::sync::Mutex<dyn AppState>>,
     sender: AppMessageSender,
     current_handle: Option<UIHandle>,
+    /// The command metadata registry the editors read (one shared snapshot per runner).
+    command_registry: Option<Arc<CommandMetadataRegistry>>,
+    /// The theme the host or runner owns (`None`: the built-in theme).
+    theme: Option<ThemeCell>,
+    /// Icon images loaded by key, shared per runner.
+    icon_cache: IconCache,
 }
 
 impl UIContext {
@@ -27,7 +67,58 @@ impl UIContext {
             app_state,
             sender,
             current_handle: None,
+            command_registry: None,
+            theme: None,
+            icon_cache: IconCache::default(),
         }
+    }
+
+    /// Return a new UIContext carrying the command metadata registry (builder pattern).
+    pub fn with_command_registry(mut self, registry: Arc<CommandMetadataRegistry>) -> Self {
+        self.command_registry = Some(registry);
+        self
+    }
+
+    /// Return a new UIContext reading the theme from `cell` (builder pattern).
+    pub fn with_theme(mut self, cell: ThemeCell) -> Self {
+        self.theme = Some(cell);
+        self
+    }
+
+    /// Return a new UIContext sharing `cache` for icon images loaded by key.
+    pub fn with_icon_cache(mut self, cache: IconCache) -> Self {
+        self.icon_cache = cache;
+        self
+    }
+
+    /// The current theme, mode and default density (AC-16): the built-in theme when the host gave
+    /// no cell. Reading it never locks the app state.
+    pub fn theme(&self) -> ThemeState {
+        match &self.theme {
+            Some(cell) => cell.get(),
+            None => ThemeState::default(),
+        }
+    }
+
+    /// The theme cell, when the host gave one.
+    pub fn theme_cell(&self) -> Option<&ThemeCell> {
+        self.theme.as_ref()
+    }
+
+    /// The bytes of an icon image loaded by `key` (AC-17), requesting the load on first ask;
+    /// `None` until the runner has loaded it, or when it failed.
+    pub fn icon_bytes(&self, key: &str) -> Option<Arc<[u8]>> {
+        let (bytes, first) = self.icon_cache.get_or_mark(key);
+        if first {
+            let _ = self.sender.send(AppMessage::LoadIcon { key: key.to_string() });
+        }
+        bytes
+    }
+
+    /// The command metadata registry, when the host provided one: what the query, action,
+    /// resource and key editors read their widgets and documentation from.
+    pub fn command_registry(&self) -> Option<&Arc<CommandMetadataRegistry>> {
+        self.command_registry.as_ref()
     }
 
     /// Access the shared AppState mutex.

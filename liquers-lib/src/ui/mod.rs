@@ -53,6 +53,7 @@
 pub mod action;
 pub mod app_state;
 pub mod commands;
+pub mod editor;
 pub mod element;
 pub mod event;
 pub mod handle;
@@ -63,6 +64,7 @@ pub mod resolve;
 pub mod native;
 pub mod runner;
 pub mod shortcuts;
+pub mod theme;
 pub mod ui_context;
 #[cfg(feature = "webui")]
 pub mod web;
