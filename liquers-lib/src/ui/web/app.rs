@@ -1,10 +1,35 @@
-//! Web backend entry points: SSR rendering (all targets) and, on wasm, the browser mount
-//! + driver.
+//! Web backend entry points: SSR rendering (all targets) and, on wasm, the browser mount and its
+//! driver loop.
 //!
-//! The wasm browser driver (`mount_web`, `MountHandle`, `render_element_dom`) is implemented
-//! in the M4 milestone, where it is built and exercised via `trunk` + Playwright; it only
-//! compiles for `target_arch = "wasm32"`. SSR (`render_app_ssr`) works on every target and is
-//! covered by native tests.
+//! # Main components
+//!
+//! - [`render_app_ssr`]: every root of an `AppState` as one HTML fragment, on every target.
+//! - On `wasm32` with `webui`: `mount_web` / `MountHandle` (the browser mount, its click, change
+//!   and keydown listeners and the per-tick DOM patch) and `MountOptions`, whose `ui` field is the
+//!   `ui:` configuration section. The theme is written as a `<style id="lq-theme">` of CSS
+//!   custom properties ([`crate::ui::theme::Theme::to_css`]) and rewritten when the theme
+//!   generation changes; a `system` mode follows `prefers-color-scheme`.
+//!
+//! # Where it is used
+//!
+//! - `liquers-web`'s `mountUI`, the `examples-web` demos and native SSR tests.
+//!
+//! # Related concepts
+//!
+//! - `crate::ui::runner::AppRunner`: the runner the driver loop runs; `crate::ui::web::editor`:
+//!   the editor HTML whose events (`ed:…`) the listeners send back.
+//!
+//! # Examples
+//!
+//! ```
+//! use std::sync::Arc;
+//! use liquers_lib::ui::{AppState, DirectAppState};
+//!
+//! let state: Arc<tokio::sync::Mutex<dyn AppState>> = Arc::new(tokio::sync::Mutex::new(DirectAppState::new()));
+//! let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+//! let html = runtime.block_on(liquers_lib::ui::web::app::render_app_ssr(&state)).unwrap();
+//! assert!(html.is_empty());
+//! ```
 
 use std::sync::Arc;
 
@@ -48,6 +73,7 @@ mod browser {
     use crate::ui::payload::{SimpleUIPayload, UIPayload};
     use crate::ui::runner::{AppRunner, RunnerEvent};
     use crate::ui::shortcuts::KeyboardShortcut;
+    use crate::ui::theme::{Density, IconCache, ThemeCell, ThemeMode, ThemeState, UiConfig};
     use crate::ui::ui_context::UIContext;
     use crate::ui::web::keys::{route_keydown, KeyPress, KeyRoute, KeyTarget};
     use crate::value::Value;
@@ -117,6 +143,10 @@ mod browser {
         pub current_env: Option<Box<dyn FnMut() -> Option<EnvRef<E>>>>,
         /// Called after each tick with the tick's runner events, the DOM updated and no lock held.
         pub on_tick: Option<Box<dyn FnMut(Vec<RunnerEvent>)>>,
+        /// The `ui` section: theme, mode and density (`query-editor-ergonomics`, AC-16). The
+        /// mount writes the theme as `<style id="lq-theme">` and rewrites it when a theme given
+        /// by key changes. `None` is the built-in theme following the system's mode.
+        pub ui: Option<UiConfig>,
     }
 
     impl<E: Environment> MountOptions<E> {
@@ -126,6 +156,7 @@ mod browser {
                 envref,
                 current_env: None,
                 on_tick: None,
+                ui: None,
             }
         }
     }
@@ -642,6 +673,41 @@ mod browser {
         mount_web_with(root, MountOptions::new(envref), app_state, sender, receiver).await
     }
 
+    /// Writes the theme and the editor stylesheet into `<style id="lq-theme">` (created in the
+    /// document head on first use), and the mode and density as attributes of `root`.
+    fn write_theme(root: &web_sys::Element, state: &ThemeState, ui: &UiConfig) {
+        let Some(doc) = web_sys::window().and_then(|w| w.document()) else {
+            return;
+        };
+        let css = format!("{}{}", state.theme.to_css(), crate::ui::web::editor::EDITOR_CSS);
+        let style = match doc.get_element_by_id("lq-theme") {
+            Some(style) => Some(style),
+            None => doc.create_element("style").ok().and_then(|style| {
+                style.set_id("lq-theme");
+                let parent = doc.query_selector("head").ok().flatten().or_else(|| doc.body().map(Into::into))?;
+                parent.append_child(&style).ok()?;
+                Some(style)
+            }),
+        };
+        if let Some(style) = style {
+            style.set_text_content(Some(&css));
+        }
+        if ui.follows_system() {
+            let _ = root.remove_attribute("data-lq-theme");
+        } else {
+            let mode = match state.mode {
+                ThemeMode::Dark => "dark",
+                ThemeMode::Light => "light",
+            };
+            let _ = root.set_attribute("data-lq-theme", mode);
+        }
+        let density = match state.density {
+            Density::Comfortable => "comfortable",
+            Density::Compact => "compact",
+        };
+        let _ = root.set_attribute("data-lq-density", density);
+    }
+
     /// [`mount_web`] with options: an environment that can change while mounted, and a callback
     /// after each tick that receives the runner's status events.
     pub async fn mount_web_with<E>(
@@ -659,9 +725,16 @@ mod browser {
             envref,
             current_env,
             mut on_tick,
+            ui,
         } = options;
+        let ui = ui.unwrap_or_default();
+        let cell = ui.cell(true); // the CSS follows the system's mode by itself
+        let icons = IconCache::default();
+        write_theme(&root, &cell.get(), &ui);
         let ctx = UIContext::new(app_state.clone(), sender.clone())
-            .with_command_registry(envref.command_metadata_snapshot());
+            .with_command_registry(envref.command_metadata_snapshot())
+            .with_theme(cell.clone())
+            .with_icon_cache(icons.clone());
 
         let click_ctx = ctx.clone();
         let click = Closure::wrap(Box::new(move |ev: web_sys::Event| {
@@ -692,15 +765,23 @@ mod browser {
 
         let paint_root = root.clone();
         let paint_state = app_state.clone();
+        let theme_cell = cell.clone();
+        let theme_ui = ui.clone();
+        let mut theme_generation = cell.get().generation;
         let after_run: Box<dyn FnMut(Invalidation, Vec<RunnerEvent>)> =
             Box::new(move |invalidation, events| {
+                let theme = theme_cell.get();
+                if theme.generation != theme_generation {
+                    theme_generation = theme.generation;
+                    write_theme(&paint_root, &theme, &theme_ui);
+                }
                 apply_invalidation(&paint_root, &paint_state, &invalidation);
                 if let Some(f) = on_tick.as_mut() {
                     f(events);
                 }
             });
         let stopped =
-            spawn_driver_loop(envref, current_env, app_state, sender, receiver, after_run);
+            spawn_driver_loop(envref, current_env, app_state, sender, receiver, after_run, Some((ui, cell, icons)));
 
         Ok(MountHandle {
             dom: Some(DomParts {
@@ -724,6 +805,7 @@ mod browser {
         sender: AppMessageSender,
         receiver: AppMessageReceiver,
         mut after_run: Box<dyn FnMut(Invalidation, Vec<RunnerEvent>)>,
+        theme: Option<(UiConfig, ThemeCell, IconCache)>,
     ) -> Rc<Cell<bool>>
     where
         E: Environment<Value = Value>,
@@ -733,6 +815,9 @@ mod browser {
         let loop_stopped = stopped.clone();
         let mut current = envref.clone();
         let mut runner = AppRunner::new(envref, receiver, sender);
+        if let Some((ui, cell, icons)) = theme {
+            runner = runner.with_ui_config(&ui, cell).with_icon_cache(icons);
+        }
         wasm_bindgen_futures::spawn_local(async move {
             loop {
                 if loop_stopped.get() {
@@ -797,7 +882,7 @@ mod browser {
             current_env,
             on_tick,
         } = options;
-        let stopped = spawn_driver_loop(envref, current_env, app_state, sender, receiver, on_tick);
+        let stopped = spawn_driver_loop(envref, current_env, app_state, sender, receiver, on_tick, None);
         Ok(MountHandle { dom: None, stopped })
     }
 }

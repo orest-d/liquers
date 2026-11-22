@@ -1,3 +1,34 @@
+//! Column and row selection of the `pl` namespace: pick or drop columns, take rows.
+//!
+//! # Main components
+//!
+//! - [`select_columns`], [`drop_columns`], [`tail`] and [`slice`], plus `head` as an alias of
+//!   `slice` with its own label, presets (`head-5`, `head-10`, …) and next presets; registered by
+//!   `register_polars_selection_commands!` (or [`register_commands`]).
+//!
+//! # Where it is used
+//!
+//! - [`crate::polars::register_commands`] and `register_polars_commands!` register every `pl`
+//!   command; the query editor draws each with its label and icon.
+//!
+//! # Related concepts
+//!
+//! - `specs/reference/POLARS_COMMAND_LIBRARY.md`: the command set; `super::util`: DataFrame access.
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_core::context::Environment;
+//! use liquers_lib::environment::{CommandRegistryAccess, DefaultEnvironment};
+//! use liquers_lib::value::Value;
+//!
+//! let mut env = DefaultEnvironment::<Value>::new();
+//! liquers_lib::polars::selection::register_commands(env.get_mut_command_registry()).unwrap();
+//! let registry = env.get_command_metadata_registry();
+//! let md = registry.commands.iter().find(|m| m.namespace == "pl" && m.name == "head").unwrap();
+//! assert_eq!(md.hints.get("icon"), Some(&serde_json::json!("rows")));
+//! ```
+
 use crate::value::{ExtValueInterface, Value};
 use liquers_core::{
     context::Context, error::Error, state::State,
@@ -105,6 +136,7 @@ macro_rules! register_polars_selection_commands {
             fn select_columns(state, columns: Vec<String> multiple) -> result
             namespace: "pl"
             label: "Select columns"
+            hint icon: "columns"
             doc: "Select columns by name, one parameter per column"
 
         version: auto
@@ -114,6 +146,7 @@ macro_rules! register_polars_selection_commands {
             fn drop_columns(state, columns: Vec<String> multiple) -> result
             namespace: "pl"
             label: "Drop columns"
+            hint icon: "minus-circle"
             doc: "Remove columns by name, one parameter per column"
 
         version: auto
@@ -123,6 +156,7 @@ macro_rules! register_polars_selection_commands {
             fn tail(state, n: i32 = 5) -> result
             namespace: "pl"
             label: "Get last rows"
+            hint icon: "rows"
             doc: "Return last N rows (default: 5)"
 
         version: auto
@@ -132,6 +166,7 @@ macro_rules! register_polars_selection_commands {
             fn slice(state, offset: i32, length: i32) -> result
             namespace: "pl"
             label: "Slice rows"
+            hint icon: "scissors"
             doc: "Extract rows by range (offset, length)"
 
         version: auto
@@ -139,15 +174,22 @@ macro_rules! register_polars_selection_commands {
 
         // `head` is `slice` from the first row: an alias, not a second implementation.
         // See specs/reference/COMMAND_ALIASES.md.
-        $cr.register_alias(
+        let head = $cr.register_alias(
             liquers_core::command_metadata::CommandKey::new("", "pl", "head"),
             liquers_core::command_metadata::CommandKey::new("", "pl", "slice"),
             vec![liquers_core::command_metadata::CommandParameterValue::Value(0.into())],
             vec![liquers_core::command_metadata::ArgumentInfo::integer_argument("n", false)
-                .with_default(5)],
-        )?
-        .with_label("Get first rows")
-        .with_doc("Return first N rows (default: 5)");
+                .with_default(5)
+                .with_label("Number of rows")],
+        )?;
+        head.with_label("Get first rows")
+            .with_doc("Return first N rows (default: 5)")
+            .with_hint("icon", serde_json::json!("rows"));
+        for (query, label) in [("head-5", "Top 5"), ("head-10", "Top 10"), ("head-20", "Top 20"), ("head-100", "Top 100")] {
+            head.presets.push(liquers_core::command_metadata::CommandPreset::new(query, label, "")?);
+        }
+        head.next.push(liquers_core::command_metadata::CommandPreset::new("sort", "Sort", "Sort the rows")?);
+        head.next.push(liquers_core::command_metadata::CommandPreset::new("describe", "Describe", "Summary statistics")?);
 
         Ok::<(), liquers_core::error::Error>(())
     }};

@@ -76,6 +76,7 @@ use super::app_state::{AppState, Invalidation};
 use super::message::{AppMessageReceiver, AppMessageSender};
 use super::payload::{SimpleUIPayload, UIPayload};
 use super::runner::{AppRunner, RunnerEvent};
+use super::theme::UiConfig;
 use super::ui_context::UIContext;
 
 /// A closure that names the environment later evaluations should use, or `None` to keep the
@@ -147,6 +148,19 @@ where
         self
     }
 
+    /// Takes the theme, mode and density from a `ui:` configuration section (AC-16):
+    /// `system_dark` answers a `system` mode until the host learns the platform's preference.
+    /// A theme given as a key or query is loaded on the next tick and reloaded when it changes.
+    pub fn with_ui_config(mut self, ui: &UiConfig, system_dark: bool) -> Self {
+        self.set_ui_config(ui, system_dark);
+        self
+    }
+
+    /// [`NativeDriver::with_ui_config`] in place.
+    pub fn set_ui_config(&mut self, ui: &UiConfig, system_dark: bool) {
+        self.runner.set_ui_config(ui, ui.cell(system_dark));
+    }
+
     /// The shared `AppState`.
     pub fn app_state(&self) -> &Arc<tokio::sync::Mutex<dyn AppState>> {
         &self.app_state
@@ -157,6 +171,8 @@ where
     pub fn ui_context(&self) -> UIContext {
         UIContext::new(self.app_state.clone(), self.sender.clone())
             .with_command_registry(self.runner.command_registry().clone())
+            .with_theme(self.runner.theme_cell().clone())
+            .with_icon_cache(self.runner.icon_cache().clone())
     }
 
     /// The counter a host increments after each change it makes to the model from outside a

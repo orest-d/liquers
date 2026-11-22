@@ -68,6 +68,9 @@
 mod catalog;
 mod command;
 mod element;
+mod keys;
+mod layout;
+mod spans;
 mod state;
 mod tree;
 mod view;
@@ -75,13 +78,18 @@ mod view;
 pub use catalog::command_catalog;
 pub use command::{EditorCommand, EditorEffect, NewElement};
 pub use element::{EditorBinding, EditorElement};
+pub use keys::{editor_keymap, keymap_table, shortcut_text, EditorKey, KeyScope};
+pub use layout::{
+    card_marks, command_id, editor_layout, form_rows, header_parts, node_label, simple_card, toolbar_items, Card,
+    CardGroup, CardGroupKind, CardMarks, EditorLayout, EditorMode, FormRow, HeaderPart, StepChip, ToolItem,
+};
 pub use state::{EditorKind, EditorState};
 pub use tree::{
     default_text, effective_gui, is_numeric, json_text, scale_numeric, Browser, CatalogCommand,
     CatalogNamespace, Confirmation, DirectoryEntry, DirectoryListing, EditorField, EditorNode,
-    EditorTree, FieldValue, NodePath, PathStep, Picker, PresetEntry, RESOURCE_HEADERS,
+    EditorTree, FieldValue, NodePath, PathStep, Picker, PresetEntry, SpanTarget, TextSpan, RESOURCE_HEADERS,
 };
-pub use view::{event_name, field_id, find_node, EditorView};
+pub use view::{event_name, field_id, find_node, CardMenu, EditorView, FocusTarget};
 
 #[cfg(test)]
 mod tests;

@@ -1,3 +1,35 @@
+//! The `img` commands: loading, transforming, filtering and saving images, as one macro.
+//!
+//! # Main components
+//!
+//! - `register_image_commands!`: registers every `img` command with its label and `hint icon`,
+//!   and presets on `img/blur` (`blur-1`, `blur-3`, `blur-8`) and `img/rotate` (`rotate-90`,
+//!   `rotate-180`, `rotate-270`).
+//! - [`register_commands`]: the same, on a [`DefaultEnvironment`] taken by value.
+//!
+//! # Where it is used
+//!
+//! - `crate::commands::register_all_commands_fn` (with `image-support` on); the query editor draws
+//!   each command with its label and icon.
+//!
+//! # Related concepts
+//!
+//! - The command functions in the sibling modules of `crate::image`; images are
+//!   `ExtValue::Image` values.
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_core::context::Environment;
+//! use liquers_lib::environment::DefaultEnvironment;
+//! use liquers_lib::value::Value;
+//!
+//! let env = liquers_lib::image::commands::register_commands(DefaultEnvironment::<Value>::new()).unwrap();
+//! let registry = env.get_command_metadata_registry();
+//! let blur = registry.commands.iter().find(|m| m.namespace == "img" && m.name == "blur").unwrap();
+//! assert_eq!(blur.presets.len(), 3);
+//! ```
+
 use crate::environment::CommandRegistryAccess;
 use crate::environment::DefaultEnvironment;
 use crate::value::Value;
@@ -16,6 +48,7 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn from_bytes(state) -> result
             label: "From bytes"
+            hint icon: "image"
             doc: "Load image from bytes with auto-detected format"
             ns: "img"
 
@@ -30,6 +63,7 @@ macro_rules! register_image_commands {
                 )
             ) -> result
             label: "From format"
+            hint icon: "image"
             doc: "Load image from bytes with explicitly specified format"
             ns: "img"
 
@@ -39,6 +73,7 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn svg_to_image(state, width: u32, height: u32) -> result
             label: "SVG to image"
+            hint icon: "file-svg"
             doc: "Render SVG to raster image with specified dimensions"
             ns: "img"
 
@@ -49,6 +84,7 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn to_png(state) -> result
             label: "To PNG"
+            hint icon: "file-image"
             doc: "Convert image to PNG format (returns bytes)"
             ns: "img"
 
@@ -58,6 +94,7 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn to_jpeg(state, quality: u8 = 85) -> result
             label: "To JPEG"
+            hint icon: "file-image"
             doc: "Convert image to JPEG format with specified quality (1-100)"
             ns: "img"
 
@@ -72,6 +109,7 @@ macro_rules! register_image_commands {
                 )
             ) -> result
             label: "To data URL"
+            hint icon: "link"
             doc: "Convert image to base64 data URL with specified format (png, jpeg, webp, etc.)"
             ns: "img"
 
@@ -103,6 +141,7 @@ macro_rules! register_image_commands {
                 )
             ) -> result
             label: "Resize"
+            hint icon: "arrows-out"
             doc: "Resize image to exact dimensions in pixels"
             ns: "img"
 
@@ -118,6 +157,7 @@ macro_rules! register_image_commands {
                 )
             ) -> result
             label: "Resize by percentage"
+            hint icon: "arrows-out"
             doc: "Resize image by percentage (uniform scaling)"
             ns: "img"
 
@@ -134,6 +174,7 @@ macro_rules! register_image_commands {
                 )
             ) -> result
             label: "Thumbnail"
+            hint icon: "arrows-out"
             doc: "Resize image preserving aspect ratio (fits within max dimensions)"
             ns: "img"
 
@@ -143,6 +184,7 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn crop(state, x: u32, y: u32, width: u32, height: u32) -> result
             label: "Crop"
+            hint icon: "crop"
             doc: "Crop image to rectangle (x, y, width, height)"
             ns: "img"
 
@@ -152,6 +194,10 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn rotate(state, angle: f32) -> result
             label: "Rotate"
+            hint icon: "arrow-clockwise"
+            preset: "rotate-90" (label: "90°")
+            preset: "rotate-180" (label: "180°")
+            preset: "rotate-270" (label: "270°")
             doc: "Rotate image by arbitrary angle in degrees (positive = clockwise)"
             ns: "img"
 
@@ -161,6 +207,7 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn rot90(state) -> result
             label: "Rotate 90°"
+            hint icon: "arrow-clockwise"
             doc: "Rotate image 90 degrees clockwise"
             ns: "img"
 
@@ -170,6 +217,7 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn rot180(state) -> result
             label: "Rotate 180°"
+            hint icon: "arrow-clockwise"
             doc: "Rotate image 180 degrees"
             ns: "img"
 
@@ -179,6 +227,7 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn rot270(state) -> result
             label: "Rotate 270°"
+            hint icon: "arrow-clockwise"
             doc: "Rotate image 270 degrees clockwise (90 degrees counter-clockwise)"
             ns: "img"
 
@@ -188,6 +237,7 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn fliph(state) -> result
             label: "Flip horizontal"
+            hint icon: "flip-horizontal"
             doc: "Flip image horizontally"
             ns: "img"
 
@@ -197,6 +247,7 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn flipv(state) -> result
             label: "Flip vertical"
+            hint icon: "flip-vertical"
             doc: "Flip image vertically"
             ns: "img"
 
@@ -207,6 +258,7 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn gray(state) -> result
             label: "Grayscale"
+            hint icon: "drop-half"
             doc: "Convert image to grayscale"
             ns: "img"
 
@@ -216,6 +268,7 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn invert(state) -> result
             label: "Invert"
+            hint icon: "circle-half"
             doc: "Invert image colors (negative)"
             ns: "img"
 
@@ -225,6 +278,7 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn brighten(state, value: i32) -> result
             label: "Brighten"
+            hint icon: "sun"
             doc: "Adjust brightness (positive = brighten, negative = darken)"
             ns: "img"
 
@@ -234,6 +288,7 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn contrast(state, value: f32) -> result
             label: "Contrast"
+            hint icon: "circle-half-tilt"
             doc: "Adjust contrast (positive = increase, negative = decrease)"
             ns: "img"
 
@@ -253,6 +308,10 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn blur(state, sigma: f32) -> result
             label: "Blur"
+            hint icon: "drop"
+            preset: "blur-1" (label: "Light")
+            preset: "blur-3" (label: "Medium")
+            preset: "blur-8" (label: "Strong")
             doc: "Apply Gaussian blur with specified sigma value"
             ns: "img"
 
@@ -262,6 +321,7 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn sharpen(state) -> result
             label: "Sharpen"
+            hint icon: "diamond"
             doc: "Sharpen image using unsharp mask"
             ns: "img"
 
@@ -272,6 +332,7 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn dims(state) -> result
             label: "Dimensions"
+            hint icon: "ruler"
             doc: "Get image dimensions as 'WIDTHxHEIGHT' string"
             ns: "img"
 
@@ -281,6 +342,7 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn width(state) -> result
             label: "Width"
+            hint icon: "ruler"
             doc: "Get image width in pixels"
             ns: "img"
 
@@ -290,6 +352,7 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn height(state) -> result
             label: "Height"
+            hint icon: "ruler"
             doc: "Get image height in pixels"
             ns: "img"
 
@@ -311,6 +374,7 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn to_webp(state) -> result
             label: "To WebP"
+            hint icon: "file-image"
             doc: "Convert image to WebP format (returns bytes)"
             ns: "img"
 
@@ -320,6 +384,7 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn to_gif(state) -> result
             label: "To GIF"
+            hint icon: "file-image"
             doc: "Convert image to GIF format (returns bytes)"
             ns: "img"
 
@@ -329,6 +394,7 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn to_bmp(state) -> result
             label: "To BMP"
+            hint icon: "file-image"
             doc: "Convert image to BMP format (returns bytes)"
             ns: "img"
 
@@ -414,6 +480,7 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn draw_line(state, x1: i32, y1: i32, x2: i32, y2: i32, color_str: String) -> result
             label: "Draw line"
+            hint icon: "line-segment"
             doc: "Draw line from (x1,y1) to (x2,y2) with specified color"
             ns: "img"
 
@@ -423,6 +490,7 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn draw_rect(state, x: i32, y: i32, width: u32, height: u32, color_str: String) -> result
             label: "Draw rectangle"
+            hint icon: "square"
             doc: "Draw rectangle outline at (x,y) with specified dimensions and color"
             ns: "img"
 
@@ -432,6 +500,7 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn draw_filled_rect(state, x: i32, y: i32, width: u32, height: u32, color_str: String) -> result
             label: "Draw filled rectangle"
+            hint icon: "square"
             doc: "Draw filled rectangle at (x,y) with specified dimensions and color"
             ns: "img"
 
@@ -441,6 +510,7 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn draw_circle(state, x: i32, y: i32, radius: i32, color_str: String) -> result
             label: "Draw circle"
+            hint icon: "circle"
             doc: "Draw circle outline at (x,y) with specified radius and color"
             ns: "img"
 
@@ -450,6 +520,7 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn draw_filled_circle(state, x: i32, y: i32, radius: i32, color_str: String) -> result
             label: "Draw filled circle"
+            hint icon: "circle"
             doc: "Draw filled circle at (x,y) with specified radius and color"
             ns: "img"
 
@@ -459,6 +530,7 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn draw_text(state, x: i32, y: i32, text: String, size: f32, color_str: String) -> result
             label: "Draw text"
+            hint icon: "text-t"
             doc: "Draw text at (x,y) with specified font size and color"
             ns: "img"
 
@@ -469,6 +541,7 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn sobel(state) -> result
             label: "Sobel edge detection"
+            hint icon: "graph"
             doc: "Apply Sobel edge detection (horizontal + vertical edges)"
             ns: "img"
 
@@ -478,6 +551,7 @@ macro_rules! register_image_commands {
         register_command!($cr,
             fn canny(state, low_threshold: f32, high_threshold: f32) -> result
             label: "Canny edge detection"
+            hint icon: "graph"
             doc: "Apply Canny edge detection with low and high thresholds"
             ns: "img"
 

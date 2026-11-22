@@ -2,7 +2,7 @@
 title: Troubleshooting
 status: ready
 sources: [reference/PROJECT_OVERVIEW.md, guides/COMMAND_REGISTRATION_GUIDE.md, guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md]
-reviewed: 2026-11-14
+reviewed: 2026-11-21
 ---
 # 15. Troubleshooting
 
