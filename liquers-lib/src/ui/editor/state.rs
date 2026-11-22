@@ -273,12 +273,13 @@ fn action_text(a: &ActionElement) -> String {
     out
 }
 
-fn preset_entries(presets: &[liquers_core::command_metadata::CommandPreset]) -> Vec<PresetEntry> {
+fn preset_entries(presets: &[liquers_core::command_metadata::CommandPreset], current: Option<&str>) -> Vec<PresetEntry> {
     presets
         .iter()
         .map(|p| PresetEntry {
             label: if p.label.is_empty() { p.action.encode() } else { p.label.clone() },
             description: p.description.clone(),
+            active: current.is_some_and(|c| c == p.action.encode()),
         })
         .collect()
 }
@@ -931,6 +932,9 @@ impl EditorState {
                             EditorKind::Query | EditorKind::Action | EditorKind::Key => nodes,
                         };
                         tree.filename = editor.pipeline().filename.clone().unwrap_or_default();
+                        if self.kind == EditorKind::Query {
+                            tree.spans = super::spans::spans_of(&tree.text, editor, &NodePath::default(), 0, &self.registry);
+                        }
                     }
                     tree.filename_default = self
                         .last_action_metadata()
@@ -945,7 +949,15 @@ impl EditorState {
             tree.text = text.clone();
             tree.text_note = Some(error.clone());
             tree.stale = true;
+            tree.spans.clear();
         }
+        tree.show_realm = {
+            let mut realms = self.registry.commands.iter().map(|c| c.realm.as_str());
+            match realms.next() {
+                Some(first) => realms.any(|r| r != first),
+                None => false,
+            }
+        };
         if let Some((insert_at, filter)) = &self.picker {
             let realm = self
                 .root
@@ -1150,7 +1162,11 @@ fn action_node(
             presets: info
                 .presets
                 .iter()
-                .map(|p| PresetEntry { label: p.name().to_string(), description: p.description().to_string() })
+                .map(|p| PresetEntry {
+                    label: p.name().to_string(),
+                    description: p.description().to_string(),
+                    active: false,
+                })
                 .collect(),
             numeric_index,
         });
@@ -1176,11 +1192,12 @@ fn action_node(
         command: md.key(),
         label: if md.label.is_empty() { md.name.clone() } else { md.label.clone() },
         doc: md.doc.clone(),
-        presets: preset_entries(&md.presets),
-        next: preset_entries(&md.next),
+        presets: preset_entries(&md.presets, Some(&action_text(action))),
+        next: preset_entries(&md.next, None),
         filename: if md.filename.is_empty() { None } else { Some(md.filename.clone()) },
         fields,
         excess,
+        hint_icon: md.hints.get("icon").and_then(|v| crate::ui::theme::Icon::from_hint(v).ok()),
     }
 }
 

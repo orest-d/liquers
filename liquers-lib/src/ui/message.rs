@@ -102,6 +102,8 @@ pub enum AppMessage {
     /// List the store directory `folder` for an editor's file selector; the result comes back
     /// as `UpdateMessage::Directory`.
     ListDirectory { handle: UIHandle, folder: String },
+    /// Load the icon image at store key or query `key` into the context's icon cache (AC-17).
+    LoadIcon { key: String },
     /// Request application quit.
     Quit,
     /// Save application state to disk.

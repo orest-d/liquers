@@ -1,13 +1,15 @@
 //! UI-local editor state shared by the renderers, and the markup names the browser renderer and
 //! [`EditorView::from_ui_event`] agree on.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::ops::Range;
 
 use liquers_core::command_metadata::CommandKey;
 use liquers_core::value::ValueInterface;
 
 use super::command::{EditorCommand, NewElement};
-use super::tree::{EditorNode, EditorTree, FieldValue, NodePath};
+use super::layout::{simple_card, EditorMode};
+use super::tree::{EditorNode, EditorTree, FieldValue, NodePath, PathStep, SpanTarget};
 use crate::ui::event::{UIEvent, UIEventKind};
 
 /// What the user is typing, between frames: text buffers keyed by field id, so a field keeps
@@ -20,9 +22,135 @@ pub struct EditorView {
     pub buffers: HashMap<String, (String, String)>,
     /// The namespace to append, per `ns` node path id.
     pub new_namespace: HashMap<String, String>,
+    /// What has keyboard focus (AC-9), when the editor has it.
+    pub focus: Option<FocusTarget>,
+    /// Collapsed cards, by node path id (AC-4).
+    pub collapsed: HashSet<String>,
+    /// The text range a field was jumped to from, so `Ctrl+J` in the field jumps back (AC-10).
+    pub jump_back: Option<Range<usize>>,
+    /// A jump waiting for the typed text to be committed and the tree rebuilt: the text offset.
+    pub pending_jump: Option<usize>,
+    /// A jump target that Simple mode does not show; the renderer offers "Open in Advanced".
+    pub simple_offer: Option<NodePath>,
+    /// `focus` changed in code: the renderer moves its keyboard focus there on the next frame.
+    pub focus_pending: bool,
+    /// A card list opened from the keyboard (`Alt+P`, `Alt+Shift+N`, `Ctrl+Space`).
+    pub open_menu: Option<(NodePath, CardMenu)>,
+    /// The field last committed, by [`field_id`]: a refused edit's message shows under it.
+    pub last_field: Option<String>,
+}
+
+/// A list a card shows on request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CardMenu {
+    Presets,
+    Next,
+    /// The presets or alternatives of one argument.
+    Argument(String),
+}
+
+/// In Simple mode a link stays its field's text, so a target inside a link focuses the link's
+/// own argument field.
+fn simple_target(path: &NodePath, target: FocusTarget) -> FocusTarget {
+    match (path.0.first(), path.0.get(1)) {
+        (Some(first), Some(PathStep::Argument(arg))) => {
+            FocusTarget::Field { path: NodePath(vec![first.clone()]), arg: arg.clone(), item: None }
+        }
+        (Some(_), Some(_)) | (Some(_), None) | (None, _) => target,
+    }
+}
+
+/// What has keyboard focus in an editor (AC-9).
+#[derive(Debug, Clone, PartialEq)]
+pub enum FocusTarget {
+    /// The query text.
+    Text,
+    /// A card header.
+    Node(NodePath),
+    /// A field of a card; `item` is a variadic item.
+    Field { path: NodePath, arg: String, item: Option<usize> },
 }
 
 impl EditorView {
+    /// `Ctrl+J` in the query text with the cursor at byte `offset` (AC-10). When the typed text
+    /// is not the tree's yet, the jump waits ([`EditorView::pending_jump`]) and the returned
+    /// `SetText` commits it; [`EditorView::resume_jump`] finishes it after the rebuild. Otherwise
+    /// focus moves to the field under the cursor, or, for a node Simple mode does not show,
+    /// [`EditorView::simple_offer`] is set. Returns the command to apply, if any.
+    pub fn jump_from_text(&mut self, tree: &EditorTree, mode: EditorMode, offset: usize) -> Option<EditorCommand> {
+        if let Some((typed, _)) = &self.text {
+            if typed != &tree.text {
+                self.pending_jump = Some(offset);
+                return Some(EditorCommand::SetText(typed.clone()));
+            }
+        }
+        self.pending_jump = None;
+        self.jump_to(tree, mode, offset);
+        None
+    }
+
+    /// Finishes a jump that waited for its text to be committed, once the tree has it.
+    pub fn resume_jump(&mut self, tree: &EditorTree, mode: EditorMode) {
+        let Some(offset) = self.pending_jump else {
+            return;
+        };
+        if self.text.as_ref().is_some_and(|(typed, _)| typed != &tree.text) {
+            return; // not rebuilt yet
+        }
+        self.pending_jump = None;
+        self.jump_to(tree, mode, offset);
+    }
+
+    fn jump_to(&mut self, tree: &EditorTree, mode: EditorMode, offset: usize) {
+        self.simple_offer = None;
+        let Some(span) = tree.locate(offset) else {
+            return;
+        };
+        let target = match &span.target {
+            SpanTarget::Element | SpanTarget::Namespaces => FocusTarget::Node(span.path.clone()),
+            SpanTarget::Argument { arg, item } => {
+                FocusTarget::Field { path: span.path.clone(), arg: arg.clone(), item: *item }
+            }
+        };
+        let target = match mode {
+            EditorMode::Advanced => Some(target),
+            EditorMode::Simple => {
+                let card = simple_card(tree).and_then(|i| tree.nodes.get(i)).map(|n| n.path().clone());
+                let shown = card.as_ref().is_some_and(|c| span.path.0.first() == c.0.first())
+                    && span.target != SpanTarget::Namespaces;
+                if !shown {
+                    let top = span.path.0.first().cloned().map(|s| NodePath(vec![s])).unwrap_or_default();
+                    self.simple_offer = Some(top);
+                    None
+                } else {
+                    Some(simple_target(&span.path, target))
+                }
+            }
+        };
+        if let Some(target) = target {
+            self.jump_back = Some(span.range.clone());
+            self.focus = Some(target);
+            self.focus_pending = true;
+        }
+    }
+
+    /// `Ctrl+J` in a field: the text range to select in the query text, the one the jump came
+    /// from when it was this field, else the focused field's own span (AC-10).
+    pub fn jump_to_text(&mut self, tree: &EditorTree) -> Option<std::ops::Range<usize>> {
+        let (path, target) = match self.focus.as_ref()? {
+            FocusTarget::Text => return None,
+            FocusTarget::Node(path) => (path.clone(), SpanTarget::Element),
+            FocusTarget::Field { path, arg, item } => {
+                (path.clone(), SpanTarget::Argument { arg: arg.clone(), item: *item })
+            }
+        };
+        let range = tree.span_of(&path, &target).or_else(|| self.jump_back.clone())?;
+        self.jump_back = None;
+        self.focus = Some(FocusTarget::Text);
+        self.focus_pending = true;
+        Some(range)
+    }
+
     /// The buffer of field `id`, reset to `current` when the tree's value changed under it.
     pub fn buffer(&mut self, id: &str, current: &str) -> &mut String {
         let entry = self
@@ -53,24 +181,67 @@ impl EditorView {
     pub fn from_ui_event(event: &UIEvent, tree: &EditorTree) -> Vec<EditorCommand> {
         let field_text = |name: &str| event.field(name).and_then(|v| v.try_into_string().ok());
         match &event.kind {
-            UIEventKind::Named(name) => decode_named(name, &field_text).into_iter().collect(),
+            UIEventKind::Named(name) => match name.strip_prefix("ed:resetall:") {
+                Some(rest) => reset_all(rest, tree),
+                None => decode_named(name, &field_text).into_iter().collect(),
+            },
             UIEventKind::Change(field) => match field_text(field) {
                 Some(value) => decode_field(field, &value, tree).into_iter().collect(),
                 None => vec![],
             },
-            UIEventKind::Submit => {
-                let mut out = Vec::new();
-                for (name, value) in event.fields.iter() {
-                    if let Ok(text) = value.try_into_string() {
-                        if let Some(command) = decode_field(name, &text, tree) {
-                            out.push(command);
-                        }
-                    }
-                }
-                out
-            }
+            UIEventKind::Submit => Self::draft_commands(event, tree),
         }
     }
+
+    /// The edits an event's field values carry: one command per field whose value differs from
+    /// the tree (the query text, the filename, keys, headers and arguments). A Submit is these
+    /// edits; a mode switch commits them before switching, so typed text is not lost.
+    pub fn draft_commands(event: &UIEvent, tree: &EditorTree) -> Vec<EditorCommand> {
+        let mut out = Vec::new();
+        for (name, value) in event.fields.iter() {
+            if let Ok(text) = value.try_into_string() {
+                if let Some(command) = decode_field(name, &text, tree) {
+                    out.push(command);
+                }
+            }
+        }
+        out
+    }
+}
+
+impl EditorView {
+    /// The mode a browser event asks for: `ed:mode:<path>:simple` or `…:advanced` (the mode
+    /// switch and the step chips of `ui::web::editor`).
+    pub fn mode_event(event: &UIEvent) -> Option<EditorMode> {
+        let UIEventKind::Named(name) = &event.kind else {
+            return None;
+        };
+        let rest = name.strip_prefix("ed:mode:")?;
+        match rest.rsplit(':').next()? {
+            "simple" => Some(EditorMode::Simple),
+            "advanced" => Some(EditorMode::Advanced),
+            _ => None,
+        }
+    }
+}
+
+/// `Reset` of every argument of the action at `rest` (`<path>:`) that is not at its default.
+fn reset_all(rest: &str, tree: &EditorTree) -> Vec<EditorCommand> {
+    let id = rest.split(':').next().unwrap_or("");
+    let Ok(path) = NodePath::from_id(id) else {
+        return vec![];
+    };
+    let Some(node) = find_node(&tree.nodes, &path) else {
+        return vec![];
+    };
+    node.fields()
+        .iter()
+        .filter(|f| {
+            let default = matches!(&f.value, FieldValue::Text(t) if f.default_text.as_deref() == Some(t.as_str()));
+            !default && !matches!(f.value, FieldValue::Unset)
+        })
+        .map(|f| EditorCommand::Reset { path: path.clone(), arg: f.name.clone() })
+        .collect()
 }
 
 /// The id of an argument field: `f:<path>:<arg>`, or `f:<path>:<arg>:<item>` for a variadic item.

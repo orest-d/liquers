@@ -5,8 +5,15 @@
 //! `recipes.yaml` is rewritten, the other editor follows, and the console re-evaluates the result.
 //! Untick "Update immediately" to collect edits and write them with Update.
 //!
-//! Run with: `cargo run --example ui_spec_editor -p liquers-lib`
-//! Without a window (ticks the model and prints its elements):
+//! The window's look comes from a theme override, `config/demo-theme.yaml` in the store, named by
+//! the configuration's `ui` section ([`UI_YAML`]). It is a layer over the built-in theme: it gives
+//! the `demo` namespace an icon and a hue, the `repeat` and `wrap` commands their own icons, and
+//! overrides the `text-aa` icon that `upper` declares itself (`hint icon`), since a theme entry
+//! wins over a command's hint. Bare icon names are Phosphor icons, the default `icons.icon-set`.
+//!
+//! Run with: `cargo run --example ui_spec_editor -p liquers-lib`; add `light` or `dark` to fix
+//! the mode (the default follows the system) and `compact` for the compact density.
+//! Without a window (ticks the model and prints its elements and the commands' icons):
 //! `cargo run --example ui_spec_editor -p liquers-lib -- --check`
 
 use std::sync::Arc;
@@ -22,6 +29,7 @@ use liquers_core::store::AsyncMemoryStore;
 use liquers_lib::egui::app::{run_window, WindowCloser, WindowOptions};
 use liquers_lib::environment::{CommandRegistryAccess, DefaultEnvironment};
 use liquers_lib::ui::payload::SimpleUIPayload;
+use liquers_lib::ui::theme::UiConfig;
 use liquers_lib::ui::widgets::ui_spec_element::{UISpec, UISpecElement};
 use liquers_core::value::ValueInterface;
 use liquers_lib::ui::editor::{EditorCommand, EditorElement};
@@ -64,6 +72,7 @@ fn register(env: &mut CommandEnvironment) -> Result<(), Error> {
         namespace: "demo"
         label: "Upper case"
         doc: "The text in upper case"
+        hint icon: "text-aa"
         next: "repeat-3" (label: "Repeat three times")
     )?;
     register_command!(cr,
@@ -115,6 +124,39 @@ menu:
 layout: vertical
 "#;
 
+/// The theme override: a layer over the built-in theme, so it names only what it changes.
+const THEME_YAML: &str = r##"name: demo
+hues:
+  plum: { dark: "#c58af9", light: "#8a3fbf" }
+icons:
+  namespaces:
+    demo: { icon: [sparkle, "u:*"], hue: plum }   # every demo command without its own entry
+  commands:
+    demo/upper: { icon: [text-t, "u:T"] }         # wins over the command's hint icon text-aa
+    demo/repeat: { icon: [repeat, "u:↻"], hue: teal }
+    demo/wrap: { icon: [brackets-square, "u:[]"] }
+dark:
+  state: { accent: "#c58af9", accent-wash: "#c58af924", focus-ring: "#c58af980" }
+light:
+  state: { accent: "#8a3fbf", accent-wash: "#8a3fbf1a", focus-ring: "#8a3fbf80" }
+"##;
+
+/// The configuration's `ui` section, with the mode and density of the command line.
+fn ui_config() -> Result<UiConfig, Error> {
+    let args: Vec<String> = std::env::args().collect();
+    let has = |a: &str| args.iter().any(|x| x == a);
+    let mode = if has("light") {
+        "light"
+    } else if has("dark") {
+        "dark"
+    } else {
+        "system"
+    };
+    let density = if has("compact") { "compact" } else { "comfortable" };
+    let yaml = format!("theme: -R/config/demo-theme.yaml\nmode: {mode}\ndensity: {density}\n");
+    serde_yaml::from_str(&yaml).map_err(|e| Error::general_error(format!("ui section: {e}")))
+}
+
 fn text_record() -> MetadataRecord {
     let mut record = MetadataRecord::new();
     record.type_identifier = "Text".to_string();
@@ -134,6 +176,9 @@ async fn driver() -> Result<NativeDriver<CommandEnvironment>, Error> {
         .await?;
     manager
         .set_binary(&parse_key("reports/recipes.yaml")?, RECIPES_YAML.as_bytes(), text_record())
+        .await?;
+    manager
+        .set_binary(&parse_key("config/demo-theme.yaml")?, THEME_YAML.as_bytes(), text_record())
         .await?;
 
     let mut app_state = DirectAppState::new();
@@ -208,6 +253,13 @@ async fn check(driver: &mut NativeDriver<CommandEnvironment>) -> Result<(), Erro
     settle(driver).await;
     println!("after setting times to 3:");
     show(driver).await?;
+    let theme = driver.ui_context().theme();
+    for name in ["upper", "repeat", "wrap"] {
+        let key = liquers_core::command_metadata::CommandKey::new("", "demo", name);
+        let icon = theme.theme.icon_for(&key, name, None, None);
+        let first = icon.variants.first().and_then(|v| v.short_form()).unwrap_or_default();
+        println!("icon demo/{name}: {first} ({}), hue {:?}", icon.unicode, icon.hue);
+    }
     Ok(())
 }
 
@@ -215,10 +267,13 @@ fn main() -> Result<(), Error> {
     let runtime = tokio::runtime::Runtime::new()
         .map_err(|e| Error::general_error(format!("cannot start a Tokio runtime: {e}")))?;
     let mut driver = runtime.block_on(driver())?;
+    let ui = ui_config()?;
     if std::env::args().any(|a| a == "--check") {
+        driver.set_ui_config(&ui, true);
         return runtime.block_on(check(&mut driver));
     }
     let mut options = WindowOptions::new("Recipe editors");
     options.inner_size = [900.0, 800.0];
+    let options = options.with_ui(ui);
     run_window(options, &mut driver, runtime.handle(), &WindowCloser::default(), None)
 }

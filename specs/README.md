@@ -248,6 +248,7 @@ Backend-independent `UISpec` in `liquers-lib`, rendered by egui natively and by 
 on wasm.
 
 - **UI interface** — documented → [`reference/UI_INTERFACE_FSD.md`](reference/UI_INTERFACE_FSD.md)
+- **UI themes (colours, spacing, fonts and icons as YAML layers over a token model; egui visuals and browser CSS; the `ui:` config section)** — built → [`reference/THEME.md`](reference/THEME.md) *(how to: [`guides/THEME_GUIDE.md`](guides/THEME_GUIDE.md); design in [`design/query-editor-ergonomics/`](design/query-editor-ergonomics/))*
 - **Menu bar and pane layout** — built → [`design/menu-pane-layout/`](design/menu-pane-layout/)
 - **Keyboard shortcuts** — built → [`design/keyboard-shortcuts/`](design/keyboard-shortcuts/)
 - **Query console element** — built → [`design/query-console-element/`](design/query-console-element/)
@@ -261,6 +262,7 @@ on wasm.
 - **egui asset-manager adapter** — planned → [`issues/EGUI-ASSET-MANAGER-INTEGRATION.md`](issues/EGUI-ASSET-MANAGER-INTEGRATION.md)
 - **Native UI driver and egui window (`NativeDriver`, `spawn_headless`, `run_window`)** — built → [`design/egui-native-app/`](design/egui-native-app/)
 - **Query, pipeline, action and resource editors (tree view, `gui_info` widgets, presets, store file selector, accessor binding; supersedes `command-parameter-editor`)** — complete → [`design/query-pipeline-editor/`](design/query-pipeline-editor/)
+- **Query editor ergonomics (action cards, Simple and Advanced modes, icons, shortcuts, jump from text to field, theme proof of concept)** — complete → [`design/query-editor-ergonomics/`](design/query-editor-ergonomics/)
 - **Liquers UI from Python (the model, and an egui window)** — built → [`design/liquers-py-ui/`](design/liquers-py-ui/), [`design/liquers-py-ui-window/`](design/liquers-py-ui-window/)
 - **UI redesign: UI crate(s), one trait per technique, client-server protocol** — planned → [`issues/UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE.md`](issues/UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE.md) *(investigation: [`design/ui-split-elements/`](design/ui-split-elements/))*
 
@@ -655,6 +657,7 @@ deliberately folded behind a broader line.
 - feature `COMMAND-ENUM-ALTERNATIVES-CANNOT-BE-COMPUTED`
 - feature `COMMAND-INPUT-OUTPUT-TYPES-ARE-UNDECLARED`
 - feature `COMMAND-SPECIALIZATION-BY-INPUT-TYPE-MISSING`
+- feature `COMMANDS-HAVE-NO-TOOL-PALETTE`
 - feature `CROSS-REALM-TRANSFER-NOT-PLANNED`
 - feature `DATA-FORMAT-CONSTANTS-AND-TOOLING`
 - feature `DEPENDENCY-ANALYSIS-REWALKS-UPSTREAM-PER-EVALUATION`
@@ -665,6 +668,7 @@ deliberately folded behind a broader line.
 - feature `EXTENDED-SCALARS-NOT-MAPPED-BY-LANGUAGE-BRIDGES`
 - feature `EXTERNAL-INDEX-HAS-NO-RECONCILIATION-CONTRACT`
 - feature `HTTP-ACCEPT-HEADER-NOT-NEGOTIATED`
+- feature `ICON-SETS-OTHER-THAN-PHOSPHOR-ARE-NOT-DRAWN`
 - feature `INDEX-PAGE-IS-A-FIXED-REDIRECT`
 - feature `ISSUE-REPORT-PLAN-AND-METADATA-LOGGING`
 - feature `LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`
@@ -674,15 +678,18 @@ deliberately folded behind a broader line.
 - feature `MANIFEST-TEMPLATE-BATCH-ONLY-AT-THE-END-OF-THE-QUERY`
 - feature `MARKDOWN-CODE-BLOCKS-FRONT-MATTER-AND-BACKLINKS-ARE-NOT-COMMANDS`
 - feature `MCP-SERVER-APPLIES-NO-ACCESS-POLICY`
+- feature `NAMESPACES-HAVE-NO-METADATA`
 - feature `NO-COMPACT-BINARY-DATA-FORMAT`
 - feature `NO-RELATIONAL-DATABASE-ACCESS-LAYER`
 - feature `NO-REMOTE-STORE-OR-ASSET-MANAGER`
+- feature `NO-RENDERER-NEUTRAL-STYLESHEET`
 - feature `NO-SOURCE-CODE-AND-API-DOC-NAVIGATION`
 - feature `NO-SQL-ENGINE-IN-WASM-BUILDS`
 - feature `NO-TEMPLATE-EDITOR-UI`
 - feature `NO-WRITE-PATH-FROM-RECORDS-INTO-A-RELATIONAL-DATABASE`
 - feature `PIPELINE-RESULTS-ARE-NEVER-CACHED`
 - feature `PY-CANNOT-INSPECT-THE-DEPENDENCY-MANAGER`
+- feature `PY-COMMAND-CANNOT-SET-ICON-PRESETS-OR-NEXT`
 - feature `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`
 - feature `PY-COMMAND-DECORATOR-CANNOT-SET-REALM`
 - feature `PY-HAS-NO-PURE-PYTHON-FALLBACK`
@@ -690,7 +697,6 @@ deliberately folded behind a broader line.
 - feature `QUERY-BUILDER-NOT-IN-BINDINGS`
 - feature `QUERY-CANNOT-CHOOSE-A-DATA-FORMAT`
 - feature `QUERY-CANNOT-MARK-CACHED-INTERMEDIATES`
-- feature `QUERY-CONSOLE-HAS-NO-QUERY-EDITOR-ON-DEMAND`
 - feature `RECIPES-CANNOT-DESCRIBE-A-SELF-CONTAINED-ASSET-TREE`
 - feature `RECORD-FIELD-TYPE-HAS-NO-DECIMAL`
 - feature `RECORD-FIELD-TYPE-HAS-NO-UUID-TIME-OR-INTERVAL`
@@ -712,6 +718,7 @@ deliberately folded behind a broader line.
 - feature `TEMPLATE-HAS-NO-MDBOOK-INCLUDE-SYNTAX`
 - feature `TEXT-EDITOR-EDITS-ARE-NEVER-SAVED`
 - feature `TYPE-REGISTRY-NOT-REALM-AWARE`
+- feature `UI-DOCUMENT-CANNOT-NAME-ITS-THEME`
 - feature `UI-WIDGET-DOES-NOT-CONVERT-ITS-VALUE`
 - feature `UNKEYED-ASSET-HAS-NO-VERSION`
 - feature `UNMANAGED-ASSET-NOT-FOLLOWABLE-ACROSS-CONNECTIONS`
@@ -724,10 +731,12 @@ deliberately folded behind a broader line.
 - feature `VALUE-TYPE-DEFINITION-MACRO`
 - feature `WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS`
 - feature `WEB-API-REFERENCE-NOT-GENERATED`
+- feature `WEB-EDITOR-HAS-NO-KEYBOARD-MODEL`
 - feature `WEB-EVALUATE-CANNOT-RETURN-THE-SERIALIZED-RESULT`
 - feature `WEB-FOLDER-SERVES-STORED-FILES-ONLY`
 - feature `WEB-HAS-NO-READ-WRITE-REMOTE-STORE`
 - feature `WEB-MODULE-HAS-NO-VERSIONED-CDN-ADDRESS`
+- feature `WEB-MOUNTUI-HAS-NO-THEME-OPTION`
 - feature `WEB-PAGE-CANNOT-PASS-A-PIPELINE-VALUE`
 - feature `WEB-PIPELINE-EDITOR-HAS-NO-DEFINITION-MODE`
 - feature `WEB-QUERY-EDITOR-NOT-LIVE`
@@ -759,6 +768,7 @@ deliberately folded behind a broader line.
 - [`STORE_FACTORY_GUIDE.md`](guides/STORE_FACTORY_GUIDE.md) — > This guide covers **declaring a store type** so a configuration document can name it. For
 - [`STORE_IMPLEMENTATION_GUIDE.md`](guides/STORE_IMPLEMENTATION_GUIDE.md) — How to implement an `AsyncStore` that satisfies
 - [`TEMPLATE_GUIDE.md`](guides/TEMPLATE_GUIDE.md) — How to write Liquers templates, render them, and turn one into a command. The language itself is
+- [`THEME_GUIDE.md`](guides/THEME_GUIDE.md) — How to write a Liquers UI theme, how to use the theme from UI code, and how to extend the model.
 - [`TYPE_SYSTEM_GUIDE.md`](guides/TYPE_SYSTEM_GUIDE.md) — How to add a value type so the system can describe it, store it and read it back. For *why* the
 - [`UNITTEST_GUIDE.md`](guides/UNITTEST_GUIDE.md) — This guide explains how to write comprehensive unit tests for the Liquers query evaluation flow, covering environment setup, command registration, query evaluat
 - [`USER_DOCS_EDITING_GUIDE.md`](guides/USER_DOCS_EDITING_GUIDE.md) — How to write, check and maintain the public user guides in `docs/guides/`: *Liquers for Rust*,

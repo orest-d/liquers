@@ -46,6 +46,10 @@ have a row here (`specs/guides/USER_DOCS_EDITING_GUIDE.md`, maintenance).
 | 2026-11-16 | 04-values.md | reviewed against `design/settable-value-accessor/`: `Accessor` joins the extended kinds; new 4.6 on accessors (a sketch: resolve, `set_if` with a fingerprint, conflicts) |
 | 2026-11-16 | 12-serving.md | reviewed against `design/settable-value-accessor/`: the shared settings table names the opt-in `accessors` API |
 | 2026-11-16 | e-web-api.md | reviewed against `design/settable-value-accessor/`: new E.10, the Accessor API (routes, `ETag` preconditions, the WebSocket), from `_shared/web-api.md` |
+| 2026-11-21 | 11-ui.md | reviewed against `design/query-editor-ergonomics/`: new section on editing queries (Simple and Advanced modes, cards, keys, icons, themes and the `ui` section), from `_shared/ui-editors.md`; the reference section is renumbered |
+| 2026-11-21 | 05-commands.md | reviewed against `design/query-editor-ergonomics/`: the options table gains `hint icon` (the card icon of the query editor) |
+| 2026-11-21 | 15-troubleshooting.md | reviewed against `design/query-editor-ergonomics/`: still true, no change |
+| 2026-11-22 | 11-ui.md | reviewed: a bare icon name means the theme's icon set, Phosphor unless the theme changes it; `ph:` is always Phosphor |
 | 2026-11-15 | 06-stores.md | reviewed for `py-command-line-config` (`ConfigDocument::overlay`, a missing file is a `ConfigurationError`): still right; no edit |
 | 2026-11-15 | 08-environment.md | reviewed for `py-command-line-config` (`ConfigDocument::overlay`, a missing file is a `ConfigurationError`): still right; no edit |
 | 2026-11-15 | 12-serving.md | reviewed for `py-command-line-config` (`ConfigDocument::overlay`, a missing file is a `ConfigurationError`): still right; no edit |

@@ -10,7 +10,8 @@
 //! # Main components
 //!
 //! - [`run_window`]: open a window over a driver and block until it closes.
-//! - [`WindowOptions`]: title, size and the idle poll interval.
+//! - [`WindowOptions`]: title, size, the idle poll interval and the `ui:` section (theme, mode,
+//!   density; a `system` mode follows the platform).
 //! - [`WindowCloser`]: closes the window from any thread.
 //! - [`FrameControl`]: what the per-frame hook returns.
 //!
@@ -76,6 +77,7 @@ use crate::ui::{
     render_element, try_sync_lock, Invalidation, NativeDriver, SimpleUIPayload, Tick, UIContext,
     UIPayload,
 };
+use crate::ui::theme::{ThemeMode, UiConfig};
 use crate::value::Value;
 
 /// How a window opened by [`run_window`] looks and how often it ticks while idle.
@@ -87,6 +89,10 @@ pub struct WindowOptions {
     pub inner_size: [f32; 2],
     /// The longest wait between two ticks while nothing changes and nothing evaluates.
     pub poll_interval: Duration,
+    /// The `ui:` configuration section (theme, mode, density), or `None` to keep the driver's
+    /// theme. A `system` mode follows the platform's light or dark preference while the window
+    /// is open.
+    pub ui: Option<UiConfig>,
 }
 
 impl WindowOptions {
@@ -96,7 +102,14 @@ impl WindowOptions {
             title: title.into(),
             inner_size: [900.0, 700.0],
             poll_interval: Duration::from_millis(250),
+            ui: None,
         }
+    }
+
+    /// The same options with the `ui:` configuration section `ui` (builder style).
+    pub fn with_ui(mut self, ui: UiConfig) -> Self {
+        self.ui = Some(ui);
+        self
     }
 }
 
@@ -274,6 +287,10 @@ where
             .with_title(options.title.clone()),
         ..Default::default()
     };
+    if let Some(ui) = &options.ui {
+        driver.set_ui_config(ui, true);
+    }
+    let follow_system = options.ui.as_ref().is_some_and(UiConfig::follows_system);
     let ui_context = driver.ui_context();
     let poll_interval = options.poll_interval;
     closer.begin();
@@ -290,6 +307,7 @@ where
                     on_frame,
                     poll_interval,
                     ui_context,
+                    follow_system,
                 }))
             }),
         )
@@ -327,6 +345,8 @@ struct WindowApp<'a, 'f, E: Environment> {
     on_frame: Option<&'a mut (dyn FnMut(&Tick) -> FrameControl + 'f)>,
     poll_interval: Duration,
     ui_context: UIContext,
+    /// The `ui:` mode is `system`: the theme mode tracks `egui::Context::system_theme`.
+    follow_system: bool,
 }
 
 impl<E> eframe::App for WindowApp<'_, '_, E>
@@ -355,6 +375,19 @@ where
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        if self.follow_system {
+            if let Some(system) = ui.ctx().system_theme() {
+                let mode = match system {
+                    egui::Theme::Dark => ThemeMode::Dark,
+                    egui::Theme::Light => ThemeMode::Light,
+                };
+                if let Some(cell) = self.ui_context.theme_cell() {
+                    cell.set_mode(mode);
+                }
+            }
+        }
+        crate::egui::theme::apply_theme(ui.ctx(), &self.ui_context.theme());
+        ui.painter().rect_filled(ui.max_rect(), 0.0, ui.visuals().panel_fill);
         let roots = match try_sync_lock(self.driver.app_state()) {
             Ok(state) => state.roots(),
             Err(_) => {

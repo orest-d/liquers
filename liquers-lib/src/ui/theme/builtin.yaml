@@ -1,0 +1,183 @@
+# The built-in theme, generated from builtin.rs (LIQUERS_BLESS=1).
+name: default
+dark:
+  surface:
+    bg: '#121316'
+    panel: '#16171b'
+    card: '#1b1c21'
+    card-head: '#202127'
+    control: '#26272d'
+    control-hover: '#2e3037'
+    line: '#ffffff12'
+    line-strong: '#ffffff1f'
+    shadow: '#00000047'
+  text:
+    ink: '#f2f1ee'
+    ink-muted: '#a9abb3'
+    ink-faint: '#6c6f79'
+    on-accent: '#ffffff'
+  state:
+    accent: '#2d81ff'
+    accent-wash: '#2d81ff24'
+    focus-ring: '#2d81ff80'
+    danger: '#e2475a'
+    warning: '#e0a23a'
+    success: '#3fb27f'
+    modified: '#e0a23a'
+  syntax:
+    header: '#6f9fe8'
+    resource: '#8ec5ff'
+    separator: '#5d616b'
+    namespace: '#c49bff'
+    action: '#f2f1ee'
+    parameter: '#f0b37e'
+    entity: '#c5e243'
+    link: '#7fd6a1'
+    filename: '#e8d27a'
+    plain: '#a9abb3'
+    highlight: '#ffd75e'
+    error: '#e2475a'
+light:
+  surface:
+    bg: '#f4f4f2'
+    panel: '#ecebe8'
+    card: '#ffffff'
+    card-head: '#fafaf8'
+    control: '#f0efec'
+    control-hover: '#e6e5e1'
+    line: '#00000014'
+    line-strong: '#00000024'
+    shadow: '#0000000d'
+  text:
+    ink: '#1d1e22'
+    ink-muted: '#55585f'
+    ink-faint: '#8b8e96'
+    on-accent: '#ffffff'
+  state:
+    accent: '#1f6fe5'
+    accent-wash: '#1f6fe51a'
+    focus-ring: '#1f6fe580'
+    danger: '#c8364a'
+    warning: '#b97a14'
+    success: '#2a8a5f'
+    modified: '#b97a14'
+  syntax:
+    header: '#3b6fb8'
+    resource: '#1f63c6'
+    separator: '#a3a6ad'
+    namespace: '#7b45d6'
+    action: '#1d1e22'
+    parameter: '#b4570f'
+    entity: '#6f8a12'
+    link: '#1d8a4f'
+    filename: '#8a6d0b'
+    plain: '#55585f'
+    highlight: '#b58900'
+    error: '#c8364a'
+comfortable:
+  control-height: 28.0
+  row-gap: 8.0
+  card-gap: 10.0
+  card-radius: 9.0
+  card-padding: 12.0
+  label-width: 140.0
+  icon-size: 24.0
+compact:
+  control-height: 22.0
+  row-gap: 4.0
+  card-gap: 6.0
+  card-radius: 7.0
+  card-padding: 8.0
+  label-width: 120.0
+  icon-size: 18.0
+typography:
+  font-ui: Inter, system-ui, sans-serif
+  font-mono: DejaVu Sans Mono, ui-monospace, monospace
+  size-body: 13.0
+  size-small: 11.5
+  size-title: 15.0
+hues:
+  amber:
+    dark: '#e0a23a'
+    light: '#b97a14'
+  blue:
+    dark: '#4c9dff'
+    light: '#1f63c6'
+  grey:
+    dark: '#8a8f9c'
+    light: '#6a6f7b'
+  indigo:
+    dark: '#7f8cff'
+    light: '#4f5bd6'
+  olive:
+    dark: '#b9a24a'
+    light: '#8a7620'
+  orange:
+    dark: '#d9893b'
+    light: '#b0661c'
+  pink:
+    dark: '#d35fa8'
+    light: '#a83a7f'
+  sky:
+    dark: '#5fa8d3'
+    light: '#2f7aa8'
+  teal:
+    dark: '#2fb3a3'
+    light: '#16857a'
+  violet:
+    dark: '#9b6cff'
+    light: '#6f45d6'
+icons:
+  icon-set: phosphor
+  library: {}
+  namespaces: {}
+  commands: {}
+  defaults:
+    '':
+      icon:
+        unicode: ⚙
+        variants:
+        - ph:gear
+      hue: grey
+    img:
+      icon:
+        unicode: ▣
+        variants:
+        - ph:image
+      hue: violet
+    lui:
+      icon:
+        unicode: ▭
+        variants:
+        - ph:app-window
+      hue: indigo
+    md:
+      icon:
+        unicode: ¶
+        variants:
+        - ph:markdown-logo
+      hue: sky
+    mem:
+      icon:
+        unicode: ◎
+        variants:
+        - ph:brain
+      hue: pink
+    pl:
+      icon:
+        unicode: ▦
+        variants:
+        - ph:table
+      hue: teal
+    rec:
+      icon:
+        unicode: ≡
+        variants:
+        - ph:list-bullets
+      hue: orange
+    template:
+      icon:
+        unicode: '{'
+        variants:
+        - ph:brackets-curly
+      hue: olive

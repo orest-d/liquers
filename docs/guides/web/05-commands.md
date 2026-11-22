@@ -2,7 +2,7 @@
 title: Commands
 status: ready
 sources: [guides/JAVASCRIPT_GUIDE.md, guides/COMMAND_REGISTRATION_GUIDE.md, reference/COMMAND_DECLARATION.md, reference/PIPELINES.md, guides/PIPELINE_GUIDE.md]
-reviewed: 2026-11-10
+reviewed: 2026-11-21
 ---
 # 5. Commands
 

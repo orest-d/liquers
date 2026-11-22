@@ -8,6 +8,33 @@
 //!
 //! **No `RefCell` borrow is held across a call into JavaScript**: subscriber lists and handles are
 //! cloned out first, so a callback may dispose its subscription, or the whole mount.
+//!
+//! # Main components
+//!
+//! - `mountUI(container, options)` and `mountRenderer(renderer, options)`: mount on the global
+//!   environment; [`LiquersUIMount`] (`UIMount`): `submit`, `show`, `dispatchEvent`, `on`
+//!   (status subscriptions, [`LiquersUISubscription`]), `elements` and `dispose`.
+//! - [`LiquersUIElement`] (`UIElement`): a UI element value as a JavaScript handle.
+//!
+//! # Where it is used
+//!
+//! - Pages that embed a Liquers UI, and the `examples-web` demos; the browser tests under
+//!   `liquers-web/tests/`.
+//!
+//! # Related concepts
+//!
+//! - `liquers_lib::ui::web::app`: the mount and driver loop underneath. The mount uses the
+//!   built-in theme (`MountOptions.ui` is `None`); the theme CSS and editor styles are written
+//!   into the page by that mount.
+//!
+//! # Examples
+//!
+//! ```javascript
+//! const mount = await liquers.mountUI(document.getElementById("app"), { query: "ns-lui/query_console/add-child" });
+//! const sub = mount.on("status", e => console.log(e.handle, e.status));
+//! sub.dispose();
+//! mount.dispose();
+//! ```
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -859,6 +886,7 @@ pub async fn mount_ui_with(
         envref,
         current_env,
         on_tick: Some(on_tick),
+        ui: None,
     };
     let handle =
         liquers_lib::ui::mount_web_with(root, mount_options, app_state, sender, receiver).await?;

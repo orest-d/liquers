@@ -10,6 +10,7 @@
 //!   [`app::FrameControl`], the reusable native window.
 //! - [`UIValueExtension`]: how a `Value` shows itself in an `egui::Ui`.
 //! - [`UiCommand`]: a value that is an egui drawing closure.
+//! - [`theme`]: the theme in egui: visuals, Phosphor glyphs, icon drawing, density.
 //! - [`widgets`]: asset, metadata, recipe and error panels; `dataframe` (feature `polars`):
 //!   DataFrame tables; [`commands`]: the egui commands.
 //!
@@ -55,6 +56,7 @@ pub mod commands;
 #[cfg(feature = "polars")]
 pub mod dataframe;
 pub mod editor;
+pub mod theme;
 pub mod widgets;
 
 type UiClosure = Box<dyn FnMut(&mut egui::Ui) -> Result<(), Error> + Send>;

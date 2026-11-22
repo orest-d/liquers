@@ -10,10 +10,12 @@ use liquers_core::value::ValueInterface;
 
 use super::command::{EditorCommand, EditorEffect};
 use super::state::{EditorKind, EditorState};
+use super::layout::EditorMode;
 use super::tree::EditorTree;
 use super::view::EditorView;
 use crate::ui::element::{UIElement, UpdateMessage, UpdateResponse};
 use crate::ui::handle::UIHandle;
+use crate::ui::theme::{Density, ThemeState};
 use crate::ui::message::{AccessorOp, AccessorUpdate, AppMessage};
 use crate::ui::ui_context::UIContext;
 use crate::value::Value;
@@ -49,6 +51,15 @@ pub struct EditorElement {
     /// dependents to expire, AC-13).
     #[serde(default)]
     follow: Option<UIHandle>,
+    /// Simple or Advanced (AC-1, AC-2, AC-3); saved, and Simple for a new editor.
+    #[serde(default)]
+    mode: EditorMode,
+    /// The editor's own density (AC-11); `None` follows the theme.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    density: Option<Density>,
+    /// The theme last seen through the context, for renderers that get no context.
+    #[serde(skip)]
+    theme: Option<ThemeState>,
     #[serde(skip)]
     state: Option<EditorState>,
     #[serde(skip)]
@@ -71,6 +82,9 @@ impl EditorElement {
             binding,
             continuous: true,
             follow: None,
+            mode: EditorMode::Simple,
+            density: None,
+            theme: None,
             state: None,
             view: EditorView::default(),
             bound: false,
@@ -107,6 +121,48 @@ impl EditorElement {
         self
     }
 
+    /// Starts in `mode` (builder style).
+    pub fn with_mode(mut self, mode: EditorMode) -> Self {
+        self.mode = mode;
+        self
+    }
+
+    /// Uses `density` instead of the theme's (builder style).
+    pub fn with_density(mut self, density: Density) -> Self {
+        self.density = Some(density);
+        self
+    }
+
+    /// Simple or Advanced.
+    pub fn mode(&self) -> EditorMode {
+        self.mode
+    }
+
+    /// Switches the mode; every edit is kept (AC-3).
+    pub fn set_mode(&mut self, mode: EditorMode) {
+        self.mode = mode;
+    }
+
+    /// The editor's own density, if it has one.
+    pub fn density(&self) -> Option<Density> {
+        self.density
+    }
+
+    /// Sets or clears the editor's own density.
+    pub fn set_density(&mut self, density: Option<Density>) {
+        self.density = density;
+    }
+
+    /// The density to draw with: the editor's own, else the theme's.
+    pub fn effective_density(&self, theme: &ThemeState) -> Density {
+        self.density.unwrap_or(theme.density)
+    }
+
+    /// The theme last seen through the context (the built-in one before any).
+    pub fn theme_state(&self) -> ThemeState {
+        self.theme.clone().unwrap_or_default()
+    }
+
     pub fn kind(&self) -> EditorKind {
         self.kind
     }
@@ -127,6 +183,7 @@ impl EditorElement {
 
     /// Builds the core from the context's registry and binds the accessor, once.
     fn ensure_state(&mut self, ctx: &UIContext) {
+        self.theme = Some(ctx.theme());
         if self.state.is_none() {
             if let Some(registry) = ctx.command_registry() {
                 self.state = Some(EditorState::new(self.kind, registry.clone()).with_continuous(self.continuous));
@@ -312,6 +369,16 @@ impl UIElement for EditorElement {
                 UpdateResponse::NeedsRepaint
             }
             UpdateMessage::UI(event) => {
+                if let Some(mode) = EditorView::mode_event(event) {
+                    // Commit what was typed but not yet submitted, then switch (AC-3).
+                    let drafts = match self.tree() {
+                        Some(tree) => EditorView::draft_commands(event, tree),
+                        None => vec![],
+                    };
+                    self.apply_commands(drafts, ctx);
+                    self.mode = mode;
+                    return UpdateResponse::NeedsRepaint;
+                }
                 let commands = match self.tree() {
                     Some(tree) => EditorView::from_ui_event(event, tree),
                     None => vec![],
@@ -346,8 +413,17 @@ impl UIElement for EditorElement {
             return ui.label("Editor: no command registry");
         };
         let tree = state.tree().clone();
-        let inner = ui.push_id(id, |ui| crate::egui::editor::show_editor(ui, &tree, &mut self.view));
-        self.apply_commands(inner.inner, ctx);
+        let theme = ctx.theme();
+        let density = self.effective_density(&theme);
+        let mode = self.mode;
+        let view = &mut self.view;
+        let inner = ui.push_id(id, |ui| {
+            crate::egui::editor::show_editor(ui, &tree, view, mode, density, &theme, Some(ctx))
+        });
+        if let Some(mode) = inner.inner.mode {
+            self.mode = mode;
+        }
+        self.apply_commands(inner.inner.commands, ctx);
         inner.response
     }
 
@@ -357,7 +433,11 @@ impl UIElement for EditorElement {
         match self.tree() {
             Some(tree) => format!(
                 "<div id=\"{dom_id}\" class=\"lq-element lq-EditorElement\">{}</div>",
-                crate::ui::web::editor::editor_html(tree, &self.title)
+                {
+                    let theme = self.theme_state();
+                    let density = self.effective_density(&theme);
+                    crate::ui::web::editor::editor_html(tree, &self.title, self.mode, density, &theme.theme)
+                }
             ),
             None => format!(
                 "<div id=\"{dom_id}\" class=\"lq-element lq-EditorElement\">{}</div>",

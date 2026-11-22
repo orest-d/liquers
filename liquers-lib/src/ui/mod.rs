@@ -64,6 +64,7 @@ pub mod resolve;
 pub mod native;
 pub mod runner;
 pub mod shortcuts;
+pub mod theme;
 pub mod ui_context;
 #[cfg(feature = "webui")]
 pub mod web;
