@@ -251,3 +251,52 @@ icons:
     let icon = theme.icon_for(&gt, "Greater than", Some(&hinted), None);
     assert!(matches!(icon.variants[0], IconVariant::Set { name, .. } if name == "table"));
 }
+
+// The examples of `specs/guides/THEME_GUIDE.md` §1 compose and resolve as the guide says.
+#[test]
+fn theme_guide_examples_compose() {
+    let ocean = ThemeLayer::from_yaml(
+        r##"
+name: ocean
+dark:
+  state: { accent: "#2bb3c0", accent-wash: "#2bb3c024", focus-ring: "#2bb3c080" }
+light:
+  state: { accent: "#11818c", accent-wash: "#11818c1a", focus-ring: "#11818c80" }
+"##,
+    )
+    .unwrap();
+    let icons = ThemeLayer::from_yaml(
+        r##"
+hues:
+  coral: { dark: "#ff7b6b", light: "#c24a3b" }
+icons:
+  namespaces:
+    sales: { icon: [chart-line, u:$], hue: coral }
+  commands:
+    "pl/head": { icon: rows }
+    "sales/forecast": { icon: lib:crystal }
+  library:
+    crystal:
+      unicode: "◇"
+      variants:
+        - svg: { inline: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2l8 10-8 10-8-10z" fill="currentColor"/></svg>' }
+"##,
+    )
+    .unwrap();
+    let theme = Theme::compose(&[ocean, icons]).unwrap();
+    assert!(theme.unknown_keys().is_empty(), "{:?}", theme.unknown_keys());
+    assert_eq!(theme.light.state.accent, Rgba::rgb(0x11, 0x81, 0x8c));
+    assert_eq!(theme.dark.surface.card, Theme::builtin().dark.surface.card);
+    let total = CommandKey::new("", "sales", "total");
+    let r = theme.icon_for(&total, "Total", None, None);
+    assert_eq!((r.unicode.as_str(), r.hue), ("$", Some("coral")));
+    let forecast = CommandKey::new("", "sales", "forecast");
+    let r = theme.icon_for(&forecast, "Forecast", None, None);
+    assert!(matches!(r.variants[0], IconVariant::Svg(_)), "{:?}", r.variants);
+    assert_eq!(r.unicode, "◇");
+    let extra = Theme::compose(&[ThemeLayer::from_yaml("editor:\n  card: { elevation: 2 }\n").unwrap()]).unwrap();
+    assert_eq!(extra.lookup("editor.card.elevation"), Some(&json!(2)));
+    let typo = Theme::compose(&[ThemeLayer::from_yaml("dark: { state: { acent: \"#ffffff\" } }\n").unwrap()]).unwrap();
+    assert_eq!(typo.unknown_keys(), vec!["dark.state.acent".to_string()]);
+    assert!(Theme::compose(&[ThemeLayer::from_yaml("dark: { state: { accent: red } }\n").unwrap()]).is_err());
+}

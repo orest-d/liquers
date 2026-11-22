@@ -45,11 +45,16 @@ images (which AC-11 already deferred). Screenshots: [`screenshots/`](./screensho
 ## Documentation Delivered
 
 ### New Reference Documents
-None. The editor is described in `UI_INTERFACE_FSD.md` §Editors, where the editor element
-already lives.
+- `specs/reference/THEME.md` (2026-11-22, at Orest's request): the theme model (palettes and
+  roles, syntax roles, spacing, typography, hues), icons (variants, written forms, precedence,
+  what each renderer draws), layers and composition, the renderers' mapping (egui visuals, CSS
+  custom properties), the run-time cell and the `ui` section.
 
 ### New Guide Documents
-None.
+- `specs/guides/THEME_GUIDE.md` (2026-11-22): writing a new theme (start from what changes,
+  check with `unknown_keys`, load by key, design rules, icons and hues, extra settings), using
+  the theme from UI code, and extending the model. Its examples are a unit test
+  (`ui::theme::tests::theme_guide_examples_compose`).
 
 ### Existing Documents Reviewed or Updated
 - `specs/reference/UI_INTERFACE_FSD.md`: §Editors gains Modes, Cards, Keyboard (egui), Theme and
@@ -92,6 +97,7 @@ Each has a `HISTORY.md` row and `reviewed: 2026-11-21`; no `CHECK:` markers.
 
 ## Issues Filed
 
+- `THEME-ICON-SET-SETTING-IS-IGNORED`: `icons.icon-set` is declared but not read.
 - `WEB-EDITOR-HAS-NO-KEYBOARD-MODEL`: the browser editor binds no keys and skips icon images by key.
 - `WEB-MOUNTUI-HAS-NO-THEME-OPTION`: `mountUI` passes no `ui` section.
 - `PY-COMMAND-CANNOT-SET-ICON-PRESETS-OR-NEXT`: the Python decorators lack `hints`, `presets`, `next`.

@@ -9,7 +9,7 @@ priority: P2
 complexity: L
 area: [lib/ui, lib/egui]
 issues: [QUERY-CONSOLE-HAS-NO-QUERY-EDITOR-ON-DEMAND, ICONS-CANNOT-BE-ASSETS-OR-UNICODE]
-affects_docs: [specs/reference/UI_INTERFACE_FSD.md, specs/guides/COMMAND_REGISTRATION_GUIDE.md, docs/guides/rust/11-ui.md, docs/guides/python/11-ui.md, docs/guides/web/11-ui.md]
+affects_docs: [specs/reference/UI_INTERFACE_FSD.md, specs/reference/THEME.md, specs/guides/THEME_GUIDE.md, specs/guides/COMMAND_REGISTRATION_GUIDE.md, docs/guides/rust/11-ui.md, docs/guides/python/11-ui.md, docs/guides/web/11-ui.md]
 created: 2026-11-21
 ---
 # Query editor ergonomics

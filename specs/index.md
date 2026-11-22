@@ -8,10 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 263
+Total rows: 264
 - P1: 1
 - P2: 69
-- P3: 193
+- P3: 194
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -143,6 +143,7 @@ Total rows: 263
 | [`RUSTDOC-WASM-CRATE-NOT-MERGED-INTO-API-TREE`](issues/RUSTDOC-WASM-CRATE-NOT-MERGED-INTO-API-TREE.md) | issue | liquers-web's Rust API page does not link the other crates and is missing from the API search | draft |  |  | P3 | S | web;docs |  | 2026-11-02 |
 | [`STORE-PATHS-ARE-NOT-RELATIVE-TO-THE-CONFIGURATION-FILE`](issues/STORE-PATHS-ARE-NOT-RELATIVE-TO-THE-CONFIGURATION-FILE.md) | issue | A relative filesystem path in a store configuration resolves against the working directory, not the configuration file | draft |  |  | P3 | S | core/store |  | 2026-11-07 |
 | [`TEMPLATE-DIAGNOSTICS-CHECK-COMMANDS-A-Q-QUOTES`](issues/TEMPLATE-DIAGNOSTICS-CHECK-COMMANDS-A-Q-QUOTES.md) | issue | Template diagnostics report unknown commands in a query part that a later q quotes, which the planner never resolves | draft |  |  | P3 | S | core/query;lib/commands |  | 2026-10-26 |
+| [`THEME-ICON-SET-SETTING-IS-IGNORED`](issues/THEME-ICON-SET-SETTING-IS-IGNORED.md) | issue | A theme's icons.icon-set is declared but a bare icon name always means Phosphor | draft |  |  | P3 | S | lib/ui | [phase1](design/query-editor-ergonomics/phase1-high-level-design.md)  [phase2](design/query-editor-ergonomics/phase2-architecture.md)  [phase3](design/query-editor-ergonomics/phase3-examples.md)  [phase4](design/query-editor-ergonomics/phase4-implementation.md)  [phase5](design/query-editor-ergonomics/phase5-documentation.md)  [reference](design/query-editor-ergonomics/reference-design.md)  [theme](design/query-editor-ergonomics/theme-formats.md)  | 2026-11-22 |
 | [`TOP-LEVEL-RELATIVE-RESOURCE-QUERY-LOOKS-UP-A-RELATIVE-RECIPES-KEY`](issues/TOP-LEVEL-RELATIVE-RESOURCE-QUERY-LOOKS-UP-A-RELATIVE-RECIPES-KEY.md) | issue | A top-level query reading a relative key fails on './recipes.yaml', while its pipeline form resolves the key | draft |  |  | P3 | S | core/assets |  | 2026-11-04 |
 | [`UI-DOCUMENT-CANNOT-NAME-ITS-THEME`](issues/UI-DOCUMENT-CANNOT-NAME-ITS-THEME.md) | feature | A saved UI document cannot name the theme, colour mode or density it opens with | draft |  |  | P3 | S | lib/ui |  | 2026-11-21 |
 | [`UI-ELEMENT-KEEPS-AN-EXPIRED-VALUE-AND-NEVER-RE-REQUESTS`](issues/UI-ELEMENT-KEEPS-AN-EXPIRED-VALUE-AND-NEVER-RE-REQUESTS.md) | issue | A UI element keeps an expired asset's value and never requests the query again | draft |  |  | P3 | S | lib/ui |  | 2026-11-15 |

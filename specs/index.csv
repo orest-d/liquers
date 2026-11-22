@@ -528,6 +528,7 @@ TEMPORARY-ASSET-NEVER-RUN-IS-KEPT-ALIVE-BY-ITS-SERVICE-LOOP,issue,A temporary as
 TEMPORARY-ASSETS-SHARE-ID-ZERO,issue,"Every temporary asset has id 0, so code that identifies assets by id can confuse them",closed,local,,ready,eligible,P3,S,core/assets,,,,temporary-asset-unique-id,,2026-10-18,specs/issues/TEMPORARY-ASSETS-SHARE-ID-ZERO.md
 TEXT-EDITOR-EDITS-ARE-NEVER-SAVED,feature,The text_editor widget edits a copy of the text and never writes it back,draft,local,,needs-decision,not-eligible,P3,M,lib/egui;lib/ui,,,,text-editor-save,,2026-10-19,specs/issues/TEXT-EDITOR-EDITS-ARE-NEVER-SAVED.md
 TEXT-VALUE-CANNOT-BE-STORED-AS-MARKDOWN,issue,A Text value cannot be stored with data format md,closed,local,,ready,not-eligible,P2,S,core/value,,,,text-value-markdown-format,,2026-09-27,specs/issues/TEXT-VALUE-CANNOT-BE-STORED-AS-MARKDOWN.md
+THEME-ICON-SET-SETTING-IS-IGNORED,issue,A theme's icons.icon-set is declared but a bare icon name always means Phosphor,draft,local,,,,P3,S,lib/ui,,,,query-editor-ergonomics,,2026-11-22,specs/issues/THEME-ICON-SET-SETTING-IS-IGNORED.md
 TO-OVERRIDE-KEEPS-THE-PENDING-EXPIRATION-DEADLINE,issue,A value pinned with to_override still expires at the deadline its recipe scheduled,draft,local,,needs-decision,not-eligible,P3,S,core/assets,,,,override-ignores-recipe-deadline,,2026-10-20,specs/issues/TO-OVERRIDE-KEEPS-THE-PENDING-EXPIRATION-DEADLINE.md
 TOP-LEVEL-RELATIVE-RESOURCE-QUERY-LOOKS-UP-A-RELATIVE-RECIPES-KEY,issue,"A top-level query reading a relative key fails on './recipes.yaml', while its pipeline form resolves the key",draft,local,,,,P3,S,core/assets,,,,,,2026-11-04,specs/issues/TOP-LEVEL-RELATIVE-RESOURCE-QUERY-LOOKS-UP-A-RELATIVE-RECIPES-KEY.md
 TYPE-IDENTIFIED-IN-HAS-NO-IMPLEMENTATIONS,issue,"No type implements TypeIdentifiedIn, so the documented to_type_identifier example does not compile",closed,local,,ready,eligible,P3,S,core/value;lib/value;docs,,,,type-identified-in-docs,,2026-10-20,specs/issues/TYPE-IDENTIFIED-IN-HAS-NO-IMPLEMENTATIONS.md
@@ -1099,7 +1100,8 @@ SEARCH,reference,Search,current,local,,,,,,records;lib/commands,,,,,2026-10-17,,
 STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,,store/config,,,,,2026-11-01,,specs/reference/STORE_CONFIG_FSD.md
 STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-27,,specs/reference/STORE_SEMANTICS.md
 TEMPLATE_LANGUAGE,reference,Template Language,current,local,,,,,,core/query;lib/commands,,,,,2026-11-04,,specs/reference/TEMPLATE_LANGUAGE.md
-UI_INTERFACE_FSD,reference,UI Interface Specification,current,local,,,,,,lib/ui,,,,,2026-11-21,,specs/reference/UI_INTERFACE_FSD.md
+THEME,reference,UI Themes,current,local,,,,,,lib/ui;lib/egui,,,,,2026-11-22,,specs/reference/THEME.md
+UI_INTERFACE_FSD,reference,UI Interface Specification,current,local,,,,,,lib/ui,,,,,2026-11-22,,specs/reference/UI_INTERFACE_FSD.md
 VALUE_ACCESSORS,reference,Value Accessors,current,local,,,,,,core/value;core/assets;core/query;lib/value;axum;py;web,,,,,2026-11-16,,specs/reference/VALUE_ACCESSORS.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-11-16,,specs/reference/VALUE_TYPE_SYSTEM.md
 VISION,reference,Liquers Vision and Strategy,current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/VISION.md
@@ -1127,6 +1129,7 @@ STORE_CONFIG_GUIDE,guide,Store Configuration Guide,current,local,,,,,,store/conf
 STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,,core/store;store/config,,,,,2026-10-16,,specs/guides/STORE_FACTORY_GUIDE.md
 STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,,core/store;store/backends;web,,,,,2026-11-01,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md
 TEMPLATE_GUIDE,guide,Template Guide,current,local,,,,,,core/query;lib/commands,,,,,2026-11-04,,specs/guides/TEMPLATE_GUIDE.md
+THEME_GUIDE,guide,Theme Guide,current,local,,,,,,lib/ui;lib/egui,,,,,2026-11-22,,specs/guides/THEME_GUIDE.md
 TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,,core/value;lib/value,,,,,2026-11-04,,specs/guides/TYPE_SYSTEM_GUIDE.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,,build;core/assets,,,,,2026-10-20,,specs/guides/UNITTEST_GUIDE.md
 USER_DOCS_EDITING_GUIDE,guide,User Documentation Editing Guide,current,local,,,,,,docs,,,,,2026-11-14,,specs/guides/USER_DOCS_EDITING_GUIDE.md

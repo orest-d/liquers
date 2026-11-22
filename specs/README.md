@@ -248,6 +248,7 @@ Backend-independent `UISpec` in `liquers-lib`, rendered by egui natively and by 
 on wasm.
 
 - **UI interface** — documented → [`reference/UI_INTERFACE_FSD.md`](reference/UI_INTERFACE_FSD.md)
+- **UI themes (colours, spacing, fonts and icons as YAML layers over a token model; egui visuals and browser CSS; the `ui:` config section)** — built → [`reference/THEME.md`](reference/THEME.md) *(how to: [`guides/THEME_GUIDE.md`](guides/THEME_GUIDE.md); design in [`design/query-editor-ergonomics/`](design/query-editor-ergonomics/))*
 - **Menu bar and pane layout** — built → [`design/menu-pane-layout/`](design/menu-pane-layout/)
 - **Keyboard shortcuts** — built → [`design/keyboard-shortcuts/`](design/keyboard-shortcuts/)
 - **Query console element** — built → [`design/query-console-element/`](design/query-console-element/)
@@ -765,6 +766,7 @@ deliberately folded behind a broader line.
 - [`STORE_FACTORY_GUIDE.md`](guides/STORE_FACTORY_GUIDE.md) — > This guide covers **declaring a store type** so a configuration document can name it. For
 - [`STORE_IMPLEMENTATION_GUIDE.md`](guides/STORE_IMPLEMENTATION_GUIDE.md) — How to implement an `AsyncStore` that satisfies
 - [`TEMPLATE_GUIDE.md`](guides/TEMPLATE_GUIDE.md) — How to write Liquers templates, render them, and turn one into a command. The language itself is
+- [`THEME_GUIDE.md`](guides/THEME_GUIDE.md) — How to write a Liquers UI theme, how to use the theme from UI code, and how to extend the model.
 - [`TYPE_SYSTEM_GUIDE.md`](guides/TYPE_SYSTEM_GUIDE.md) — How to add a value type so the system can describe it, store it and read it back. For *why* the
 - [`UNITTEST_GUIDE.md`](guides/UNITTEST_GUIDE.md) — This guide explains how to write comprehensive unit tests for the Liquers query evaluation flow, covering environment setup, command registration, query evaluat
 - [`USER_DOCS_EDITING_GUIDE.md`](guides/USER_DOCS_EDITING_GUIDE.md) — How to write, check and maintain the public user guides in `docs/guides/`: *Liquers for Rust*,

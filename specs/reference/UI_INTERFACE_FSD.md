@@ -3,7 +3,7 @@ title: UI Interface Specification
 kind: reference
 audience: internal
 area: [lib/ui]
-reviewed: 2026-11-21
+reviewed: 2026-11-22
 ---
 # UI Interface Specification
 
@@ -458,7 +458,7 @@ link, Ctrl+Space complete, Ctrl+Enter update. **Ctrl+J** jumps from the query te
 whose span holds the cursor (committing typed text first) and back to that field's span. The
 browser renderer has no keyboard model yet beyond the page's own focus order.
 
-**Theme and icons.** `ui::theme` is one token model for both renderers: a `Theme` composed from
+**Theme and icons** (full reference: [`THEME.md`](THEME.md)). `ui::theme` is one token model for both renderers: a `Theme` composed from
 YAML `ThemeLayer`s (a nested dictionary; a later layer overrides existing keys and adds new ones),
 with a dark and a light palette, the query-syntax colours, two densities, named hues and an
 `IconTheme`. egui applies it with `egui::theme::apply_theme` once per theme generation; the
@@ -873,3 +873,4 @@ Candidate universal operations identified across use cases:
 | 2026-11-16 | Value Integration: element-owned values are memory accessors; binding is left to the UI designs. Only that subsection was reviewed. | `design/settable-value-accessor/` |
 | 2026-11-17 | Editors: the editor element, its binding and message protocol, edits and renderers; UI events gain `Change(field)`. Those sections reviewed against the implementation. | `design/query-pipeline-editor/` |
 | 2026-11-21 | Editors: modes, cards, the egui keymap and Ctrl+J, theme and icons; Hosts: the `ui` section. Those parts reviewed against the implementation. | `design/query-editor-ergonomics/` |
+| 2026-11-22 | Editors: links the new theme reference. | `design/query-editor-ergonomics/` |
