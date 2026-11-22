@@ -66,7 +66,7 @@ The crate split itself (how many crates, where the server half lives) is questio
 | D12 | `ui-spec-v2` | `UISpec` as an application language: accessor bindings, forms, actions, components and includes, docking, per-element theme overrides, validation; likely splits into *bindings and forms* and *layout and components* | XL | `VALUE-ACCESSOR-CANNOT-LOCK`, `YAML-DOCUMENT-EDIT-DROPS-COMMENTS`, `UI-ELEMENT-NESTED-IN-CONSOLE-HAS-NO-HANDLE`, `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS` (form side), later `ACCESSOR-CANNOT-BE-IMPLEMENTED-IN-PYTHON-OR-JAVASCRIPT`; absorbs `console-mounts-nested-element` | D1, D2; D5 for split forms |
 | D13 | `ui-function-mapping` | Controls vocabulary (scalar, angle, vec2, vec3, range, choice, step, trigger, toggle); command and element hints; sources (pointer, keyboard, touch, gamepad); unified keymap and focus scopes | L (research first) | `UI-EVENTS-HAVE-NO-POINTER-DRAG-OR-CHANGE-KINDS`, `WEB-EDITOR-HAS-NO-KEYBOARD-MODEL` (keyboard) | D1; spike S4 |
 | D14 | `ui-midi-mapping` | MIDI as a control source: device profiles, mapping file, learn mode, ranges, relative encoders, soft takeover, feedback; `midir`, Web MIDI, Tauri | M | — (new; lessons from `egui-midi-test`) | D13, D11 |
-| D15 | `ui-charts` | `ChartSpec` common subset; egui `egui_plot`, web ECharts, ratatui charts; per-frontend extensions; static SVG/PNG; `ns-chart` commands; downsampling | L | — (new; reference `stockplottertest`) | D2, D6, D7, D8; spike S3 |
+| D15 | `ui-charts` | `ChartSpec` value (not an egui closure) with a common subset: time axes, line, area, bar, scatter, OHLC candlestick with a volume panel; egui `egui_plot` (candles drawn by us), web ECharts, ratatui braille lines and sparklines; per-frontend extensions; theme hues for series; live updates on expiry with append-only pages; static SVG/PNG; `ns-chart` commands; downsampling | L | — (new); replaces `stockplottertest`'s `simple_plot` | D2, D6, D7, D8; spike S3 |
 | D16 | `ui-table-tools` | Paged table viewer/editor over `RecordView` for records, DataFrames and SQL; SQL editor and schema browser; spreadsheet-like grid (research) | L | — (new) | D2, D18; `relational-database-access`, `sql-over-tables` |
 | D17 | `ui-asset-store-tools` | Asset manager, orthodox two-pane store manager, process monitor (queue, jobs, events, cancel) | L | — (new) | D3 for the server view; `assets-api-admin-operations`, `asset-events-over-websocket`, `unmanaged-asset-registry` |
 | D18 | `ui-text-editors` | One editor element with syntax modes (query, template, YAML, JSON, SQL, Markdown, code), diagnostics, save; Markdown editor with preview; per-frontend editor engines | L | `TEXT-EDITOR-EDITS-ARE-NEVER-SAVED`, `TEMPLATE-HAS-NO-HIGHLIGHTER`; absorbs `text-editor-save`, `template-syntax-highlighter` | D1, D6, D7 |
@@ -87,7 +87,7 @@ question.
 |---|---|---|
 | S1 ratatui | Do the draft `ElementModel` + view traits work for an immediate GUI, a DOM and a terminal? Render asset view, text and a list in all three | D1, D8 |
 | S2 Tauri | Tauri IPC (`invoke` + `Channel`) or loopback WebSocket for the split transport; binary throughput, startup, mobile build | D3, D9 |
-| S3 charts | Read `stockplottertest`; map one `ChartSpec` (time series + candlestick + bar) to `egui_plot`, ECharts and ratatui | D15 |
+| S3 charts | Port `stockplottertest`'s `simple_plot` to a `ChartSpec`: `brownian_quotes` (live, 100 ms expiry) and `merge_historical_data-AAPL` as candlesticks + volume + close line, rendered by `egui_plot`, ECharts and ratatui | D15 |
 | S4 controls | Catalogue functions across `ns-img`, `ns-pl` and charts; drive three of them from keyboard, wheel and a MIDI controller (`egui-midi-test` as base) | D13, D14 |
 
 ## 4. Dependencies
@@ -131,7 +131,7 @@ and in a terminal on the new crates, next to the old UI.
 browser, the egui app and a Tauri app attach to a `liquers-axum` UI session and show the M1
 document; `ui-split-elements` AC-1..AC-9 pass.
 
-**M3 — Data tools.** D16 (tables, SQL viewer), D15 (charts in three frontends, after S3),
+**M3 — Data tools.** D16 (tables, SQL viewer), D15 (charts in three frontends, after S3; `stockplottertest` ported as the acceptance app),
 D17 (asset manager, store manager, process monitor), D5 (client-side processing). Exit: the
 2-million-row example of `ui-split-elements` with a chart over it, in egui and the browser.
 
@@ -187,9 +187,10 @@ desktop, Tauri and development; D4 Phase 1–2 can still be written early so M2 
    reference backend and the TUI validates the traits cheaply.
 4. **Chart specification.** Our own small `ChartSpec`, or adopt an existing grammar (Vega-Lite
    subset, or ECharts option JSON as the canonical form)? Recommended: our own subset with a
-   per-frontend extension block; decide after S3 and `stockplottertest`.
+   per-frontend extension block, shaped by the stock charts of `stockplottertest`; confirm after S3.
 5. **Tauri transport.** IPC or loopback WebSocket by default? Recommended: decide in S2; the
    transport trait allows both.
 6. **Inputs versus multi-user.** Is MIDI and function mapping (M5) more urgent than multi-user (M6)?
-7. **`stockplottertest`.** This session could not read it. Can you give access (or summarise what
-   it should teach the chart design)?
+7. **`stockplottertest` as the chart acceptance app.** Should S3 and D15 use it as the reference
+   application (its stock queries rewritten to return a `ChartSpec`), and should it move to the
+   new crates at M3 as the first real app on them? Recommended: yes to both.

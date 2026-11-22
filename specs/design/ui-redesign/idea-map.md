@@ -15,8 +15,8 @@ open issues and designs in `specs/index.csv`, the investigative design
 [`query-editor-ergonomics`](../query-editor-ergonomics/) (reference `specs/reference/THEME.md`), the
 archive survey `specs/archive/2026-11-19-egui-craft-suite-survey.md`, the March 2026 frontend notes
 (`specs/archive/2026-03-02-ui-{ratatui,web,dioxus}-design-notes.md`) and the
-`orest-d/egui-midi-test` repository. `orest-d/stockplottertest` could not be read (no access from
-this session), so §G9 is written without it. GitHub has no open UI issue (the three open issues are
+`orest-d/egui-midi-test` and `orest-d/stockplottertest` repositories (the latter read on
+2026-11-22 at `5d7bdb5`, after access was granted). GitHub has no open UI issue (the three open issues are
 #232, #233, #237, none about the UI); every issue below is a local `specs/issues/` file.
 
 Each area **G** is one of Orest's goals; each **B** is a brainstormed addition. Per area: what the
@@ -252,8 +252,46 @@ layer for common chart types, frontend-specific extras, basic ratatui charts.
 - Large data: server-side downsampling (LTTB) and windowing, a chart page like a table page.
 - Interaction: zoom/pan/selection feed the function mapping (G13), so a chart's zoom can be a MIDI
   knob and a selection can drive a filter query.
-- `orest-d/stockplottertest` is the named reference; it was not reachable from this session and
-  must be read before the chart design starts.
+
+**Lessons from `orest-d/stockplottertest`** (`5d7bdb5`; egui 0.33, `egui_plot` 0.34, polars 0.53,
+`liquers-lib` by path). A stock-chart app composed from a `UISpec` (`main_spec.yaml`: a menu of
+queries, `layout: windows`, each example opened in a query console with `ns-lui/add-child`). Data
+commands return polars DataFrames with `date`, `timestamp` (i64 seconds), `open`, `high`, `low`,
+`close`, `adjclose`, `volume`: `yahoo_get_quotes`, `yahoo_intraday_quotes` (`expires: "in 1 min"`),
+`merge_historical_data` over CSVs from a recipe provider that generates one recipe per ticker
+(`src/recipes.rs`), and `brownian_quotes` (synthetic OHLC, `expires: "in 100 ms"`, so a live,
+self-refreshing series). The chart is `simple_plot-close` (`src/commands.rs`): it reads the two
+columns and returns `Value::from_ui(closure)` drawing an `egui_plot` `Line` with a fixed blue
+colour, a fixed plot id `"stock_plot"`, zoom and drag on, and an x-axis formatter turning
+timestamps into dates. `simple_table` does the same with an `egui::Grid` over every row.
+
+What the chart design takes from it:
+- **A chart must be data, not a closure.** `Value::from_ui` is an opaque egui closure: it cannot
+  be stored, sent to a client, drawn by the web or the TUI, restyled by a theme or edited. The
+  replacement is `…/simple_plot-close` producing a `ChartSpec` value that each frontend renders.
+- **The first target use case is financial time series:** a time x axis with date formatting,
+  OHLC candlesticks with a volume panel below on a shared x axis, line and area overlays (moving
+  averages), several tickers compared (a normalised scale), and zoom and pan over a long history.
+  `egui_plot` has `BoxPlot` and bars but no candlestick, so the egui backend draws candles itself
+  (bars for bodies, segments for wicks); ECharts has `candlestick` natively; ratatui gets a line of
+  closes in braille plus a volume sparkline.
+- **Live data:** `brownian_quotes` expires every 100 ms. A chart element must re-request its
+  query when the value expires (today's elements do not:
+  `UI-ELEMENT-KEEPS-AN-EXPIRED-VALUE-AND-NEVER-RE-REQUESTS`) and keep the zoom window across
+  updates; in split mode only new points should travel (append updates to a chart page).
+- **Colours and ids from the theme and the element:** a fixed `Color32::BLUE` and a fixed plot id
+  break with dark mode and with two charts open. Series colours come from the theme's hues; plot
+  identity comes from the element handle.
+- **Columns by name, not by convention:** `simple_plot` hard-codes `timestamp`; the spec names x,
+  y, OHLC and volume columns, with defaults detected from the schema.
+- **Version coupling:** the app pins egui 0.33 while `liquers-lib` is on 0.36. An app that writes
+  egui code against `liquers-lib`'s egui breaks on every upgrade; a chart spec rendered by
+  `liquers-ui-egui` removes that coupling, and the egui crate should re-export `egui` for the apps
+  that still need custom drawing.
+- **Tables too:** `simple_table` renders every row of the DataFrame with `unwrap` per cell; the
+  paged `RecordView` table of D16 replaces it.
+- It is also a reference application for G12 (a `UISpec` with menus of queries, windows and
+  consoles) and for G10's recipes editor (generated recipes per ticker from `config.yaml`).
 
 **Issues.** None filed. New design.
 
