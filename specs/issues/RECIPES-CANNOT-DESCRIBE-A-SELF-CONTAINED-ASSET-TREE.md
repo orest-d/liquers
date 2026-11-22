@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: XL
 area: [core/assets, core/store, core/validate]
-design:
+design: recipe-tree
 created: 2026-11-02
 github:
 ---
