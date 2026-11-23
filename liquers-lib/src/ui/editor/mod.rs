@@ -77,7 +77,7 @@ mod view;
 
 pub use catalog::command_catalog;
 pub use command::{EditorCommand, EditorEffect, NewElement};
-pub use element::{EditorBinding, EditorElement};
+pub use element::{recipe_folder, EditorBinding, EditorElement};
 pub use keys::{editor_keymap, keymap_table, shortcut_text, EditorKey, KeyScope};
 pub use layout::{
     card_marks, command_id, editor_layout, form_rows, header_parts, node_label, simple_card, toolbar_items, Card,
@@ -87,7 +87,8 @@ pub use state::{EditorKind, EditorState};
 pub use tree::{
     default_text, effective_gui, is_numeric, json_text, scale_numeric, Browser, CatalogCommand,
     CatalogNamespace, Confirmation, DirectoryEntry, DirectoryListing, EditorField, EditorNode,
-    EditorTree, FieldValue, NodePath, PathStep, Picker, PresetEntry, SpanTarget, TextSpan, RESOURCE_HEADERS,
+    EditorTree, FieldValue, NodeContext, NodePath, PathStep, Picker, PresetEntry, SpanTarget, TextSpan,
+    RESOURCE_HEADERS,
 };
 pub use view::{event_name, field_id, find_node, CardMenu, EditorView, FocusTarget};
 

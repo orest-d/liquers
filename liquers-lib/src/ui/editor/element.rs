@@ -31,6 +31,21 @@ pub enum EditorBinding {
     Memory(String),
 }
 
+/// The folder of the `recipes.yaml` an accessor address reads a recipe of
+/// (`-R-key/reports/recipes.yaml/-/ns-acc/accessor/recipe-0/query` → `reports`), if it does.
+pub fn recipe_folder(address: &str) -> Option<String> {
+    let end = address.find("/recipes.yaml")?;
+    let head = &address[..end];
+    let folder = head
+        .strip_prefix("-R-key/")
+        .or_else(|| head.strip_prefix("-R/"))
+        .or_else(|| head.strip_prefix("-R-stored/"))?;
+    if folder.is_empty() || folder.contains("/-/") {
+        return None;
+    }
+    Some(folder.to_owned())
+}
+
 fn yes() -> bool {
     true
 }
@@ -197,6 +212,12 @@ impl EditorElement {
                     None => AccessorOp::Watch,
                 };
                 ctx.send_message(AppMessage::Accessor { handle, binding: self.binding.clone(), op });
+                // A recipe of a `recipes.yaml`: its folder's nodes, for Node arguments.
+                if let EditorBinding::Accessor(address) = &self.binding {
+                    if let Some(folder) = recipe_folder(address) {
+                        ctx.send_message(AppMessage::NodeContext { handle, folder });
+                    }
+                }
             }
         }
     }
@@ -242,6 +263,9 @@ impl EditorElement {
             }),
             EditorEffect::ListDirectory(folder) => {
                 ctx.send_message(AppMessage::ListDirectory { handle, folder })
+            }
+            EditorEffect::RenameData { folder, editor } => {
+                ctx.send_message(AppMessage::RenameData { handle, folder, editor })
             }
         }
     }
@@ -365,6 +389,12 @@ impl UIElement for EditorElement {
             UpdateMessage::Directory(listing) => {
                 if let Some(state) = &mut self.state {
                     state.on_directory(listing.clone());
+                }
+                UpdateResponse::NeedsRepaint
+            }
+            UpdateMessage::NodeContext(context) => {
+                if let Some(state) = &mut self.state {
+                    state.set_node_context(Some(context.clone()));
                 }
                 UpdateResponse::NeedsRepaint
             }

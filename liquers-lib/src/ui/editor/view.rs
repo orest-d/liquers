@@ -352,6 +352,14 @@ fn decode_named(name: &str, field_text: &dyn Fn(&str) -> Option<String>) -> Opti
         },
         "update" => EditorCommand::Update,
         "revert" => EditorCommand::Revert,
+        "rename" => {
+            let (arg, from) = two();
+            let to = field_text(&format!("nrename:{}:{arg}", path.id()))?;
+            if to.is_empty() || to == from {
+                return None;
+            }
+            EditorCommand::RenameNode { from, to }
+        }
         _ => return None,
     })
 }
