@@ -63,18 +63,6 @@ use crate::value::Value;
 /// submits it, unlike the console's own `Submit` (Enter in the query input, Go).
 const PARAMETERS_SUBMIT: &str = "qc:apply";
 
-/// The step a mode event names: a step chip's `ed:mode:<path>:advanced`; the mode switch's root
-/// path names none.
-fn mode_event_path(event: &UIEvent) -> Option<NodePath> {
-    let UIEventKind::Named(name) = &event.kind else {
-        return None;
-    };
-    let (id, _) = name.strip_prefix("ed:mode:")?.rsplit_once(':')?;
-    let path = NodePath::from_id(id).ok()?;
-    let top = path.0.first().cloned()?;
-    Some(NodePath(vec![top]))
-}
-
 /// Browser-like interactive query console widget.
 ///
 /// Manages query history, command preset resolution, and data/metadata view toggle.
@@ -372,7 +360,7 @@ impl QueryConsoleElement {
                     // Keep what was typed in the panel, then switch (AC-3). A step chip names the
                     // step Advanced mode opens.
                     self.parameter_drafts(event, ctx);
-                    self.open_card = mode_event_path(event);
+                    self.open_card = EditorView::mode_event_path(event);
                     self.mode = mode;
                     return UpdateResponse::NeedsRepaint;
                 }

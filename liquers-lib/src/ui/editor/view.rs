@@ -260,6 +260,18 @@ impl EditorView {
             _ => None,
         }
     }
+
+    /// The top-level step a mode event names: a step chip's `ed:mode:<path>:advanced`. The mode
+    /// switch's root path names none.
+    pub fn mode_event_path(event: &UIEvent) -> Option<NodePath> {
+        let UIEventKind::Named(name) = &event.kind else {
+            return None;
+        };
+        let (id, _) = name.strip_prefix("ed:mode:")?.rsplit_once(':')?;
+        let path = NodePath::from_id(id).ok()?;
+        let top = path.0.first().cloned()?;
+        Some(NodePath(vec![top]))
+    }
 }
 
 /// `Reset` of every argument of the action at `rest` (`<path>:`) that is not at its default.

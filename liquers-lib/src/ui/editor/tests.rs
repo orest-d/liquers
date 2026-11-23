@@ -934,3 +934,13 @@ fn entering_advanced_collapses_all_but_one_card() {
     assert!(!view.collapsed.contains(&NodePath::element(1).id()));
     assert!(view.collapsed.contains(&head.id()));
 }
+
+// A step chip's mode event names the step Advanced mode opens; the mode switch names none.
+#[test]
+fn mode_event_names_the_chip_step() {
+    use crate::ui::event::{UIEvent, UIEventKind};
+    let chip = UIEvent::new(UIEventKind::Named("ed:mode:1:advanced".into()));
+    assert_eq!(EditorView::mode_event_path(&chip), Some(NodePath::element(1)));
+    let switch = UIEvent::new(UIEventKind::Named("ed:mode::advanced".into()));
+    assert_eq!(EditorView::mode_event_path(&switch), None);
+}
