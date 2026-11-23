@@ -36,6 +36,9 @@ portable archive is a separate design built on this one
 - **2026-11-23, evening** Revised: a Node's meaning depends on strictness (any link outside a strict
   folder, a bare name needing a working directory); strict mode allows no link arguments at all;
   post-processing out of scope (AC-22 retired). AC-20, AC-21, AC-23 revised. No open questions.
+- **2026-11-23, later** Command default links and pipelines and enum-alias links are trusted command
+  logic, allowed in strict recipes and not checked; only links the recipe writes are refused.
+  AC-7, AC-20, AC-23 clarified.
 
 ## Phases
 

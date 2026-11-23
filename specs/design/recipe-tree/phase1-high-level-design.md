@@ -86,10 +86,12 @@ rewrites every reference to it.
   THEN the check reports it as a warning, not an error
 - **AC-7** Strict dependencies (revised 2026-11-23)
   WHEN `dependencies: strict` and a node depends on a keyed asset by an absolute key, by a key
-  outside the folder (`../`), or by a key in a subfolder, through its query, a link, a pipeline
-  element or a command's default link
+  outside the folder (`../`), or by a key in a subfolder, through its query's resource segment,
+  a pipeline element or a Node name
   THEN the check fails naming the node and the key; dependencies on assets directly in the folder
-  through relative keys (`-R/./x`, `-R-key/./x`, `{resource: ./x}`) pass
+  through relative keys (`-R/./x`, `-R-key/./x`, `{resource: ./x}`) pass. A command's default
+  link or enum-alias link is command logic, trusted like the command itself, and is not checked
+  (AC-23)
 - **AC-8** Dangling references
   WHEN a reference names a key in the folder that is neither a recipe nor a stored file
   THEN the check fails naming the node and the missing key
@@ -143,8 +145,9 @@ rewrites every reference to it.
   WHEN a Node argument is given as a string (`attach-wheel`)
   THEN the plan resolves it to the link the Node type builds (`-R/./wheel.glb`), recorded as a
   dependency like any link, so the result equals the query written with the link; resolved
-  against the working directory, so an ad-hoc query needs one (`-R-cwd/scenes/car/-/…`), and
-  without one the plan fails naming the argument
+  against the working directory, so an ad-hoc query that gives a Node argument as a bare name
+  needs one (`-R-cwd/scenes/car/-/…`), and without one the plan fails naming the argument; the
+  same argument given as a link needs no working directory
 - **AC-21** A Node's meaning depends on strictness (revised 2026-11-23)
   WHEN a Node argument is given as a link
   THEN outside a strict folder any link is accepted, as for an ordinary link argument, so a
@@ -158,7 +161,11 @@ rewrites every reference to it.
   (`~X~-R/./wheel.glb~E`, `{link: …}`, `{pipeline: …}`), whatever the argument's type
   THEN the check fails naming the recipe and the argument; the query's resource segment
   (`-R/./body.glb`, `{resource: ./body.glb}`) and Node arguments given by name are the only
-  references allowed
+  references a recipe writes. A command's default link or nested pipeline, and the link of an
+  enum alternative (`ParameterValue::DefaultLink`, `DefaultPipeline`, `EnumLink`), stay allowed:
+  they are command logic, and commands are trusted to read only allowed dependencies. A strict
+  recipe can use such a command (one defined by a template or a script given as a default), but
+  cannot override that default with a link
 - **AC-24** Strict mode is enforced, not only reported
   WHEN a recipe of a folder declared `dependencies: strict` is planned
   THEN a dependency the strict check refuses fails the plan with the same error as the check
@@ -170,15 +177,17 @@ such as declared shared folders; nodes in subfolders, whose name would be a rela
 evaluation for folders that are not declared strict; a new recipe kind or recipe trait
 (`composite-command-definition/recipe-and-pipeline-structures.md` §4: nodes are plain recipes).
 
-**Known limit.** Strict mode is a static guarantee over what a recipe declares: its query, links,
-pipeline elements and its commands' default links, as plan dependency analysis sees them. A command
-that builds a key at run time and reads it is not seen; Phase 2 decides whether commands can declare
-that, and files it otherwise.
+**Trust boundary.** Strict mode is a static guarantee over what a recipe writes: its resource
+segments, pipeline elements and Node names. Commands, their default links and pipelines and their
+enum-alias links are assumed controlled: whatever they read is the command author's
+responsibility, as for any command that reads assets at run time.
 
 ## Core Interactions
 
 - **Recipes:** `RecipeList` gains an optional `tree` declaration; `Recipe` is unchanged.
-- **Plans:** the strict check uses the plan's dependency analysis, so command default links count.
+- **Plans:** the strict check walks the plan's parameter values, telling what the recipe wrote
+  (`ParameterLink`, `ParameterPipeline`, overrides) from command logic (`DefaultLink`,
+  `DefaultPipeline`, `EnumLink`).
 - **Pipelines:** references are read and rewritten by converting queries to pipelines and back
   (`PipelineEditor`, `QueryEditor`), which needs the command metadata registry.
 - **Commands:** a Node argument type in `ArgumentType` / `ArgumentInfo`, the `register_command!`
@@ -253,7 +262,8 @@ The maintainer answered questions 1-8 and, the same day, 9-12:
     when its recipes are planned (AC-24).
 11. **Extensions** (2026-11-23): a Node declares one extension, so a name is never ambiguous.
 12. **Node choices** (2026-11-23): in the editor model and both the egui and browser renderers.
-13. **Links in strict mode** (2026-11-23): none in arguments, of any type (AC-23).
+13. **Links in strict mode** (2026-11-23): none written by the recipe, in an argument of any type;
+    command defaults and enum-alias links stay allowed as trusted command logic (AC-23).
 14. **Post-processing** (2026-11-23): out of scope (AC-22 retired). A Node with a post-processing
     pipeline, or a level of strictness that allows and validates relative links in arguments, may
     come later, when one proves needed.
