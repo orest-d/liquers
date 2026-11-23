@@ -17,14 +17,16 @@ not contradict it without changing this document first. The problems it answers 
 
 **Status: proposed, not approved.** Revised on 2026-11-23 after Orest's review: elements may be
 written in a frontend's own idiom or in a portable style (§3.4, §5.2), and the client of a split
-UI may be anything from very thin to thick (§16). Signatures are sketches that fix the shape, not
-final code.
+UI may be anything from very thin to thick (§16). A second round the same day fixed the
+vocabulary (§4.1): an element has implementations, a split implementation has a client part and a
+server part, and a monolithic implementation or a server part may use the environment directly.
+Signatures are sketches that fix the shape, not final code.
 
 **Contents.** 1 Requirements · 2 Answer in short · 3 Which abstraction · 4 Concepts ·
 5 Elements · 6 Lifecycle · 7 Messages and events · 8 Turns · 9 Effects and subscriptions ·
 10 The view tree · 11 Frontends: three patterns over one store · 12 Session and runtime ·
 13 Transparency · 14 Elements as data, commands, UISpec · 15 Values and display forms ·
-16 Protocol and transport · 17 Sessions and identity · 18 Theme and style · 19 Input, keymap and
+16 Split mode: parts, client forms, protocol · 17 Sessions and identity · 18 Theme and style · 19 Input, keymap and
 controls · 20 Persistence and addresses · 21 Python and JavaScript · 22 Crates and modules ·
 23 Threading, wasm and errors · 24 Testing and conformance · 25 Migration · 26 Acceptance
 scenarios · 27 Decision register · 28 Open questions · 29 Impact on the plan · 30 Use-case
@@ -73,9 +75,11 @@ element runs.
      The author chooses which frontends to support;
    - a **portable view** is a pure function `view()` that returns a **view tree**: plain data in
      a small closed vocabulary. It is written once and every frontend interprets it.
-3. **Placement.** An element runs where its code and its data are: in the client or on the
-   server. A client may hold many element types (thick), few, or none (thin). What crosses the
-   wire depends on placement, not on the element (§16).
+3. **Implementations and parts.** An element (say, a code editor) is an abstraction with one or
+   more **implementations**, each for a frontend type and a protocol. A **monolithic**
+   implementation is one piece with direct access to the environment. A **split** implementation
+   has a **client part** and, where needed, a **server part**, which talk over a channel. How
+   thick the client is follows from what the implementations put in their client parts (§16).
 
 How the four situations are served:
 
@@ -89,7 +93,7 @@ How the four situations are served:
 **Is there an obvious best choice?** No single view style wins (§3): native code is the most
 natural and the least portable, and a portable view is the reverse. The design therefore fixes
 what must be common (ownership, lifecycle, messages, effects, composition) and leaves the view
-style and the placement to the author. The portable view is what Liquers' own tools use, and what
+style, and how an implementation is divided between client and server, to the author. The portable view is what Liquers' own tools use, and what
 makes a thin client and scripted elements possible.
 
 ## 3. Which abstraction
@@ -211,7 +215,6 @@ makes that case visible instead of broken.
 | **Handle** | The stable identity of a node within a session (kept from today). |
 | **Element** | State plus `update`, with a portable view, native views, or both. Lives in a node. |
 | **Native view** | An element's drawing code for one frontend, in that frontend's idiom. |
-| **Placement** | Which side of a split UI runs an element: client or server. |
 | **Client form** | One kind of client, from very thin (HTML fragments) to thick (most elements local). |
 | **Message** | The only input of an element (§7). |
 | **Effect** | A request an element makes of the runtime: subscribe, evaluate, add a child, set a timer (§9). |
@@ -220,6 +223,28 @@ makes that case visible instead of broken.
 | **View store** | The current view trees of a session and their revision. What a frontend reads. |
 | **Frontend** | An interpreter of the view store for one toolkit, plus the host loop (window, terminal, page). |
 | **Display form** | A value prepared for showing: text, a table page, an image, a chart (§15). |
+
+### 4.1 Vocabulary for split mode (agreed with Orest, 2026-11-23)
+
+| Term | Meaning |
+|---|---|
+| **Element** | The abstraction of a piece of UI, possibly with several implementations. Example: a code editor. Identified by its type name. |
+| **Element implementation** | The element for one frontend type and one protocol: "code editor, egui, monolithic"; "code editor, web, thick client". |
+| **Monolithic implementation** | One piece in one process. It has no client/server split and needs no protocol, though it may use messages internally (§5.4). |
+| **Client part, server part** | The two parts of an implementation that supports split mode. The server part is optional when the web API is enough. |
+| **Channel** | What connects the two parts: WebSocket, Tauri IPC, MQTT, an in-process queue (spike S2's `Connection`). |
+| **Protocol** | The messages the two parts exchange. An implementation defines its own, built where possible from the standard protocol elements (§16.3). |
+
+**Who may use what.**
+
+- A **monolithic implementation** and a **server part** have the environment and every value
+  type at hand. They may call it directly: evaluate, read a store, hold a DataFrame.
+- A **client part** has no environment. The environment and some values (a polars DataFrame)
+  cannot travel through a channel. The client part reaches them through messages to its server
+  part, or through the Liquers web API.
+- The one constraint on direct access is the old lesson F6: slow work must not run inside a turn
+  or a frame. It is spawned, or done through the runtime's services (§9), and its result comes
+  back as a message.
 
 Three rules follow from the three root causes:
 
@@ -367,6 +392,54 @@ Rules:
   same process (monolithic, or a client that has the element), it cannot be shown by a thin
   client, and its direct state changes appear in the trace as "state changed during frame"
   without a message (§13).
+
+### 5.3 Implementations and parts
+
+An element type has a set of registered implementations. A host picks the one that fits its
+frontend type and its mode.
+
+| Shape | Pieces | Runs | Environment access |
+|---|---|---|---|
+| **Monolithic native** | one piece with a native view | monolithic | direct |
+| **Split native** | a client part with a native view; a server part if the web API is not enough | split; also monolithic, by joining the parts with an in-process channel | server part: direct. Client part: none |
+| **Portable** | one piece with a portable view | monolithic; split with the generic client (the piece is then the server part) | direct |
+
+- An author who writes the split shape gets a monolithic implementation for free (the two parts
+  joined in one process). The reverse does not hold: a monolithic native implementation cannot be
+  split without being rewritten as two parts.
+- A viewer whose value can travel may have **no server part**: a client part plus the web API.
+- `Element<E>` of §5.1 is the trait of a monolithic implementation and of a server part. `cx`
+  gives it the environment (`cx.environment()`), besides the effects of §9.
+- A client part is a separate, smaller trait that is not generic over the environment:
+
+```rust
+/// The client half of a split implementation. No environment, no server-side value types.
+pub trait ClientPart: MaybeSend + 'static {
+    fn type_name(&self) -> &'static str;
+    /// Messages from the server part, from the web API, from input, and the lifecycle.
+    fn update(&mut self, msg: ClientMsg, cx: &mut ClientCx<'_>) -> Result<(), Error>;
+    fn view(&self, vx: &ViewCx<'_>) -> Option<View> { None }      // or a native view (§5.2)
+}
+// ClientCx: send(to server part), the standard protocol elements of §16.3 (subscribe to a query,
+// get and set an accessor, fetch a blob), timers, focus, child placement.
+```
+
+- The registry key is (element type, frontend type, client form). It matches the endpoint per
+  client form of §16.2: both sides must agree on which implementation of an element is in use.
+
+### 5.4 Does a monolithic implementation use messages?
+
+It does not have to. Open point, to be settled with Orest ("idiomatic versus portable"):
+
+- **Without messages.** Idiomatic immediate-mode code changes its state in `show` and calls the
+  environment through `cx`. Simplest to write. It still receives lifecycle and data messages in
+  `update`, because those come from outside the frame.
+- **With messages.** Input becomes messages handled in `update`. The implementation then gains a
+  full trace and replay (§13), can be tested without a toolkit, and is one step from the split
+  shape.
+
+The runtime supports both. The recommendation is: no messages required for a monolithic native
+implementation; messages for Liquers' own built-in elements.
 
 ## 6. Lifecycle
 
@@ -854,26 +927,27 @@ pub trait Projector<V>: MaybeSend + Sync {
 
 The capability lookup, the list of forms and the paging contract are D2's to settle.
 
-## 16. Split mode: placement, client forms, protocol
+## 16. Split mode: parts, client forms, protocol
 
-### 16.1 Placement
+### 16.1 Parts, and who owns what
 
-In a split UI each node of the tree is owned by exactly one side.
+In a split UI an element is present on both sides under the same handle: a server-side node with
+the server part (or with nothing, when the implementation has none), and a client-side node with
+the client part. The runtime gives each element a logical channel between its two parts,
+multiplexed over the one connection and addressed by (handle, generation).
 
-- **Client-placed**: the element (state, `update`, views) runs in the client. It needs the
-  element's code in the client and data the client can hold. It reaches the server only for
-  Liquers things: evaluating queries, subscribing to assets, reading and writing stores and
-  accessors. It keeps working while a query is slow, and keeps showing what it has when the link
-  drops.
-- **Server-placed**: the element runs on the server. The client shows it through a portable view
-  (patches or HTML). Used when the client lacks the element's code (a Python element, a newer
-  element, a very thin client) or when the author wants the logic kept on the server.
-
-Placement is decided when a node mounts: client-placed if the client declared the element type
-and the element's spec does not demand the server; otherwise server-placed. The single-owner rule
-holds per node. A tree that mixes both is two linked sessions, one on each side, each owning its
-nodes; a node owned by the other side appears as a **remote node** whose view arrives over the
-wire.
+- **The server part** runs beside the environment and may use it directly (§4.1). It holds what
+  cannot travel: a DataFrame, a database cursor, a long evaluation.
+- **The client part** holds the view and the interaction, and as much logic as the author puts
+  there. It talks to its server part and to the web API.
+- **A portable implementation** has only a server-side piece; its client side is the generic
+  interpreter, and its protocol is the view level (§16.3 item 4).
+- **Each piece of state has one owner.** The state of a client part (a draft, a selection, a
+  scroll position) is the client's. The state of a server part is the server's.
+- **The tree structure** (which nodes exist, their sources and specs) is proposed to be owned by
+  the server in split mode: elements are created by queries that run there, a session can be
+  saved and restored there, and a second device can attach. The client mirrors the structure
+  and asks for changes. This is open (§28).
 
 ### 16.2 Client forms
 
@@ -883,16 +957,19 @@ planned, all on the same runtime:
 | Form | Client contains | Elements run | Wire carries | Size goal |
 |---|---|---|---|---|
 | **Monolithic** | everything | in the one process | nothing | — |
-| **Thick web (standard)** | wasm: the core, the web frontend, the built-in elements, `liquers-core`, records | in the client; server-placed only as fallback | data level; view level for remote nodes | < 5 MB |
-| **Very thick** | the standard client plus heavy value types (polars, image codecs) and a local store | in the client; can work offline | data level, mostly for sync | application's choice |
+| **Thick web (standard)** | wasm: the core, the web frontend, the client parts of the built-in elements, `liquers-core` (parsing), records | client parts in the client; server parts where needed | web API, element messages; view level as fallback | < 5 MB |
+| **Monolithic over remote services** | `liquers-web`: an environment in the page whose store and asset manager are remote | monolithic implementations in the page | whatever the environment's remote services use | application's choice |
 | **Thin generic** | a view store copy and one frontend's interpreter (egui, terminal, or a small wasm) | on the server | view level: patches | small |
 | **Very thin web** | a few kB of JavaScript: apply HTML fragments, report events | on the server | HTML fragments down, events up | tens of kB |
 | **Islands** | a very thin page that loads a thick wasm module for chosen elements (editor, chart) | mostly server, some client | both | per island, lazy |
 
 - **The standard web client draws the line at records and DataFrames.** It includes
   `liquers-records` (a table page is a `RecordView`) and not polars. A DataFrame stays on the
-  server and the client gets pages. Anything that needs polars in the client is the "very thick"
-  build, an application's own decision.
+  server and the client gets pages.
+- **A split client has no environment.** A page that does have one (`liquers-web` with a remote
+  store and a remote asset manager) is monolithic from the UI's point of view, even though it is
+  a client of some server: its elements are monolithic implementations and call their environment
+  directly.
 - **The very thin web client is a server-side frontend** (§11): `liquers-ui-web`'s HTML renderer
   runs in the server, turns each element's portable view (or a server-side native view that
   returns HTML) into fragments, and sends a fragment whenever the element changes. It needs no
@@ -903,26 +980,40 @@ planned, all on the same runtime:
   own wire format, so each gets its own endpoint, for example `api/ui/thick/ws`,
   `api/ui/thin/ws`, `api/ui/html/ws`. The names are D3's to fix.
 
-### 16.3 What crosses the wire
+### 16.3 Standard protocol elements
 
-An element does not choose its messages by client form. There are three wire levels, and
-placement decides which one a node uses.
+An implementation defines the protocol between its parts. Most of what implementations need is
+the same, so the core defines reusable protocol elements. An implementation uses any of them,
+adds messages of its own, or uses none. Nothing here duplicates the web API: where the API
+already does the job, the protocol element is the API.
 
-| Level | Used by | Carries | Defined in |
+| # | Protocol element | Messages | Carriers |
 |---|---|---|---|
-| **Data** | client-placed elements | evaluate a query, subscribe to an asset (status, progress, display forms or values), store and accessor reads and writes, the command registry and theme | D5, with `remote-store-and-asset-manager`, `registry-publication` |
-| **View** | server-placed elements | view-tree snapshots and patches down, input events up; or HTML fragments down, events up | D3 |
-| **Element** (optional) | an element split by its author: state on the server, native view on the client | the element's own `Down`/`Up` messages, carried as `Custom` messages between its two halves | D3 carries them; the element defines them |
+| 1 | **Query submission and asset updates** | submit or subscribe, status, progress, value or display form, error, expired, cancel | in process from the asset manager (monolithic, server part); the web API plus asset events on a WebSocket (client part); relayed by the server part |
+| 2 | **Value transfer** | display forms, record pages by range, blobs by reference | the web API where it has a route; the channel otherwise |
+| 3 | **Accessor** | get, set with `set_if`, changed, conflict | in process; the web API; the channel |
+| 4 | **View level** | view-tree snapshot and patches down, input events up | the channel (§16.4) |
+| 5 | **HTML fragments** | fragment per element down, events up | the channel |
+| 6 | **Tree and lifecycle** | node added, removed, replaced, shown, hidden; focus | the channel; in process |
+| 7 | **Envelope** | addressing by (handle, generation), revisions, resync, ping, flow control | every channel |
 
-- The same element type can be client-placed for one client and server-placed for another. Its
-  code is the same; only where it runs differs. So "a different protocol per client form" is true
-  of the *connection*, and the element does not have to know.
-- The **element level** is the `ui-split-elements` option C idea, kept as an option. It is for
-  the case where the value cannot go to the client but a native client view is wanted. Often the
-  data level is enough for that case: a client-placed table element subscribes to pages of a
-  server-side DataFrame.
-- **Values on the data level** travel as display forms by default (R11) and as whole values when
-  the client's realm has the type and the value is within a size limit (`realm-type-registry`).
+**Query submission and progress, in every mode.** The old egui UI needed to submit queries and
+receive progress updates. That need does not go away in split mode, and it does not depend on a
+server existing:
+
+- a **monolithic** implementation cannot rely on a server, so the runtime submits to the asset
+  manager in process and delivers the updates as `Data` messages (§9);
+- a **server part** has an environment and uses the same in-process service;
+- a **client part** gets the same updates from the web API (submit over HTTP, asset events over
+  the WebSocket of `asset-events-over-websocket`), or from its server part.
+
+The message shape is defined once (the snapshot of §9), so code that reacts to "progress
+arrived" is the same in a monolithic implementation and in a client part.
+
+**Custom messages.** Whatever is specific to an element (a table's "sort by column", an editor's
+"apply edit") is the implementation's own typed `Down`/`Up` pair, carried in the envelope. This
+is `ui-split-elements` option C, used where an author writes a split implementation, and never
+imposed on a monolithic one.
 
 ### 16.4 The view-level protocol
 
@@ -949,25 +1040,25 @@ protocol messages → view store copy → frontend.
   `Snapshot`; it never queues without bound. Spike S2 found this missing in every transport.
 - **Encoding.** The protocol types are serde types. JSON first (readable in browser tools); a
   compact binary encoding is negotiated in `Hello` later. D3 chooses it.
-- The data level uses the same connection, envelope, ping and flow control.
+- Element messages and asset events use the same connection, envelope, ping and flow control.
 
 ### 16.5 Versions and offline
 
 - A thin client tolerates a newer server: it only interprets a versioned vocabulary. A thick
   client shares code with the server, so `Hello` carries the versions of the protocol, of the
-  data level and of each element type; on a mismatch for an element type that node falls back to
-  server-placed.
+  web API and of each element implementation; on a mismatch for an element that node falls back to
+  its portable implementation, if it has one.
 - A thick client keeps showing and editing local state when the link drops, marks its
   subscriptions stale, and re-subscribes on reconnect. Writes go through `set_if`, so a write
-  made against an old version is refused as a conflict, not applied blindly. Queued offline
-  writes and a local store are the "very thick" build's concern and are not designed here.
+  made against an old version is refused as a conflict, not applied blindly. Working fully
+  offline is the monolithic-over-remote-services form's concern and is not designed here.
 
 ### 16.6 Security
 
 - On the view level a client can only send UI events; evaluation happens on the server under the
   session's principal.
-- On the data level a client names queries itself. The server therefore applies the access
-  policy to every data-level request (`access-policy-at-entry-points`); a thick client is as
+- Through the web API a client part names queries itself. The server therefore applies the access
+  policy to every such request (`access-policy-at-entry-points`); a thick client is as
   untrusted as any HTTP caller.
 - Event and request sizes and rates are limited per connection (`AXUM-WEBSOCKET-HARDENING`).
 
@@ -1149,7 +1240,7 @@ Master-level scenarios. D1's AC-1 to AC-11 remain, with AC-4 and AC-5 reworded (
 - **M-1 One element, every frontend.** WHEN an element is written once with `update` and a portable `view`
   THEN it is shown and usable in egui, the terminal and the page with no frontend-specific code.
 - **M-2 Thin client.** WHEN a client connects to a server that has a portable element type the
-  client was not built with THEN the client shows and operates it as a server-placed node.
+  client was not built with THEN the client shows and operates it through the view level.
 - **M-3 Same turns in every mode.** WHEN the same input log is replayed monolithically and
   through a transport THEN the trace of turns and the resulting frames are identical.
 - **M-4 Visible lifecycle.** WHEN a node is created, resolved, hidden, replaced and removed THEN
@@ -1171,7 +1262,7 @@ Master-level scenarios. D1's AC-1 to AC-11 remain, with AC-4 and AC-5 reworded (
   data through `update`, and nests inside and around portable elements.
 - **M-11 Idiomatic web.** WHEN an author writes an element with a `DomView` using DOM nodes and
   event listeners THEN it runs in the thick web client beside portable elements.
-- **M-12 Thick client.** WHEN the standard web client shows a client-placed viewer or editor and
+- **M-12 Thick client.** WHEN the standard web client shows a viewer or editor whose logic is in its client part and
   the server is slow or briefly unreachable THEN the element stays responsive and resumes its
   subscriptions on reconnect.
 - **M-13 Size.** WHEN the standard web client is built THEN its wasm is under 5 MB and contains
@@ -1203,8 +1294,8 @@ Master-level scenarios. D1's AC-1 to AC-11 remain, with AC-4 and AC-5 reworded (
 | 14 | Bulk data is never in the view tree: windows, pages and blob references | proposed |
 | 15 | The keyed diff and the patch format live in the core; frontends follow one of three patterns | proposed |
 | 16 | For portable views, frontends see only a view store and an event sink, in every mode | proposed |
-| 17 | Placement per node (client or server); client forms from very thin to thick; the standard web client is reasonably thick, under 5 MB, records but no polars; one endpoint per form (§16) | agreed in principle by Orest, 2026-11-23 |
-| 17a | Three wire levels: data, view, and optional element messages; typed `Down`/`Up` are never mandatory | proposed |
+| 17 | Client forms from very thin to thick; the standard web client is reasonably thick, under 5 MB, records but no polars; one endpoint per form (§16) | agreed in principle by Orest, 2026-11-23 |
+| 17a | The core defines standard protocol elements (§16.3) that implementations reuse; the web API is not duplicated; typed `Down`/`Up` belong to split implementations and are never imposed on a monolithic one | agreed in principle by Orest, 2026-11-23 |
 | 17b | A very thin web client (HTML fragments, no wasm) is a separate web implementation, built as a server-side frontend; islands combine it with thick modules | proposed (Orest's suggestion) |
 | 18 | Elements are data plus a registered type; a factory registry replaces `typetag` | proposed |
 | 19 | Commands reach the UI through a `SessionHandle` in the payload and never wait for it | proposed |
@@ -1217,24 +1308,28 @@ Master-level scenarios. D1's AC-1 to AC-11 remain, with AC-4 and AC-5 reworded (
 | 26 | Protocol: revisions, ack window, merge or snapshot when behind, blobs by reference, JSON first | proposed (details D3) |
 | 27 | One transport shape for all transports; Tauri IPC default in the shell | earlier (S2, 2026-11-22) |
 | 28 | Old elements run as native elements through a `legacy` wrapper | proposed |
-| 29 | Liquers' own built-in tools are written with portable views, with native widgets where a toolkit piece is needed | proposed |
+| 29 | Liquers' own built-in tools are written with portable views, with native pieces where a toolkit piece is needed | agreed by Orest, 2026-11-23 |
+| 30 | Vocabulary: element, element implementation (per frontend type and protocol), monolithic implementation, client part and server part, channel, protocol (§4.1) | agreed by Orest, 2026-11-23 |
+| 31 | A monolithic implementation and a server part may use the environment and any value directly; a client part has no environment and uses messages or the web API | agreed by Orest, 2026-11-23 |
+| 32 | A split client has no environment; a page with an environment over remote services (`liquers-web`) is monolithic | agreed by Orest, 2026-11-23 |
+| 33 | Query submission and asset updates have one message shape and three carriers (in process, web API with asset events, relay by the server part) | proposed |
+| 34 | The split shape of an implementation also runs monolithically, by joining its parts in process | proposed |
+| 35 | In split mode the server owns the tree structure; the client owns the state of its client parts | proposed, open |
 
 ## 28. Open questions
 
-Answered by Orest on 2026-11-23: native and portable styles are both offered (decision 4); the
-client is "reasonably thick" by default and the architecture supports thin and thick (decision
-17).
+Answered by Orest on 2026-11-23: native and portable styles are both offered (decision 4); thin
+and thick clients are both supported and the standard client is reasonably thick (17); built-in
+tools are portable (29); the vocabulary and the environment rule (30–32). The order of
+implementation is deliberately left aside until the architecture is settled.
 
 Still for Orest:
 
-1. **Built-in tools portable** (decision 29)? The alternative is native views per frontend for
-   some of them, at the cost of writing them more than once.
-2. **Order of the split work.** A thick client needs the data level (remote evaluation, remote
-   store, registry publication: D5) before the view level. That moves D5 ahead of most of D3 in
-   M2. Agreed?
-3. **Which thin forms, when.** Proposed: thick web client and the view-level protocol in M2 (the
-   latter also gives egui and terminal clients); the very thin HTML client and islands after M2,
-   as their own design.
+1. **Who owns the tree structure in split mode** (decision 35)? Proposed: the server, with the
+   client mirroring it and owning only its client parts' state.
+2. **Messages in a monolithic implementation** (§5.4): not required for native code, used by the
+   built-in elements. Agreed?
+3. **Is the list of standard protocol elements** (§16.3) the right set?
 
 For the spikes and the sub-designs, not blocking approval:
 
@@ -1242,11 +1337,12 @@ For the spikes and the sub-designs, not blocking approval:
 5. Does the vocabulary map cleanly onto Slint's declarative model (S5)?
 6. The binary encoding and the blob transfer per transport (D3).
 7. Per-viewer state when several users share a session (M6, D4).
-8. Two linked sessions with remote nodes: focus, keymap scopes and bubbling across the boundary
-   (D3, D5).
+8. Focus, keymap scopes and bubbling when parts of the tree are native and parts portable, and
+   across the client/server boundary (D1, D3).
 9. Accessibility mapping (AccessKit in egui, ARIA in the page) for portable and native views
    (D6, D7).
-10. Offline writes and a local store for the very thick client (later).
+10. Which web API routes the client parts need that do not exist yet (asset events, record
+    pages, accessor writes): D3 and D5 list them against `liquers-axum`.
 
 ## 29. Impact on the plan
 
@@ -1260,10 +1356,10 @@ For the spikes and the sub-designs, not blocking approval:
   the hard cases of §30 (typing in an editor, a 100 ms live chart, a large table); wasm size and
   frame-time numbers. **S5** is the same for Slint.
 - **D2** defines `Display`, `Want`, `Projector` and paging.
-- **D3** is the view-level protocol and the envelope shared with the data level, over S2's
+- **D3** is the view-level protocol and the envelope shared with element messages and asset events, over S2's
   transports, with one endpoint per client form.
-- **D5 `ui-client-side-processing`** becomes the data level and placement, and moves onto the
-  critical path of M2 (question 2).
+- **D5 `ui-client-side-processing`** becomes: what client parts get from the web API, the
+  standard protocol elements 1–3, and the monolithic-over-remote-services form.
 - **D6, D7, D8** each provide the portable interpreter, the native view trait and the host. D7
   also owns the 5 MB budget. A new design, **D22 `ui-web-thin-client`**, covers the very thin
   HTML client and islands.
@@ -1275,8 +1371,10 @@ For the spikes and the sub-designs, not blocking approval:
 
 ## 30. Use-case walkthrough
 
-Each tool and situation from the goal list, checked against the design. "Client" in the placement
-column means the standard thick web client; in monolithic mode everything is local.
+Each tool and situation from the goal list, checked against the design. In the placement column,
+"client" means the logic sits in a client part of the standard thick web client, using the web
+API and a server part only where noted; "server" means a server-side piece shown through the view
+level. In monolithic mode everything is one piece.
 
 | Use case | Written as | Placement (split) | What crosses the wire | Risk, and what answers it |
 |---|---|---|---|---|
@@ -1297,16 +1395,16 @@ column means the standard thick web client; in monolithic mode everything is loc
 | `UISpec` application | portable elements plus bindings | client | accessor reads and writes | medium: binding conflicts; `set_if` |
 | An egui application for one platform (`stockplottertest`) | native egui elements | monolithic | nothing | low; this is the old style, kept |
 | Python-defined element | scripted, portable | server (the Python process) | view patches to any client | medium: GIL during callbacks (§21) |
-| JavaScript-defined element | scripted, portable or `DomView` | client (page) | data level | low |
-| MIDI and controls | input map on the device side | client or monolithic | control events only when the element is server-placed | medium: latency for server-placed elements; keep such elements client-placed |
-| Tauri desktop | thick web client in the webview, environment in the Rust process, IPC transport | client | data level over IPC | low (S2 measured IPC) |
-| Tauri mobile, phone browser | thick web client, compact size class | client | data level over WebSocket | medium: background suspension; reconnect and resync (§16.5) |
+| JavaScript-defined element | scripted, portable or `DomView` | client (page) | web API | low |
+| MIDI and controls | input map on the device side | client or monolithic | control events only when the logic is in a server part | medium: latency; keep interactive logic in the client part |
+| Tauri desktop | thick web client in the webview, environment in the Rust process, IPC transport | client | web API and element messages over IPC | low (S2 measured IPC) |
+| Tauri mobile, phone browser | thick web client, compact size class | client | web API over HTTP and WebSocket | medium: background suspension; reconnect and resync (§16.5) |
 | Terminal over SSH | monolithic TUI | — | nothing | low |
-| Terminal or egui as a remote client | thin generic (view level) or thick native | either | patches, or data level | medium: two paths to test |
+| Terminal or egui as a remote client | thin generic (view level) or thick native | either | patches, or web API and element messages | medium: two paths to test |
 | Very thin web page, restricted browser | server-side HTML frontend | server | HTML fragments, events | medium: typing latency; islands for editors |
-| Embedded device ("lqe") | device serves the data level, or HTML fragments; UI runs on the phone or laptop | client, or server for HTML | data level over MQTT or WebSocket | medium: small frames, broker limits (S2) |
-| Several users on one UI | shared server-placed elements, or shared data with client-placed elements | either | view level, or data level with accessor events | **high**: per-viewer focus and selection; M6 |
-| Unreliable network | client-placed elements | client | re-subscribe on reconnect | medium: offline writes not designed (§16.5) |
+| Embedded device ("lqe") | device serves the web API, or HTML fragments; UI runs on the phone or laptop | client, or server for HTML | asset updates and element messages over MQTT or WebSocket | medium: small frames, broker limits (S2) |
+| Several users on one UI | shared server parts, or shared data under separate client parts | either | view level, or accessor events | **high**: per-viewer focus and selection; M6 |
+| Unreliable network | logic in client parts | client | re-subscribe on reconnect | medium: offline writes not designed (§16.5) |
 
 **Reading of the table.** Nothing on the list fails to fit. The three high-risk items that
 touch M1–M4 are the text editor, the live chart and the editable grid; each is a native piece
