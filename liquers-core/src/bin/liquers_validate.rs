@@ -18,7 +18,8 @@ use liquers_core::recipes::RecipeList;
 use liquers_core::pipeline::Pipeline;
 use liquers_core::validate::{
     apply_cwd, build_report, cwd_conflict_error, from_json_or_yaml, pipeline_from_build_args,
-    split_query_lines, validate_pipeline, validate_query, validate_recipes, with_pipeline_form,
+    split_query_lines, validate_pipeline, validate_query, validate_recipes, validate_tree,
+    with_pipeline_form,
     RegistryProvenance, ValidationLevel, ValidationRegistryBuilder, ValidationResult,
     ValidationStatus,
 };
@@ -188,6 +189,7 @@ fn run() -> Result<i32, Error> {
     };
 
     let require_query = cli.emit.contains(&Emit::Query);
+    let mut tree = None;
     let results = if let Some(source) = &cli.pipeline {
         let text = read_input(source)?;
         let value: serde_json::Value = from_json_or_yaml(source, &text)?;
@@ -205,7 +207,10 @@ fn run() -> Result<i32, Error> {
         let text = pipeline.to_query_text()?;
         vec![validate_query(&text, 0, level, &registry)]
     } else if let Some(source) = &cli.recipes {
-        validate_recipe_input(source, cli.cwd.as_deref(), level, &registry)?
+        let (results, tree_report) =
+            validate_recipe_input(source, cli.cwd.as_deref(), level, &registry)?;
+        tree = tree_report;
+        results
     } else if let Some(source) = &cli.query_file {
         let text = read_input(source)?;
         split_query_lines(&text)
@@ -235,6 +240,9 @@ fn run() -> Result<i32, Error> {
         results
     };
     let mut report = build_report(level, provenance, results);
+    if let Some(tree) = tree {
+        report.set_tree(tree);
+    }
 
     if cli.detail == Detail::Summary {
         let keep_plan = cli.emit.contains(&Emit::Plan);
@@ -317,7 +325,7 @@ fn validate_recipe_input(
     cwd: Option<&str>,
     level: ValidationLevel,
     registry: &CommandMetadataRegistry,
-) -> Result<Vec<ValidationResult>, Error> {
+) -> Result<(Vec<ValidationResult>, Option<liquers_core::recipe_tree::TreeReport>), Error> {
     let text = read_input(source)?;
     let mut recipes: RecipeList = from_json_or_yaml(source, &text)?;
 
@@ -335,7 +343,8 @@ fn validate_recipe_input(
             result.error = Some(cwd_conflict_error());
         }
     }
-    Ok(results)
+    let tree = validate_tree(&recipes, registry);
+    Ok((results, tree))
 }
 
 fn read_input(source: &str) -> Result<String, Error> {

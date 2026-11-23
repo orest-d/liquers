@@ -305,6 +305,19 @@ pub fn validate_recipes(
         .collect()
 }
 
+/// The recipe-tree check of `recipes` when it has a `tree:` section (AC-9), with no folder
+/// listing: a reference to a file no recipe declares is a warning ("not checked: stored file?"),
+/// and an error under strict mode (AC-28).
+pub fn validate_tree(
+    recipes: &RecipeList,
+    cmr: &CommandMetadataRegistry,
+) -> Option<crate::recipe_tree::TreeReport> {
+    recipes
+        .tree
+        .as_ref()
+        .map(|_| crate::recipe_tree::check_tree(recipes, None, cmr))
+}
+
 /// Apply a CLI-supplied working directory to a recipe list.
 ///
 /// Returns the indices of recipes that already declare their own `cwd`; the caller reports those
@@ -367,6 +380,7 @@ pub fn build_report(
         registry,
         results,
         counts,
+        tree: None,
     }
 }
 
