@@ -11,7 +11,7 @@ Four parts, all reading recipes as they are today:
 2. **Tree analysis** (new `liquers-core/src/recipe_tree.rs`): the `tree:` declaration on
    `RecipeList`, a graph built from each recipe's plan, the per-recipe **strict rules** and the
    folder-wide **tree check**.
-3. **Enforcement and reporting**: `DefaultRecipeProvider` applies the strict rules when it parses a
+3. **Enforcement and reporting**: `DefaultRecipeProvider` applies the strict rules and the tree check when it parses a
    strict folder's `recipes.yaml` (AC-24); `liquers-validate --recipes` adds a tree report (AC-9).
 4. **`TreeEditor`** (same module): sync, in-memory edits of a `RecipeList` through
    `PipelineEditor` / `QueryEditor`, re-checked after each edit; an async `save` writes the result.
@@ -167,7 +167,8 @@ rewrites, per recipe: the query through `QueryEditor`
 (so it keeps a query form), the `pipeline` through `PipelineEditor`, resource keys, Node names
 (`Source::Value` strings of Node arguments), `Link` sources (parsed, rewritten, re-encoded),
 `arguments` / `links` overrides, and the renamed recipe's own filename. A reference it cannot place
-(AC-15) refuses the rename. `save` performs the `DataRename`s with `AsyncStore::rename_data`, then
+(AC-15) refuses the rename. `delete` removes recipes only: stored data is never deleted by the
+editor, so a deleted source node's file stays in the store (an orphan, AC-6, if listed). `save` performs the `DataRename`s with `AsyncStore::rename_data`, then
 writes `recipes.yaml` through the asset manager as the recipes accessor does, so the provider cache
 and dependent assets follow.
 
@@ -265,7 +266,7 @@ not change, since query and key encoding do not.
    data, and for a missing file the plan with no steps fails with `Error::key_not_found` instead
    of producing and storing an empty value (`assets.rs`, where a keyed recipe is applied).
 
-## Questions for the gate
+## Questions for the gate (now in the Phase 1 decision log)
 
 1. **Must a strict folder declare its sources?** *Recommended: yes* (AC-28). Then a strict
    `recipes.yaml` names every file it needs (as source declarations), which `liquers-validate` can check without a store

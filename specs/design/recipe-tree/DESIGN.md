@@ -4,7 +4,9 @@ kind: design
 title: Self-contained recipe trees - a recipes folder as one checked, editable tree of assets
 workflow: liquers-project
 status: in_review
-phase: architecture
+phase: implementation
+readiness: needs-decision
+autofix: not-eligible
 priority: P2
 complexity: XL
 area: [core/assets, core/validate, core/commands, macro, lib/ui]
@@ -47,6 +49,8 @@ portable archive is a separate design built on this one
 - **2026-11-23, later** No `TreeEditor::load`: the editor takes a `listdir` output. `recipes.yaml`
   declares `Source` assets as recipes whose query is just a filename, with their title and
   description. AC-27 added; AC-28 proposed.
+- **Pre-approved after Phase 2 on 2026-11-23** (`proceed all`). Phases 3 and 4 written; two
+  assumptions wait for confirmation before implementation (Phase 1 `## Design Readiness`).
 
 ## Phases
 

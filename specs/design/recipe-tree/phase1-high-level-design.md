@@ -205,6 +205,25 @@ segments, pipeline elements and Node names. Commands, their default links and pi
 enum-alias links are assumed controlled: whatever they read is the command author's
 responsibility, as for any command that reads assets at run time.
 
+## Design Readiness
+
+- **Readiness:** needs-decision
+- **Automatic fixing:** not-eligible — an `XL` feature across five crates with new public API.
+- **Pre-approval:** `proceed all` after Phase 2 on 2026-11-23; Phases 3 and 4 written under it.
+- **Leading issue:** two proposed resolutions below, taken as assumptions.
+- **Explanation:** Phases 1-4 are reviewed and consistent; implementation can start as soon as the
+  two assumptions are confirmed or changed, and neither changes the plan's order.
+- **Decision log:**
+  1. **Proposed resolution - strict folders declare their sources (AC-28).** Assumed yes: a
+     strict `recipes.yaml` names every file it needs, so `liquers-validate` checks it without a
+     store and the archive gets its file list. An open folder may use undeclared stored files.
+     *Needs decision.*
+  2. **Proposed resolution - where declared titles show.** Assumed in the tree tools only (node
+     selector, tree report); using them as the stored asset's metadata title is a follow-up.
+     *Needs decision.*
+  3. **Implementation detail - deleting a node never deletes stored data** (Phase 2 §Editor):
+     decided; the editor removes recipes only.
+
 ## Core Interactions
 
 - **Recipes:** `RecipeList` gains an optional `tree` declaration; `Recipe` is unchanged.
@@ -217,8 +236,8 @@ responsibility, as for any command that reads assets at run time.
   DSL and the registry export.
 - **Planning:** parameter resolution (`liquers-core/src/plan.rs`, `pop_value` and the
   `ParameterValue` it builds) turns a Node name into its link and checks a given link, as
-  `ParameterValue::EnumLink` already turns an enum alias into a link; the plan of a recipe from a
-  strict folder is refused when it fails the strict check.
+  `ParameterValue::EnumLink` already turns an enum alias into a link; the recipe provider refuses a
+  strict `recipes.yaml` that fails the strict rules or the tree check (AC-24).
 - **Validation:** `validate_recipes` and the `liquers-validate --recipes` report gain the check.
 - **UI:** the query, action and recipe editors offer node choices for a Node argument.
 - **Store:** read only, to list the folder's stored files (nodes without recipes).
@@ -281,8 +300,7 @@ The maintainer answered questions 1-8 and, the same day, 9-12:
 10. **Enforcement, revised** (2026-11-23): a Node is read according to the strictness level, so a
     command with a Node argument is usable everywhere and not only in strict recipes. Outside a
     strict folder a Node takes any link, or a bare name that needs a working directory (AC-20,
-    AC-21). A folder declared strict is checked by `liquers-validate` and the editor, and enforced
-    when its recipes are planned (AC-24).
+    AC-21). A folder declared strict is checked by `liquers-validate` and the editor, and enforced by the recipe provider for the whole file (AC-24).
 11. **Extensions** (2026-11-23): a Node declares one extension, so a name is never ambiguous.
 12. **Node choices** (2026-11-23): in the editor model and both the egui and browser renderers,
     listing filename and title, with rename offered (AC-18, AC-25).
