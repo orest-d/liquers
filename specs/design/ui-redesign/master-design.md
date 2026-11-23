@@ -1308,10 +1308,14 @@ liquers-core
   (on by default) lets it leave the engine out. If the spike shows that `liquers-core` itself is
   too heavy for a small client, `view` and `protocol` move to a crate with no `liquers-core`
   dependency. Deciding that needs the spike's size numbers.
-- **Size budget.** The standard web client (core, web frontend, built-in elements,
-  `liquers-core`, `liquers-records`) stays under 5 MB of wasm. Polars and image codecs are not
-  in it. Large native widgets (a code editor engine, a chart library) load lazily. The budget is
-  a CI check from D7 on.
+- **Size.** Orest (2026-11-23): a reasonable size is accepted, but it must be kept down and
+  measured. Measured that day (`WEB-RELEASE-MODULE-IS-20-MB`): today's full `liquers-web`, an
+  environment in the page with the old UI, is 19.8 MB raw and 4.9 MB gzipped. A size-oriented
+  release profile alone brings it to 9.5 MB and 2.7 MB; dropping AVIF, OpenEXR and the other
+  unused image formats to 7.0 MB and 2.0 MB; records add 2.0 MB raw. The standard web client of
+  this design carries no environment and no command library, so it should come in below these
+  figures; spike S1 stage 2 measures it. Polars is not in it. Large native widgets (a code
+  editor engine, a chart library) load lazily. The size is reported by CI from D7 on.
 - Each frontend crate owns its native view trait (`EguiView`, `DomView`, `TuiView`) and its
   registry.
 - The dependency rule of AC-1 holds: nothing above depends on `liquers-lib` except `liquers-lib`'s
