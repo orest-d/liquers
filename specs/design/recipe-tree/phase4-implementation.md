@@ -18,8 +18,8 @@ enforcement and reporting, the editor, and the UI last. No prerequisite issue mu
 - [x] Step 7: `TreeEditor` (7cb51c0)
 - [x] Step 8: Tree report in `liquers-validate` (51d9ed4)
 - [x] Step 9: Node selector and rename in the editors (5069ad1)
-- [ ] Step 10: Documentation
-- [ ] Step 11: Final checks
+- [x] Step 10: Documentation (d302eea)
+- [x] Step 11: Final checks
 
 ## Implementation Steps
 
@@ -148,6 +148,6 @@ regenerate `specs/index.csv`. `specs/command_registry.yaml` is not regenerated (
 
 ## Phase 5 Entry Criteria
 
-- [ ] Implementation finished and validated
+- [x] Implementation finished and validated
 - [ ] User and review comments answered
-- [ ] Documentation checkable against implemented and tested behaviour
+- [x] Documentation checkable against implemented and tested behaviour
