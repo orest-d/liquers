@@ -168,3 +168,69 @@ async fn tree_declaration_round_trips() -> Result<(), Box<dyn std::error::Error>
     assert_eq!(back.tree, list.tree);
     Ok(())
 }
+
+const STRICT: &str = "tree: {dependencies: strict, result: car.glb}\n";
+
+/// AC-24: one bad recipe in a strict folder refuses every recipe of the folder, and the file is
+/// not cached: a fix is seen at once.
+#[tokio::test]
+async fn strict_folder_fails_as_a_whole() -> Result<(), Box<dyn std::error::Error>> {
+    let store = AsyncMemoryStore::new(&Key::new());
+    seed_car(&store, "scenes/car", STRICT).await?;
+    seed(&store, "data/paint.mat", "paint").await?;
+    let bad = "tree: {dependencies: strict}\nrecipes:\n  - {query: body.glb}\n  - {query: tyre.glb}\n  - {query: \"-R/./body.glb/-/attach-tyre/ok.glb\"}\n  - {query: \"-R/./body.glb/-/material-~X~-R/data/paint.mat~E/bad.glb\"}\n";
+    seed_yaml(&store, "scenes/car/recipes.yaml", bad).await?;
+    let envref = make_env(store)?;
+    let error = text(&envref, "-R/scenes/car/ok.glb")
+        .await
+        .expect_err("the whole folder is refused");
+    assert!(error.message.contains("bad.glb"), "{error}");
+    assert!(error.message.contains("'m'"), "{error}");
+    let fixed = bad.replace("material-~X~-R/data/paint.mat~E", "attach-tyre");
+    envref
+        .get_async_store()
+        .set(
+            &parse_key("scenes/car/recipes.yaml")?,
+            fixed.as_bytes(),
+            &Metadata::new(),
+        )
+        .await?;
+    assert_eq!(text(&envref, "-R/scenes/car/ok.glb").await?, "body+tyre");
+    Ok(())
+}
+
+/// AC-10: a strict tree copied to another folder evaluates there to the same value.
+#[tokio::test]
+async fn strict_tree_relocates() -> Result<(), Box<dyn std::error::Error>> {
+    let store = AsyncMemoryStore::new(&Key::new());
+    seed_car(&store, "scenes/car", STRICT).await?;
+    seed_car(&store, "garage/truck", STRICT).await?;
+    let envref = make_env(store)?;
+    let car = text(&envref, "-R/scenes/car/car.glb").await?;
+    assert_eq!(car, "body+tyre~rubber");
+    assert_eq!(text(&envref, "-R/garage/truck/car.glb").await?, car);
+    Ok(())
+}
+
+/// AC-19: the declared result is the key the tree is evaluated as.
+#[tokio::test]
+async fn result_key_evaluates_the_tree() -> Result<(), Box<dyn std::error::Error>> {
+    let store = AsyncMemoryStore::new(&Key::new());
+    seed_car(&store, "scenes/car", STRICT).await?;
+    let envref = make_env(store)?;
+    let folder = parse_key("scenes/car")?;
+    let list = DefaultRecipeProvider::new()
+        .get_recipes(&folder, envref.clone())
+        .await?;
+    let result = list
+        .tree
+        .as_ref()
+        .and_then(|t| t.result.clone())
+        .ok_or("no result")?;
+    let key = folder.join(result);
+    assert_eq!(
+        text(&envref, &format!("-R/{}", key.encode())).await?,
+        "body+tyre~rubber"
+    );
+    Ok(())
+}

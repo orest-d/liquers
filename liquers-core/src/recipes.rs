@@ -926,6 +926,24 @@ impl DefaultRecipeProvider {
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let mut list: RecipeList = serde_yaml::from_slice(&bytes)
             .map_err(|e| Error::general_error(format!("Error parsing recipes: {}", e)))?;
+        // A strict tree is valid as a whole or not used (`specs/design/recipe-tree/`, AC-24):
+        // any finding of the tree check refuses every recipe of the folder, and the file is not
+        // cached, so a fix is seen at once.
+        if list
+            .tree
+            .as_ref()
+            .is_some_and(|t| t.dependencies == crate::recipe_tree::DependencyMode::Strict)
+        {
+            let listing = envref.get_async_store().listdir(key).await?;
+            let report = crate::recipe_tree::check_tree(
+                &list,
+                Some(&listing),
+                envref.get_command_metadata_registry(),
+            );
+            if let Some(error) = report.error() {
+                return Err(error.with_key(&recipes_key));
+            }
+        }
         list.set_cwd(key.encode()).map_err(|e| e.with_key(key))?;
         let mut by_name = HashMap::new();
         for (index, recipe) in list.recipes.iter().enumerate() {
