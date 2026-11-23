@@ -47,9 +47,9 @@ The old UI in `liquers-lib` keeps working beside it.
   to the document under each frontend's test backend
   THEN the element states in `liquers-ui` are identical after each event
 - **AC-4** A frontend is added without changing the core
-  WHEN a new frontend crate implements the view trait for some built-in elements and not others
-  THEN it compiles with no change to `liquers-ui`, and each element it lacks shows as a generic
-  view (title, status and a text form of its value)
+  WHEN a new frontend crate implements only the required level of the view vocabulary
+  THEN it compiles with no change to `liquers-ui`, and every element is shown, with the node
+  kinds the frontend lacks degraded by the core's rules (master design §10.7)
 - **AC-5** Immediate and retained frontends
   WHEN one element changes state
   THEN an immediate-mode frontend (egui, ratatui) draws the new state on its next frame, and a
@@ -80,7 +80,8 @@ and `UISpec` v2 (D12-D19); the Slint frontend (spike S5 only); removing the old 
 
 ## Core Interactions
 
-- **UI:** new element model, tree, runner, events, view trait, rendering patterns, fallback view.
+- **UI:** new element model, tree, session, messages, view tree and patches, rendering patterns,
+  degrading rules.
 - **Assets:** the runner subscribes per element (several each), reacts to expiry, never blocks.
 - **Commands:** the `lui` commands also return elements of the new model.
 - **Value types:** held without knowing `ExtValue`; display forms come from D2.
@@ -117,18 +118,17 @@ Dependency flow: `liquers-core` ← `liquers-ui` ← `liquers-ui-*` and `liquers
 
 ## Open Questions
 
-1. **Name.** `liquers-ui` for the core and `liquers-ui-<frontend>` for the frontends?
-   Recommended: yes.
-2. **Value type.** Is the core generic over the environment's value type (as `AppRunner<E>` is
-   today), or does it hold values behind a small display trait of its own? Recommended: generic
-   over `E: Environment`, with display through D2's capability lookup. To be settled in Phase 2
-   with D2.
-3. **Element as value.** Today an element is `ExtValue::UIElement`, so commands can return one.
-   Keep that (a `liquers-lib` variant wrapping a `liquers-ui` element), or give `liquers-core` a
-   generic way to carry an element? Recommended: keep the `ExtValue` variant for now, so core is
-   unchanged.
-4. **The spikes.** Phase 2 waits for spikes S1 (egui, ratatui and web on draft traits) and S5
-   (Slint), as the plan says. Agreed?
+All four were answered by Orest on 2026-11-23 ("I agree with recommendations"):
+
+1. **Name.** `liquers-ui` for the core and `liquers-ui-<frontend>` for the frontends.
+2. **Value type.** The core is generic over `E: Environment`, with display through D2. The
+   master design narrows this to the engine side; views and frontends are not generic.
+3. **Element as value.** The `ExtValue` variant stays, so core is unchanged. The master design
+   makes its content an `ElementSpec` (data).
+4. **The spikes.** Phase 2 waits for spikes S1 and S5.
+
+The architecture this design is built on is the
+[master design](../ui-redesign/master-design.md), proposed 2026-11-23 and awaiting approval.
 
 ## Design Dependencies
 
