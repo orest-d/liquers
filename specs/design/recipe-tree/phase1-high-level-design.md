@@ -126,8 +126,7 @@ rewrites every reference to it.
   depends on either, and the check fails naming both when something depends on one of them
 - **AC-17** Node argument type (revised 2026-11-23)
   WHEN a command declares an argument of type Node, with its extension, its link form
-  (`resource`: `-R/./<name>.<ext>`, or `key`: `-R-key/./<name>.<ext>`) and optionally a
-  post-processing query (AC-22)
+  (`resource`: `-R/./<name>.<ext>`, or `key`: `-R-key/./<name>.<ext>`)
   THEN its metadata carries this through registration, the command registry export and
   `liquers-validate`, and the command receives the linked asset (resource form) or the key
   (key form)
@@ -143,22 +142,23 @@ rewrites every reference to it.
 - **AC-20** A bare node name becomes a link
   WHEN a Node argument is given as a string (`attach-wheel`)
   THEN the plan resolves it to the link the Node type builds (`-R/./wheel.glb`), recorded as a
-  dependency like any link, so the result equals the query written with the link
-- **AC-21** A Node argument is always local
-  WHEN a Node argument is given as a link, in any query (inside a tree folder or not)
-  THEN planning accepts it only if it is the link the Node type would build for some name (a
-  relative key directly in the working folder, with the Node's extension, form and
-  post-processing), and otherwise fails naming the argument and the link; to pass another asset,
-  a recipe that makes a local copy is created (refused in strict mode, AC-7)
-- **AC-22** Post-processing
-  WHEN a Node type declares a post-processing query (`ns-img/gray`)
-  THEN the name `image` resolves to `-R/./image.png/-/ns-img/gray`, and a rename of `image`
-  rewrites it like any reference
-- **AC-23** Strict mode references nodes only through Node arguments and resources
-  WHEN `dependencies: strict` and a recipe uses a link argument that is not of type Node to read
-  a key (`~X~-R/./wheel.glb~E` into an `Any` argument)
+  dependency like any link, so the result equals the query written with the link; resolved
+  against the working directory, so an ad-hoc query needs one (`-R-cwd/scenes/car/-/…`), and
+  without one the plan fails naming the argument
+- **AC-21** A Node's meaning depends on strictness (revised 2026-11-23)
+  WHEN a Node argument is given as a link
+  THEN outside a strict folder any link is accepted, as for an ordinary link argument, so a
+  command with a Node argument works in any query; in a recipe of a strict folder the link is
+  refused (AC-23) and only a bare name is accepted
+- ~~**AC-22** Post-processing~~ — retired 2026-11-23: out of scope until it proves useful. A Node
+  type could later carry a post-processing pipeline (`image` read as
+  `-R/./image.png/-/ns-img/gray`).
+- **AC-23** Strict mode allows no link arguments (revised 2026-11-23)
+  WHEN `dependencies: strict` and a recipe passes any argument as a link or a nested pipeline
+  (`~X~-R/./wheel.glb~E`, `{link: …}`, `{pipeline: …}`), whatever the argument's type
   THEN the check fails naming the recipe and the argument; the query's resource segment
-  (`-R/./body.glb`, `{resource: ./body.glb}`) and Node arguments are the only references allowed
+  (`-R/./body.glb`, `{resource: ./body.glb}`) and Node arguments given by name are the only
+  references allowed
 - **AC-24** Strict mode is enforced, not only reported
   WHEN a recipe of a folder declared `dependencies: strict` is planned
   THEN a dependency the strict check refuses fails the plan with the same error as the check
@@ -245,24 +245,22 @@ The maintainer answered questions 1-8 and, the same day, 9-12:
 7. **Stored files** are nodes.
 8. **Flat folder** for now; richer layouts later.
 9. **How a Node argument is written** (2026-11-23): as the bare name by default, since it reads
-   better; the plan turns it into the link, and a link given instead is checked against the Node
-   (AC-20, AC-21).
-10. **Enforcement** (2026-11-23): a Node argument is always enforced, in any query, and always
-    needs a local asset (AC-21). A folder declared strict is checked by `liquers-validate` and the
-    editor, and enforced when its recipes are planned (AC-24).
-11. **Extensions** (2026-11-23): a Node declares one extension, so a name is never ambiguous. Non-Node
-    links are the ambiguous case, so strict mode forbids them (AC-23), and a Node can carry a
-    post-processing query instead (AC-22).
+   better; the plan turns it into the link against the working directory (AC-20).
+10. **Enforcement, revised** (2026-11-23): a Node is read according to the strictness level, so a
+    command with a Node argument is usable everywhere and not only in strict recipes. Outside a
+    strict folder a Node takes any link, or a bare name that needs a working directory (AC-20,
+    AC-21). A folder declared strict is checked by `liquers-validate` and the editor, and enforced
+    when its recipes are planned (AC-24).
+11. **Extensions** (2026-11-23): a Node declares one extension, so a name is never ambiguous.
 12. **Node choices** (2026-11-23): in the editor model and both the egui and browser renderers.
+13. **Links in strict mode** (2026-11-23): none in arguments, of any type (AC-23).
+14. **Post-processing** (2026-11-23): out of scope (AC-22 retired). A Node with a post-processing
+    pipeline, or a level of strictness that allows and validates relative links in arguments, may
+    come later, when one proves needed.
 
 ## Open Questions
 
-13. **Is AC-23 right?** It follows your "we may forbid non-node links": with it, a strict recipe
-    reaches another node only through its resource segment or a Node argument. *Recommended: yes*;
-    without it the check must interpret links of `Any` arguments, which is where the ambiguity was.
-14. **Post-processing with arguments.** May the post-processing query take its parameters from the
-    command's other arguments (`gray-<level>`)? *Recommended: no, a fixed query for now*; a command
-    that needs it takes the node and the parameter separately.
+None. Phase 2 starts on `proceed`.
 
 ## Design Dependencies
 

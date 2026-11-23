@@ -19,7 +19,7 @@ dependency mode). Its nodes are the folder's recipes and stored files, named by 
 extension, and they reference each other by relative keys. A check refuses cycles, a wrong shape,
 dangling references and, in `strict` mode, any dependency outside the folder, so a strict folder
 works wherever it is placed. A Node argument type lets commands take a node by its bare name, which the plan turns into a
-local link, and the editors offer node names for it. A `TreeEditor` on `PipelineEditor` adds, renames, moves and deletes
+relative link (any link outside a strict folder), and the editors offer node names for it. A `TreeEditor` on `PipelineEditor` adds, renames, moves and deletes
 nodes, rewriting every reference and re-checking after each edit. Evaluation is unchanged. The
 portable archive is a separate design built on this one
 (`RECIPE-TREE-CANNOT-BE-EXPORTED-AS-AN-ARCHIVE`).
@@ -33,6 +33,9 @@ portable archive is a separate design built on this one
   link at planning; a Node is always local, in any query; one extension per Node, with an optional
   post-processing query; strict mode forbids non-Node links and is enforced at planning. AC-17,
   AC-18 revised, AC-20 to AC-24 added, questions 13-14 opened.
+- **2026-11-23, evening** Revised: a Node's meaning depends on strictness (any link outside a strict
+  folder, a bare name needing a working directory); strict mode allows no link arguments at all;
+  post-processing out of scope (AC-22 retired). AC-20, AC-21, AC-23 revised. No open questions.
 
 ## Phases
 
