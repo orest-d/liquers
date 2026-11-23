@@ -34,6 +34,11 @@ reference that the tree's containment check would refuse at the target (a `share
 not exist there). It needs store-level export and import of data with its metadata, which other
 uses (backup, moving a folder between stores) would share.
 
+It builds on two parts of `recipe-tree`: the `strict` dependency mode, which guarantees that the
+folder holds everything its recipes depend on, and the declared `result`, which lets an archive of a
+DAG be evaluated and serialized as that one asset (an archive of an image DAG converted directly to
+the image).
+
 ## Discovery
 
 Split out of `RECIPES-CANNOT-DESCRIBE-A-SELF-CONTAINED-ASSET-TREE` (expected behaviour item 7) when

@@ -13,7 +13,7 @@ github:
 ## Problem
 
 The `recipe-tree` design gives Rust a tree declaration in `recipes.yaml`, a shape and containment
-check, and a `TreeEditor` in `liquers-core`. Neither `liquers-py` nor `liquers-web` exposes them,
+check, a `TreeEditor` in `liquers-core`, and a Node argument type for commands. Neither `liquers-py` nor `liquers-web` exposes them,
 and `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` has no feature for them (the nearest are `RECIPE`
 and `PIPELINE`).
 
@@ -26,7 +26,8 @@ written in Rust still evaluates from either language, because evaluation does no
 ## Expected behaviour
 
 The language integration guide gains a feature (or extends `PIPELINE`) for recipe trees: checking a
-folder's tree and its report, and the `TreeEditor` operations. Each binding implements it with the
+folder's tree and its report, the `TreeEditor` operations, and declaring a Node argument on a
+language-defined command. Each binding implements it with the
 conformance tests that feature prescribes.
 
 ## Discovery
