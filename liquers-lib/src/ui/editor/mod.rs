@@ -96,7 +96,7 @@ pub use tree::{
     EditorTree, FieldValue, NodeContext, NodePath, PathStep, Picker, PresetEntry, SpanTarget, TextSpan,
     RESOURCE_HEADERS,
 };
-pub use view::{event_name, field_id, find_node, CardMenu, EditorView, FocusTarget};
+pub use view::{event_name, field_id, find_node, open_card, CardMenu, EditorView, FocusTarget};
 
 #[cfg(test)]
 mod tests;

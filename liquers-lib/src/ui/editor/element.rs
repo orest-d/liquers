@@ -11,7 +11,7 @@ use liquers_core::value::ValueInterface;
 use super::command::{EditorCommand, EditorEffect};
 use super::state::{EditorKind, EditorState};
 use super::layout::EditorMode;
-use super::tree::EditorTree;
+use super::tree::{EditorTree, NodePath};
 use super::view::EditorView;
 use crate::ui::element::{UIElement, UpdateMessage, UpdateResponse};
 use crate::ui::handle::UIHandle;
@@ -85,6 +85,10 @@ pub struct EditorElement {
     /// An accessor made in code (empty `address()`), bound as it is for the session.
     #[serde(skip)]
     live: Option<Arc<dyn ValueAccessor<Value>>>,
+    /// The step the browser opens in Advanced mode (a step chip's), else the last action.
+    #[serde(skip)]
+    #[cfg_attr(not(feature = "webui"), allow(dead_code))]
+    open_card: Option<NodePath>,
 }
 
 impl EditorElement {
@@ -104,6 +108,7 @@ impl EditorElement {
             view: EditorView::default(),
             bound: false,
             live: None,
+            open_card: None,
         }
     }
 
@@ -406,6 +411,8 @@ impl UIElement for EditorElement {
                         None => vec![],
                     };
                     self.apply_commands(drafts, ctx);
+                    // A step chip names the step Advanced mode opens.
+                    self.open_card = EditorView::mode_event_path(event);
                     self.mode = mode;
                     return UpdateResponse::NeedsRepaint;
                 }
@@ -466,7 +473,14 @@ impl UIElement for EditorElement {
                 {
                     let theme = self.theme_state();
                     let density = self.effective_density(&theme);
-                    crate::ui::web::editor::editor_html(tree, &self.title, self.mode, density, &theme.theme)
+                    crate::ui::web::editor::editor_html_open(
+                        tree,
+                        &self.title,
+                        self.mode,
+                        density,
+                        &theme.theme,
+                        self.open_card.as_ref(),
+                    )
                 }
             ),
             None => format!(

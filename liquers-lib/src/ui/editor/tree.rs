@@ -295,6 +295,9 @@ pub struct EditorTree {
     /// `text_note`).
     pub text: String,
     pub text_editable: bool,
+    /// The host draws the query text itself (the query console), so the editor does not.
+    /// `Ctrl+J` from a field then reports the range in [`EditorTree::text`] to select instead.
+    pub hide_text: bool,
     /// A parse error of the typed text, or why the text is read-only (AC-4, AC-10).
     pub text_note: Option<String>,
     /// The tree no longer matches the typed text (AC-4).
