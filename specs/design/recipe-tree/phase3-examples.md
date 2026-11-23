@@ -59,9 +59,11 @@ editor.save(&parse_key("scenes/car")?, envref.clone()).await?;   // car still "b
 ```
 
 `rename("tyre", "tire")` also yields `DataRename { from: "tyre.glb", to: "tire.glb" }`, performed
-by `save`. `delete("wheel", false)` is refused naming `car.glb`; `delete("wheel", true)` removes
-`wheel.glb` and the source recipes `tyre.glb` and `rubber.mat`, which nothing else references;
-stored data is never deleted by the editor.
+by `save`. `delete("wheel", false)` and `delete("wheel", true)` are both refused naming `car.glb`:
+a referenced node is never deleted, cascade or not (implementation reading of AC-12, since
+deleting it would leave `car.glb` dangling, which AC-14 refuses). `delete("car", true)` removes
+`car.glb` and everything only it reaches: `wheel.glb` and the source recipes `body.glb`, `tyre.glb`
+and `rubber.mat`; stored data is never deleted by the editor.
 
 ## Edge and Error Cases
 

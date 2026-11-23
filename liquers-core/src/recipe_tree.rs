@@ -60,12 +60,17 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::sync::Arc;
 
-use crate::command_metadata::CommandMetadataRegistry;
+use serde_json::Value as Json;
+
+use crate::command_metadata::{ArgumentType, CommandMetadataRegistry};
+use crate::context::{EnvRef, Environment};
 use crate::error::Error;
+use crate::pipeline::{ActionElement, ElementKind, Located, Operand, Pipeline, QueryOrPipeline, Source};
 use crate::plan::{ParameterValue, Plan, Step};
 use crate::query::Key;
-use crate::recipes::RecipeList;
+use crate::recipes::{Recipe, RecipeList};
 
 /// The `tree:` section of a `recipes.yaml`.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
@@ -1018,6 +1023,728 @@ fn find_cycles(graph: &TreeGraph) -> Vec<TreeFinding> {
     found
 }
 
+// ---------------------------------------------------------------------------------------------
+// Editing a tree
+// ---------------------------------------------------------------------------------------------
+
+/// A node a Node argument can name, as an editor lists it (AC-18).
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct NodeChoice {
+    /// The name written in the query: `wheel`.
+    pub name: String,
+    /// The file: `wheel.glb`.
+    pub filename: String,
+    /// The recipe's title; empty for a stored file no recipe declares.
+    pub title: String,
+}
+
+/// A stored file [`TreeEditor::save`] renames.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct DataRename {
+    /// The current filename.
+    pub from: String,
+    /// The new filename.
+    pub to: String,
+}
+
+/// In-memory edits of one folder's recipes that keep the tree valid (AC-1, AC-11–AC-15).
+///
+/// Every edit works on a copy and replaces the recipes only when [`check_tree`] reports no error
+/// the recipes did not already have; a refused edit changes nothing. Renames of stored files are
+/// collected ([`Self::pending_data_renames`]) and performed by [`Self::save`], or by a client that
+/// has no environment (a UI talking to a server).
+#[derive(Debug, Clone)]
+pub struct TreeEditor {
+    list: RecipeList,
+    listing: Option<Vec<String>>,
+    cmr: Arc<CommandMetadataRegistry>,
+    renames: Vec<DataRename>,
+}
+
+/// What a reference rewrite does to a Node name it matches.
+#[derive(Clone, Copy)]
+enum Rewrite<'a> {
+    /// Rename the node: its file, its name and every reference.
+    Rename { to_file: &'a str, to_name: &'a str },
+    /// Clear Node arguments naming the node (they take their defaults).
+    Clear,
+}
+
+/// Rewrites the references of one recipe to one file of the folder.
+struct Rewriter<'a> {
+    from_file: &'a str,
+    from_name: &'a str,
+    mode: Rewrite<'a>,
+    cmr: &'a CommandMetadataRegistry,
+}
+
+impl Rewriter<'_> {
+    fn new_key(&self, key: &str) -> Option<String> {
+        let parsed = crate::parse::parse_key(key).ok()?;
+        if !is_local(&parsed) || parsed.filename().map(|f| f.name.as_str()) != Some(self.from_file) {
+            return None;
+        }
+        match self.mode {
+            Rewrite::Rename { to_file, .. } => Some(format!("./{to_file}")),
+            Rewrite::Clear => None,
+        }
+    }
+
+    /// Rewrites query text; `Ok(false)` when it has nothing to rewrite.
+    fn text(&self, text: &mut String) -> Result<bool, Error> {
+        let mut pipeline = Pipeline::from_query_text(text)?;
+        if self.pipeline(&mut pipeline)? {
+            *text = pipeline.to_query_lenient(self.cmr)?.encode();
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    fn pipeline(&self, pipeline: &mut Pipeline) -> Result<bool, Error> {
+        let realm = pipeline.realm.clone();
+        let mut changed = false;
+        for element in pipeline.elements.iter_mut() {
+            changed |= match &mut element.item {
+                ElementKind::Resource {
+                    resource: Operand::Literal(key),
+                    ..
+                }
+                | ElementKind::KeyValue(Operand::Literal(key)) => match self.new_key(key) {
+                    Some(new) => {
+                        *key = new;
+                        true
+                    }
+                    None => false,
+                },
+                ElementKind::Evaluate(Operand::Literal(inner))
+                | ElementKind::QueryValue(Operand::Literal(inner)) => match inner {
+                    QueryOrPipeline::Query(text) => self.text(text)?,
+                    QueryOrPipeline::Pipeline(p) => self.pipeline(p)?,
+                },
+                ElementKind::Text(text) => self.text(text)?,
+                ElementKind::Action(action) => self.action(action, &realm)?,
+                ElementKind::Pipeline(nested) => self.pipeline(nested)?,
+                ElementKind::Resource {
+                    resource: Operand::Placeholder(_),
+                    ..
+                }
+                | ElementKind::KeyValue(Operand::Placeholder(_))
+                | ElementKind::Evaluate(Operand::Placeholder(_))
+                | ElementKind::QueryValue(Operand::Placeholder(_))
+                | ElementKind::Cwd(_)
+                | ElementKind::Value(_)
+                | ElementKind::Quote
+                | ElementKind::Volatile => false,
+            };
+        }
+        Ok(changed)
+    }
+
+    fn action(&self, action: &mut ActionElement, realm: &str) -> Result<bool, Error> {
+        let md = crate::pipeline::resolve_action(self.cmr, realm, action).ok();
+        let slots: Vec<ArgumentType> = md
+            .as_ref()
+            .map(|md| {
+                crate::pipeline::positional_arguments(md)
+                    .iter()
+                    .map(|a| a.argument_type.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let multiple = md
+            .as_ref()
+            .map(|md| {
+                crate::pipeline::positional_arguments(md)
+                    .iter()
+                    .map(|a| a.multiple)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let mut changed = false;
+        let mut slot = 0usize;
+        for parameter in action.parameters.iter_mut() {
+            changed |= self.source(&mut parameter.item, slots.get(slot))?;
+            if !multiple.get(slot).copied().unwrap_or(false) {
+                slot += 1;
+            }
+        }
+        for (name, argument) in action.arguments.iter_mut() {
+            let ty = md
+                .as_ref()
+                .and_then(|md| md.arguments.iter().find(|a| a.name == *name))
+                .map(|a| &a.argument_type);
+            changed |= self.source(&mut argument.item, ty)?;
+        }
+        if changed && matches!(self.mode, Rewrite::Clear) {
+            // A cleared trailing parameter is dropped, so the query does not end in `-`.
+            while action
+                .parameters
+                .last()
+                .is_some_and(|p| p.item == Source::Value(Json::String(String::new())))
+            {
+                action.parameters.pop();
+            }
+            action
+                .arguments
+                .retain(|_, a| a.item != Source::Value(Json::String(String::new())));
+        }
+        Ok(changed)
+    }
+
+    fn source(&self, source: &mut Source, ty: Option<&ArgumentType>) -> Result<bool, Error> {
+        match source {
+            Source::Value(Json::String(name)) => match ty.and_then(|t| t.node()) {
+                Some(node) if node.filename(name) == self.from_file => {
+                    *name = match self.mode {
+                        Rewrite::Rename { to_name, .. } => to_name.to_owned(),
+                        Rewrite::Clear => String::new(),
+                    };
+                    Ok(true)
+                }
+                Some(_) | None => Ok(false),
+            },
+            Source::Link(text) => match self.mode {
+                Rewrite::Rename { .. } => self.text(text),
+                Rewrite::Clear => Ok(false),
+            },
+            Source::Pipeline(p) => match self.mode {
+                Rewrite::Rename { .. } => self.pipeline(p),
+                Rewrite::Clear => Ok(false),
+            },
+            Source::Multiple(items) => {
+                let mut changed = false;
+                for item in items.iter_mut() {
+                    changed |= self.source(item, ty)?;
+                }
+                Ok(changed)
+            }
+            Source::Value(_) | Source::Placeholder(_) | Source::State(_) => Ok(false),
+        }
+    }
+
+    /// Rewrites one recipe, its own filename included. Refuses a recipe whose references cannot
+    /// be read (AC-15).
+    fn recipe(&self, index: usize, recipe: &mut Recipe) -> Result<(), Error> {
+        let label = recipe_label(recipe);
+        let refuse = |e: Error| {
+            Error::tree_check(&format!(
+                "recipe {index} ('{label}') cannot be rewritten: {}",
+                e.message
+            ))
+        };
+        let mentions = |text: &str| text.contains(self.from_name);
+        if !recipe.query.is_empty() {
+            match Pipeline::from_query_text(&recipe.query) {
+                Ok(mut pipeline) => {
+                    let mut changed = self.pipeline(&mut pipeline).map_err(&refuse)?;
+                    changed |= self.own_filename(&mut pipeline.filename);
+                    if changed {
+                        recipe.query = pipeline
+                            .to_query_lenient(self.cmr)
+                            .map_err(&refuse)?
+                            .encode();
+                    }
+                }
+                Err(e) if mentions(&recipe.query) => return Err(refuse(e)),
+                Err(_) => {}
+            }
+        }
+        if let Some(pipeline) = recipe.pipeline.as_mut() {
+            self.pipeline(pipeline).map_err(&refuse)?;
+            self.own_filename(&mut pipeline.filename);
+        }
+        for link in recipe.links.values_mut() {
+            match self.text(link) {
+                Ok(_) => {}
+                Err(e) if mentions(link) => return Err(refuse(e)),
+                Err(_) => {}
+            }
+        }
+        if !recipe.arguments.is_empty() {
+            let command = unfrozen_plan(recipe, self.cmr)
+                .ok()
+                .and_then(|plan| plan.last_action_command(self.cmr));
+            for (name, value) in recipe.arguments.iter_mut() {
+                let ty = command
+                    .as_ref()
+                    .and_then(|c| c.arguments.iter().find(|a| a.name == *name))
+                    .map(|a| a.argument_type.clone());
+                let mut source = Source::Value(value.clone());
+                if self.source(&mut source, ty.as_ref())? {
+                    if let Source::Value(new) = source {
+                        *value = new;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn own_filename(&self, filename: &mut Option<String>) -> bool {
+        match (self.mode, filename.as_deref()) {
+            (Rewrite::Rename { to_file, .. }, Some(f)) if f == self.from_file => {
+                *filename = Some(to_file.to_owned());
+                true
+            }
+            _ => false,
+        }
+    }
+}
+
+fn recipe_label(recipe: &Recipe) -> String {
+    match recipe.filename() {
+        Ok(Some(f)) => f.name,
+        Ok(None) | Err(_) => recipe.query.clone(),
+    }
+}
+
+fn extension_of(filename: &str) -> &str {
+    match filename.rfind('.') {
+        Some(i) if i > 0 => &filename[i + 1..],
+        Some(_) | None => "",
+    }
+}
+
+impl TreeEditor {
+    /// An editor over `list`, with the folder's `listdir` output when known (from the store,
+    /// the asset manager or the recipe provider; recipe names are merged with it). The working
+    /// directory a provider sets on each recipe is cleared: it is never written to
+    /// `recipes.yaml`.
+    pub fn new(
+        mut list: RecipeList,
+        listing: Option<Vec<String>>,
+        cmr: Arc<CommandMetadataRegistry>,
+    ) -> Result<Self, Error> {
+        for recipe in list.recipes.iter_mut() {
+            recipe.cwd = None;
+        }
+        Ok(TreeEditor {
+            list,
+            listing,
+            cmr,
+            renames: Vec::new(),
+        })
+    }
+
+    /// The check of the current recipes.
+    pub fn report(&self) -> TreeReport {
+        check_tree(&self.list, self.listing.as_deref(), &self.cmr)
+    }
+
+    /// The current recipes.
+    pub fn recipes(&self) -> &RecipeList {
+        &self.list
+    }
+
+    /// The stored-file renames [`Self::save`] performs.
+    pub fn pending_data_renames(&self) -> &[DataRename] {
+        &self.renames
+    }
+
+    /// The key of the declared result in `folder` (AC-19); `None` without one.
+    pub fn result_key(&self, folder: &Key) -> Option<Key> {
+        self.list
+            .tree
+            .as_ref()
+            .and_then(|t| t.result.as_ref())
+            .map(|result| folder.join(result))
+    }
+
+    /// The nodes a Node argument of `extension` can name, by filename (AC-18).
+    pub fn node_choices(&self, extension: &str) -> Vec<NodeChoice> {
+        let (graph, _) = analyse(&self.list, self.listing.as_deref(), &self.cmr);
+        graph
+            .nodes
+            .values()
+            .filter(|n| extension_of(&n.filename) == extension)
+            .map(|n| NodeChoice {
+                name: n.name.clone(),
+                filename: n.filename.clone(),
+                title: n.title.clone(),
+            })
+            .collect()
+    }
+
+    /// A filename for a new node titled `title`: the title in lower case, words joined by `_`,
+    /// made unique among the folder's names.
+    pub fn suggest_filename(&self, title: &str, extension: &str) -> String {
+        let mut stem = String::new();
+        for c in title.chars() {
+            if c.is_alphanumeric() {
+                stem.extend(c.to_lowercase());
+            } else if !stem.ends_with('_') && !stem.is_empty() {
+                stem.push('_');
+            }
+        }
+        let stem = stem.trim_end_matches('_').to_owned();
+        let stem = if stem.is_empty() { "node".to_owned() } else { stem };
+        let (graph, _) = analyse(&self.list, self.listing.as_deref(), &self.cmr);
+        let used = |s: &str| graph.nodes.values().any(|n| n.name == s);
+        let mut candidate = stem.clone();
+        let mut n = 2;
+        while used(&candidate) {
+            candidate = format!("{stem}_{n}");
+            n += 1;
+        }
+        format!("{candidate}.{extension}")
+    }
+
+    /// The filename of the node `node` names: a filename, or a name shared by no other node.
+    fn resolve(&self, node: &str) -> Result<String, Error> {
+        let (graph, _) = analyse(&self.list, self.listing.as_deref(), &self.cmr);
+        if graph.nodes.contains_key(node) {
+            return Ok(node.to_owned());
+        }
+        let matches: Vec<&String> = graph
+            .nodes
+            .values()
+            .filter(|n| n.name == node)
+            .map(|n| &n.filename)
+            .collect();
+        match matches.as_slice() {
+            [one] => Ok((*one).clone()),
+            [] => Err(Error::tree_check(&format!("no node '{node}'"))),
+            _ => Err(Error::tree_check(&format!(
+                "'{node}' names {}; give the filename",
+                matches
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))),
+        }
+    }
+
+    fn recipe_index(&self, filename: &str) -> Option<usize> {
+        self.list
+            .recipes
+            .iter()
+            .position(|r| matches!(r.filename(), Ok(Some(f)) if f.name == filename))
+    }
+
+    /// Replaces the recipes with `candidate` when it adds no error (AC-14).
+    fn commit(
+        &mut self,
+        candidate: RecipeList,
+        listing: Option<Vec<String>>,
+        renames: Vec<DataRename>,
+    ) -> Result<&mut Self, Error> {
+        let before = self.report().errors;
+        let after = check_tree(&candidate, listing.as_deref(), &self.cmr);
+        if let Some(new) = after.errors.iter().find(|e| !before.contains(e)) {
+            return Err(new.to_error());
+        }
+        self.list = candidate;
+        self.listing = listing;
+        self.renames = renames;
+        Ok(self)
+    }
+
+    /// Declares the stored file `filename` a source with a title and description (AC-27).
+    pub fn declare_source(
+        &mut self,
+        filename: &str,
+        title: &str,
+        description: &str,
+    ) -> Result<&mut Self, Error> {
+        if self.recipe_index(filename).is_some() {
+            return Err(Error::tree_check(&format!(
+                "'{filename}' already has a recipe"
+            )));
+        }
+        let recipe = Recipe::new(filename.to_owned(), title.to_owned(), description.to_owned())?;
+        if !recipe.is_source_declaration() {
+            return Err(Error::invalid_token(filename, "a filename"));
+        }
+        let mut candidate = self.list.clone();
+        candidate.recipes.push(recipe);
+        self.commit(candidate, self.listing.clone(), self.renames.clone())
+    }
+
+    /// Renames node `from` to `to` (a name; or a filename, to change the extension too) and
+    /// rewrites every reference to it (AC-1, AC-25): Node arguments naming it, resource
+    /// segments and links reading its file, overrides, the tree declaration and its own
+    /// filename. A stored file is renamed by [`Self::save`]. A reference that cannot be read
+    /// refuses the rename (AC-15).
+    pub fn rename(&mut self, from: &str, to: &str) -> Result<&mut Self, Error> {
+        let from_file = self.resolve(from)?;
+        let to_file = if to.contains('.') {
+            to.to_owned()
+        } else {
+            match extension_of(&from_file) {
+                "" => to.to_owned(),
+                ext => format!("{to}.{ext}"),
+            }
+        };
+        if !crate::escape::is_resource_name(&to_file) || to_file == "recipes.yaml" {
+            return Err(Error::invalid_token(to, "a node name"));
+        }
+        let (graph, _) = analyse(&self.list, self.listing.as_deref(), &self.cmr);
+        if graph.nodes.contains_key(&to_file) {
+            return Err(Error::tree_check(&format!("'{to_file}' is already a node")));
+        }
+        let from_name = node_name(&from_file).to_owned();
+        let to_name = node_name(&to_file).to_owned();
+        let rewriter = Rewriter {
+            from_file: &from_file,
+            from_name: &from_name,
+            mode: Rewrite::Rename {
+                to_file: &to_file,
+                to_name: &to_name,
+            },
+            cmr: &self.cmr,
+        };
+        let mut candidate = self.list.clone();
+        for (index, recipe) in candidate.recipes.iter_mut().enumerate() {
+            rewriter.recipe(index, recipe)?;
+        }
+        if let Some(tree) = candidate.tree.as_mut() {
+            for root in tree.roots.iter_mut() {
+                if *root == from_file {
+                    *root = to_file.clone();
+                }
+            }
+            if tree.result.as_deref() == Some(from_file.as_str()) {
+                tree.result = Some(to_file.clone());
+            }
+        }
+        // The stored file moves with the node: a listed file, or a source's data.
+        let stored = match &self.listing {
+            Some(listing) => listing.contains(&from_file),
+            None => matches!(graph.nodes.get(&from_file).map(|n| n.origin), Some(NodeOrigin::Source(_))),
+        };
+        let mut listing = self.listing.clone();
+        let mut renames = self.renames.clone();
+        if stored {
+            if let Some(listing) = listing.as_mut() {
+                for name in listing.iter_mut() {
+                    if *name == from_file {
+                        *name = to_file.clone();
+                    }
+                }
+            }
+            match renames.iter_mut().find(|r| r.to == from_file) {
+                Some(earlier) => earlier.to = to_file.clone(),
+                None => renames.push(DataRename {
+                    from: from_file.clone(),
+                    to: to_file.clone(),
+                }),
+            }
+            renames.retain(|r| r.from != r.to);
+        }
+        self.commit(candidate, listing, renames)
+    }
+
+    /// Sets argument `arg` of the action at index `action` (counting the actions of the
+    /// recipe's query, from 0) of `recipe` to `source`.
+    fn set_argument(
+        &self,
+        recipe: &mut Recipe,
+        action: usize,
+        arg: &str,
+        source: Source,
+    ) -> Result<(), Error> {
+        let label = recipe_label(recipe);
+        let mut pipeline = match (&recipe.pipeline, recipe.query.is_empty()) {
+            (Some(p), true) => p.clone(),
+            _ => Pipeline::from_query_text(&recipe.query)?,
+        };
+        let realm = pipeline.realm.clone();
+        let element = pipeline
+            .elements
+            .iter_mut()
+            .filter_map(|e| match &mut e.item {
+                ElementKind::Action(a) => Some(a),
+                _ => None,
+            })
+            .nth(action)
+            .ok_or_else(|| {
+                Error::tree_check(&format!("'{label}' has no action {action}"))
+            })?;
+        let md = crate::pipeline::resolve_action(&self.cmr, &realm, element)?;
+        let slot = crate::pipeline::positional_arguments(&md)
+            .iter()
+            .position(|a| a.name == arg)
+            .ok_or_else(|| {
+                Error::tree_check(&format!(
+                    "command '{}' of '{label}' has no argument '{arg}'",
+                    element.action
+                ))
+            })?;
+        if slot < element.parameters.len() {
+            element.parameters[slot].item = source;
+        } else if slot == element.parameters.len() {
+            element.parameters.push(Located::new(source));
+        } else {
+            element.arguments.insert(arg.to_owned(), Located::new(source));
+        }
+        if recipe.query.is_empty() {
+            recipe.pipeline = Some(pipeline);
+        } else {
+            recipe.query = pipeline.to_query_with(&self.cmr)?.encode();
+        }
+        Ok(())
+    }
+
+    /// Adds `recipe` and names it in argument `arg` of action `action` of `parent` (AC-11). A
+    /// filename or a name already used in the folder is refused.
+    pub fn add_child(
+        &mut self,
+        parent: &str,
+        recipe: Recipe,
+        action: usize,
+        arg: &str,
+    ) -> Result<&mut Self, Error> {
+        let filename = recipe
+            .filename()?
+            .ok_or_else(|| Error::tree_check("a child recipe needs a filename"))?
+            .name;
+        let name = node_name(&filename).to_owned();
+        let (graph, _) = analyse(&self.list, self.listing.as_deref(), &self.cmr);
+        if let Some(used) = graph.nodes.values().find(|n| n.name == name) {
+            return Err(Error::tree_check(&format!(
+                "name '{name}' is already used by '{}'",
+                used.filename
+            )));
+        }
+        let parent_file = self.resolve(parent)?;
+        let index = self
+            .recipe_index(&parent_file)
+            .ok_or_else(|| Error::tree_check(&format!("'{parent_file}' has no recipe")))?;
+        let mut candidate = self.list.clone();
+        self.set_argument(
+            &mut candidate.recipes[index],
+            action,
+            arg,
+            Source::Value(Json::String(name)),
+        )?;
+        candidate.recipes.push(recipe);
+        self.commit(candidate, self.listing.clone(), self.renames.clone())
+    }
+
+    /// Deletes the recipe of `node` (AC-12). A node something references is refused, naming its
+    /// parents. With `cascade`, the descendants no remaining node references are deleted too.
+    /// Stored data is never deleted: a deleted source's file stays, as an orphan.
+    pub fn delete(&mut self, node: &str, cascade: bool) -> Result<&mut Self, Error> {
+        let file = self.resolve(node)?;
+        let (graph, _) = analyse(&self.list, self.listing.as_deref(), &self.cmr);
+        let parents = graph.parents(&file);
+        if !parents.is_empty() {
+            return Err(Error::tree_check(&format!(
+                "'{file}' is referenced by {}",
+                parents.join(", ")
+            )));
+        }
+        let mut removed: BTreeSet<String> = BTreeSet::from([file.clone()]);
+        if cascade {
+            let mut frontier = vec![file.clone()];
+            while let Some(current) = frontier.pop() {
+                for child in graph.children(&current) {
+                    if !removed.contains(&child)
+                        && graph.parents(&child).iter().all(|p| removed.contains(p))
+                    {
+                        removed.insert(child.clone());
+                        frontier.push(child);
+                    }
+                }
+            }
+        }
+        let mut candidate = self.list.clone();
+        candidate
+            .recipes
+            .retain(|r| !matches!(r.filename(), Ok(Some(f)) if removed.contains(&f.name)));
+        if let Some(tree) = candidate.tree.as_mut() {
+            tree.roots.retain(|r| !removed.contains(r));
+            if tree.result.as_ref().is_some_and(|r| removed.contains(r)) {
+                tree.result = None;
+            }
+        }
+        self.commit(candidate, self.listing.clone(), self.renames.clone())
+    }
+
+    /// Moves the reference to `node` from recipe `from` to argument `arg` of action `action` of
+    /// recipe `to` (AC-13). Only a Node argument naming `node` can be moved; the argument in
+    /// `from` takes its default.
+    pub fn move_reference(
+        &mut self,
+        node: &str,
+        from: &str,
+        to: &str,
+        action: usize,
+        arg: &str,
+    ) -> Result<&mut Self, Error> {
+        let node_file = self.resolve(node)?;
+        let from_file = self.resolve(from)?;
+        let to_file = self.resolve(to)?;
+        let from_index = self
+            .recipe_index(&from_file)
+            .ok_or_else(|| Error::tree_check(&format!("'{from_file}' has no recipe")))?;
+        let to_index = self
+            .recipe_index(&to_file)
+            .ok_or_else(|| Error::tree_check(&format!("'{to_file}' has no recipe")))?;
+        let node_name_text = node_name(&node_file).to_owned();
+        let rewriter = Rewriter {
+            from_file: &node_file,
+            from_name: &node_name_text,
+            mode: Rewrite::Clear,
+            cmr: &self.cmr,
+        };
+        let mut candidate = self.list.clone();
+        rewriter.recipe(from_index, &mut candidate.recipes[from_index])?;
+        let (graph, _) = analyse(&candidate, self.listing.as_deref(), &self.cmr);
+        if graph.children(&from_file).contains(&node_file) {
+            return Err(Error::tree_check(&format!(
+                "'{from_file}' refers to '{node_file}' other than by a Node argument; that \
+                 reference cannot be moved"
+            )));
+        }
+        self.set_argument(
+            &mut candidate.recipes[to_index],
+            action,
+            arg,
+            Source::Value(Json::String(node_name_text.clone())),
+        )?;
+        self.commit(candidate, self.listing.clone(), self.renames.clone())
+    }
+
+    /// Writes the recipes to `folder`: first the stored-file renames, then `recipes.yaml`, both
+    /// through the asset manager, so the recipe provider and dependent assets follow.
+    pub async fn save<E: Environment>(&self, folder: &Key, envref: EnvRef<E>) -> Result<(), Error> {
+        use crate::assets::AssetManager;
+        use crate::value::ValueInterface;
+        let manager = envref.get_asset_manager();
+        let store = envref.get_async_store();
+        for rename in &self.renames {
+            let from = folder.join(&rename.from);
+            let to = folder.join(&rename.to);
+            // The bytes move with their stored record as it is; only the key changes. The
+            // removal goes through the asset manager, which tells the provider and the assets.
+            let (bytes, metadata) = store.get(&from).await?;
+            let metadata = match metadata.metadata_record() {
+                Some(mut record) => {
+                    record.key = Some(to.clone());
+                    crate::metadata::Metadata::MetadataRecord(record)
+                }
+                None => metadata,
+            };
+            store.set(&to, &bytes, &metadata).await?;
+            manager.remove(&from).await?;
+        }
+        let yaml = serde_yaml::to_string(&self.list).map_err(|e| {
+            Error::general_error(format!("Cannot write recipes.yaml: {e}"))
+        })?;
+        let key = folder.join("recipes.yaml");
+        let value = E::Value::from_string(yaml.clone());
+        let mut record = crate::metadata::MetadataRecord::new();
+        record.key = Some(key.clone());
+        record.type_identifier = value.identifier().to_string();
+        record.type_name = value.type_name().to_string();
+        record.data_format = Some("txt".to_owned());
+        manager.set_binary(&key, yaml.as_bytes(), record).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1314,6 +2041,36 @@ recipes:
         stored.recipes.push(crate::recipes::Recipe::new("a.glb".into(), "A".into(), String::new()).expect("recipe"));
         let report = check_tree(&stored, Some(&files), &cmr());
         assert!(report.errors.is_empty(), "{:?}", report.errors);
+    }
+
+    /// AC-18: node choices list the nodes of one extension with their titles.
+    #[test]
+    fn node_choices_and_suggested_filenames() {
+        let mut files = listing();
+        files.push("spare.glb".into());
+        let editor = TreeEditor::new(car(""), Some(files), Arc::new(cmr())).expect("editor");
+        let choices = editor.node_choices("glb");
+        let names: Vec<(&str, &str)> = choices
+            .iter()
+            .map(|c| (c.name.as_str(), c.title.as_str()))
+            .collect();
+        assert_eq!(
+            names,
+            vec![
+                ("body", "Body"),
+                ("car", "Car"),
+                ("spare", ""),
+                ("tyre", "Tyre"),
+                ("wheel", "Wheel")
+            ]
+        );
+        assert_eq!(editor.node_choices("mat").len(), 1);
+        assert_eq!(editor.suggest_filename("Front Wheel!", "glb"), "front_wheel.glb");
+        assert_eq!(editor.suggest_filename("Wheel", "glb"), "wheel_2.glb");
+        assert_eq!(
+            editor.result_key(&crate::parse::parse_key("a").expect("key")),
+            None
+        );
     }
 
     /// AC-2: the `tree:` section round-trips; defaults are not written.

@@ -9,12 +9,12 @@ enforcement and reporting, the editor, and the UI last. No prerequisite issue mu
 
 ## Progress
 
-- [ ] Step 1: Node argument metadata and match arms
-- [ ] Step 2: `register_command!` DSL for Node arguments
-- [ ] Step 3: Planning a Node argument (`NodeLink`, fallible CWD freeze)
-- [ ] Step 4: Source declarations
-- [ ] Step 5: Tree declaration, graph, strict rules and tree check
-- [ ] Step 6: Strict enforcement in `DefaultRecipeProvider`
+- [x] Step 1: Node argument metadata and match arms (7908d28)
+- [x] Step 2: `register_command!` DSL for Node arguments (7908d28)
+- [x] Step 3: Planning a Node argument (`NodeLink`, fallible CWD freeze) (7908d28)
+- [x] Step 4: Source declarations (ccf0042)
+- [x] Step 5: Tree declaration, graph, strict rules and tree check (fb53a51)
+- [x] Step 6: Strict enforcement in `DefaultRecipeProvider` (edf33af)
 - [ ] Step 7: `TreeEditor`
 - [ ] Step 8: Tree report in `liquers-validate`
 - [ ] Step 9: Node selector and rename in the editors

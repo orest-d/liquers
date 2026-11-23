@@ -83,6 +83,7 @@ mod convert;
 mod editor;
 mod plan;
 pub use convert::{ArgRef, ElementPath};
+pub(crate) use convert::{positional_arguments, resolve_action};
 pub use plan::{PipelinePlanBuilder, PlanningMode, DEFAULT_PLANNING_MODE, MAX_PIPELINE_DEPTH};
 pub use editor::{ActionEditor, CommandChange, NamespaceImpact, PipelineEditor, QueryEditor};
 
