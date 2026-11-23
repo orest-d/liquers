@@ -177,6 +177,32 @@ fn false_default() -> bool {
 }
 
 impl Recipe {
+    /// Whether this recipe declares a source: its query is only a filename (`body.glb`), with
+    /// no pipeline, overrides or volatility.
+    ///
+    /// A source recipe computes nothing. Its value is the data stored under its key; the recipe
+    /// gives it a title and a description and makes it a node of a recipe tree
+    /// (`specs/design/recipe-tree/`, AC-27). Evaluating it with no stored data fails with
+    /// `KeyNotFound`.
+    pub fn is_source_declaration(&self) -> bool {
+        if self.pipeline.is_some()
+            || !self.arguments.is_empty()
+            || !self.links.is_empty()
+            || self.volatile
+        {
+            return false;
+        }
+        let Ok(query) = parse_query(&self.query) else {
+            return false;
+        };
+        match query.segments.as_slice() {
+            [crate::query::QuerySegment::Transform(t)] => {
+                !query.rooted && t.header.is_none() && t.query.is_empty() && t.filename.is_some()
+            }
+            _ => false,
+        }
+    }
+
     /// Creates a recipe after parsing and encoding `query`.
     pub fn new(query: String, title: String, description: String) -> Result<Recipe, Error> {
         Ok(Recipe {
@@ -4355,6 +4381,18 @@ mod recipe_version_tests {
 
     fn recipe(query: &str) -> Recipe {
         Recipe::new(query.to_string(), String::new(), String::new()).expect("valid query")
+    }
+
+    /// recipe-tree AC-27: only a query that is just a filename declares a source.
+    #[test]
+    fn source_declaration_is_a_bare_filename() {
+        assert!(recipe("body.glb").is_source_declaration());
+        for query in ["-R/./body.glb", "make_text/r.txt", "-R/./a.glb/-/b.glb", "/body.glb"] {
+            assert!(!recipe(query).is_source_declaration(), "{query}");
+        }
+        let mut with_link = recipe("body.glb");
+        with_link.links.insert("x".into(), "-R/a".into());
+        assert!(!with_link.is_source_declaration());
     }
 
     #[test]

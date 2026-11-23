@@ -1,0 +1,154 @@
+//! Self-contained recipe trees (design `recipe-tree`): source declarations, the tree check run by
+//! the recipe provider, evaluation and relocation of a strict tree, and the tree editor.
+
+use liquers_core::{
+    assets::AssetManager,
+    context::{Context, EnvRef, Environment, ImmediateEnvironment},
+    error::{Error, ErrorType},
+    metadata::{Metadata, MetadataRecord, Status},
+    parse::{parse_key, parse_query},
+    query::Key,
+    recipes::DefaultRecipeProvider,
+    state::State,
+    store::{AsyncMemoryStore, AsyncStore},
+    value::{Value, ValueInterface},
+};
+use liquers_macro::register_command;
+
+type CommandEnvironment = ImmediateEnvironment<Value>;
+
+fn attach(state: &State<Value>, part: Value) -> Result<Value, Error> {
+    Ok(Value::from(format!(
+        "{}+{}",
+        state.try_into_string()?,
+        part.try_into_string()?
+    )))
+}
+
+fn material(state: &State<Value>, m: Value) -> Result<Value, Error> {
+    Ok(Value::from(format!(
+        "{}~{}",
+        state.try_into_string()?,
+        m.try_into_string()?
+    )))
+}
+
+fn make_env(store: AsyncMemoryStore) -> Result<EnvRef<CommandEnvironment>, Error> {
+    let mut env = CommandEnvironment::new();
+    {
+        let registry = &mut env.command_registry;
+        register_command!(registry, fn attach(state, part: Value (node: local, ext: "glb")) -> result)?;
+        register_command!(registry, fn material(state, m: Value (node: local, ext: "mat")) -> result)?;
+    }
+    env.with_async_store(Box::new(store));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
+    Ok(env.to_ref())
+}
+
+fn text_metadata(key: &Key, title: &str) -> Metadata {
+    let mut record = MetadataRecord::new();
+    record
+        .with_key(key.clone())
+        .with_type_identifier("Text".to_owned())
+        .with_title(title.to_owned())
+        .with_status(Status::Source);
+    // The `.glb` and `.mat` files here are text: tell the store how to read them.
+    record.data_format = Some("txt".to_owned());
+    Metadata::MetadataRecord(record)
+}
+
+async fn seed(store: &AsyncMemoryStore, path: &str, text: &str) -> Result<(), Error> {
+    let key = parse_key(path)?;
+    store
+        .set(&key, text.as_bytes(), &text_metadata(&key, "stored title"))
+        .await
+}
+
+async fn seed_yaml(store: &AsyncMemoryStore, path: &str, yaml: &str) -> Result<(), Error> {
+    store
+        .set(&parse_key(path)?, yaml.as_bytes(), &Metadata::new())
+        .await
+}
+
+/// The car of the design's Example 1, in `folder`.
+async fn seed_car(store: &AsyncMemoryStore, folder: &str, tree: &str) -> Result<(), Error> {
+    seed(store, &format!("{folder}/body.glb"), "body").await?;
+    seed(store, &format!("{folder}/tyre.glb"), "tyre").await?;
+    seed(store, &format!("{folder}/rubber.mat"), "rubber").await?;
+    seed_yaml(
+        store,
+        &format!("{folder}/recipes.yaml"),
+        &format!(
+            r#"{tree}recipes:
+  - {{query: body.glb, title: Body, description: The car body}}
+  - {{query: tyre.glb, title: Tyre}}
+  - {{query: rubber.mat, title: Rubber}}
+  - {{title: Wheel, query: "-R/./tyre.glb/-/material-rubber/wheel.glb"}}
+  - {{title: Car, query: "-R/./body.glb/-/attach-wheel/car.glb"}}
+"#
+        ),
+    )
+    .await
+}
+
+async fn text(envref: &EnvRef<CommandEnvironment>, query: &str) -> Result<String, Error> {
+    let asset = envref.evaluate(parse_query(query)?).await?;
+    asset.get().await?.try_into_string()
+}
+
+/// AC-27: a source recipe serves the stored data, with the recipe's title and description and
+/// the status `Source` in the asset metadata; the store's record is not changed.
+#[tokio::test]
+async fn source_declaration_serves_stored_data() -> Result<(), Box<dyn std::error::Error>> {
+    let store = AsyncMemoryStore::new(&Key::new());
+    seed_car(&store, "scenes/car", "").await?;
+    let envref = make_env(store)?;
+    let asset = envref.evaluate(parse_query("-R/scenes/car/body.glb")?).await?;
+    let state = asset.get().await?;
+    assert_eq!(state.try_into_string()?, "body");
+    assert_eq!(state.metadata.status(), Status::Source);
+    assert_eq!(state.metadata.title(), "Body");
+    assert_eq!(state.metadata.description(), "The car body");
+    let stored = envref
+        .get_async_store()
+        .get_metadata(&parse_key("scenes/car/body.glb")?)
+        .await?;
+    assert_eq!(stored.title(), "stored title");
+    Ok(())
+}
+
+/// AC-27: a source recipe with no stored data fails with `KeyNotFound` and stores nothing.
+#[tokio::test]
+async fn source_declaration_without_data_is_key_not_found() -> Result<(), Box<dyn std::error::Error>>
+{
+    let store = AsyncMemoryStore::new(&Key::new());
+    seed_yaml(
+        &store,
+        "scenes/car/recipes.yaml",
+        "recipes:\n  - {query: body.glb, title: Body}\n",
+    )
+    .await?;
+    let envref = make_env(store)?;
+    let key = parse_key("scenes/car/body.glb")?;
+    let error = text(&envref, "-R/scenes/car/body.glb")
+        .await
+        .expect_err("no stored data");
+    assert_eq!(error.error_type, ErrorType::KeyNotFound, "{error}");
+    let info = envref.get_asset_manager().get_asset_info(&key).await?;
+    assert_eq!(info.status, Status::Error);
+    assert!(
+        !envref.get_async_store().contains(&key).await?,
+        "a failed source stores nothing"
+    );
+    Ok(())
+}
+
+/// AC-2, AC-26: the car evaluates through its recipes and source declarations.
+#[tokio::test]
+async fn car_evaluates_through_source_declarations() -> Result<(), Box<dyn std::error::Error>> {
+    let store = AsyncMemoryStore::new(&Key::new());
+    seed_car(&store, "scenes/car", "").await?;
+    let envref = make_env(store)?;
+    assert_eq!(text(&envref, "-R/scenes/car/car.glb").await?, "body+tyre~rubber");
+    Ok(())
+}
