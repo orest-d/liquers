@@ -47,17 +47,24 @@ recipes:
 
 `liquers-validate --recipes scenes/car/recipes.yaml --cwd scenes/car` reports the graph
 (`car → body, wheel`; `wheel → tyre`) and refuses `wheel.glb`'s `/materials/rubber.mat` under
-strict mode. Once `rubber.mat` is copied into the folder and referenced as `-R/./rubber.mat`, the
-folder checks and works under any key. In the editor, `attach`'s `part` argument is a **Node**
-argument: it offers `body`, `tyre`, `wheel`, … and writes `~X~-R/./wheel.glb~E`.
-`TreeEditor::rename("wheel", "front_wheel")` renames the node and rewrites every reference to it.
+strict mode. Once `rubber.mat` is copied into the folder, the folder checks and works under any
+key. With `attach`'s `part` argument declared as a **Node** of extension `glb`, the recipes read
+
+```yaml
+  - query: "-R/./body.glb/-/attach-wheel/car.glb"
+  - query: "-R/./tyre.glb/-/material-rubber/wheel.glb"   # material's argument: Node, extension mat
+```
+
+and the planner turns `wheel` into the link `-R/./wheel.glb`. The editor offers `body`, `tyre`,
+`wheel`, … for the argument, and `TreeEditor::rename("wheel", "front_wheel")` renames the node and
+rewrites every reference to it.
 
 ## Scope and Acceptance Criteria
 
 - **AC-1** Rename rewrites every reference
   WHEN a node is renamed through the `TreeEditor`
-  THEN its filename and every reference to it in the folder (in a query, a link or a pipeline
-  element) are rewritten, the tree still checks, and the result evaluates to the same value
+  THEN its filename and every reference to it in the folder (a resource segment, a Node
+  argument's name or link, a pipeline element) are rewritten, the tree still checks, and the result evaluates to the same value
 - **AC-2** Declaration is optional and preserved
   WHEN a `recipes.yaml` with a `tree:` section is read and written back
   THEN the section is kept unchanged; a `recipes.yaml` without one reads, plans and evaluates
@@ -117,27 +124,50 @@ argument: it offers `body`, `tyre`, `wheel`, … and writes `~X~-R/./wheel.glb~E
   THEN a node's name is its filename without the extension (`wheel` for `wheel.glb`); two nodes
   with one name and different extensions (`logo.png`, `logo.jpg`) are allowed while nothing
   depends on either, and the check fails naming both when something depends on one of them
-- **AC-17** Node argument type
-  WHEN a command declares an argument of type Node, with its extension(s) and its link form
-  (`resource`: `-R/./<name>.<ext>`, or `key`: `-R-key/./<name>.<ext>`)
+- **AC-17** Node argument type (revised 2026-11-23)
+  WHEN a command declares an argument of type Node, with its extension, its link form
+  (`resource`: `-R/./<name>.<ext>`, or `key`: `-R-key/./<name>.<ext>`) and optionally a
+  post-processing query (AC-22)
   THEN its metadata carries this through registration, the command registry export and
   `liquers-validate`, and the command receives the linked asset (resource form) or the key
   (key form)
-- **AC-18** Node choices in the editor
-  WHEN a Node argument is edited in a recipe of a tree folder
-  THEN the editor offers the folder's node names with a matching extension, writes the link in
-  the declared form, and shows an existing link as its node name
+- **AC-18** Node choices in the editor (revised 2026-11-23)
+  WHEN a Node argument is edited
+  THEN the editor offers the node names of the folder with the argument's extension and writes
+  the bare name; an existing compliant link is shown as its node name
 - **AC-19** Single result
   WHEN `result: car.glb` is declared
   THEN `car.glb` is the folder's only root, the check fails if it is not a node, and the tree's
   API returns the result's key, so the folder can be evaluated (and later serialized) as that one
   asset
+- **AC-20** A bare node name becomes a link
+  WHEN a Node argument is given as a string (`attach-wheel`)
+  THEN the plan resolves it to the link the Node type builds (`-R/./wheel.glb`), recorded as a
+  dependency like any link, so the result equals the query written with the link
+- **AC-21** A Node argument is always local
+  WHEN a Node argument is given as a link, in any query (inside a tree folder or not)
+  THEN planning accepts it only if it is the link the Node type would build for some name (a
+  relative key directly in the working folder, with the Node's extension, form and
+  post-processing), and otherwise fails naming the argument and the link; to pass another asset,
+  a recipe that makes a local copy is created (refused in strict mode, AC-7)
+- **AC-22** Post-processing
+  WHEN a Node type declares a post-processing query (`ns-img/gray`)
+  THEN the name `image` resolves to `-R/./image.png/-/ns-img/gray`, and a rename of `image`
+  rewrites it like any reference
+- **AC-23** Strict mode references nodes only through Node arguments and resources
+  WHEN `dependencies: strict` and a recipe uses a link argument that is not of type Node to read
+  a key (`~X~-R/./wheel.glb~E` into an `Any` argument)
+  THEN the check fails naming the recipe and the argument; the query's resource segment
+  (`-R/./body.glb`, `{resource: ./body.glb}`) and Node arguments are the only references allowed
+- **AC-24** Strict mode is enforced, not only reported
+  WHEN a recipe of a folder declared `dependencies: strict` is planned
+  THEN a dependency the strict check refuses fails the plan with the same error as the check
 
 Non-goals: the archive export and import (`RECIPE-TREE-CANNOT-BE-EXPORTED-AS-AN-ARCHIVE`; this
 design supplies its strict-mode guarantee and its result); dependency modes other than `strict`,
 such as declared shared folders; nodes in subfolders, whose name would be a relative key
 (`parts/wheel`), and folder layouts like zip-based document formats (docx); enforcing the check at
-evaluation (Q10); a new recipe kind or recipe trait
+evaluation for folders that are not declared strict; a new recipe kind or recipe trait
 (`composite-command-definition/recipe-and-pipeline-structures.md` §4: nodes are plain recipes).
 
 **Known limit.** Strict mode is a static guarantee over what a recipe declares: its query, links,
@@ -153,6 +183,10 @@ that, and files it otherwise.
   (`PipelineEditor`, `QueryEditor`), which needs the command metadata registry.
 - **Commands:** a Node argument type in `ArgumentType` / `ArgumentInfo`, the `register_command!`
   DSL and the registry export.
+- **Planning:** parameter resolution (`liquers-core/src/plan.rs`, `pop_value` and the
+  `ParameterValue` it builds) turns a Node name into its link and checks a given link, as
+  `ParameterValue::EnumLink` already turns an enum alias into a link; the plan of a recipe from a
+  strict folder is refused when it fails the strict check.
 - **Validation:** `validate_recipes` and the `liquers-validate --recipes` report gain the check.
 - **UI:** the query, action and recipe editors offer node choices for a Node argument.
 - **Store:** read only, to list the folder's stored files (nodes without recipes).
@@ -195,7 +229,7 @@ that, and files it otherwise.
 
 ## Decisions (2026-11-23)
 
-The maintainer answered the first eight questions:
+The maintainer answered questions 1-8 and, the same day, 9-12:
 
 1. **Archive:** a separate design, but this one supplies its basis: a validated dependency profile.
    The first profile is `strict` (AC-7, AC-10).
@@ -210,23 +244,25 @@ The maintainer answered the first eight questions:
 6. **Shape:** DAG; a DAG with a single result can stand for one asset (AC-19).
 7. **Stored files** are nodes.
 8. **Flat folder** for now; richer layouts later.
+9. **How a Node argument is written** (2026-11-23): as the bare name by default, since it reads
+   better; the plan turns it into the link, and a link given instead is checked against the Node
+   (AC-20, AC-21).
+10. **Enforcement** (2026-11-23): a Node argument is always enforced, in any query, and always
+    needs a local asset (AC-21). A folder declared strict is checked by `liquers-validate` and the
+    editor, and enforced when its recipes are planned (AC-24).
+11. **Extensions** (2026-11-23): a Node declares one extension, so a name is never ambiguous. Non-Node
+    links are the ambiguous case, so strict mode forbids them (AC-23), and a Node can carry a
+    post-processing query instead (AC-22).
+12. **Node choices** (2026-11-23): in the editor model and both the egui and browser renderers.
 
 ## Open Questions
 
-9. **How a Node argument is written in a query.** As the full link (`attach-~X~-R/./wheel.glb~E`),
-   or as the bare name (`attach-wheel`) that the planner expands into the link using the argument's
-   type? *Recommended: the full link.* The recipe then means the same with or without the metadata,
-   every existing tool (planner, dependency analysis, `liquers-validate`) sees the dependency, and
-   the editor still shows `wheel`.
-10. **Where the guarantee is enforced.** *Recommended: in `liquers-validate` and in every
-    `TreeEditor` edit*, with evaluation unchanged. A recipe provider that refuses to serve a folder
-    failing its check can be added later if hand-edited folders prove a problem.
-11. **"If in doubt, only png".** My reading: a Node argument may list several extensions in order
-    of preference (`png`, `jpg`), the editor offers a name once, and when both `logo.png` and
-    `logo.jpg` exist and nothing depends on them, a new link uses the first extension that exists.
-    A dependency on either still makes the pair an error (AC-16). Is that right?
-12. **Node choices in both renderers.** *Recommended: yes*, in the editor model with the egui and
-    browser renderers together, since they share the editor elements; a node list is a choice list.
+13. **Is AC-23 right?** It follows your "we may forbid non-node links": with it, a strict recipe
+    reaches another node only through its resource segment or a Node argument. *Recommended: yes*;
+    without it the check must interpret links of `Any` arguments, which is where the ambiguity was.
+14. **Post-processing with arguments.** May the post-processing query take its parameters from the
+    command's other arguments (`gray-<level>`)? *Recommended: no, a fixed query for now*; a command
+    that needs it takes the node and the parameter separately.
 
 ## Design Dependencies
 

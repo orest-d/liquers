@@ -18,8 +18,8 @@ A `recipes.yaml` folder declared as a tree with a `tree:` section (roots or a si
 dependency mode). Its nodes are the folder's recipes and stored files, named by filename without
 extension, and they reference each other by relative keys. A check refuses cycles, a wrong shape,
 dangling references and, in `strict` mode, any dependency outside the folder, so a strict folder
-works wherever it is placed. A Node argument type lets commands take a node, and the editors
-offer node names for it. A `TreeEditor` on `PipelineEditor` adds, renames, moves and deletes
+works wherever it is placed. A Node argument type lets commands take a node by its bare name, which the plan turns into a
+local link, and the editors offer node names for it. A `TreeEditor` on `PipelineEditor` adds, renames, moves and deletes
 nodes, rewriting every reference and re-checking after each edit. Evaluation is unchanged. The
 portable archive is a separate design built on this one
 (`RECIPE-TREE-CANNOT-BE-EXPORTED-AS-AN-ARCHIVE`).
@@ -29,6 +29,10 @@ portable archive is a separate design built on this one
   profile; `tree:` section; node name = filename without extension; Node argument type; default
   roots; single result; stored files are nodes; flat folder. AC-3, AC-7, AC-10 revised, AC-16 to
   AC-19 added, questions 9-12 opened.
+- **2026-11-23, later** Answers 9-12: a Node argument is written as the bare name and resolved to its
+  link at planning; a Node is always local, in any query; one extension per Node, with an optional
+  post-processing query; strict mode forbids non-Node links and is enforced at planning. AC-17,
+  AC-18 revised, AC-20 to AC-24 added, questions 13-14 opened.
 
 ## Phases
 
