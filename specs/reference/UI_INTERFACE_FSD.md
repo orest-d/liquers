@@ -3,7 +3,7 @@ title: UI Interface Specification
 kind: reference
 audience: internal
 area: [lib/ui]
-reviewed: 2026-11-22
+reviewed: 2026-11-23
 ---
 # UI Interface Specification
 
@@ -418,6 +418,16 @@ keeps one watched accessor per handle and turns each `Changed` event into a fres
 second editor of the same recipe follows. A write is `set_if` against the fingerprint the copy was
 loaded from: a conflict reloads the live value and reports the refused text. At most one write is
 in flight; edits made meanwhile are written when it completes.
+
+**Node arguments.** A Node argument (`ArgumentType::Node`) is drawn as `NodeSelector`. An editor
+bound to a recipe of a `recipes.yaml` sends `AppMessage::NodeContext { handle, folder }`; the runner
+answers `UpdateMessage::NodeContext` with the folder's recipes and its asset-manager listing, and
+`EditorField::node_choices` then lists the folder's nodes of the argument's extension (filename and
+title). A link to such a node is shown as the node's name. **Rename** sends
+`EditorCommand::RenameNode { from, to }`, which rewrites the whole document (`TreeEditor::rename`)
+and returns `EditorEffect::RenameData`; the runner saves it (`AppMessage::RenameData`: stored files,
+then `recipes.yaml`) and sends the context again. Without a folder the field is a text box. See
+[`RECIPE_TREES.md`](RECIPE_TREES.md) §In the editors.
 
 **Edits.** `EditorState` (backend-free) applies each `EditorCommand` as a validated edit of a
 `liquers_core::pipeline::QueryEditor` / `PipelineEditor` working copy: a refused edit changes
@@ -867,6 +877,7 @@ Candidate universal operations identified across use cases:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-23 | §Editors: Node arguments — `NodeSelector`, `AppMessage::NodeContext` / `RenameData`, `EditorCommand::RenameNode`. | `design/recipe-tree/` |
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |
 | 2026-10-30 | Event Handling: implemented UI events (`UIEvent`, `data-lq-*` markup, keyboard precedence, limits). Only that section was reviewed against the implementation. | ui-events |
 | 2026-11-11 | Hosts: the native driver, the egui window and the Python host; reviewed against the implementation (that section only). | `design/egui-native-app/`, `design/liquers-py-ui/`, `design/liquers-py-ui-window/` |

@@ -3,7 +3,7 @@ title: Pipelines
 kind: reference
 audience: internal
 area: [core/commands, core/plan, core/query, core/validate]
-reviewed: 2026-11-17
+reviewed: 2026-11-23
 ---
 # Pipelines
 
@@ -266,6 +266,11 @@ returns `Changed` unapplied unless `accept`, and refuses `Invalid`. `ParameterPr
 description}` and `ActionElement::from_action_request` give argument and command presets to an
 editor. The UI editors built on this are `UI_INTERFACE_FSD.md` [Editors](UI_INTERFACE_FSD.md#editors).
 
+**Recipe trees.** `liquers_core::recipe_tree::TreeEditor` edits a whole folder's recipes on these
+pipelines: a node rename converts each recipe's query to a pipeline, rewrites resource keys, Node
+names (`Source::Value` strings of Node arguments) and `Link` sources, and converts it back
+([`RECIPE_TREES.md`](RECIPE_TREES.md) §Editing).
+
 ## Related
 
 - [`guides/PIPELINE_GUIDE.md`](../guides/PIPELINE_GUIDE.md) — building, converting, registering.
@@ -279,6 +284,7 @@ editor. The UI editors built on this are `UI_INTERFACE_FSD.md` [Editors](UI_INTE
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-23 | §8: `TreeEditor` of recipe trees. | `design/recipe-tree/` |
 | 2026-11-17 | Editors: argument edits for forms (`set_source`, `reset`, item edits, `excess`), lenient query opening, safe namespace edits; reviewed against the implementation. | `design/query-pipeline-editor/` |
 | 2026-11-04 | Related: the Python integration's pipelines section. | `design/liquers-py-pipelines/` |
 | 2026-11-04 | Created: the model and serialized form, conversions and representability rules, planning, pipeline commands, recipe pipelines, validation and editors, as implemented and tested. | phase-5, `design/composite-command-definition/` |

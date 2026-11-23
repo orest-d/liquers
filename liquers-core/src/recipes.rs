@@ -1,29 +1,61 @@
 //! Recipe definitions and recipe-provider lookup.
 //!
+//! # Purpose
+//!
 //! A [`Recipe`] augments a query in multiple ways:
 //! - It allows to specify additional human facing data such as title and description, which would be difficult in a compact query string.
 //! - Recipes can specify whether the asset is volatile or when it expires.
-//! - Recipes can place the query in a logical hierarchycal structure similar to a filesystem.
-//!   This allows to organize queries, give them names, lazyly execute them, cache the results (via AssetManager) and access the results similarly as files.
+//! - Recipes can place the query in a logical hierarchical structure similar to a filesystem.
+//!   This allows to organize queries, give them names, lazily execute them, cache the results (via AssetManager) and access the results similarly as files.
 //! - Recipes can override query parameters and pass this way more complex arguments to the query, e.g. longer texts or strings.
 //! - Recipes can be used internally to represent complex asset queries, e.g. to implement web APIs with arguments specified in JSON format.
 //!
 //! Converting a recipe with [`Recipe::to_plan`] builds a [`Plan`] but does not execute it.
-//!
-//! [`AsyncRecipeProvider`] is a service that resolves recipes registered for logical keys.
-//! In other words, it says what recipes are available in each directory.
-//! By default, it reads a [`RecipeList`] from `<directory>/recipes.yaml`; filenames derived from recipe queries
-//! identify the assets in that directory. A recipe looked up by key must use
-//! [`Recipe::to_plan_for_key`], because keyed assets are globally shared and cannot receive a
-//! per-evaluation payload.
-//! Custom recipe providers can be implemented to provide recipes from different sources or automatic default recipes.
-//!
-//! The [`RecipeList`] is a collection of recipes, which conviniently can be loaded from a YAML file.
-//! The **resipes.yaml** files (used by the default recipe provider) are meant to be human-readable and editable
-//! and are typically written by hand, specifying what needs to be calculated and how.
-//!
 //! Recipe conversion is only the synchronous planning phase. Environment-backed dependency
 //! volatility and expiration are incorporated later by interpreter finalization before execution.
+//!
+//! # Main components
+//!
+//! - [`Recipe`]: one query or pipeline with its title, description, overrides and caching
+//!   settings. [`Recipe::is_source_declaration`] tells a *source recipe* — a query that is only a
+//!   filename — which declares stored data instead of computing it.
+//! - [`RecipeList`]: the recipes of a folder, as read from `recipes.yaml`, with the optional
+//!   `tree:` section ([`crate::recipe_tree::TreeDeclaration`]).
+//! - [`AsyncRecipeProvider`]: resolves recipes registered for logical keys — what recipes are
+//!   available in each directory. [`DefaultRecipeProvider`] reads `<directory>/recipes.yaml`;
+//!   filenames derived from recipe queries identify the assets in that directory, and a folder
+//!   declared `dependencies: strict` is checked as a whole and refused on an error. A recipe
+//!   looked up by key must use [`Recipe::to_plan_for_key`], because keyed assets are globally
+//!   shared and cannot receive a per-evaluation payload.
+//! - [`RecipesConfig`], [`RecipeProviderFactory`] and [`RecipeProviderChain`]: recipe providers
+//!   configured by name and chained; custom providers can supply recipes from other sources.
+//!
+//! # Where it is used
+//!
+//! The asset manager (`crate::assets`) asks the environment's provider for a key's recipe and
+//! evaluates it; `liquers-validate --recipes` plans every recipe of a file; the editors of
+//! `liquers-lib` edit a recipe's query in place.
+//!
+//! # Related concepts
+//!
+//! [`crate::plan`] (the plan a recipe becomes), [`crate::recipe_tree`] (a folder's recipes as a
+//! checked tree), `specs/reference/RECIPES_AND_PLANS.md` and `specs/reference/RECIPE_TREES.md`.
+//! The `recipes.yaml` files are meant to be human-readable and editable and are typically written
+//! by hand, specifying what needs to be calculated and how.
+//!
+//! # Examples
+//!
+//! ```
+//! # use liquers_core::recipes::RecipeList;
+//! let list: RecipeList = serde_yaml::from_str(r#"
+//! recipes:
+//!   - {query: tyre.txt, title: Tyre}
+//!   - {query: "-R/./tyre.txt/-/wheel.txt", title: Wheel}
+//! "#).unwrap();
+//! assert!(list.recipes[0].is_source_declaration());
+//! assert!(!list.recipes[1].is_source_declaration());
+//! assert!(list.tree.is_none());
+//! ```
 
 use std::collections::HashMap;
 use std::fmt;

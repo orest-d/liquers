@@ -17,7 +17,7 @@ enforcement and reporting, the editor, and the UI last. No prerequisite issue mu
 - [x] Step 6: Strict enforcement in `DefaultRecipeProvider` (edf33af)
 - [x] Step 7: `TreeEditor` (7cb51c0)
 - [x] Step 8: Tree report in `liquers-validate` (51d9ed4)
-- [ ] Step 9: Node selector and rename in the editors
+- [x] Step 9: Node selector and rename in the editors (5069ad1)
 - [ ] Step 10: Documentation
 - [ ] Step 11: Final checks
 

@@ -1,3 +1,45 @@
+//! Command metadata: what a command is called, what arguments it takes and how they are shown.
+//!
+//! # Purpose
+//!
+//! Every registered command has a [`CommandMetadata`] record, separate from the code that runs it.
+//! The planner reads it to convert a query's text parameters into typed values, to resolve
+//! defaults, links and enum aliases, and to refuse a wrong argument before anything runs; user
+//! interfaces, validation and the MCP and language bindings read it to describe the command.
+//!
+//! # Main components
+//!
+//! - [`CommandMetadataRegistry`]: all commands, looked up by [`CommandKey`] (realm, namespace,
+//!   name), with the default namespaces.
+//! - [`CommandMetadata`]: one command — label, doc, arguments, presets, `next`, `filename`,
+//!   caching and payload settings ([`PayloadRequirement`]).
+//! - [`ArgumentInfo`] and [`ArgumentType`]: one argument and how its text is converted; an
+//!   [`EnumArgument`] restricts it to named alternatives, and a [`NodeArgument`]
+//!   (`ArgumentType::Node`) makes it name a file of the working folder, a recipe-tree node.
+//! - [`CommandParameterValue`]: a default — a literal, a query link or a pipeline.
+//! - [`ArgumentGUIInfo`]: the widget a user interface draws for the argument.
+//!
+//! # Where it is used
+//!
+//! `register_command!` (`liquers-macro`) builds the records; `crate::plan` and
+//! `crate::pipeline` plan against them; `crate::validate` checks queries offline against an
+//! exported registry; the editors in `liquers-lib`, `liquers-mcp`'s tool schemas and the Python
+//! bindings describe commands from them.
+//!
+//! # Related concepts
+//!
+//! [`crate::commands`] (the executable side of a command), `specs/reference/REGISTER_COMMAND_FSD.md`,
+//! `specs/reference/RECIPE_TREES.md` (Node arguments).
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_core::command_metadata::{ArgumentType, NodeArgument, NodeLinkForm};
+//!
+//! let node = ArgumentType::Node(NodeArgument::new("glb").with_form(NodeLinkForm::Key));
+//! assert_ne!(node, ArgumentType::Node(NodeArgument::new("glb")));
+//! ```
+
 #![allow(unused_imports)]
 #![allow(dead_code)]
 

@@ -19,6 +19,9 @@
 //!   A command's own default links and pipelines and enum-alias links are trusted.
 //! - [`check_tree`]: the whole check — roots and result, cycles, shape, orphans, dangling
 //!   references, name collisions, undeclared sources — as a [`TreeReport`] of findings.
+//! - [`TreeEditor`]: edits one folder's recipes in memory, keeping only edits that add no error —
+//!   rename a node (rewriting every reference and queueing the stored file's move), add a child,
+//!   delete, move a reference, declare a source — and saves them through the asset manager.
 //!
 //! A node's name is its filename without the extension (`wheel` for `wheel.glb`): the name a
 //! Node argument (`ArgumentType::Node`) is given in a query, `attach-wheel`.
@@ -27,34 +30,28 @@
 //!
 //! `DefaultRecipeProvider` runs [`check_tree`] on a strict folder and refuses the whole file on an
 //! error; `liquers-validate --recipes` adds the report (`ValidationReport::tree`); the editors of
-//! `liquers-lib` list node choices for a Node argument.
+//! `liquers-lib` list node choices for a Node argument and rename through [`TreeEditor`].
 //!
 //! # Related concepts
 //!
 //! `specs/reference/RECIPE_TREES.md`; recipes and plans in `specs/reference/RECIPES_AND_PLANS.md`;
 //! the design in `specs/design/recipe-tree/`.
 //!
-//! # Example
+//! # Examples
 //!
 //! ```
-//! use liquers_core::command_metadata::CommandMetadataRegistry;
-//! use liquers_core::recipe_tree::{check_tree, DependencyMode};
-//! use liquers_core::recipes::RecipeList;
-//!
-//! let list: RecipeList = serde_yaml::from_str(
-//!     r#"
+//! # use liquers_core::command_metadata::CommandMetadataRegistry;
+//! # use liquers_core::recipe_tree::check_tree;
+//! # use liquers_core::recipes::RecipeList;
+//! let list: RecipeList = serde_yaml::from_str(r#"
 //! tree: {dependencies: strict, result: wheel.txt}
 //! recipes:
 //!   - {query: tyre.txt, title: Tyre}
 //!   - {query: "-R/./tyre.txt/-/wheel.txt", title: Wheel}
-//! "#,
-//! )
-//! .unwrap();
-//! assert_eq!(list.tree.as_ref().unwrap().dependencies, DependencyMode::Strict);
+//! "#).unwrap();
 //! let listing = vec!["tyre.txt".to_string()];
 //! let report = check_tree(&list, Some(&listing), &CommandMetadataRegistry::new());
 //! assert!(report.errors.is_empty(), "{:?}", report.errors);
-//! assert_eq!(report.roots, vec!["wheel.txt".to_string()]);
 //! assert_eq!(report.graph.nodes["wheel.txt"].name, "wheel");
 //! ```
 

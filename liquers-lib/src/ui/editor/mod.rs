@@ -19,6 +19,11 @@
 //!   `ns`, action, directive and subtree nodes, each action's [`EditorField`]s with the widget
 //!   [`effective_gui`] picks, the command picker ([`command_catalog`]) and the file selector.
 //! - [`EditorView`]: what is being typed between frames, and the decoding of browser events.
+//! - [`NodeContext`] and [`recipe_folder`]: an editor bound to a recipe of a `recipes.yaml` asks
+//!   the runner for the folder's recipes and listing (`AppMessage::NodeContext`); its Node
+//!   arguments (`ArgumentType::Node`) then list the folder's nodes and offer a rename
+//!   ([`EditorCommand::RenameNode`], applied with `liquers_core::recipe_tree::TreeEditor` and
+//!   saved by the runner as `AppMessage::RenameData`).
 //!
 //! # Where it is used
 //!
@@ -33,6 +38,7 @@
 //! - `liquers_core::pipeline` — the validated edits, including the safe `ns` edits
 //!   (`NamespaceImpact`) and the argument reset and variadic item edits of `ActionEditor`.
 //! - `liquers_core::accessor` — the binding: `set_if` conflicts and change events.
+//! - `liquers_core::recipe_tree` — recipe trees, node names and the tree editor behind Rename.
 //! - [`crate::ui::widgets::QueryConsoleElement`] — a text console; its Parameters panel holds an
 //!   action editor of its last action.
 //!

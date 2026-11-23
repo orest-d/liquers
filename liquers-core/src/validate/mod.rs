@@ -15,6 +15,8 @@
 //! # Main components
 //!
 //! - [`validate_query`], [`validate_recipes`] and [`validate_pipeline`] — one input each.
+//! - [`validate_tree`] — the recipe-tree check of a list with a `tree:` section
+//!   ([`crate::recipe_tree::check_tree`] without a folder listing), kept as `ValidationReport::tree`.
 //! - [`ValidationRegistryBuilder`] — the command registry to validate against, from files.
 //! - [`build_report`] and [`ValidationReport`] — the envelope `liquers-validate` prints.
 //! - [`pipeline_from_build_args`] and [`with_pipeline_form`] — `--build` and `--emit pipeline`.
