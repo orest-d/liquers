@@ -262,18 +262,19 @@ not change, since query and key encoding do not.
 4. **Declared sources** (later the same day): a recipe whose query is just a filename declares a
    stored `Source` asset, with the recipe's title and description (AC-27). No new structure: such
    a recipe already parses (`body.glb` plans to a single `Filename` step) and is listed, edited and
-   bound like any recipe. The one change is at evaluation: the asset manager serves the stored
-   data, and for a missing file the plan with no steps fails with `Error::key_not_found` instead
-   of producing and storing an empty value (`assets.rs`, where a keyed recipe is applied).
+   bound like any recipe. The change is at evaluation (`assets.rs`): a source recipe's value is the
+   stored data, its metadata has status `Source` with the recipe's title and description laid
+   over the stored metadata in the asset manager only (as `recipe_sets_title` /
+   `recipe_sets_description` already do for a resolved recipe), and missing or unreadable data
+   gives status `Error` and `Error::key_not_found` (or the read error), never an empty value.
 
 ## Questions for the gate (now in the Phase 1 decision log)
 
 1. **Must a strict folder declare its sources?** *Recommended: yes* (AC-28). Then a strict
    `recipes.yaml` names every file it needs (as source declarations), which `liquers-validate` can check without a store
    and the archive can use as its manifest. An open folder may still use undeclared stored files.
-2. **Where declared titles show.** *Recommended: in the tree tools only* (node selector, tree
-   report). Using them as the stored asset's metadata title is a change to the asset manager's
-   read path, better as a follow-up.
+2. **Where declared titles show.** Decided 2026-11-23: also in the asset manager's metadata of the
+   source asset (status `Source`), not in the store's metadata.
 
 ## Risks
 

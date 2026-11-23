@@ -185,9 +185,11 @@ rewrites every reference to it.
   THEN nothing else needs to change: the folder is a tree as soon as it passes the check
 - **AC-27** Declared sources (revised 2026-11-23)
   WHEN a recipe's query is just a filename (`{query: body.glb, title: Body, description: …}`)
-  THEN it declares the stored `Source` asset `body.glb`: a node with that title (node selector,
-  tree report), checked to exist when a listing is given; evaluating it reads the stored data, and
-  when there is none it fails with "key not found" instead of producing an empty value
+  THEN it is a **source recipe**: its value is the stored data of `body.glb`, read from the
+  store. The asset manager's metadata for it has status `Source` and the recipe's title and
+  description (the store's own metadata is not changed); when the data does not exist or cannot be
+  read, the status is `Error` and evaluation fails, with no value produced or stored. It is a node
+  with that title (node selector, tree report), checked to exist when a listing is given
 - **AC-28** A strict folder declares its sources
   WHEN `dependencies: strict` and a node references a file that is neither a recipe nor a
   declared source
@@ -218,9 +220,10 @@ responsibility, as for any command that reads assets at run time.
      strict `recipes.yaml` names every file it needs, so `liquers-validate` checks it without a
      store and the archive gets its file list. An open folder may use undeclared stored files.
      *Needs decision.*
-  2. **Proposed resolution - where declared titles show.** Assumed in the tree tools only (node
-     selector, tree report); using them as the stored asset's metadata title is a follow-up.
-     *Needs decision.*
+  2. **Decided 2026-11-23 - source recipes.** A recipe whose query is only a filename creates its
+     value by reading the stored data; its asset metadata (from the asset manager, not the store)
+     carries the recipe's title and description and status `Source`, or `Error` when the data is
+     missing or unreadable (AC-27).
   3. **Implementation detail - deleting a node never deletes stored data** (Phase 2 §Editor):
      decided; the editor removes recipes only.
 

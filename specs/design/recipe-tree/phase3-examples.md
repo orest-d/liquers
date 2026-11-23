@@ -74,7 +74,7 @@ stored data is never deleted by the editor.
 | Command default link `-R-key/.` in a strict recipe | allowed | `strict_trusts_default_and_enum_links` |
 | Strict file with one bad recipe | every recipe of the folder fails to load; not cached | `strict_folder_fails_as_a_whole` |
 | `logo.png` and `logo.jpg`, one referenced | collision error naming both | `name_collision_refused_when_referenced` |
-| Source recipe with no stored data | `KeyNotFound`, nothing stored | `source_declaration_without_data_is_key_not_found` |
+| Source recipe with no stored data | status `Error`, `KeyNotFound`, nothing stored | `source_declaration_without_data_is_key_not_found` |
 | Rename meets an unparseable query | refused, list unchanged | `rename_refuses_unrewritable_reference` |
 | `tree:` round trip | YAML out equals YAML in | `tree_declaration_round_trips` |
 
@@ -109,7 +109,9 @@ stored data is never deleted by the editor.
   - `strict_tree_relocates` (AC-10);
   - `result_key_evaluates_the_tree` (AC-19);
   - `strict_folder_fails_as_a_whole` (AC-24);
-  - `source_declaration_serves_stored_data`, `source_declaration_without_data_is_key_not_found` (AC-27);
+  - `source_declaration_serves_stored_data`: value is the stored data; asset metadata has status
+    `Source`, the recipe's title and description; the store's metadata is unchanged (AC-27);
+  - `source_declaration_without_data_is_key_not_found` (AC-27);
   - `rename_rewrites_every_reference_and_keeps_value` (AC-1, AC-25 core);
   - `rename_renames_stored_file_on_save` (AC-1);
   - `add_child_refuses_used_name` (AC-11);

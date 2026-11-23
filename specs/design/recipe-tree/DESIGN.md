@@ -51,6 +51,8 @@ portable archive is a separate design built on this one
   description. AC-27 added; AC-28 proposed.
 - **Pre-approved after Phase 2 on 2026-11-23** (`proceed all`). Phases 3 and 4 written; two
   assumptions wait for confirmation before implementation (Phase 1 `## Design Readiness`).
+- **2026-11-23** Decision 2: a source recipe's asset metadata carries the recipe's title and
+  description with status `Source` (or `Error`); AC-27 revised. Decision 1 (AC-28) still open.
 
 ## Phases
 

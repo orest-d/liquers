@@ -63,8 +63,11 @@ enforcement and reporting, the editor, and the UI last. No prerequisite issue mu
 ### Step 4: Source declarations
 - Files / symbols: `liquers-core/src/recipes.rs` (`Recipe::is_source_declaration`);
   `liquers-core/src/assets.rs` (where a keyed recipe runs after the stored-data check,
-  `try_fast_track` and its caller: a source declaration with no stored data fails with
-  `Error::key_not_found` and stores nothing).
+  `try_fast_track` and its caller, and where a resolved recipe's title and description are laid
+  over the metadata, `recipe_sets_title`): a source recipe's value is the stored data, with status
+  `Source` and the recipe's title and description in the asset metadata only; missing or
+  unreadable data sets status `Error`, fails with `Error::key_not_found` or the read error, and
+  stores nothing).
 - Depends on: none (parallel with steps 1-3).
 - Proof: `cargo test -p liquers-core --test recipe_tree source_declaration_serves_stored_data source_declaration_without_data_is_key_not_found`;
   `cargo test -p liquers-core --lib assets` unchanged.
