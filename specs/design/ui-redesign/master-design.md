@@ -996,6 +996,19 @@ Limits to design for:
 A page that needs more runs a real environment over remote services (`liquers-web`), which is
 the monolithic case.
 
+**Client profiles (Orest, 2026-11-23).** The server's configuration, as an extension of its
+environment, declares each client form it serves and that form's value type:
+
+| Client form | Value type | Known to the server as |
+|---|---|---|
+| Thin (generic, terminal, HTML) | fixed: the core `Value`, or none at all | built in |
+| Thick | configurable, serializable; every thick client of that form must support it | a named profile: the type identifiers and formats it reads (a realm of `realm-type-registry`), and the element implementations it has |
+
+The profile is what tells the server, before it sends anything, which values may go whole, which
+must be converted (a DataFrame to a record view) and which elements have a client part. It also
+answers S1's finding that the server must know the client form before it creates parts (§28
+S1-a): the form is a named profile on the server, chosen by the endpoint.
+
 ## 16. Split mode: parts, client forms, protocol
 
 ### 16.1 Parts, and who owns what
@@ -1221,11 +1234,26 @@ input map (core): keymap, MIDI map, gestures   ── runs where the device is
 
 ## 20. Persistence and addresses
 
-- A **session snapshot** is the tree of `ElementSpec`s with each element's `save()` data and the
-  focus. It restores a workspace, survives a server restart, and can be written out as a UISpec
-  document.
-- An element reports `mark_saved_state_changed()`; the session saves on a debounce to wherever
-  the host configured (a store key, browser storage).
+The old UI had two mechanisms that were never reconciled: create a view from an application
+spec, and restore a view from saved state. Saved state could be obsolete or corrupt against the
+spec, and the path was never really tested. This design has **one mechanism**:
+
+- **A UI is always created from a spec.** There is no separate restore path.
+- **Saved state is an overlay on the spec, per named node.** An entry holds the node's name, its
+  element type, a state version chosen by the element, and the data its `save()` returned.
+- **Applying the overlay is a checked merge.** When a node is created from the spec, its overlay
+  entry is passed to the factory only if the name, the element type and the version match. An
+  entry that does not match, or that the factory refuses, is dropped and reported; the node
+  starts from the spec. A missing, stale or corrupt overlay can therefore cost saved state but
+  cannot stop the UI from opening.
+- **Nodes the user added at run time** (a console result, an extra tab) are saved as spec
+  fragments under their parent's name, and are dropped with a report if that parent is gone.
+- **What is saved.** State on the server side: monolithic implementations and server parts.
+  State that lives only in a client part is not saved unless the part sends it to the server
+  with a standard "saved state" message (optional, S1-b). Orest (2026-11-23): server-only saving
+  is an acceptable limit.
+- An element calls `mark_saved_state_changed()`; the session saves on a debounce to wherever the
+  host configured (a store key, browser storage).
 - **Addresses.** A node with a `name` has a path of names from the root, and an element may add
   its own route segment (the selected tab, a table page). The path is the fragment of a URL in
   the page (back and forward work) and an argument of the desktop and terminal hosts. D7 and D12
@@ -1421,6 +1449,8 @@ Master-level scenarios. D1's AC-1 to AC-11 remain, with AC-4 and AC-5 reworded (
 | 38 | A client part may link `liquers-core` but has no environment; values reach it as bytes plus metadata, and its value type is its own (§15.1) | proposed |
 | 39 | Table pages travel as Arrow IPC; the standard client includes it | proposed |
 | 40 | Parts of a split implementation get `PeerConnected` / `PeerGone`; the runner queues messages for a part that does not exist yet | proposed (S1) |
+| 41 | The server declares client profiles: a thin client has a fixed value type, a thick client a configurable serializable one known to the server (§15.1) | agreed in principle by Orest, 2026-11-23 |
+| 42 | One creation mechanism: a UI is created from a spec, and saved state is a checked overlay per named node; only server-side state is saved by default (§20) | proposed; the limit accepted by Orest, 2026-11-23 |
 
 ## 28. Open questions
 
@@ -1439,11 +1469,11 @@ Still for Orest:
 
 Raised by spike S1 (findings §8), to be decided before D1's architecture:
 
-- **S1-a. The server must know the client form before it creates parts.** For an element the
-  client has, the server runs only its server part; otherwise the whole portable implementation.
-  Can two clients of different forms share one server tree, or is a tree per client form?
-- **S1-b. State held only in a client part is invisible to the server.** Is a standard "saved
-  state" message from client part to server required, for restore and for a second device?
+- **S1-a. The server must know the client form before it creates parts.** Answered in part by
+  client profiles (§15.1): the form is known at connect. Still open: can two clients of
+  different forms share one server tree, or is a tree per client form?
+- **S1-b. State held only in a client part is invisible to the server.** Answered: not saved by
+  default; an optional "saved state" message lets a client part opt in (§20).
 - **S1-c. A native immediate-mode view must report that it changed state.** Require an explicit
   call, or have the runner assume a change whenever such a view handled input?
 - **S1-d. A client cannot reserve a handle** for a node it asks the server to add. Client-side
