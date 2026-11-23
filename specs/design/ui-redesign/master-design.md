@@ -947,7 +947,35 @@ multiplexed over the one connection and addressed by (handle, generation).
 - **The tree structure** (which nodes exist, their sources and specs) is proposed to be owned by
   the server in split mode: elements are created by queries that run there, a session can be
   saved and restored there, and a second device can attach. The client mirrors the structure
-  and asks for changes. This is open (§28).
+  and asks for changes, through the runner protocol (§16.1a).
+
+### 16.1a The runner protocol (universal)
+
+Keeping the client's nodes consistent with the server's is not an element's business. It is one
+protocol between the server runner and the client runner, the same for every element and every
+client form (Orest, 2026-11-23). Element protocols travel inside it.
+
+| Message | Direction | Content |
+|---|---|---|
+| `Hello`, `Welcome` | both | versions, client form, the implementations the client has, credentials or resume token; session id, theme, limits |
+| `Tree` | server → client | the whole node structure at a revision: handles, parents, order, element type, chosen implementation, initial properties |
+| `NodeAdded`, `NodeRemoved`, `NodeReplaced`, `NodeMoved` | server → client | one structural change, with the new revision and the node's generation |
+| `NodeState` | server → client | lifecycle state of a node (resolving, mounted, failed, hidden), title, status, progress |
+| `Focus` | both | which node has focus |
+| `Request` | client → server | ask for a structural change (add, remove, move, set source); the answer is the resulting `Node…` message or a refusal |
+| `ToPart` | both | an element message for the part with this (handle, generation): the element's own protocol or a standard protocol element |
+| `Ack`, `Resync`, `Ping`, `Pong`, `Bye` | both | flow control, recovery, liveness |
+
+- The **client runner** applies these to its own tree: it creates the client part of each node
+  (or the generic view when it has none), delivers `Mount`/`Unmount` in the order of §6, and
+  routes `ToPart` messages. The lifecycle guarantees therefore hold on the client as on the
+  server.
+- A `lui` command that changes the tree runs on the server and changes the server tree; the
+  client learns of it through `NodeAdded` and the like. No command needs to know that a client
+  exists.
+- A `ToPart` message for a generation the receiver no longer has is dropped, as in §6.
+- The view-level messages of §16.4 are the standard protocol element 4 carried in `ToPart` for
+  portable elements; `Hello`, `Ack`, `Resync` and `Ping` there are these same runner messages.
 
 ### 16.2 Client forms
 
@@ -994,8 +1022,7 @@ already does the job, the protocol element is the API.
 | 3 | **Accessor** | get, set with `set_if`, changed, conflict | in process; the web API; the channel |
 | 4 | **View level** | view-tree snapshot and patches down, input events up | the channel (§16.4) |
 | 5 | **HTML fragments** | fragment per element down, events up | the channel |
-| 6 | **Tree and lifecycle** | node added, removed, replaced, shown, hidden; focus | the channel; in process |
-| 7 | **Envelope** | addressing by (handle, generation), revisions, resync, ping, flow control | every channel |
+| 6 | **Runner protocol** (§16.1a, universal, not optional in split mode) | tree structure, node changes, lifecycle state, focus, addressing by (handle, generation), revisions, resync, ping, flow control | every channel |
 
 **Query submission and progress, in every mode.** The old egui UI needed to submit queries and
 receive progress updates. That need does not go away in split mode, and it does not depend on a
@@ -1314,7 +1341,8 @@ Master-level scenarios. D1's AC-1 to AC-11 remain, with AC-4 and AC-5 reworded (
 | 32 | A split client has no environment; a page with an environment over remote services (`liquers-web`) is monolithic | agreed by Orest, 2026-11-23 |
 | 33 | Query submission and asset updates have one message shape and three carriers (in process, web API with asset events, relay by the server part) | proposed |
 | 34 | The split shape of an implementation also runs monolithically, by joining its parts in process | proposed |
-| 35 | In split mode the server owns the tree structure; the client owns the state of its client parts | proposed, open |
+| 35 | In split mode the server owns the tree structure; the client owns the state of its client parts | agreed in principle by Orest, 2026-11-23 |
+| 36 | A universal runner protocol keeps the client's nodes consistent with the server's; element protocols travel inside it (§16.1a) | agreed in principle by Orest, 2026-11-23 |
 
 ## 28. Open questions
 
@@ -1325,8 +1353,8 @@ implementation is deliberately left aside until the architecture is settled.
 
 Still for Orest:
 
-1. **Who owns the tree structure in split mode** (decision 35)? Proposed: the server, with the
-   client mirroring it and owning only its client parts' state.
+1. **The runner protocol's message set** (§16.1a): is anything missing for keeping the client
+   consistent with the server?
 2. **Messages in a monolithic implementation** (§5.4): not required for native code, used by the
    built-in elements. Agreed?
 3. **Is the list of standard protocol elements** (§16.3) the right set?
