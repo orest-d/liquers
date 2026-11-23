@@ -103,17 +103,10 @@ pub struct TreeDeclaration {
     #[serde(default)] pub shape: TreeShape,               // Dag (default) | Tree
     #[serde(default)] pub dependencies: DependencyMode,   // Open (default) | Strict
 }
-/// A `Source` asset the folder declares: a stored file, with what a recipe would say about it.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
-pub struct SourceDeclaration {
-    pub filename: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")] pub title: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")] pub description: String,
-}
-// RecipeList gains, both optional and skipped when empty:
-//   pub tree: Option<TreeDeclaration>,  pub sources: Vec<SourceDeclaration>
+// RecipeList gains: #[serde(default, skip_serializing_if = "Option::is_none")] pub tree: Option<TreeDeclaration>
+// Recipe gains: pub fn is_source_declaration(&self) -> bool  // no pipeline, and a query that is only a filename
 
-pub enum NodeOrigin { Recipe(usize), Source(usize), Listed } // a recipe, a declared source, or only in the listing
+pub enum NodeOrigin { Recipe(usize), Source(usize), Listed } // a recipe, a source declaration (also a recipe), only listed
 pub struct TreeNode { pub filename: String, pub title: String, pub origin: NodeOrigin }
 pub enum RefKind { Resource, NodeArg { action: usize, arg: String }, Link { arg: String }, KeyValue }
 pub struct TreeEdge { pub from: String, pub to: Key, pub kind: RefKind }
@@ -149,7 +142,7 @@ pub struct DataRename { pub from: String, pub to: String }   // stored-file rena
 
 impl TreeEditor {
     pub fn new(list: RecipeList, listing: Option<Vec<String>>, cmr: Arc<CommandMetadataRegistry>) -> Result<Self, Error>;
-    pub fn declare_source(&mut self, source: SourceDeclaration) -> Result<&mut Self, Error>;  // AC-27
+    pub fn declare_source(&mut self, filename: &str, title: &str, description: &str) -> Result<&mut Self, Error>; // AC-27
     pub fn report(&self) -> TreeReport;
     pub fn recipes(&self) -> &RecipeList;
     pub fn rename(&mut self, from: &str, to: &str) -> Result<&mut Self, Error>;              // AC-1, AC-15
@@ -192,7 +185,7 @@ folder (an unbound query) the field is a text box with no rename. Renderers: `eg
 
 **Validation** (`validate/`, sync): `ValidationReport` gains `#[serde(skip_serializing_if = "Option::is_none")] tree: Option<TreeReport>`;
 `validate_recipes` fills it when the list has a `tree:`, with `listing: None`: a reference to a
-key that is neither a recipe nor a declared source is a warning ("not checked: stored file?"), and
+key that has no recipe (a source declaration counts) is a warning ("not checked: stored file?"), and
 an error in a strict folder (AC-28); tree errors set the status to `Error` (exit 1).
 
 **Value types:** none.
@@ -204,7 +197,7 @@ an error in a strict folder (AC-28); tree errors set the status to `Error` (exit
   (`plan.rs`: a `Source::Value` string for a Node argument also becomes a `NodeLink`, and a
   `NodeLink` converts back to `Source::Value(name)`; `convert.rs` reads a Node parameter as text;
   `editor.rs`), `store/realm.rs`,
-  `command_declaration.rs` (declared Node arguments), `recipes.rs` (`RecipeList::tree` and `sources`;
+  `command_declaration.rs` (declared Node arguments), `recipes.rs` (`RecipeList::tree`, `Recipe::is_source_declaration`;
   `DefaultRecipeProvider::cached_recipes` runs `check_tree` on a strict folder, with the store's
   `listdir` of the folder, and refuses the whole file when it reports an error, as it does for a
   recipe setting `cwd`: every lookup fails with the findings and the file is not cached, so a fix
@@ -265,13 +258,17 @@ not change, since query and key encoding do not.
 3. **Stored files:** a warning in `liquers-validate`, which opens no store. `TreeEditor::new`
    takes a `listdir` output instead of loading anything; the caller gets it from the store, the
    asset manager or the recipe provider.
-4. **Declared sources** (later the same day): `recipes.yaml` may declare its `Source` assets with a
-   title and a description (`sources:`, AC-27).
+4. **Declared sources** (later the same day): a recipe whose query is just a filename declares a
+   stored `Source` asset, with the recipe's title and description (AC-27). No new structure: such
+   a recipe already parses (`body.glb` plans to a single `Filename` step) and is listed, edited and
+   bound like any recipe. The one change is at evaluation: the asset manager serves the stored
+   data, and for a missing file the plan with no steps fails with `Error::key_not_found` instead
+   of producing and storing an empty value (`assets.rs`, where a keyed recipe is applied).
 
 ## Questions for the gate
 
 1. **Must a strict folder declare its sources?** *Recommended: yes* (AC-28). Then a strict
-   `recipes.yaml` names every file it needs, which `liquers-validate` can check without a store
+   `recipes.yaml` names every file it needs (as source declarations), which `liquers-validate` can check without a store
    and the archive can use as its manifest. An open folder may still use undeclared stored files.
 2. **Where declared titles show.** *Recommended: in the tree tools only* (node selector, tree
    report). Using them as the stored asset's metadata title is a change to the asset manager's

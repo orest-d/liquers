@@ -45,7 +45,8 @@ portable archive is a separate design built on this one
   `TreeEditor::new` takes the file list for clients without an `EnvRef`. AC-18, AC-24 revised,
   AC-25, AC-26 added.
 - **2026-11-23, later** No `TreeEditor::load`: the editor takes a `listdir` output. `recipes.yaml`
-  declares `Source` assets with title and description (`sources:`). AC-27 added; AC-28 proposed.
+  declares `Source` assets as recipes whose query is just a filename, with their title and
+  description. AC-27 added; AC-28 proposed.
 
 ## Phases
 
