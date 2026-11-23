@@ -209,17 +209,17 @@ responsibility, as for any command that reads assets at run time.
 
 ## Design Readiness
 
-- **Readiness:** needs-decision
+- **Readiness:** ready
 - **Automatic fixing:** not-eligible — an `XL` feature across five crates with new public API.
 - **Pre-approval:** `proceed all` after Phase 2 on 2026-11-23; Phases 3 and 4 written under it.
-- **Leading issue:** two proposed resolutions below, taken as assumptions.
+- **Leading issue:** None.
 - **Explanation:** Phases 1-4 are reviewed and consistent; implementation can start as soon as the
   two assumptions are confirmed or changed, and neither changes the plan's order.
 - **Decision log:**
   1. **Proposed resolution - strict folders declare their sources (AC-28).** Assumed yes: a
      strict `recipes.yaml` names every file it needs, so `liquers-validate` checks it without a
      store and the archive gets its file list. An open folder may use undeclared stored files.
-     *Needs decision.*
+     **Decided yes 2026-11-23.**
   2. **Decided 2026-11-23 - source recipes.** A recipe whose query is only a filename creates its
      value by reading the stored data; its asset metadata (from the asset manager, not the store)
      carries the recipe's title and description and status `Source`, or `Error` when the data is

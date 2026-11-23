@@ -218,6 +218,95 @@ pub enum ArgumentType {
     Any,
     #[serde(rename = "none")]
     None,
+    /// A node of a recipe folder: a bare name the plan turns into a link to `./<name>.<ext>`, or
+    /// any link (`specs/reference/RECIPE_TREES.md`).
+    #[serde(rename = "node")]
+    Node(NodeArgument),
+}
+
+/// What kind of node a [`ArgumentType::Node`] argument names. Only nodes directly in the
+/// recipe folder exist today; sub-folders and asset folders may follow.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum NodeKind {
+    /// A file directly in the working folder: `./<name>.<ext>`.
+    #[default]
+    Local,
+}
+
+/// How a node name becomes a link: the node's value, or its key.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum NodeLinkForm {
+    /// `-R/./<name>.<ext>`: the command receives the node's value.
+    #[default]
+    Resource,
+    /// `-R-key/./<name>.<ext>`: the command receives the node's key.
+    Key,
+}
+
+/// The declaration of a Node argument: its kind, the extension of the files it names and the
+/// form of the link a name becomes.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct NodeArgument {
+    #[serde(default)]
+    pub kind: NodeKind,
+    /// The extension without the dot, e.g. `glb`.
+    pub extension: String,
+    #[serde(default)]
+    pub form: NodeLinkForm,
+}
+
+impl NodeArgument {
+    /// A local node argument with the resource link form.
+    pub fn new(extension: &str) -> Self {
+        NodeArgument {
+            kind: NodeKind::Local,
+            extension: extension.to_owned(),
+            form: NodeLinkForm::Resource,
+        }
+    }
+
+    /// Sets the link form.
+    pub fn with_form(mut self, form: NodeLinkForm) -> Self {
+        self.form = form;
+        self
+    }
+
+    /// The filename a node name stands for: `<name>.<ext>`.
+    pub fn filename(&self, name: &str) -> String {
+        format!("{}.{}", name, self.extension)
+    }
+
+    /// The link `name` becomes: `-R/./<name>.<ext>` or `-R-key/./<name>.<ext>`.
+    ///
+    /// Refuses a name that is not a single resource name (a `/`, an empty name, …).
+    pub fn link(&self, name: &str) -> Result<crate::query::Query, Error> {
+        let filename = self.filename(name);
+        if name.is_empty() || !crate::escape::is_resource_name(&filename) {
+            return Err(Error::invalid_token(name, "a node name"));
+        }
+        let text = match self.form {
+            NodeLinkForm::Resource => format!("-R/./{filename}"),
+            NodeLinkForm::Key => format!("-R-key/./{filename}"),
+        };
+        crate::parse::parse_query(&text)
+    }
+
+    /// The node name, when `query` is exactly the link [`Self::link`] builds for some name.
+    pub fn name_of(&self, query: &crate::query::Query) -> Option<String> {
+        let text = query.encode();
+        let prefix = match self.form {
+            NodeLinkForm::Resource => "-R/./",
+            NodeLinkForm::Key => "-R-key/./",
+        };
+        let filename = text.strip_prefix(prefix)?;
+        let name = filename.strip_suffix(&format!(".{}", self.extension))?;
+        match self.link(name) {
+            Ok(link) if link.encode() == text => Some(name.to_owned()),
+            Ok(_) | Err(_) => None,
+        }
+    }
 }
 
 impl ArgumentType {
@@ -233,7 +322,25 @@ impl ArgumentType {
             | ArgumentType::Enum(_)
             | ArgumentType::GlobalEnum(_)
             | ArgumentType::Any
-            | ArgumentType::None => false,
+            | ArgumentType::None
+            | ArgumentType::Node(_) => false,
+        }
+    }
+    /// The node declaration, when this is a Node argument.
+    pub fn node(&self) -> Option<&NodeArgument> {
+        match self {
+            ArgumentType::Node(n) => Some(n),
+            ArgumentType::String
+            | ArgumentType::Integer
+            | ArgumentType::IntegerOption
+            | ArgumentType::Float
+            | ArgumentType::FloatOption
+            | ArgumentType::Boolean
+            | ArgumentType::BooleanOption
+            | ArgumentType::Enum(_)
+            | ArgumentType::GlobalEnum(_)
+            | ArgumentType::Any
+            | ArgumentType::None => None,
         }
     }
     pub fn resolve_global_enums(&self, cmr: &CommandMetadataRegistry) -> Result<Self, Error> {
@@ -318,6 +425,9 @@ pub enum ArgumentGUIInfo {
     VerticalRadioEnum,
     /// Select enum from a dropdown list.
     EnumSelector,
+    /// Select a node of the recipe folder (an [`ArgumentType::Node`] argument): the folder's
+    /// files with the argument's extension, shown by name and title.
+    NodeSelector,
     /// Color picker for a color value
     /// Should edit the color in form of a color name or hex code RGB or RGBA.
     /// The hex code does NOT start with `#`, but is just a string of 6 or 8 hexadecimal digits.
@@ -2609,5 +2719,47 @@ mod tests {
             yaml.contains("default_namespaces:\n- pl\n- ''\n- root\n"),
             "{yaml}"
         );
+    }
+
+    /// recipe-tree AC-17: a Node argument round-trips through serde.
+    #[test]
+    fn node_argument_serde_round_trip() {
+        let t = ArgumentType::Node(NodeArgument::new("glb").with_form(NodeLinkForm::Key));
+        let json = serde_json::to_value(&t).expect("serialize");
+        assert_eq!(
+            json,
+            serde_json::json!({"node": {"kind": "local", "extension": "glb", "form": "key"}})
+        );
+        let back: ArgumentType = serde_json::from_value(json).expect("deserialize");
+        assert_eq!(back, t);
+        let yaml = serde_yaml::to_string(&t).expect("serialize yaml");
+        let back: ArgumentType = serde_yaml::from_str(&yaml).expect("deserialize yaml");
+        assert_eq!(back, t);
+        let short: ArgumentType =
+            serde_json::from_value(serde_json::json!({"node": {"extension": "mat"}}))
+                .expect("short form");
+        assert_eq!(short, ArgumentType::Node(NodeArgument::new("mat")));
+    }
+
+    /// recipe-tree AC-17: both link forms, and `name_of` inverts them.
+    #[test]
+    fn node_link_builds_both_forms() {
+        let r = NodeArgument::new("glb");
+        let k = NodeArgument::new("glb").with_form(NodeLinkForm::Key);
+        assert_eq!(r.link("w").expect("link").encode(), "-R/./w.glb");
+        assert_eq!(k.link("w").expect("link").encode(), "-R-key/./w.glb");
+        assert_eq!(r.name_of(&r.link("w").expect("link")).as_deref(), Some("w"));
+        assert_eq!(k.name_of(&k.link("w").expect("link")).as_deref(), Some("w"));
+        assert_eq!(r.name_of(&k.link("w").expect("link")), None);
+        let other = crate::parse::parse_query("-R/data/w.glb").expect("parse");
+        assert_eq!(r.name_of(&other), None);
+    }
+
+    /// recipe-tree AC-17: a node name is one resource name.
+    #[test]
+    fn node_link_refuses_name_with_slash() {
+        let r = NodeArgument::new("glb");
+        assert!(r.link("a/b").is_err());
+        assert!(r.link("").is_err());
     }
 }

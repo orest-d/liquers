@@ -2042,6 +2042,7 @@ fn argument_type_name(argument_type: &ArgumentType) -> String {
         ArgumentType::GlobalEnum(name) => format!("enum {name}"),
         ArgumentType::Any => "any".to_string(),
         ArgumentType::None => "none".to_string(),
+        ArgumentType::Node(n) => format!("node .{}", n.extension),
     }
 }
 
@@ -2175,6 +2176,21 @@ pub(crate) fn convert_scalar(arg: &ArgumentInfo, value: &Value) -> Result<Conver
             },
             Value::Null | Value::Bool(_) | Value::Number(_) | Value::Array(_) | Value::Object(_) => {
                 Ok(ConvertedOverride::Value(value.clone(), None))
+            }
+        },
+        ArgumentType::Node(n) => match value {
+            Value::String(s) => {
+                let link = n.link(s)?;
+                let note = format!(
+                    "Argument '{}': node '{}' expanded to the link {}",
+                    arg.name,
+                    s,
+                    link.encode()
+                );
+                Ok(ConvertedOverride::Link(link, Some(note)))
+            }
+            Value::Null | Value::Bool(_) | Value::Number(_) | Value::Array(_) | Value::Object(_) => {
+                Err(refuse())
             }
         },
         ArgumentType::GlobalEnum(_) | ArgumentType::Any | ArgumentType::None => {

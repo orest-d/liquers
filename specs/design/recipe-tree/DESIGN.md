@@ -3,9 +3,9 @@ id: RECIPE-TREE
 kind: design
 title: Self-contained recipe trees - a recipes folder as one checked, editable tree of assets
 workflow: liquers-project
-status: in_review
+status: approved
 phase: implementation
-readiness: needs-decision
+readiness: ready
 autofix: not-eligible
 priority: P2
 complexity: XL
@@ -52,7 +52,7 @@ portable archive is a separate design built on this one
 - **Pre-approved after Phase 2 on 2026-11-23** (`proceed all`). Phases 3 and 4 written; two
   assumptions wait for confirmation before implementation (Phase 1 `## Design Readiness`).
 - **2026-11-23** Decision 2: a source recipe's asset metadata carries the recipe's title and
-  description with status `Source` (or `Error`); AC-27 revised. Decision 1 (AC-28) still open.
+  description with status `Source` (or `Error`); AC-27 revised. Decision 1 (AC-28) confirmed the same evening; implementation started.
 
 ## Phases
 

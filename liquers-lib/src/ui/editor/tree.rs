@@ -356,6 +356,7 @@ pub fn effective_gui(argument: &ArgumentInfo) -> ArgumentGUIInfo {
         ArgumentType::Integer | ArgumentType::IntegerOption => ArgumentGUIInfo::IntegerField,
         ArgumentType::Float | ArgumentType::FloatOption => ArgumentGUIInfo::FloatField,
         ArgumentType::Enum(_) | ArgumentType::GlobalEnum(_) => ArgumentGUIInfo::EnumSelector,
+        ArgumentType::Node(_) => ArgumentGUIInfo::NodeSelector,
         ArgumentType::String | ArgumentType::Any | ArgumentType::None => DEFAULT_GUI.clone(),
     }
 }
@@ -373,7 +374,8 @@ pub fn is_numeric(argument: &ArgumentInfo) -> bool {
         | ArgumentType::Enum(_)
         | ArgumentType::GlobalEnum(_)
         | ArgumentType::Any
-        | ArgumentType::None => false,
+        | ArgumentType::None
+        | ArgumentType::Node(_) => false,
     }
 }
 

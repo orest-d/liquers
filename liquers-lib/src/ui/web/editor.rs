@@ -805,7 +805,10 @@ fn input_html(field: &EditorField, name: &str, text: &str) -> String {
             s.push_str("</select>");
             s
         }
-        ArgumentGUIInfo::EnumSelector | ArgumentGUIInfo::HorizontalRadioEnum | ArgumentGUIInfo::VerticalRadioEnum => {
+        ArgumentGUIInfo::EnumSelector
+        | ArgumentGUIInfo::HorizontalRadioEnum
+        | ArgumentGUIInfo::VerticalRadioEnum
+        | ArgumentGUIInfo::NodeSelector => {
             let list = format!("{name}-list");
             let mut s = format!(
                 "<input type=\"text\" list=\"{}\" value=\"{}\"{attrs}{}><datalist id=\"{}\">",

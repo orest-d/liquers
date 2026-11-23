@@ -117,6 +117,11 @@ fn type_schema(argument_type: &ArgumentType) -> Option<Value> {
         ArgumentType::GlobalEnum(_) => json!({}),
         ArgumentType::Any => json!({}),
         ArgumentType::None => return None,
+        // A node name (a file of the working folder without its extension) or a link.
+        ArgumentType::Node(n) => json!({
+            "type": "string",
+            "description": format!("node name (a .{} file of the working folder) or a link", n.extension),
+        }),
     })
 }
 

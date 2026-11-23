@@ -422,6 +422,17 @@ impl Error {
     ///
     /// Raised by [`crate::query::Query::check_encodable`] and by the pipeline editors, before a
     /// query that would not parse back is ever encoded.
+    /// A Node argument was given by name (`node`) where no working directory is set, so the
+    /// name cannot become a link to a file of the folder.
+    pub fn node_needs_cwd(argument: &str, node: &str) -> Self {
+        Error::new(
+            ErrorType::KeyNotAbsolute,
+            format!(
+                "Argument '{argument}': node '{node}' needs a working directory; set one \
+                 (e.g. -R-cwd/<folder>/-/…) or pass a link"
+            ),
+        )
+    }
     pub fn invalid_token(value: &str, class: &str) -> Self {
         Error::new(
             ErrorType::ParameterError,

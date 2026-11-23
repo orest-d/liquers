@@ -209,7 +209,8 @@ fn literal(info: &ArgumentInfo, text: &str) -> Json {
         | ArgumentType::Enum(_)
         | ArgumentType::GlobalEnum(_)
         | ArgumentType::Any
-        | ArgumentType::None => Json::String(text.to_string()),
+        | ArgumentType::None
+        | ArgumentType::Node(_) => Json::String(text.to_string()),
     }
 }
 
@@ -1140,7 +1141,8 @@ fn action_node(
             | ArgumentType::BooleanOption
             | ArgumentType::GlobalEnum(_)
             | ArgumentType::Any
-            | ArgumentType::None => (Vec::new(), true),
+            | ArgumentType::None
+            | ArgumentType::Node(_) => (Vec::new(), true),
         };
         let numeric_index = if is_numeric(&info) {
             numeric += 1;

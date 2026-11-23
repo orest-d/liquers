@@ -1172,6 +1172,7 @@ fn widget(
         | ArgumentGUIInfo::EnumSelector
         | ArgumentGUIInfo::HorizontalRadioEnum
         | ArgumentGUIInfo::VerticalRadioEnum
+        | ArgumentGUIInfo::NodeSelector
         | ArgumentGUIInfo::None => {
             let width = match &field.widget {
                 ArgumentGUIInfo::TextField(w) | ArgumentGUIInfo::CodeField(w, _) | ArgumentGUIInfo::DateField(w) => {
