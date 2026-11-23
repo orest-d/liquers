@@ -3,8 +3,8 @@ id: RECIPE-TREE
 kind: design
 title: Self-contained recipe trees - a recipes folder as one checked, editable tree of assets
 workflow: liquers-project
-status: draft
-phase: high-level
+status: in_review
+phase: architecture
 priority: P2
 complexity: XL
 area: [core/assets, core/validate, core/commands, macro, lib/ui]
