@@ -3,7 +3,7 @@ title: UI Interface Specification
 kind: reference
 audience: internal
 area: [lib/ui]
-reviewed: 2026-11-22
+reviewed: 2026-11-23
 ---
 # UI Interface Specification
 
@@ -430,14 +430,18 @@ refused. Unknown commands and excess parameters are shown read-only and kept.
 `ui::web::editor::editor_html(tree, title, mode, density, theme)` both draw the same `EditorTree`
 through the same backend-free layout (`ui::editor::layout`) and return `EditorCommand`s;
 `EditorView::from_ui_event` decodes the browser's events (`ed:<verb>:<path>:<rest>`). Hover text
-is each field's label, description, type and default. `UIContext::command_registry()` carries the
+is each field's label, description, type and default; the description and the default are shown
+only there (and the default in the Reset button's hover), never under the field. `UIContext::command_registry()` carries the
 registry snapshot every host gives its contexts; with none, the editor shows the text only.
 Design of the layout below: `design/query-editor-ergonomics/`.
 
 **Modes.** `EditorMode::Simple` (the default) shows step chips for the pipeline, one card for the
 last action (`simple_card`) and "Continue with" chips from the command's `next` presets.
-`EditorMode::Advanced` shows every step as a card, an outline when there is more than one, link
-arguments nested under their field, Collapse all / Expand all and the filename field. The mode
+`EditorMode::Advanced` shows every step as a card, with no outline and no part titles, link
+arguments nested under their field, Collapse all / Expand all and the filename field. Entering
+Advanced mode collapses every card but one (`EditorView::enter_mode`, `open_card`): the card
+holding focus (a step chip, a `Ctrl+J` jump), else the last action; the browser renders the
+others as closed `<details>` (`editor_html_open` names the open card). The mode
 and an optional `Density` are serialized with the element (`with_mode`, `with_density`); the
 browser switches with `ed:mode::simple|advanced`.
 
@@ -445,8 +449,8 @@ browser switches with `ed:mode::simple|advanced`.
 `namespace/name`, modified and error marks, its position and a menu (collapsed: icon, label, id).
 An expanded card shows `toolbar_items` (Reset, Presets, Next, Filename; Move up / down in
 Advanced only) with presets as chips (at most three, the active one lit, the rest under "+N"),
-then a form grid of `form_rows` (label, editor, per-field actions, help, and a refused edit's
-message under the field it concerns). `ed:resetall:<path>:` resets every argument of a card.
+then a form grid of `form_rows` (label, editor, per-field actions, and a refused edit's message
+under the field it concerns). `ed:resetall:<path>:` resets every argument of a card.
 
 **Keyboard (egui).** `editor_keymap()` is the table of `ui/editor/keys.rs`, each entry with a
 scope (`Anywhere`, `Header`, `Field`) and matched most specific first: Ctrl+B mode, Ctrl+L query
@@ -455,7 +459,9 @@ a field), Enter / Escape / Space / arrows on a header, Ctrl+Shift+[ and ] collap
 Alt+R reset, Alt+P presets, Alt+Shift+N next (Alt+N is the browser console's New Console),
 Alt+1…9 apply a preset, Ctrl+K add an action, Alt+Up / Down move, Ctrl+Delete delete, Alt+L
 link, Ctrl+Space complete, Ctrl+Enter update. **Ctrl+J** jumps from the query text to the field
-whose span holds the cursor (committing typed text first) and back to that field's span. The
+whose span holds the cursor (committing typed text first) and back to that field's span. In
+Simple mode, a jump to a step other than the shown card asks for Advanced mode
+(`EditorView::mode_request`, reported as `EditorOutput::mode`) with that step the open card. The
 browser renderer has no keyboard model yet beyond the page's own focus order.
 
 **Theme and icons** (full reference: [`THEME.md`](THEME.md)). `ui::theme` is one token model for both renderers: a `Theme` composed from
@@ -469,8 +475,13 @@ library icon, SVG or raster inline, embedded or by store key) with a Unicode tex
 empty. Icon images by key are loaded by the runner (`AppMessage::LoadIcon`) into the
 `IconCache` that `UIContext::icon_bytes` reads.
 
-The query console's Parameters panel (egui; `qc:params` in the browser) is the same core over the
-console's text, showing the whole pipeline; an edit rewrites the text and does not submit.
+The query console's editor panel (the pencil button; `qc:params` in the browser) is the same core
+over the console's text, showing the whole pipeline in a narrow column beside the value (egui: a
+resizable right `Panel`; browser: `.lq-qc-editor` in `.lq-qc-body`); an edit rewrites the text and
+does not submit. The panel does not repeat the query (`EditorTree::hide_text`): `Ctrl+J` in the
+console's query field opens the panel on the step under the cursor, in Advanced mode when that is
+not the last action, and `Ctrl+J` in a panel field selects that field's text in the console's
+query field (`EditorOutput::select_text`).
 
 ## Hosts
 
@@ -874,3 +885,4 @@ Candidate universal operations identified across use cases:
 | 2026-11-17 | Editors: the editor element, its binding and message protocol, edits and renderers; UI events gain `Change(field)`. Those sections reviewed against the implementation. | `design/query-pipeline-editor/` |
 | 2026-11-21 | Editors: modes, cards, the egui keymap and Ctrl+J, theme and icons; Hosts: the `ui` section. Those parts reviewed against the implementation. | `design/query-editor-ergonomics/` |
 | 2026-11-22 | Editors: links the new theme reference. | `design/query-editor-ergonomics/` |
+| 2026-11-23 | Editors: no outline or part titles in Advanced mode, one card open on entering it, argument help and defaults in hovers only, Ctrl+J opens Advanced mode on another step; the query console's editor panel is a side column behind a pencil button and does not repeat the query. Those parts reviewed against the implementation. | — |

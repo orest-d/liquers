@@ -14,9 +14,12 @@ The editor has two modes, and starts in Simple.
 - **Simple** shows the steps of the pipeline as a row of chips and one card for the last step.
   Below it, *Continue with* chips offer the commands that usually follow, so a pipeline grows one
   click at a time.
-- **Advanced** shows every step as a card, with an outline beside them when there are several. A
-  card collapses to its header, and a link argument (an argument whose value is another query)
-  opens as a nested set of cards under its field.
+- **Advanced** shows every step as a card. It opens with one card expanded (the last step, or the
+  step you came from) and the others collapsed to their headers; a link argument (an argument
+  whose value is another query) opens as a nested set of cards under its field.
+
+An argument's description and its default are in the hover of its label and field; the reset
+button next to the field sets the default.
 
 An expanded card has a toolbar: *Reset* puts every argument back to its default, the command's
 presets appear as chips (the first three, the rest under "+N"), *Next* adds a following step,
@@ -46,7 +49,10 @@ On the desktop every action of the editor has a key. The ones used most:
 
 **Ctrl+J** is the quickest way between the two views. With the cursor in the text, on an
 argument of a step, Ctrl+J opens that card and puts you in that field; Ctrl+J again goes back to
-the text, with the argument selected. In the browser the editor follows the page's own focus
+the text, with the argument selected. On a step other than the last one, Ctrl+J opens Advanced
+mode with only that step expanded. In the query console the editor opens from the pencil button
+beside the query, as a narrow column next to the value, and Ctrl+J in the console's query field
+opens it at the cursor. In the browser the editor follows the page's own focus
 order and has no keys of its own yet.
 
 ### Icons
