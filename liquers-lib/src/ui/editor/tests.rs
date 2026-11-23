@@ -621,7 +621,6 @@ fn simple_layout_of_the_problem_example() {
     assert_eq!(layout.groups.len(), 1);
     assert_eq!(layout.groups[0].kind, CardGroupKind::QueryPart);
     assert!(matches!(layout.groups[0].cards[0].node, EditorNode::Action { label, .. } if label == "Get first rows"));
-    assert!(!layout.outline);
 
     // A link argument stays its field's text: `gt` is a chip, its link no card.
     let state = ergonomics_editor(L);
@@ -635,7 +634,6 @@ fn simple_layout_of_the_problem_example() {
 fn advanced_layout_groups_key_and_query_parts() {
     let state = ergonomics_editor(L);
     let layout = editor_layout(state.tree(), EditorMode::Advanced);
-    assert!(layout.outline);
     assert!(layout.before.is_empty() && layout.after.is_empty());
     let kinds: Vec<_> = layout.groups.iter().map(|g| g.kind).collect();
     assert_eq!(kinds, [CardGroupKind::KeyPart, CardGroupKind::QueryPart]);
@@ -866,7 +864,7 @@ fn spans_of_the_problem_example() {
 
 // Test 15 (AC-10).
 #[test]
-fn jump_round_trip_and_simple_offer() {
+fn jump_round_trip_and_advanced_on_other_step() {
     let mut state = ergonomics_editor(P);
     let tree = state.tree().clone();
     let at = tree.text.rfind("20").expect("20");
@@ -883,14 +881,21 @@ fn jump_round_trip_and_simple_offer() {
     assert_eq!(view.jump_to_text(&tree), Some(span.range.clone()));
     assert_eq!(view.focus, Some(FocusTarget::Text));
 
-    // `1000` is outside the Simple card: offer Advanced, keep focus.
+    // `1000` is outside the Simple card: Advanced mode opens with that step the open card.
     let at = tree.text.find("1000").expect("1000");
     view.jump_from_text(&tree, EditorMode::Simple, at);
-    assert_eq!(view.simple_offer, Some(NodePath::element(1)));
-    assert_eq!(view.focus, Some(FocusTarget::Text));
+    assert_eq!(view.mode_request, Some(EditorMode::Advanced));
+    assert!(matches!(&view.focus, Some(FocusTarget::Field { path, arg, .. }) if arg == "value" && path == &NodePath::element(1)));
+    view.shown_mode = Some(EditorMode::Simple);
+    view.enter_mode(&tree, EditorMode::Advanced);
+    assert!(view.mode_request.is_none());
+    assert!(!view.collapsed.contains(&NodePath::element(1).id()), "the jumped-to step is open");
+    let head = tree.nodes[tree.last_action().expect("head")].path().id();
+    assert!(view.collapsed.contains(&head), "every other step is collapsed");
     view.jump_from_text(&tree, EditorMode::Advanced, at);
-    assert!(view.simple_offer.is_none());
+    assert!(view.mode_request.is_none());
     assert!(matches!(&view.focus, Some(FocusTarget::Field { arg, .. }) if arg == "value"));
+    view.focus = Some(FocusTarget::Text);
 
     // Typed but not committed: commit first, jump after the rebuild.
     let typed = tree.text.replace("head-20", "head-30");
@@ -902,4 +907,40 @@ fn jump_round_trip_and_simple_offer() {
     view.resume_jump(state.tree(), EditorMode::Simple);
     assert!(view.pending_jump.is_none());
     assert!(matches!(&view.focus, Some(FocusTarget::Field { arg, .. }) if arg == "n"));
+}
+
+// Entering Advanced mode opens one card: the last action unless focus names another.
+#[test]
+fn entering_advanced_collapses_all_but_one_card() {
+    let state = ergonomics_editor(P);
+    let tree = state.tree().clone();
+    let head = tree.nodes[tree.last_action().expect("head")].path().clone();
+    let mut view = EditorView::default();
+    view.enter_mode(&tree, EditorMode::Simple);
+    assert!(view.collapsed.is_empty(), "Simple mode collapses nothing");
+    view.enter_mode(&tree, EditorMode::Advanced);
+    let open: Vec<_> = tree.nodes.iter().map(|n| n.path().id()).filter(|id| !view.collapsed.contains(id)).collect();
+    assert_eq!(open, [head.id()]);
+
+    // Staying in Advanced mode keeps what the user expanded.
+    view.collapsed.clear();
+    view.enter_mode(&tree, EditorMode::Advanced);
+    assert!(view.collapsed.is_empty());
+
+    // A chip (focus on its step) opens that step instead.
+    view.enter_mode(&tree, EditorMode::Simple);
+    view.focus = Some(FocusTarget::Node(NodePath::element(1)));
+    view.enter_mode(&tree, EditorMode::Advanced);
+    assert!(!view.collapsed.contains(&NodePath::element(1).id()));
+    assert!(view.collapsed.contains(&head.id()));
+}
+
+// A step chip's mode event names the step Advanced mode opens; the mode switch names none.
+#[test]
+fn mode_event_names_the_chip_step() {
+    use crate::ui::event::{UIEvent, UIEventKind};
+    let chip = UIEvent::new(UIEventKind::Named("ed:mode:1:advanced".into()));
+    assert_eq!(EditorView::mode_event_path(&chip), Some(NodePath::element(1)));
+    let switch = UIEvent::new(UIEventKind::Named("ed:mode::advanced".into()));
+    assert_eq!(EditorView::mode_event_path(&switch), None);
 }
