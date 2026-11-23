@@ -15,10 +15,10 @@ its milestone starts; the slugs are proposals. Sizes use `DOCS_STRUCTURE_GUIDE.m
 
 ## 1. Target architecture (sketch)
 
-> **Superseded in part, 2026-11-23.** The [master design](./master-design.md) proposes that an
-> element has one renderer-neutral view instead of one view per frontend (its §3.4), and it gives
-> the crate layout in its §22. Where this section says `ElementModel` plus `EguiView` / `WebView`
-> / `TuiView`, read the master design. Its §29 lists the effect on D1–D21 and the spikes.
+> **Superseded in part, 2026-11-23.** The [master design](./master-design.md) refines this
+> section: one runtime for every element, native views per frontend and a portable view both
+> first-class (its §3.4, §5), clients from very thin to thick (§16), crate layout in §22. Its §29
+> lists the effect on D1–D21 and the spikes, and adds D22 (very thin web client).
 
 ```text
                    liquers-core ── liquers-records (optional, table pages)

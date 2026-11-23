@@ -15,8 +15,10 @@ design. Designs D1–D21 of the [plan](./plan.md) rely on it: each of them refin
 not contradict it without changing this document first. The problems it answers are in the
 [review of the current architecture](./current-architecture-review.md) (F1–F11).
 
-**Status: proposed, not approved.** One decision here revises an earlier one (§3.4) and needs
-Orest's confirmation. Signatures are sketches that fix the shape, not final code.
+**Status: proposed, not approved.** Revised on 2026-11-23 after Orest's review: elements may be
+written in a frontend's own idiom or in a portable style (§3.4, §5.2), and the client of a split
+UI may be anything from very thin to thick (§16). Signatures are sketches that fix the shape, not
+final code.
 
 **Contents.** 1 Requirements · 2 Answer in short · 3 Which abstraction · 4 Concepts ·
 5 Elements · 6 Lifecycle · 7 Messages and events · 8 Turns · 9 Effects and subscriptions ·
@@ -25,7 +27,8 @@ Orest's confirmation. Signatures are sketches that fix the shape, not final code
 16 Protocol and transport · 17 Sessions and identity · 18 Theme and style · 19 Input, keymap and
 controls · 20 Persistence and addresses · 21 Python and JavaScript · 22 Crates and modules ·
 23 Threading, wasm and errors · 24 Testing and conformance · 25 Migration · 26 Acceptance
-scenarios · 27 Decision register · 28 Open questions · 29 Impact on the plan
+scenarios · 27 Decision register · 28 Open questions · 29 Impact on the plan · 30 Use-case
+walkthrough
 
 ---
 
@@ -47,38 +50,47 @@ scenarios · 27 Decision register · 28 Open questions · 29 Impact on the plan
 | R12 | Sessions with pluggable identity; several sessions per environment, several mounts per page | G6, F10 |
 | R13 | Theme, icons, keymap, MIDI and high-level controls work the same in every frontend | G7, G13, G14 |
 | R14 | The old UI keeps working until M7 | plan §6 |
+| R15 | An author may pick one frontend and write an element in that frontend's idiom: immediate-mode egui code, DOM and events in the page. Liquers handles how elements interact and combine | Orest 2026-11-23 |
+| R16 | The architecture supports thin and thick clients and lets an application choose per data type and use case. The standard web client is "reasonably thick" and under 5 MB: records yes, polars no | Orest 2026-11-23 |
 
 ## 2. Answer in short
 
 **Are there fundamental problems in the old architecture?** Yes, three, and they explain most of
 the open issues (review §4): state is not separated from presentation, deciding is not separated
-from doing, and the tree has no single owner. They cannot be fixed inside the `UIElement` trait,
-because the trait *is* the first problem.
+from doing, and the tree has no single owner. None of them is "the element draws itself with
+native code". That part of the old design was a goal, and it is kept (R15).
 
-**Which abstraction?** Model-View-Update with a renderer-neutral view tree:
+**Which abstraction?** One runtime, two ways to write a view, and a free choice of where an
+element runs.
 
-1. An **element** is a state machine. `update(msg, cx)` is the only place its state changes. It
-   performs nothing itself: it asks for effects through `cx`, and the runtime performs them.
-2. `view()` is a pure function from the element's state to a **view tree**: plain data made of a
-   small, closed vocabulary of nodes (column, text, button, table, child slot, …) with stable keys.
-3. One **session** owns the tree of elements, runs one message at a time, and publishes the view
-   trees and their changes (**patches**) into a **view store**.
-4. A **frontend** is an interpreter of the view store. It draws nodes and sends input events back.
-   It contains no element-specific code.
+1. **One runtime.** A **session** is the single owner of a tree of elements. An **element** is
+   state plus `update(msg, cx)`, which reacts to messages (lifecycle, data, input, replies) and
+   asks for effects through `cx`; the session performs them. The lifecycle and the message list
+   are the same for every element (§6, §7).
+2. **Two view styles**, both first-class, mixed freely in one tree (§5):
+   - a **native view** is code in a frontend's own idiom: `fn show(&mut self, ui: &mut egui::Ui, …)`
+     for egui, a mount/update pair over DOM nodes for the page, a `render` over a ratatui frame.
+     The author chooses which frontends to support;
+   - a **portable view** is a pure function `view()` that returns a **view tree**: plain data in
+     a small closed vocabulary. It is written once and every frontend interprets it.
+3. **Placement.** An element runs where its code and its data are: in the client or on the
+   server. A client may hold many element types (thick), few, or none (thin). What crosses the
+   wire depends on placement, not on the element (§16).
 
-The four rendering situations then differ only in how the view store is consumed:
+How the four situations are served:
 
-| Situation | How the frontend uses the view store |
-|---|---|
-| Immediate mode (egui, ratatui) | Walks the current view tree every frame and draws it |
-| Retained mode (Slint, GTK) | Applies each patch to the widgets it created earlier |
-| DOM (browser) | Applies each patch to DOM nodes; styling is CSS |
-| Client-server | The patches cross a transport into a copy of the view store; the client then uses one of the three rows above |
+| Situation | Native view | Portable view |
+|---|---|---|
+| Immediate mode (egui, ratatui) | The frontend calls `show` each frame with the element's state | The frontend walks the view tree each frame |
+| Retained mode, DOM | The frontend calls `mount` once and `update` after each change | The core diffs view trees into **patches**; the frontend applies them |
+| Client-server, element in the client (thick) | Runs in the client; only data crosses the wire | Same |
+| Client-server, element on the server (thin) | Not possible, except a server-side native view that produces HTML | Patches cross the wire, or the server renders them to HTML |
 
-**Is it the obvious choice?** It is the only candidate that satisfies R3, R4 and R5 together
-(§3). It is not free: it has real costs (§3.3), and each has a designed answer. The main one is
-that the vocabulary limits what an element can show; the escape is the *native widget* node
-(§10.6).
+**Is there an obvious best choice?** No single view style wins (§3): native code is the most
+natural and the least portable, and a portable view is the reverse. The design therefore fixes
+what must be common (ownership, lifecycle, messages, effects, composition) and leaves the view
+style and the placement to the author. The portable view is what Liquers' own tools use, and what
+makes a thin client and scripted elements possible.
 
 ## 3. Which abstraction
 
@@ -126,26 +138,51 @@ that the vocabulary limits what an element can show; the escape is the *native w
   queries and commands inside. Dioxus is closest, but its vocabulary is HTML, its state lives in
   hooks rather than in data (R9), and egui is not a target. Its ideas are used; it is not adopted.
 
-### 3.3 The costs of B, and the answers
+### 3.3 The costs of a portable view, and the answers
 
 | Cost | Answer |
 |---|---|
 | The vocabulary is a common subset; an element cannot draw anything it likes | Native widget nodes with a per-frontend renderer and a required fallback (§10.6); a neutral `Canvas` node; capability levels (§10.7) |
 | A view is rebuilt and diffed after each message | Only the element that got the message is rebuilt; bulk data never sits in the tree (tables are pages, charts are windows: §10.5, §15) |
 | Short-lived state (hover, caret, scroll position, a half-typed word) does not belong in the model | It stays in the frontend, keyed by the node's stable id, under fixed rules (§10.4) |
-| In split mode every interaction costs a round trip | Frontend-owned drafts and scrolling, opt-in events, native widgets with local behaviour, and later elements placed on the client (§16.4) |
+| In split mode every interaction costs a round trip | Frontend-owned drafts and scrolling, opt-in events, native widgets with local behaviour, and placing the element in the client (§16.1) |
 | egui authors lose `ui.button()` inside elements | The builder of D; an egui-only native widget for the rare case; old elements run fused (§25) |
 | The core must own a diff, a patch format and a store | It is one implementation, tested once, instead of bookkeeping in every retained view |
 
-### 3.4 What this revises
+### 3.4 The choice: both A and B, on one runtime
 
-`ui-split-elements` chose typed `Down`/`Up` messages per element (its option C), and the plan §1
-drew `ElementModel` plus `EguiView` / `WebView` / `TuiView`. Under this design **the default
-element has no per-frontend code and no typed wire messages**: its view tree is what travels.
-Typed element messages survive in one place, the native widget (§10.6), whose properties go down
-and whose events come up. Everything else that design decided (server authoritative, revisions,
-resync, session ≠ connection, capabilities in `hello`) is kept. **This needs Orest's
-confirmation** (§28 Q1).
+The first version of this document made B the default and native code an escape hatch. Orest's
+review (2026-11-23) corrected that: letting each frontend be programmed in its own idiom was the
+main point of the old architecture, and it stays (R15). The comparison above still holds, but it
+compares view styles, and the three root causes are not about the view style. So:
+
+- **The runtime is common and mandatory**: session, lifecycle, messages, effects, composition.
+  This is what fixes the old problems.
+- **A (native views) and B (a portable view) are both first-class.** An element type offers a
+  portable view, native views for some frontends, or both. A frontend uses the element's native
+  view for it if there is one, otherwise the portable view, otherwise a generic view (title,
+  status, a display form of its data).
+- **Typed `Down`/`Up` messages are never mandatory.** They are needed only when an author
+  deliberately puts an element's state on the server and its native view on the client
+  (§16.3). Monolithic native code keeps `&mut` access to its state.
+- **D** (builder) remains as authoring sugar for B. **E** (server-rendered HTML) returns as one
+  client form, the very thin web client (§16.2).
+
+What each style is for:
+
+| | Native view | Portable view |
+|---|---|---|
+| Written | once per frontend the author cares about | once |
+| Feels like | egui, the DOM, ratatui | Liquers |
+| Runs in | frontends it was written for | every frontend, including ones written later |
+| Thin client | no | yes |
+| Python / JavaScript element | one callback per frontend | one callback |
+| Tested without a toolkit | state and `update` only | state, `update` and view |
+| Typical use | an application built for one platform; rich widgets (code editor, chart, grid) | Liquers' built-in tools, `UISpec` documents, scripted elements |
+
+The cost of offering both: frontends carry two paths, the documentation must teach when to use
+which, and a tree can contain elements a given frontend cannot show natively. The generic view
+makes that case visible instead of broken.
 
 ## 4. Concepts
 
@@ -172,7 +209,10 @@ confirmation** (§28 Q1).
 | **Session** | One running UI: a tree of nodes, their elements, a mailbox. The single owner of all UI state. |
 | **Node** | A place in the tree: a handle, an optional source query, a lifecycle state, at most one element. |
 | **Handle** | The stable identity of a node within a session (kept from today). |
-| **Element** | State plus `update` and `view`. Lives in a node. |
+| **Element** | State plus `update`, with a portable view, native views, or both. Lives in a node. |
+| **Native view** | An element's drawing code for one frontend, in that frontend's idiom. |
+| **Placement** | Which side of a split UI runs an element: client or server. |
+| **Client form** | One kind of client, from very thin (HTML fragments) to thick (most elements local). |
 | **Message** | The only input of an element (§7). |
 | **Effect** | A request an element makes of the runtime: subscribe, evaluate, add a child, set a timer (§9). |
 | **View tree** | What an element looks like now, as data. Made of **view nodes** with **keys**. |
@@ -183,12 +223,16 @@ confirmation** (§28 Q1).
 
 Three rules follow from the three root causes:
 
-1. **State is separate from presentation.** Elements never see a toolkit; frontends never see an
-   element.
+1. **State is separate from presentation.** An element's state, `update` and saved form never
+   mention a toolkit. Drawing code is a separate piece: a portable view in the core, or a native
+   view that lives in or beside a frontend crate.
 2. **Deciding is separate from doing.** `update` decides and describes; the session does.
-3. **One owner.** Only the session touches the tree. Everything else sends it messages.
+3. **One owner.** Only the session touches the tree. Everything else sends it messages. A native
+   immediate-mode view gets its element's state lent by the session for the frame (§8.1).
 
 ## 5. Elements
+
+### 5.1 The common part
 
 ```rust
 /// One UI element: its state, how messages change it, and what it looks like.
@@ -199,8 +243,8 @@ pub trait Element<E: Environment>: MaybeSend + 'static {
     /// The only place the state changes. Must not block or await; asks for effects through `cx`.
     fn update(&mut self, msg: Msg<E>, cx: &mut Cx<'_, E>) -> Result<(), Error>;
 
-    /// What the element looks like now. Pure: no effects, no I/O, same state gives same view.
-    fn view(&self, vx: &ViewCx<'_>) -> View;
+    /// The portable view, if the element has one. Pure: no effects, no I/O.
+    fn view(&self, vx: &ViewCx<'_>) -> Option<View> { None }
 
     /// The state to save or send, as data. `ElementFactory::create` is its inverse.
     fn save(&self) -> Result<serde_json::Value, Error>;
@@ -216,10 +260,10 @@ pub trait Element<E: Environment>: MaybeSend + 'static {
 - `ViewCx` gives read-only context a view may depend on: the node's handle, whether it has focus,
   the frontend's capability level and size class (§10.7), the resolved theme's names. Views that
   depend on it stay pure functions of (state, context).
-- An element holds no `Arc<Mutex<…>>` to anything shared, no asset references it polls, and no
-  toolkit object.
+- An element holds no `Arc<Mutex<…>>` to anything shared and no asset references it polls. Its
+  saved state holds no toolkit object.
 
-A complete element, to show the shape:
+A complete portable element, to show the shape:
 
 ```rust
 pub struct AssetView { query: Query, sub: Option<SubId>, snap: Option<Snapshot> }
@@ -241,12 +285,12 @@ impl<E: Environment> Element<E> for AssetView {
         Ok(())
     }
 
-    fn view(&self, _vx: &ViewCx<'_>) -> View {
+    fn view(&self, _vx: &ViewCx<'_>) -> Option<View> {
         let body = match &self.snap {
             None => View::progress(None),
             Some(s) => View::display(&s.display).status(s.status),
         };
-        View::column().child(body).child(View::button("Reload").key("reload"))
+        Some(View::column().child(body).child(View::button("Reload").key("reload")))
     }
 
     fn save(&self) -> Result<serde_json::Value, Error> { /* {"query": …} */ }
@@ -255,6 +299,74 @@ impl<E: Environment> Element<E> for AssetView {
 
 The real code lists every `Msg` variant instead of `other =>` (CLAUDE.md match rule); a
 `cx.pass_unhandled(msg)` helper keeps that short.
+
+### 5.2 Native views
+
+A native view is registered in a frontend for an element type. The trait belongs to the frontend
+crate, so the core never learns about it, and it is written the way that toolkit is normally
+used.
+
+```rust
+// liquers-ui-egui: immediate mode. Plain egui code with direct access to the state.
+pub trait EguiView<E: Environment>: Element<E> {
+    fn show(&mut self, ui: &mut egui::Ui, cx: &mut Cx<'_, E>);
+}
+
+// liquers-ui-web: retained DOM. Build nodes once, then bring them up to date; events send messages.
+pub trait DomView<E: Environment>: Element<E> {
+    type Dom;
+    fn mount(&self, parent: &web_sys::Element, cx: &DomCx<'_, E>) -> Result<Self::Dom, Error>;
+    fn update_dom(&self, dom: &mut Self::Dom, cx: &DomCx<'_, E>) -> Result<(), Error>;
+}
+
+// liquers-ui-tui: immediate mode over a ratatui frame; keys arrive as messages or through `cx`.
+pub trait TuiView<E: Environment>: Element<E> {
+    fn render(&mut self, area: Rect, frame: &mut ratatui::Frame, cx: &mut Cx<'_, E>);
+}
+```
+
+The same asset view, native in egui:
+
+```rust
+impl<E: Environment> EguiView<E> for AssetView {
+    fn show(&mut self, ui: &mut egui::Ui, cx: &mut Cx<'_, E>) {
+        match &self.snap {
+            None => { ui.spinner(); }
+            Some(s) => show_display(ui, &s.display),
+        }
+        if ui.button("Reload").clicked() {
+            if let Some(sub) = self.sub { cx.refresh(sub); }
+        }
+        ui.text_edit_singleline(&mut self.note);      // a `note: String` field: direct mutation,
+                                                      // as in any egui app
+    }
+}
+```
+
+Rules:
+
+- **`update` still exists** and still receives the lifecycle, data, replies and timers. For a
+  native immediate-mode element it is usually short ("subscribe on `Mount`, store the snapshot on
+  `Data`"), which matches the old design's "few events".
+- **Input in immediate mode is handled in `show`**, by egui's own response values, and may change
+  the state directly. It does not have to become a message. Effects still go through `cx`, so
+  subscriptions, evaluations and tree changes stay ordered and visible.
+- **Input in the DOM is events**, which is the web idiom: a listener calls `cx.send(msg)` or
+  `cx.with_state(|state| …)`, and each runs as a turn. `update_dom` runs after any turn that
+  touched the element.
+- **Children.** A native view places a child with `cx.show_child(ui, handle)` (egui, ratatui) or
+  `cx.child_slot(handle)` (a DOM node the frontend fills). The child may be native or portable;
+  the parent does not know. A portable view places a child with a `Child(handle)` node, and that
+  child may be native. So the two styles nest in both directions.
+- **Registration.** `egui_views.register::<AssetView>()` in the frontend's own registry, keyed by
+  the element's type name. An application registers its native views when it builds its frontend.
+- **Shared helpers.** The portable interpreter of each frontend is public (`show_view(ui, &view)`,
+  `show_display(ui, &display)`), so native code can use portable pieces for the parts it does not
+  care to hand-write.
+- **What a native view gives up:** it runs only where its frontend and the element are in the
+  same process (monolithic, or a client that has the element), it cannot be shown by a thin
+  client, and its direct state changes appear in the trace as "state changed during frame"
+  without a message (§13).
 
 ## 6. Lifecycle
 
@@ -383,6 +495,24 @@ Properties:
   `egui-native-app` needed, and what tests wait on.
 - **Never blocks** (R7). A five-second query is a spawned evaluation; the session keeps taking
   turns for everything else.
+
+### 8.1 Who drives the session
+
+The session is a plain object with a non-blocking `run_pending()` and an async `run()`. Two
+drivers exist, and the turn rules above are the same under both.
+
+- **Task-driven.** `run()` is spawned as a task. Used on a server, with retained frontends, and
+  whenever only portable views are shown. Frontends read the view store.
+- **Frame-driven.** An immediate-mode host owns the session on its UI thread. Each frame it calls
+  `run_pending()` to process waiting messages, then draws: for each shown element the session
+  lends `&mut` to its native view (or hands its current view tree to the interpreter). When a
+  message arrives between frames, the session's waker asks the toolkit for a repaint. No lock is
+  needed, because the session and the drawing are on one thread; evaluations run elsewhere and
+  only send messages. In a page there is one thread anyway.
+
+A native view that changes state during a frame marks the element changed; the session then
+treats the frame as a turn for that element (dependents are notified, the saved state is marked
+dirty, the trace gets a record).
 
 ## 9. Effects and subscriptions
 
@@ -549,8 +679,11 @@ pub struct ViewStoreReader { /* current trees, revision, frames since a revision
 pub trait EventSink: MaybeSend { fn send(&self, event: UiEvent); }   // never blocks
 ```
 
-A frontend is given a `ViewStoreReader`, an `EventSink` and a way to be woken. It does not know
-whether the session is in its process.
+For portable views, a frontend is given a `ViewStoreReader`, an `EventSink` and a way to be
+woken, and does not know whether the session is in its process. For native views it holds the
+session (frame-driven, §8.1) or the session's handle, and calls the views registered with it
+(§5.2). A frontend chooses per element: native view if registered, else portable view, else the
+generic view.
 
 - **Immediate pattern** (`liquers-ui-egui`, `liquers-ui-tui`). Each frame: take the current view
   trees (an `Arc` swap, no lock held while drawing), walk them, draw each node kind, and send
@@ -562,6 +695,9 @@ whether the session is in its process.
   core provides the patch walker; the frontend provides "create a button", "set its label". Input
   listeners are attached once per mount root and resolve the node identity from the target, so
   two mounts in one page never see each other's events (`WEBUI-SHORTCUTS-RUN-IN-EVERY-MOUNT`).
+- **Server-side pattern.** A frontend may also run on the server and drive a remote device: it
+  consumes patches (or calls a server-side native view that returns HTML) and sends its own wire
+  format to a small client. The very thin web client works this way (§16.2).
 - **Static pattern.** Render the current trees once to a string: HTML for a server-rendered
   first paint, plain text for tests and for "print". The DOM frontend can adopt server-rendered
   HTML because node identities are in the markup.
@@ -601,8 +737,8 @@ impl SessionHandle {
 }
 ```
 
-- `Session::run()` is the loop of §8, spawned on tokio natively and with `spawn_local` in a page.
-  Nothing else holds the tree, so **there is no lock** (F3 removed).
+- `Session::run()` is the loop of §8, spawned as a task or driven by the frame (§8.1). Nothing
+  else holds the tree, so **there is no lock** (F3 removed).
 - A `SessionHandle` is cheap to clone and `Send`. Hosts, commands, other threads and Python hold
   handles.
 - **Several sessions** share one environment: one per window, per page mount, per remote user
@@ -629,7 +765,13 @@ R6 asks that the lifecycle and events be visible. Four mechanisms, all in the co
    and frames, because `update` and `view` are deterministic given their inputs. Bug reports and
    regression tests use it (D21).
 
-Worked example, "the user presses Run in the query console", identical in every mode:
+Native immediate-mode views are the one place where state can change without a message. The
+trace records such a frame as a turn with the reason "changed during frame", so the order of
+changes is still visible; what is not recorded is which widget caused it. An author who wants
+full tracing or replay for an element sends messages from `show` instead of mutating.
+
+Worked example, "the user presses Run in the query console" (portable view), identical in every
+mode:
 
 ```text
 frontend   Input{handle 7, gen 1, key "run", Activate}  ──►  mailbox      (split: one event frame)
@@ -712,16 +854,84 @@ pub trait Projector<V>: MaybeSend + Sync {
 
 The capability lookup, the list of forms and the paging contract are D2's to settle.
 
-## 16. Protocol and transport
+## 16. Split mode: placement, client forms, protocol
 
-Split mode replicates the view store. Nothing about elements is in the protocol.
+### 16.1 Placement
+
+In a split UI each node of the tree is owned by exactly one side.
+
+- **Client-placed**: the element (state, `update`, views) runs in the client. It needs the
+  element's code in the client and data the client can hold. It reaches the server only for
+  Liquers things: evaluating queries, subscribing to assets, reading and writing stores and
+  accessors. It keeps working while a query is slow, and keeps showing what it has when the link
+  drops.
+- **Server-placed**: the element runs on the server. The client shows it through a portable view
+  (patches or HTML). Used when the client lacks the element's code (a Python element, a newer
+  element, a very thin client) or when the author wants the logic kept on the server.
+
+Placement is decided when a node mounts: client-placed if the client declared the element type
+and the element's spec does not demand the server; otherwise server-placed. The single-owner rule
+holds per node. A tree that mixes both is two linked sessions, one on each side, each owning its
+nodes; a node owned by the other side appears as a **remote node** whose view arrives over the
+wire.
+
+### 16.2 Client forms
+
+How thick a client is belongs to the UI implementation, not to the architecture (R16). The forms
+planned, all on the same runtime:
+
+| Form | Client contains | Elements run | Wire carries | Size goal |
+|---|---|---|---|---|
+| **Monolithic** | everything | in the one process | nothing | — |
+| **Thick web (standard)** | wasm: the core, the web frontend, the built-in elements, `liquers-core`, records | in the client; server-placed only as fallback | data level; view level for remote nodes | < 5 MB |
+| **Very thick** | the standard client plus heavy value types (polars, image codecs) and a local store | in the client; can work offline | data level, mostly for sync | application's choice |
+| **Thin generic** | a view store copy and one frontend's interpreter (egui, terminal, or a small wasm) | on the server | view level: patches | small |
+| **Very thin web** | a few kB of JavaScript: apply HTML fragments, report events | on the server | HTML fragments down, events up | tens of kB |
+| **Islands** | a very thin page that loads a thick wasm module for chosen elements (editor, chart) | mostly server, some client | both | per island, lazy |
+
+- **The standard web client draws the line at records and DataFrames.** It includes
+  `liquers-records` (a table page is a `RecordView`) and not polars. A DataFrame stays on the
+  server and the client gets pages. Anything that needs polars in the client is the "very thick"
+  build, an application's own decision.
+- **The very thin web client is a server-side frontend** (§11): `liquers-ui-web`'s HTML renderer
+  runs in the server, turns each element's portable view (or a server-side native view that
+  returns HTML) into fragments, and sends a fragment whenever the element changes. It needs no
+  wasm, loads at once, and suits simple pages, embedded devices and restricted browsers. It is a
+  separate web implementation beside the thick one, and shares the HTML/CSS conventions with it,
+  so islands can mix them.
+- **Client forms are part of the address.** Each form is a different server component with its
+  own wire format, so each gets its own endpoint, for example `api/ui/thick/ws`,
+  `api/ui/thin/ws`, `api/ui/html/ws`. The names are D3's to fix.
+
+### 16.3 What crosses the wire
+
+An element does not choose its messages by client form. There are three wire levels, and
+placement decides which one a node uses.
+
+| Level | Used by | Carries | Defined in |
+|---|---|---|---|
+| **Data** | client-placed elements | evaluate a query, subscribe to an asset (status, progress, display forms or values), store and accessor reads and writes, the command registry and theme | D5, with `remote-store-and-asset-manager`, `registry-publication` |
+| **View** | server-placed elements | view-tree snapshots and patches down, input events up; or HTML fragments down, events up | D3 |
+| **Element** (optional) | an element split by its author: state on the server, native view on the client | the element's own `Down`/`Up` messages, carried as `Custom` messages between its two halves | D3 carries them; the element defines them |
+
+- The same element type can be client-placed for one client and server-placed for another. Its
+  code is the same; only where it runs differs. So "a different protocol per client form" is true
+  of the *connection*, and the element does not have to know.
+- The **element level** is the `ui-split-elements` option C idea, kept as an option. It is for
+  the case where the value cannot go to the client but a native client view is wanted. Often the
+  data level is enough for that case: a client-placed table element subscribes to pages of a
+  server-side DataFrame.
+- **Values on the data level** travel as display forms by default (R11) and as whole values when
+  the client's realm has the type and the value is within a size limit (`realm-type-registry`).
+
+### 16.4 The view-level protocol
 
 **Layers.** Transport (spike S2's `Connection`: ordered opaque frames, `Closed`, `max_frame`) →
 protocol messages → view store copy → frontend.
 
 | Message | Direction | Content |
 |---|---|---|
-| `Hello` | client → server | protocol and vocabulary versions, capabilities, credentials or a session token |
+| `Hello` | client → server | protocol and vocabulary versions, capabilities, element types the client has, credentials or a session token |
 | `Welcome` | server → client | session id, resume token, theme, limits |
 | `Snapshot` | server → client | all view trees at a revision |
 | `Frame` | server → client | revision, patches, host commands |
@@ -731,34 +941,35 @@ protocol messages → view store copy → frontend.
 | `Ping`, `Pong` | both | liveness, round-trip time |
 | `Bye` | both | reason |
 
-**16.1 Revisions and resync.** Frames are numbered. A client that reconnects sends its last
-revision; the server replays the missing frames if it still has them, or sends a `Snapshot`. A
-client that detects a gap asks for a resync. Because the view store is a pure function of the
-frames, resync is always possible and always the same code.
+- **Revisions and resync.** Frames are numbered. A client that reconnects sends its last
+  revision; the server replays the missing frames if it still has them, or sends a `Snapshot`. A
+  client that detects a gap asks for a resync.
+- **Flow control.** The server sends at most a window of frames beyond the last `Ack`. When the
+  client is behind, the server merges waiting frames (patches compose) or replaces them with a
+  `Snapshot`; it never queues without bound. Spike S2 found this missing in every transport.
+- **Encoding.** The protocol types are serde types. JSON first (readable in browser tools); a
+  compact binary encoding is negotiated in `Hello` later. D3 chooses it.
+- The data level uses the same connection, envelope, ping and flow control.
 
-**16.2 Flow control.** The server sends at most a window of frames beyond the last `Ack`. When
-the client is behind, the server merges waiting frames (patches compose) or replaces them with a
-`Snapshot`; it never queues without bound. This is the flow control S2 found missing in every
-transport.
+### 16.5 Versions and offline
 
-**16.3 Encoding.** The protocol types are serde types. JSON is the first encoding (readable in
-browser tools); a compact binary encoding is negotiated in `Hello` later. D3 chooses it.
+- A thin client tolerates a newer server: it only interprets a versioned vocabulary. A thick
+  client shares code with the server, so `Hello` carries the versions of the protocol, of the
+  data level and of each element type; on a mismatch for an element type that node falls back to
+  server-placed.
+- A thick client keeps showing and editing local state when the link drops, marks its
+  subscriptions stale, and re-subscribes on reconnect. Writes go through `set_if`, so a write
+  made against an old version is refused as a conflict, not applied blindly. Queued offline
+  writes and a local store are the "very thick" build's concern and are not designed here.
 
-**16.4 Where element code runs.** The session runs on one side. Three placements, all with the
-same frontends:
+### 16.6 Security
 
-| Placement | Session runs | Client is | When |
-|---|---|---|---|
-| Monolithic | in the frontend's process | — | desktop app, wasm page with its own environment, TUI |
-| Thin client | on the server | view store copy + frontend, no element code, no environment | the default split mode (M2) |
-| Client engine | in the client, using a remote store and remote evaluation | a full session | D5; the page keeps working when a query is slow or the link drops |
-
-A later refinement (D5) lets a subtree of a server session be a session on the client, connected
-by the same protocol the other way round. It is not needed before M6 and is not designed here.
-
-**16.5 Security.** A client can only send UI events. It cannot name a query to run unless an
-element turns an event into one, and that evaluation runs under the session's principal and the
-access policy. Event sizes and rates are limited per connection (`AXUM-WEBSOCKET-HARDENING`).
+- On the view level a client can only send UI events; evaluation happens on the server under the
+  session's principal.
+- On the data level a client names queries itself. The server therefore applies the access
+  policy to every data-level request (`access-policy-at-entry-points`); a thick client is as
+  untrusted as any HTTP caller.
+- Event and request sizes and rates are limited per connection (`AXUM-WEBSOCKET-HARDENING`).
 
 ## 17. Sessions and identity
 
@@ -851,7 +1062,8 @@ liquers-core
    └─ liquers-ui                    the core: no toolkit, no liquers-lib
         ├─ liquers-ui-egui          interpreter (immediate) + native window host
         ├─ liquers-ui-tui           interpreter (immediate) + crossterm host
-        ├─ liquers-ui-web           interpreter (retained DOM) + page mount + HTML string renderer
+        ├─ liquers-ui-web           interpreter (retained DOM) + page mount; HTML renderer and the
+        │                           very thin client (server side); `DomView` trait
         ├─ liquers-ui-server        UiService over transports, authenticators, session store
         │     └─ liquers-axum (feature `ui`)   WebSocket route, blob route, static client
         ├─ liquers-ui-tauri         shell, IPC transport
@@ -872,10 +1084,17 @@ liquers-core
 | `transport` | the `Connection` shape of spike S2 and the in-process transport |
 | `testing` | the headless frontend and replay |
 
-- **One core crate** for now. A thin client uses `view`, `input`, `display`, `theme`, `protocol`
-  and not `engine`; a cargo feature `engine` (on by default) lets it leave the engine out. If the
-  spike shows that `liquers-core` itself is too heavy for a small client, `view` and `protocol`
-  move to a crate with no `liquers-core` dependency. Deciding that needs the spike's size numbers.
+- **One core crate** for now. The standard thick client uses all of it. A thin generic client
+  uses `view`, `input`, `display`, `theme`, `protocol` and not `engine`; a cargo feature `engine`
+  (on by default) lets it leave the engine out. If the spike shows that `liquers-core` itself is
+  too heavy for a small client, `view` and `protocol` move to a crate with no `liquers-core`
+  dependency. Deciding that needs the spike's size numbers.
+- **Size budget.** The standard web client (core, web frontend, built-in elements,
+  `liquers-core`, `liquers-records`) stays under 5 MB of wasm. Polars and image codecs are not
+  in it. Large native widgets (a code editor engine, a chart library) load lazily. The budget is
+  a CI check from D7 on.
+- Each frontend crate owns its native view trait (`EguiView`, `DomView`, `TuiView`) and its
+  registry.
 - The dependency rule of AC-1 holds: nothing above depends on `liquers-lib` except `liquers-lib`'s
   own glue.
 
@@ -911,25 +1130,26 @@ liquers-core
 ## 25. Migration
 
 - The old UI in `liquers-lib` is untouched and keeps working until M7 (R14).
-- **Fused elements.** `liquers-lib` provides a `legacy` element that wraps an existing
-  `UIElement` and shows it through a native widget: in egui it calls `show_in_egui`, in the page
-  it inserts `render_web`'s HTML. It works in monolithic mode only and shows its title and type
-  elsewhere. This is AC-10's "mounted in a new tree".
+- **Old elements are native elements.** `liquers-lib` provides a `legacy` element that wraps an
+  existing `UIElement`; its `EguiView` calls `show_in_egui` and its `DomView` inserts
+  `render_web`'s HTML. Porting an old element to a proper native element is then mostly moving
+  code, since `show_in_egui` already is an idiomatic egui view. This is AC-10's "mounted in a new
+  tree".
 - **What carries over as code:** the editor's state, commands and effects (already this
   pattern), the theme, `UiAction`s and menus, the keymap, the `UISpec` parser, the handle tree
   logic.
-- **What is rewritten:** `AppRunner`, `AppState`'s locking, `show_in_egui` / `render_web` bodies
-  (as views, once, in the core), `mount_web`'s loop, `NativeDriver`.
+- **What is rewritten:** `AppRunner`, `AppState`'s locking, `mount_web`'s loop, `NativeDriver`,
+  and the views of the built-in tools (as portable views, once, in the core).
 - Built-in elements are ported in the order the plan's milestones need them.
 
 ## 26. Acceptance scenarios
 
 Master-level scenarios. D1's AC-1 to AC-11 remain, with AC-4 and AC-5 reworded (§29).
 
-- **M-1 One element, every frontend.** WHEN an element is written once with `update` and `view`
+- **M-1 One element, every frontend.** WHEN an element is written once with `update` and a portable `view`
   THEN it is shown and usable in egui, the terminal and the page with no frontend-specific code.
-- **M-2 Thin client.** WHEN a stock split client connects to a server that has an element type
-  the client was not built with THEN the client shows and operates it.
+- **M-2 Thin client.** WHEN a client connects to a server that has a portable element type the
+  client was not built with THEN the client shows and operates it as a server-placed node.
 - **M-3 Same turns in every mode.** WHEN the same input log is replayed monolithically and
   through a transport THEN the trace of turns and the resulting frames are identical.
 - **M-4 Visible lifecycle.** WHEN a node is created, resolved, hidden, replaced and removed THEN
@@ -946,6 +1166,21 @@ Master-level scenarios. D1's AC-1 to AC-11 remain, with AC-4 and AC-5 reworded (
 - **M-9 Idle is idle.** WHEN nothing changes THEN the session takes no turns and publishes no
   frames.
 
+- **M-10 Idiomatic egui.** WHEN an author writes an element with an `EguiView` using ordinary
+  egui calls and direct state changes THEN it runs in a Liquers egui application, receives its
+  data through `update`, and nests inside and around portable elements.
+- **M-11 Idiomatic web.** WHEN an author writes an element with a `DomView` using DOM nodes and
+  event listeners THEN it runs in the thick web client beside portable elements.
+- **M-12 Thick client.** WHEN the standard web client shows a client-placed viewer or editor and
+  the server is slow or briefly unreachable THEN the element stays responsive and resumes its
+  subscriptions on reconnect.
+- **M-13 Size.** WHEN the standard web client is built THEN its wasm is under 5 MB and contains
+  no polars.
+- **M-14 Very thin web.** WHEN a page uses the HTML endpoint with no wasm THEN portable elements
+  are shown and usable, and a chosen element can be loaded as a thick island.
+- **M-15 Missing native view.** WHEN a tree contains an element that has only an egui view and it
+  is opened in a terminal THEN the node shows the generic view, and the rest of the tree works.
+
 ## 27. Decision register
 
 "Earlier" = decided by Orest on the date given. "Proposed" = decided here, pending approval.
@@ -955,20 +1190,22 @@ Master-level scenarios. D1's AC-1 to AC-11 remain, with AC-4 and AC-5 reworded (
 | 1 | One core crate `liquers-ui`, one crate per frontend, `liquers-ui-<frontend>` names | earlier, 2026-11-22/23 |
 | 2 | The core is generic over the environment on the engine side only | earlier (Q2), refined here |
 | 3 | An element as a value is a `liquers-lib` value variant, now holding an `ElementSpec` | earlier (Q3), refined here |
-| 4 | The abstraction is MVU with a renderer-neutral view tree (§3) | **proposed; revises `ui-split-elements` option C** |
-| 5 | `update` is the only place state changes; effects are requests performed by the session | proposed |
-| 6 | One session task owns the tree; no shared lock; everything else sends messages | proposed |
+| 4 | One runtime (session, lifecycle, messages, effects); native views and a portable view are both first-class and nest freely (§3.4, §5) | agreed in principle by Orest, 2026-11-23 |
+| 5 | `update` receives every message; effects are requests performed by the session; a native immediate-mode view may also change its own state during a frame | proposed |
+| 6 | One session owns the tree; no shared lock; task-driven or frame-driven (§8.1) | proposed |
 | 7 | The lifecycle of §6 with its six guarantees; node generations drop stale deliveries | proposed |
 | 8 | One message enum; input events normalised in the core, opt-in per node, bubbling | proposed |
 | 9 | Turn semantics of §8: run to completion, batching, coalescing, `settled()` | proposed |
 | 10 | The session owns subscriptions; expiry refreshes by default; several per element | proposed (absorbs `ui-asset-snapshot-boundary`) |
 | 11 | A closed, versioned view vocabulary in three levels; adding a node kind is a core change | proposed |
-| 12 | Native widget nodes with a required fallback are the extension point for toolkit-specific UI | proposed |
+| 12 | Native widget nodes with a required fallback embed toolkit-specific pieces inside a portable view | proposed |
 | 13 | Frontend-owned short-lived state; text fields own their draft while focused | proposed |
 | 14 | Bulk data is never in the view tree: windows, pages and blob references | proposed |
 | 15 | The keyed diff and the patch format live in the core; frontends follow one of three patterns | proposed |
-| 16 | Frontends see only a view store and an event sink, in every mode | proposed |
-| 17 | Split mode replicates the view store; thin client by default; no element code in the protocol | proposed |
+| 16 | For portable views, frontends see only a view store and an event sink, in every mode | proposed |
+| 17 | Placement per node (client or server); client forms from very thin to thick; the standard web client is reasonably thick, under 5 MB, records but no polars; one endpoint per form (§16) | agreed in principle by Orest, 2026-11-23 |
+| 17a | Three wire levels: data, view, and optional element messages; typed `Down`/`Up` are never mandatory | proposed |
+| 17b | A very thin web client (HTML fragments, no wasm) is a separate web implementation, built as a server-side frontend; islands combine it with thick modules | proposed (Orest's suggestion) |
 | 18 | Elements are data plus a registered type; a factory registry replaces `typetag` | proposed |
 | 19 | Commands reach the UI through a `SessionHandle` in the payload and never wait for it | proposed |
 | 20 | Values are shown through a closed `Display` enum prepared by a `Projector` off the turn | proposed (details D2) |
@@ -979,40 +1216,99 @@ Master-level scenarios. D1's AC-1 to AC-11 remain, with AC-4 and AC-5 reworded (
 | 25 | Scripted elements are data plus `update` and `view` callbacks | proposed |
 | 26 | Protocol: revisions, ack window, merge or snapshot when behind, blobs by reference, JSON first | proposed (details D3) |
 | 27 | One transport shape for all transports; Tauri IPC default in the shell | earlier (S2, 2026-11-22) |
-| 28 | Old elements run as fused native widgets in monolithic mode | proposed |
+| 28 | Old elements run as native elements through a `legacy` wrapper | proposed |
+| 29 | Liquers' own built-in tools are written with portable views, with native widgets where a toolkit piece is needed | proposed |
 
 ## 28. Open questions
 
-For Orest:
+Answered by Orest on 2026-11-23: native and portable styles are both offered (decision 4); the
+client is "reasonably thick" by default and the architecture supports thin and thick (decision
+17).
 
-1. **The revision of §3.4.** Is the view tree as the default, with typed messages only for
-   native widgets, accepted? Everything else in this document depends on it.
-2. **Thin client as the default split mode** (§16.4), with client-side engines left to D5?
-3. **Vocabulary for M1:** levels 0 and 1 of §10.2, with `Chart`, `Canvas`, `Editor` and `Dock`
-   arriving with their designs?
+Still for Orest:
+
+1. **Built-in tools portable** (decision 29)? The alternative is native views per frontend for
+   some of them, at the cost of writing them more than once.
+2. **Order of the split work.** A thick client needs the data level (remote evaluation, remote
+   store, registry publication: D5) before the view level. That moves D5 ahead of most of D3 in
+   M2. Agreed?
+3. **Which thin forms, when.** Proposed: thick web client and the view-level protocol in M2 (the
+   latter also gives egui and terminal clients); the very thin HTML client and islands after M2,
+   as their own design.
 
 For the spikes and the sub-designs, not blocking approval:
 
-4. Is one crate with an `engine` feature small enough for the wasm thin client (S1 measures)?
+4. Does the standard client fit in 5 MB with `liquers-core` and `liquers-records` (S1 measures)?
 5. Does the vocabulary map cleanly onto Slint's declarative model (S5)?
 6. The binary encoding and the blob transfer per transport (D3).
 7. Per-viewer state when several users share a session (M6, D4).
-8. How far `view()` may depend on capabilities before two attached frontends need two view
-   passes (D3, M6).
-9. Accessibility mapping (AccessKit in egui, ARIA in the page) from `label` and node kinds (D6,
-   D7).
+8. Two linked sessions with remote nodes: focus, keymap scopes and bubbling across the boundary
+   (D3, D5).
+9. Accessibility mapping (AccessKit in egui, ARIA in the page) for portable and native views
+   (D6, D7).
+10. Offline writes and a local store for the very thick client (later).
 
 ## 29. Impact on the plan
 
 - **D1 `ui-core-crate`** is the `view`, `engine`, `input` and `testing` modules with the built-in
-  level 0 and 1 elements needed for its example. Its AC-4 becomes "a frontend that implements
-  only vocabulary level 0 shows every element, degraded by the core's rules", and AC-5 names the
-  view store and patches. Its `ElementModel` / view-trait wording is replaced by this document's.
-- **S1** becomes: the draft vocabulary, the diff, and three small interpreters (egui, ratatui,
-  DOM) showing the D1 example from one view store, with size and frame-time numbers. **S5** is
-  the same interpreter for Slint.
-- **D2** defines `Display`, `Want`, `Projector` and paging. **D3** is the protocol of §16 over
-  S2's transports. **D6, D7, D8** are interpreters and hosts and become smaller, since they hold
-  no element views. **D12** compiles to `ElementSpec` trees. **D15**'s `ChartSpec` is a display
-  form and a level 2 node. **D21** owns the vocabulary fixtures.
-- The milestones, their order and the critical path do not change.
+  level 0 and 1 elements needed for its example, and the hooks a frontend needs to register
+  native views. Its AC-4 becomes "a frontend that implements only vocabulary level 0 shows every
+  portable element, degraded by the core's rules; an element with no view for that frontend
+  shows the generic view".
+- **S1** becomes: the draft vocabulary and diff; three frontends (egui, ratatui, DOM) each
+  showing the D1 example with one portable element and one native element nested in each other;
+  the hard cases of §30 (typing in an editor, a 100 ms live chart, a large table); wasm size and
+  frame-time numbers. **S5** is the same for Slint.
+- **D2** defines `Display`, `Want`, `Projector` and paging.
+- **D3** is the view-level protocol and the envelope shared with the data level, over S2's
+  transports, with one endpoint per client form.
+- **D5 `ui-client-side-processing`** becomes the data level and placement, and moves onto the
+  critical path of M2 (question 2).
+- **D6, D7, D8** each provide the portable interpreter, the native view trait and the host. D7
+  also owns the 5 MB budget. A new design, **D22 `ui-web-thin-client`**, covers the very thin
+  HTML client and islands.
+- **D12** compiles to `ElementSpec` trees. **D15**'s `ChartSpec` is a display form and a level 2
+  node with native widgets per frontend. **D21** owns the vocabulary fixtures and the
+  mixed-style nesting tests.
+- The milestones keep their order. M2's content changes from "thin split client" to "thick web
+  client plus the view-level protocol".
+
+## 30. Use-case walkthrough
+
+Each tool and situation from the goal list, checked against the design. "Client" in the placement
+column means the standard thick web client; in monolithic mode everything is local.
+
+| Use case | Written as | Placement (split) | What crosses the wire | Risk, and what answers it |
+|---|---|---|---|---|
+| Query console | portable | client | evaluate, subscribe | low |
+| Value viewers (text, JSON, Markdown, image) | portable | client | display forms; small values whole | low; image size limits (blob references) |
+| Menus, tabs, splits, windows, palettes | portable | client | nothing | low; kept from `menu-pane-layout` |
+| Docking with drag | portable `Dock` node, native in each frontend | client | nothing | medium: each toolkit docks differently; level 2, own design |
+| Asset manager, process monitor | portable | client | asset events, job lists | medium: event volume; coalescing (§8) |
+| Orthodox two-pane store manager | portable, keyboard-driven | client | `listdir`, copy, move | medium: very large folders; virtual lists (§10.5) |
+| Table viewer over records | portable `Table`; optional native grid | client | pages of a `RecordView` | medium: sort and filter are server queries; paging contract in D2 |
+| Table viewer over a DataFrame or SQL | same element | client | pages; the DataFrame stays on the server | medium: latency per page; prefetch |
+| Table editor, spreadsheet-like grid | native grid per frontend over a shared core model | client | cell edits through accessors or commands | **high**: formulas, undo, selection models differ per toolkit; research before D16 |
+| Text and code editor | shared core model (document, diagnostics, save) + native editor engine per frontend (egui `TextEdit`, CodeMirror, a ratatui text area) | client; whole text in the client | load, save with `set_if` | **high**: three engines, IME, large files; S1 hard case |
+| Query, template and recipes editors | the existing editor state/commands/effects + portable view + the text engine | client; validation runs in the client with the published command registry | registry, validation of unknown commands | medium: registry publication (D5) |
+| Charts, live (100 ms) | `ChartSpec` display form; native widget per frontend (`egui_plot`, ECharts, braille) | client | data windows, appended points | **high**: pan and zoom must be local, live updates must coalesce; S1 and S3 hard case |
+| Chart from Python (matplotlib) | display form `Image` or `Chart` | server evaluates, client shows | image or spec | low |
+| Markdown or help page with embedded queries | portable | client | display forms | low |
+| `UISpec` application | portable elements plus bindings | client | accessor reads and writes | medium: binding conflicts; `set_if` |
+| An egui application for one platform (`stockplottertest`) | native egui elements | monolithic | nothing | low; this is the old style, kept |
+| Python-defined element | scripted, portable | server (the Python process) | view patches to any client | medium: GIL during callbacks (§21) |
+| JavaScript-defined element | scripted, portable or `DomView` | client (page) | data level | low |
+| MIDI and controls | input map on the device side | client or monolithic | control events only when the element is server-placed | medium: latency for server-placed elements; keep such elements client-placed |
+| Tauri desktop | thick web client in the webview, environment in the Rust process, IPC transport | client | data level over IPC | low (S2 measured IPC) |
+| Tauri mobile, phone browser | thick web client, compact size class | client | data level over WebSocket | medium: background suspension; reconnect and resync (§16.5) |
+| Terminal over SSH | monolithic TUI | — | nothing | low |
+| Terminal or egui as a remote client | thin generic (view level) or thick native | either | patches, or data level | medium: two paths to test |
+| Very thin web page, restricted browser | server-side HTML frontend | server | HTML fragments, events | medium: typing latency; islands for editors |
+| Embedded device ("lqe") | device serves the data level, or HTML fragments; UI runs on the phone or laptop | client, or server for HTML | data level over MQTT or WebSocket | medium: small frames, broker limits (S2) |
+| Several users on one UI | shared server-placed elements, or shared data with client-placed elements | either | view level, or data level with accessor events | **high**: per-viewer focus and selection; M6 |
+| Unreliable network | client-placed elements | client | re-subscribe on reconnect | medium: offline writes not designed (§16.5) |
+
+**Reading of the table.** Nothing on the list fails to fit. The three high-risk items that
+touch M1–M4 are the text editor, the live chart and the editable grid; each is a native piece
+per frontend around a shared core model, which is the case §5.2 and §10.6 exist for. They are
+the hard cases of spike S1, so that a problem shows before D1's architecture is fixed.

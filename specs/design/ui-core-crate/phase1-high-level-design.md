@@ -48,8 +48,9 @@ The old UI in `liquers-lib` keeps working beside it.
   THEN the element states in `liquers-ui` are identical after each event
 - **AC-4** A frontend is added without changing the core
   WHEN a new frontend crate implements only the required level of the view vocabulary
-  THEN it compiles with no change to `liquers-ui`, and every element is shown, with the node
-  kinds the frontend lacks degraded by the core's rules (master design §10.7)
+  THEN it compiles with no change to `liquers-ui`, and every portable element is shown, with the
+  node kinds the frontend lacks degraded by the core's rules (master design §10.7); an element
+  that has only native views for other frontends shows a generic view
 - **AC-5** Immediate and retained frontends
   WHEN one element changes state
   THEN an immediate-mode frontend (egui, ratatui) draws the new state on its next frame, and a
