@@ -103,9 +103,18 @@ pub struct TreeDeclaration {
     #[serde(default)] pub shape: TreeShape,               // Dag (default) | Tree
     #[serde(default)] pub dependencies: DependencyMode,   // Open (default) | Strict
 }
-// RecipeList gains: #[serde(default, skip_serializing_if = "Option::is_none")] pub tree: Option<TreeDeclaration>
+/// A `Source` asset the folder declares: a stored file, with what a recipe would say about it.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+pub struct SourceDeclaration {
+    pub filename: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")] pub title: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")] pub description: String,
+}
+// RecipeList gains, both optional and skipped when empty:
+//   pub tree: Option<TreeDeclaration>,  pub sources: Vec<SourceDeclaration>
 
-pub struct TreeNode { pub filename: String, pub recipe: Option<usize> } // None: a stored file
+pub enum NodeOrigin { Recipe(usize), Source(usize), Listed } // a recipe, a declared source, or only in the listing
+pub struct TreeNode { pub filename: String, pub title: String, pub origin: NodeOrigin }
 pub enum RefKind { Resource, NodeArg { action: usize, arg: String }, Link { arg: String }, KeyValue }
 pub struct TreeEdge { pub from: String, pub to: Key, pub kind: RefKind }
 pub struct TreeGraph { pub nodes: BTreeMap<String, TreeNode>, pub edges: Vec<TreeEdge> }
@@ -115,14 +124,16 @@ pub struct TreeReport { pub roots: Vec<String>, pub result: Option<String>,
 
 impl TreeGraph {
     /// Plans each recipe (`Recipe::to_plan`, unfrozen, so keys stay relative) and collects its
-    /// references; `stored` lists the folder's stored filenames, `None` when unknown (validation).
-    pub fn build(list: &RecipeList, stored: Option<&BTreeSet<String>>, cmr: &CommandMetadataRegistry) -> Result<Self, Error>;
+    /// references. The nodes are the recipes and declared sources, merged with `listing` when
+    /// given: a `listdir` of the folder from the store, the asset manager or the recipe provider
+    /// (names already in the recipes are merged, so any of the three works). `None` when unknown.
+    pub fn build(list: &RecipeList, listing: Option<&[String]>, cmr: &CommandMetadataRegistry) -> Result<Self, Error>;
 }
 /// The per-recipe strict rules (AC-7, AC-23) over one plan; walks nested `Step::Plan`,
 /// `Step::Evaluate` queries and pipeline steps. `DefaultLink`, `DefaultPipeline`, `EnumLink` are trusted.
 pub fn check_strict(plan: &Plan) -> Vec<TreeFinding>;
 /// The whole check; never fails, all findings are in the report.
-pub fn check_tree(list: &RecipeList, stored: Option<&BTreeSet<String>>, cmr: &CommandMetadataRegistry) -> TreeReport;
+pub fn check_tree(list: &RecipeList, listing: Option<&[String]>, cmr: &CommandMetadataRegistry) -> TreeReport;
 ```
 
 "Directly in the folder" is a relative key of exactly two segments, `.` and a filename. A node's
@@ -132,13 +143,13 @@ name is its filename without the extension. `check_strict` skips the leading `St
 **Editor** (same module; edits sync, `save` async because it writes the store):
 
 ```rust
-pub struct TreeEditor { list: RecipeList, stored: BTreeSet<String>, cmr: Arc<CommandMetadataRegistry> }
+pub struct TreeEditor { list: RecipeList, listing: Option<Vec<String>>, cmr: Arc<CommandMetadataRegistry> }
 pub struct NodeChoice { pub name: String, pub filename: String, pub title: String } // title "" for a stored file
 pub struct DataRename { pub from: String, pub to: String }   // stored-file renames save() performs
 
 impl TreeEditor {
-    pub fn new(list: RecipeList, stored: BTreeSet<String>, cmr: Arc<CommandMetadataRegistry>) -> Result<Self, Error>;
-    pub async fn load<E: Environment>(folder: &Key, envref: EnvRef<E>) -> Result<Self, Error>;
+    pub fn new(list: RecipeList, listing: Option<Vec<String>>, cmr: Arc<CommandMetadataRegistry>) -> Result<Self, Error>;
+    pub fn declare_source(&mut self, source: SourceDeclaration) -> Result<&mut Self, Error>;  // AC-27
     pub fn report(&self) -> TreeReport;
     pub fn recipes(&self) -> &RecipeList;
     pub fn rename(&mut self, from: &str, to: &str) -> Result<&mut Self, Error>;              // AC-1, AC-15
@@ -153,10 +164,9 @@ impl TreeEditor {
 }
 ```
 
-`new` takes the folder's filenames from the caller, so a client without an `EnvRef` (a UI client
-over the web API) supplies them from its own listing (the asset manager's listing through the
-runner, or the web API's); `load` gets them from `envref` (recipes plus the store's
-`listdir_data`). Each edit works on a clone and replaces `list` only when `check_tree` reports no
+`new` takes the folder's `listdir` output from the caller (decided 2026-11-23, no `load`): the
+store's, the asset manager's or the recipe provider's, through `envref` on a server, through the
+runner or the web API in a UI client. Each edit works on a clone and replaces `list` only when `check_tree` reports no
 new error, which gives AC-14 without undo logic. A rename matches every Node argument whose name
 is the node's or whose link is the link to its file, every resource segment and `{resource}`
 element reading the file, and, outside strict mode, every other relative link to the file. It
@@ -181,8 +191,9 @@ folder (an unbound query) the field is a text box with no rename. Renderers: `eg
 `ui/web/editor` draw the choices as their enum selector with a rename action.
 
 **Validation** (`validate/`, sync): `ValidationReport` gains `#[serde(skip_serializing_if = "Option::is_none")] tree: Option<TreeReport>`;
-`validate_recipes` fills it when the list has a `tree:` (with `stored: None`: a non-recipe key is a
-warning "not checked: stored file?"); tree errors set the status to `Error` (exit 1).
+`validate_recipes` fills it when the list has a `tree:`, with `listing: None`: a reference to a
+key that is neither a recipe nor a declared source is a warning ("not checked: stored file?"), and
+an error in a strict folder (AC-28); tree errors set the status to `Error` (exit 1).
 
 **Value types:** none.
 
@@ -193,9 +204,9 @@ warning "not checked: stored file?"); tree errors set the status to `Error` (exi
   (`plan.rs`: a `Source::Value` string for a Node argument also becomes a `NodeLink`, and a
   `NodeLink` converts back to `Source::Value(name)`; `convert.rs` reads a Node parameter as text;
   `editor.rs`), `store/realm.rs`,
-  `command_declaration.rs` (declared Node arguments), `recipes.rs` (`RecipeList::tree`;
+  `command_declaration.rs` (declared Node arguments), `recipes.rs` (`RecipeList::tree` and `sources`;
   `DefaultRecipeProvider::cached_recipes` runs `check_tree` on a strict folder, with the store's
-  listing of the folder, and refuses the whole file when it reports an error, as it does for a
+  `listdir` of the folder, and refuses the whole file when it reports an error, as it does for a
   recipe setting `cwd`: every lookup fails with the findings and the file is not cached, so a fix
   is seen at once), new `recipe_tree.rs`,
   `validate/`, `bin/liquers_validate.rs`, `error.rs`, `lib.rs`.
@@ -251,8 +262,20 @@ not change, since query and key encoding do not.
    `Value` both work with the key form.
 2. **Strict failure:** the whole `recipes.yaml` is valid or refused (AC-24), so a strict folder can
    later become a portable archive as it is.
-3. **Stored files:** a warning in `liquers-validate`, which opens no store. `TreeEditor::load` lists
-   them through `envref`; a UI client without one passes its own list to `TreeEditor::new`.
+3. **Stored files:** a warning in `liquers-validate`, which opens no store. `TreeEditor::new`
+   takes a `listdir` output instead of loading anything; the caller gets it from the store, the
+   asset manager or the recipe provider.
+4. **Declared sources** (later the same day): `recipes.yaml` may declare its `Source` assets with a
+   title and a description (`sources:`, AC-27).
+
+## Questions for the gate
+
+1. **Must a strict folder declare its sources?** *Recommended: yes* (AC-28). Then a strict
+   `recipes.yaml` names every file it needs, which `liquers-validate` can check without a store
+   and the archive can use as its manifest. An open folder may still use undeclared stored files.
+2. **Where declared titles show.** *Recommended: in the tree tools only* (node selector, tree
+   report). Using them as the stored asset's metadata title is a change to the asset manager's
+   read path, better as a follow-up.
 
 ## Risks
 

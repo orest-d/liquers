@@ -41,6 +41,9 @@ With this design the folder declares itself a tree:
 tree:
   dependencies: strict  # only relative keys of this folder
   result: car.glb       # the folder stands for this asset; also its single root
+sources:
+  - {filename: body.glb, title: Body}
+  - {filename: tyre.glb, title: Tyre}
 recipes:
   - …as above…
 ```
@@ -181,6 +184,14 @@ rewrites every reference to it.
 - **AC-26** Any recipe list can become a tree
   WHEN a `tree:` section is added to an existing `recipes.yaml`
   THEN nothing else needs to change: the folder is a tree as soon as it passes the check
+- **AC-27** Declared sources
+  WHEN `recipes.yaml` declares `sources: [{filename: body.glb, title: Body, description: …}]`
+  THEN each is a node with that title (node selector, tree report); the check fails when a
+  declared source is missing from a given listing, or when a recipe has the same filename
+- **AC-28** A strict folder declares its sources
+  WHEN `dependencies: strict` and a node references a file that is neither a recipe nor a
+  declared source
+  THEN the check fails naming the node and the file, even when the file is stored
 
 Non-goals: the archive export and import (`RECIPE-TREE-CANNOT-BE-EXPORTED-AS-AN-ARCHIVE`; this
 design supplies its strict-mode guarantee and its result); dependency modes other than `strict`,
