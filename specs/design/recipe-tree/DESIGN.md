@@ -39,6 +39,11 @@ portable archive is a separate design built on this one
 - **2026-11-23, later** Command default links and pipelines and enum-alias links are trusted command
   logic, allowed in strict recipes and not checked; only links the recipe writes are refused.
   AC-7, AC-20, AC-23 clarified.
+- **2026-11-23** Phase 1 approved (`proceed`); Phase 2 written.
+- **2026-11-23, Phase 2 review** DSL `(node: local, ext, form)` with a `NodeKind`; a strict file is
+  valid as a whole or refused; the node selector lists filename and title and offers rename;
+  `TreeEditor::new` takes the file list for clients without an `EnvRef`. AC-18, AC-24 revised,
+  AC-25, AC-26 added.
 
 ## Phases
 

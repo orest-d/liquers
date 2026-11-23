@@ -134,8 +134,10 @@ rewrites every reference to it.
   (key form)
 - **AC-18** Node choices in the editor (revised 2026-11-23)
   WHEN a Node argument is edited
-  THEN the editor offers the node names of the folder with the argument's extension and writes
-  the bare name; an existing compliant link is shown as its node name
+  THEN the editor's node selector lists every node of the folder with the argument's extension,
+  each with its filename and its recipe's title, taken from the recipes alone or from the asset
+  manager's listing (recipes and store together), and writes the bare name; an existing link to
+  such a node is shown as its name
 - **AC-19** Single result
   WHEN `result: car.glb` is declared
   THEN `car.glb` is the folder's only root, the check fails if it is not a node, and the tree's
@@ -166,9 +168,19 @@ rewrites every reference to it.
   they are command logic, and commands are trusted to read only allowed dependencies. A strict
   recipe can use such a command (one defined by a template or a script given as a default), but
   cannot override that default with a link
-- **AC-24** Strict mode is enforced, not only reported
-  WHEN a recipe of a folder declared `dependencies: strict` is planned
-  THEN a dependency the strict check refuses fails the plan with the same error as the check
+- **AC-24** Strict mode is enforced, not only reported (revised 2026-11-23)
+  WHEN the recipe provider reads a `recipes.yaml` declared `dependencies: strict` that fails the
+  strict rules or the tree check
+  THEN every recipe of the folder fails to load with the check's errors, so a strict folder is
+  valid as a whole or not used (the basis of the later archive)
+- **AC-25** Rename from the node selector
+  WHEN the user renames a node from a Node argument's selector
+  THEN the rename of AC-1 is applied to the whole `recipes.yaml`: every Node argument naming the
+  node or linking to its file, every resource segment reading it and (outside strict mode) every
+  other relative link to its file is rewritten, and a stored file is renamed in the store
+- **AC-26** Any recipe list can become a tree
+  WHEN a `tree:` section is added to an existing `recipes.yaml`
+  THEN nothing else needs to change: the folder is a tree as soon as it passes the check
 
 Non-goals: the archive export and import (`RECIPE-TREE-CANNOT-BE-EXPORTED-AS-AN-ARCHIVE`; this
 design supplies its strict-mode guarantee and its result); dependency modes other than `strict`,
@@ -261,7 +273,8 @@ The maintainer answered questions 1-8 and, the same day, 9-12:
     AC-21). A folder declared strict is checked by `liquers-validate` and the editor, and enforced
     when its recipes are planned (AC-24).
 11. **Extensions** (2026-11-23): a Node declares one extension, so a name is never ambiguous.
-12. **Node choices** (2026-11-23): in the editor model and both the egui and browser renderers.
+12. **Node choices** (2026-11-23): in the editor model and both the egui and browser renderers,
+    listing filename and title, with rename offered (AC-18, AC-25).
 13. **Links in strict mode** (2026-11-23): none written by the recipe, in an argument of any type;
     command defaults and enum-alias links stay allowed as trusted command logic (AC-23).
 14. **Post-processing** (2026-11-23): out of scope (AC-22 retired). A Node with a post-processing

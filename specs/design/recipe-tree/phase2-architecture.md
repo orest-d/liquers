@@ -48,13 +48,17 @@ Namespaces: none; no command is added. Existing commands keep their argument typ
 **Command metadata** (`command_metadata.rs`, sync: pure data):
 
 ```rust
-pub enum ArgumentType { /* … */ Node(NodeArgument) }   // serde: {node: {extension, form}}
+pub enum ArgumentType { /* … */ Node(NodeArgument) }   // serde: {node: {kind, extension, form}}
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct NodeArgument {
+    #[serde(default)] pub kind: NodeKind,  // Local only; later sub-folders, asset folders
     pub extension: String,                 // without the dot: "glb"
     #[serde(default)] pub form: NodeLinkForm,
 }
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum NodeKind { #[default] Local }
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum NodeLinkForm { #[default] Resource, Key }
@@ -67,9 +71,12 @@ impl NodeArgument {
 }
 ```
 
-DSL (`liquers-macro/src/registration.rs`), beside `enum:` in the argument's metadata parentheses:
-`part: Value (node: "glb")` and `dir: Key (node(form: key): "glb")`. A key-form Node must have
-Rust type `Key` (compile error otherwise), as a `-R-key` link yields a key.
+DSL (`liquers-macro/src/registration.rs`), in the argument's metadata parentheses beside `label:`
+and `enum:` (decided 2026-11-23): `part: Value (node: local, ext: "glb")`,
+`dir: Key (node: local, ext: "glb", form: key)`; `form` defaults to `resource`. `node:` names the
+`NodeKind`, so later kinds need no new syntax. `ext` without `node`, or `node` without `ext`, is a
+compile error. A key-form Node takes `Key` or `Value` (the key as a value), as a `-R-key` link
+yields a key; a resource-form Node takes any type a link's value converts to.
 
 **Planning** (`plan.rs`, sync):
 
@@ -126,6 +133,7 @@ name is its filename without the extension. `check_strict` skips the leading `St
 
 ```rust
 pub struct TreeEditor { list: RecipeList, stored: BTreeSet<String>, cmr: Arc<CommandMetadataRegistry> }
+pub struct NodeChoice { pub name: String, pub filename: String, pub title: String } // title "" for a stored file
 pub struct DataRename { pub from: String, pub to: String }   // stored-file renames save() performs
 
 impl TreeEditor {
@@ -138,13 +146,21 @@ impl TreeEditor {
     pub fn delete(&mut self, node: &str, cascade: bool) -> Result<&mut Self, Error>;         // AC-12
     pub fn move_reference(&mut self, node: &str, from: &str, to: &str, action: usize, arg: &str) -> Result<&mut Self, Error>; // AC-13
     pub fn result_key(&self, folder: &Key) -> Option<Key>;                                   // AC-19
+    pub fn node_choices(&self, extension: &str) -> Vec<NodeChoice>;                          // AC-18
+    pub fn pending_data_renames(&self) -> &[DataRename];                                     // for a client without envref
     pub fn suggest_filename(&self, title: &str, extension: &str) -> String;                  // Phase 1 Q3 helper
     pub async fn save<E: Environment>(&self, folder: &Key, envref: EnvRef<E>) -> Result<(), Error>;
 }
 ```
 
-Each edit works on a clone and replaces `list` only when `check_tree` reports no new error, which
-gives AC-14 without undo logic. A rename rewrites, per recipe: the query through `QueryEditor`
+`new` takes the folder's filenames from the caller, so a client without an `EnvRef` (a UI client
+over the web API) supplies them from its own listing (the asset manager's listing through the
+runner, or the web API's); `load` gets them from `envref` (recipes plus the store's
+`listdir_data`). Each edit works on a clone and replaces `list` only when `check_tree` reports no
+new error, which gives AC-14 without undo logic. A rename matches every Node argument whose name
+is the node's or whose link is the link to its file, every resource segment and `{resource}`
+element reading the file, and, outside strict mode, every other relative link to the file. It
+rewrites, per recipe: the query through `QueryEditor`
 (so it keeps a query form), the `pipeline` through `PipelineEditor`, resource keys, Node names
 (`Source::Value` strings of Node arguments), `Link` sources (parsed, rewritten, re-encoded),
 `arguments` / `links` overrides, and the renamed recipe's own filename. A reference it cannot place
@@ -153,11 +169,16 @@ writes `recipes.yaml` through the asset manager as the recipes accessor does, so
 and dependent assets follow.
 
 **UI** (`liquers-lib/src/ui/editor/`, sync model): `effective_gui` maps `ArgumentType::Node` to a new
-`ArgumentGUIInfo::NodeSelector`; `EditorState` sends the existing `EditorEffect::ListDirectory` for
-the bound recipe's folder and builds `FieldValue` choices from the listing's entries with the Node's
-extension. A field holding a `ParameterLink` equal to `NodeArgument::link(name)` shows `name`. Without
-a folder (an unbound query) the field is a text box. Renderers: `egui/editor` and `ui/web/editor`
-draw the choices as their enum selector.
+`ArgumentGUIInfo::NodeSelector`. Its choices are `TreeEditor::node_choices` over the bound
+`recipes.yaml` document and a filename list from one of two sources: the recipes alone, or the
+existing `EditorEffect::ListDirectory` (the asset manager's listing, recipes and store together;
+the default). Each choice shows filename and title. A field holding a link equal to
+`NodeArgument::link(name)` shows `name`. The selector offers **Rename**: a new
+`EditorCommand::RenameNode { from, to }` applies `TreeEditor::rename` to the whole document,
+writes it through the document's accessor (`EditorEffect::Write`) and, for a stored file, a new
+`EditorEffect::RenameData` that the runner performs (`AppMessage::RenameData`). Without a bound
+folder (an unbound query) the field is a text box with no rename. Renderers: `egui/editor` and
+`ui/web/editor` draw the choices as their enum selector with a rename action.
 
 **Validation** (`validate/`, sync): `ValidationReport` gains `#[serde(skip_serializing_if = "Option::is_none")] tree: Option<TreeReport>`;
 `validate_recipes` fills it when the list has a `tree:` (with `stored: None`: a non-recipe key is a
@@ -173,11 +194,14 @@ warning "not checked: stored file?"); tree errors set the status to `Error` (exi
   `NodeLink` converts back to `Source::Value(name)`; `convert.rs` reads a Node parameter as text;
   `editor.rs`), `store/realm.rs`,
   `command_declaration.rs` (declared Node arguments), `recipes.rs` (`RecipeList::tree`;
-  `DefaultRecipeProvider::cached_recipes` runs `check_strict` per recipe of a strict folder and keeps
-  the findings in `CachedRecipes`; `recipe()` returns the node's error), new `recipe_tree.rs`,
+  `DefaultRecipeProvider::cached_recipes` runs `check_tree` on a strict folder, with the store's
+  listing of the folder, and refuses the whole file when it reports an error, as it does for a
+  recipe setting `cwd`: every lookup fails with the findings and the file is not cached, so a fix
+  is seen at once), new `recipe_tree.rs`,
   `validate/`, `bin/liquers_validate.rs`, `error.rs`, `lib.rs`.
 - `liquers-macro`: `registration.rs` parses `node:` and emits `ArgumentType::Node`.
-- `liquers-lib`: `ui/editor/{tree,state}.rs`, `egui/editor`, `ui/web/editor`, `egui/widgets.rs`,
+- `liquers-lib`: `ui/editor/{tree,state,command}.rs` (`NodeSelector` choices, `RenameNode`,
+  `RenameData`), `ui/runner.rs` (`AppMessage::RenameData`), `egui/editor`, `ui/web/editor`, `egui/widgets.rs`,
   `utils.rs`, `commands.rs` (match arms); the registry exporter writes Node arguments unchanged
   (serde).
 - `liquers-mcp/src/{schema,server}.rs`: a Node argument is a JSON-schema string with a description
@@ -200,7 +224,7 @@ warning "not checked: stored file?"); tree errors set the status to `Error` (exi
 ## Relevant Commands
 
 No command is added or changed, so `specs/command_registry.yaml` is not regenerated. Any existing
-command can later adopt a Node argument (`part: Value (node: "glb")`); that is a signature change
+command can later adopt a Node argument (`part: Value (node: local, ext: "glb")`); that is a signature change
 for that command, with its own registry regeneration. Namespaces involved: none.
 
 ## Documentation Architecture
@@ -221,16 +245,14 @@ tree section and strict enforcement); `command_metadata.rs` (components: `NodeAr
 node choices). `affects_docs` stays as in `DESIGN.md`; `specs/reference/PROJECT_OVERVIEW.md` does
 not change, since query and key encoding do not.
 
-## Questions for the gate
+## Gate decisions (2026-11-23)
 
-1. **DSL spelling.** `part: Value (node: "glb")` and `dir: Key (node(form: key): "glb")`, in the
-   argument's metadata parentheses beside `enum:`. *Recommended as written.*
-2. **Scope of a strict failure.** Only the offending node fails to plan; the other nodes of the
-   folder are still served. The `cwd` precedent instead refuses the whole file. *Recommended: per
-   node*, since one bad recipe should not take down a document being edited.
-3. **Stored files in `liquers-validate`.** The tool opens no store, so a reference to a key that
-   has no recipe is a warning ("not checked: stored file?") there, and an error only in the
-   `TreeEditor`, which lists the folder. *Recommended as written.*
+1. **DSL:** `(node: local, ext: "glb", form: key)`, so other node kinds can follow; `Key` and
+   `Value` both work with the key form.
+2. **Strict failure:** the whole `recipes.yaml` is valid or refused (AC-24), so a strict folder can
+   later become a portable archive as it is.
+3. **Stored files:** a warning in `liquers-validate`, which opens no store. `TreeEditor::load` lists
+   them through `envref`; a UI client without one passes its own list to `TreeEditor::new`.
 
 ## Risks
 
