@@ -28,6 +28,8 @@ the protocol.
   runtime (session, lifecycle, messages, effects), native and portable views, clients from very
   thin to thick, protocol levels, decision register and a use-case walkthrough. Proposed
   2026-11-23, revised the same day after Orest's review.
+- [Spike S1 stage 1 findings](../../archive/2026-11-23-ui-runner-spike.md) — the runner built under
+  egui, a terminal, a retained host and a split pair; eight problems found.
 - [Plan](./plan.md) — target architecture sketch, designs D1–D21 with dependencies, spikes S1–S4,
   milestones M0–M7 and Orest's decisions.
 

@@ -22,6 +22,10 @@ vocabulary (§4.1): an element has implementations, a split implementation has a
 server part, and a monolithic implementation or a server part may use the environment directly.
 Signatures are sketches that fix the shape, not final code.
 
+**Verification.** Stage 1 of spike S1 built the runner of §12 under egui, a terminal, a retained
+host and a split pair ([findings](../../archive/2026-11-23-ui-runner-spike.md)). What it
+confirmed and what it corrected is marked "S1" below.
+
 **Contents.** 1 Requirements · 2 Answer in short · 3 Which abstraction · 4 Concepts ·
 5 Elements · 6 Lifecycle · 7 Messages and events · 8 Turns · 9 Effects and subscriptions ·
 10 The view tree · 11 Frontends: three patterns over one store · 12 Session and runtime ·
@@ -488,6 +492,9 @@ stateDiagram-v2
    that `web-ui-use` found to be normal on wasm.
 6. The placeholder, failure and fault views are drawn by the session with ordinary view nodes, so
    they look the same in every frontend and no element implements them.
+7. A part of a split implementation is told when its other part is reachable (`PeerConnected`)
+   and when it is not (`PeerGone`), and the runner holds messages for a part that does not exist
+   yet. S1 found this missing: a server part's first message was sent before any client existed.
 
 ## 7. Messages and events
 
@@ -820,6 +827,29 @@ impl SessionHandle {
 - The session uses the environment only through its public services: evaluate a query, subscribe
   to an asset, read a value accessor. Queries it evaluates carry the session's principal (§17).
 
+### 12.1 The runner and its host adapters (S1)
+
+"Session" above and "runner" in the discussion with Orest are the same object. Every mode has
+one: the monolithic runner, the server runner and the client runner are one implementation in
+three roles. S1 built it with no toolkit type in it, and five consumers on four entry points:
+
+| Entry point | Used by |
+|---|---|
+| `run_pending()`: process the mailbox, never block | every host, once per frame or after a wake-up |
+| lend a part and take it back, then perform its effects | `update`; native immediate-mode views |
+| `view(handle)` | portable interpreters |
+| the list of changes since the last call (added, replaced, removed, updated), and a snapshot | retained host adapters; the server end of the runner protocol |
+
+- **Handles and widgets.** The runner knows no widget. Relating a handle to a widget is the
+  **host adapter**'s job. An immediate-mode adapter keeps no map (egui: an id scope per handle).
+  A retained adapter keeps a map from handle to its native object and updates it from the change
+  list. The server end of the protocol is such a retained adapter whose widgets are remote.
+- **Asynchronous Liquers, synchronous main loop.** Evaluations hold a sink that posts into the
+  mailbox and calls the host's waker (egui: request a repaint). The host calls `run_pending()`
+  in its loop. No second thread is needed; S1 ran the runner with the egui adapter as wasm32.
+- **Lending without a lock.** For a native view the runner takes the part out of its node for
+  the call, so the runner stays usable and the view can draw its children through it.
+
 ## 13. Transparency
 
 R6 asks that the lifecycle and events be visible. Four mechanisms, all in the core:
@@ -927,6 +957,45 @@ pub trait Projector<V>: MaybeSend + Sync {
 
 The capability lookup, the list of forms and the paging contract are D2's to settle.
 
+### 15.1 Values in a client part
+
+A client part has no environment (§4.1). It can still link `liquers-core`, which builds for
+wasm32 and holds what needs no environment: queries and keys, metadata, status, errors, the type
+registry, command metadata. So a client part parses and edits queries, reads metadata and shows
+progress with the server's own types.
+
+**A value does not travel as a Rust value.** It travels as bytes plus metadata, which names the
+type identifier and the data format (`VALUE_TYPE_SYSTEM.md`). Client and server therefore need
+the same identifiers, not the same Rust `Value` type. The client has its own, smaller value type
+(no polars). On arrival there are three outcomes, all existing behaviour:
+
+| Case | Example | Client gets |
+|---|---|---|
+| Known type, readable format | core types; `Image`; `RecordView` when built with records | a value |
+| Unknown type | `polars.DataFrame` | bytes and metadata kept ("degraded"); asking for a value is a typed error |
+| No byte form | an accessor, a widget, a JavaScript handle | nothing: it cannot travel |
+
+A degraded value is still showable when the browser understands its media type (an image, text,
+HTML), so a client need not construct a value to display it.
+
+Limits to design for:
+
+1. **Tables.** CSV and JSON read back with an inferred schema, and Parquet reads only through
+   polars. The standard client includes the Arrow IPC format (`records-ipc`), and table pages
+   are sent in it.
+2. **Elements as values.** Today `ExtValue::UIElement` holds a trait object with no byte form.
+   The element-as-data form of §14 is therefore required, not optional.
+3. **The server must know what the client reads before it sends.** This rests on three designs
+   in review: `registry-publication`, `realm-type-registry` (a transfer mode per type) and
+   `cross-realm-transfer-planning` (a conversion placed on the server, such as DataFrame to
+   record view).
+4. **Type parameters.** A monolithic implementation and a server part are generic over the
+   environment. A client part is generic over a value type only, and gets a small **client
+   context**: the type registry, the imported command metadata, and the connection.
+
+A page that needs more runs a real environment over remote services (`liquers-web`), which is
+the monolithic case.
+
 ## 16. Split mode: parts, client forms, protocol
 
 ### 16.1 Parts, and who owns what
@@ -988,6 +1057,7 @@ planned, all on the same runtime:
 | **Thick web (standard)** | wasm: the core, the web frontend, the client parts of the built-in elements, `liquers-core` (parsing), records | client parts in the client; server parts where needed | web API, element messages; view level as fallback | < 5 MB |
 | **Monolithic over remote services** | `liquers-web`: an environment in the page whose store and asset manager are remote | monolithic implementations in the page | whatever the environment's remote services use | application's choice |
 | **Thin generic** | a view store copy and one frontend's interpreter (egui, terminal, or a small wasm) | on the server | view level: patches | small |
+| **Thin terminal** | a terminal | on the server | changed cells down, keys and mouse up | — |
 | **Very thin web** | a few kB of JavaScript: apply HTML fragments, report events | on the server | HTML fragments down, events up | tens of kB |
 | **Islands** | a very thin page that loads a thick wasm module for chosen elements (editor, chart) | mostly server, some client | both | per island, lazy |
 
@@ -998,6 +1068,9 @@ planned, all on the same runtime:
   store and a remote asset manager) is monolithic from the UI's point of view, even though it is
   a client of some server: its elements are monolithic implementations and call their environment
   directly.
+- **A thin client is a frontend that runs on the server while only its device is remote.** For
+  the terminal this is the changed cells of the screen going down and keys and mouse events
+  coming up; S1 built it over ratatui's buffer diff. For the web it is HTML fragments.
 - **The very thin web client is a server-side frontend** (§11): `liquers-ui-web`'s HTML renderer
   runs in the server, turns each element's portable view (or a server-side native view that
   returns HTML) into fragments, and sends a fragment whenever the element changes. It needs no
@@ -1344,6 +1417,11 @@ Master-level scenarios. D1's AC-1 to AC-11 remain, with AC-4 and AC-5 reworded (
 | 35 | In split mode the server owns the tree structure; the client owns the state of its client parts | agreed in principle by Orest, 2026-11-23 |
 | 36 | A universal runner protocol keeps the client's nodes consistent with the server's; element protocols travel inside it (§16.1a) | agreed in principle by Orest, 2026-11-23 |
 
+| 37 | The runner is one frontend-independent implementation in three roles (monolithic, server, client); a host adapter per frontend relates handles to widgets (§12.1) | confirmed by S1 |
+| 38 | A client part may link `liquers-core` but has no environment; values reach it as bytes plus metadata, and its value type is its own (§15.1) | proposed |
+| 39 | Table pages travel as Arrow IPC; the standard client includes it | proposed |
+| 40 | Parts of a split implementation get `PeerConnected` / `PeerGone`; the runner queues messages for a part that does not exist yet | proposed (S1) |
+
 ## 28. Open questions
 
 Answered by Orest on 2026-11-23: native and portable styles are both offered (decision 4); thin
@@ -1358,6 +1436,20 @@ Still for Orest:
 2. **Messages in a monolithic implementation** (§5.4): not required for native code, used by the
    built-in elements. Agreed?
 3. **Is the list of standard protocol elements** (§16.3) the right set?
+
+Raised by spike S1 (findings §8), to be decided before D1's architecture:
+
+- **S1-a. The server must know the client form before it creates parts.** For an element the
+  client has, the server runs only its server part; otherwise the whole portable implementation.
+  Can two clients of different forms share one server tree, or is a tree per client form?
+- **S1-b. State held only in a client part is invisible to the server.** Is a standard "saved
+  state" message from client part to server required, for restore and for a second device?
+- **S1-c. A native immediate-mode view must report that it changed state.** Require an explicit
+  call, or have the runner assume a change whenever such a view handled input?
+- **S1-d. A client cannot reserve a handle** for a node it asks the server to add. Client-side
+  handle ranges, or request ids?
+- **S1-e. One part trait or two?** S1 used one trait for monolithic, server and client parts,
+  with different services. §5.3 has a separate `ClientPart`.
 
 For the spikes and the sub-designs, not blocking approval:
 
