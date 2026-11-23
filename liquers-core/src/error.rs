@@ -433,6 +433,25 @@ impl Error {
             ),
         )
     }
+    /// A recipe of a strict recipe tree depends on something strict mode forbids (`detail`):
+    /// a key not directly in the folder, or a link argument (`subject`), in `node`.
+    pub fn strict_dependency(node: &str, subject: &str, detail: &str) -> Self {
+        Error::new(
+            ErrorType::ParameterError,
+            format!("Strict recipe tree: node '{node}', '{subject}': {detail}"),
+        )
+    }
+    /// The references of a recipe tree form a cycle through `nodes` (in order).
+    pub fn tree_cycle(nodes: &[String]) -> Self {
+        Error::new(
+            ErrorType::DependencyCycle,
+            format!("Recipe tree cycle: {}", nodes.join(" -> ")),
+        )
+    }
+    /// A recipe tree fails its check (`detail` names the nodes).
+    pub fn tree_check(detail: &str) -> Self {
+        Error::new(ErrorType::ParameterError, format!("Recipe tree: {detail}"))
+    }
     pub fn invalid_token(value: &str, class: &str) -> Self {
         Error::new(
             ErrorType::ParameterError,

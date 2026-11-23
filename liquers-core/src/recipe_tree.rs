@@ -1,0 +1,1331 @@
+//! Self-contained recipe trees: one folder's `recipes.yaml` read as a graph of nodes.
+//!
+//! # Purpose
+//!
+//! A folder of recipes can describe one asset tree — a car built from a body and wheels, a wheel
+//! from a tyre and a material — that is checked as a whole, edited without breaking its
+//! references, and, in strict mode, copied anywhere and evaluated to the same value. This module
+//! reads a [`RecipeList`] as that graph, checks it, and edits it.
+//!
+//! # Main components
+//!
+//! - [`TreeDeclaration`]: the optional `tree:` section of `recipes.yaml` (roots, the single
+//!   `result`, the shape and the dependency mode). Adding it to any recipe list makes a tree.
+//! - [`TreeGraph`]: the nodes (recipes, source declarations — recipes whose query is only a
+//!   filename — and, when a folder listing is given, stored files) and the references between
+//!   them, built from each recipe's plan.
+//! - [`check_strict`]: the per-recipe rules of `dependencies: strict` — keyed dependencies only
+//!   directly in the folder, and no link or nested-pipeline arguments written by the recipe.
+//!   A command's own default links and pipelines and enum-alias links are trusted.
+//! - [`check_tree`]: the whole check — roots and result, cycles, shape, orphans, dangling
+//!   references, name collisions, undeclared sources — as a [`TreeReport`] of findings.
+//!
+//! A node's name is its filename without the extension (`wheel` for `wheel.glb`): the name a
+//! Node argument (`ArgumentType::Node`) is given in a query, `attach-wheel`.
+//!
+//! # Where it is used
+//!
+//! `DefaultRecipeProvider` runs [`check_tree`] on a strict folder and refuses the whole file on an
+//! error; `liquers-validate --recipes` adds the report (`ValidationReport::tree`); the editors of
+//! `liquers-lib` list node choices for a Node argument.
+//!
+//! # Related concepts
+//!
+//! `specs/reference/RECIPE_TREES.md`; recipes and plans in `specs/reference/RECIPES_AND_PLANS.md`;
+//! the design in `specs/design/recipe-tree/`.
+//!
+//! # Example
+//!
+//! ```
+//! use liquers_core::command_metadata::CommandMetadataRegistry;
+//! use liquers_core::recipe_tree::{check_tree, DependencyMode};
+//! use liquers_core::recipes::RecipeList;
+//!
+//! let list: RecipeList = serde_yaml::from_str(
+//!     r#"
+//! tree: {dependencies: strict, result: wheel.txt}
+//! recipes:
+//!   - {query: tyre.txt, title: Tyre}
+//!   - {query: "-R/./tyre.txt/-/wheel.txt", title: Wheel}
+//! "#,
+//! )
+//! .unwrap();
+//! assert_eq!(list.tree.as_ref().unwrap().dependencies, DependencyMode::Strict);
+//! let listing = vec!["tyre.txt".to_string()];
+//! let report = check_tree(&list, Some(&listing), &CommandMetadataRegistry::new());
+//! assert!(report.errors.is_empty(), "{:?}", report.errors);
+//! assert_eq!(report.roots, vec!["wheel.txt".to_string()]);
+//! assert_eq!(report.graph.nodes["wheel.txt"].name, "wheel");
+//! ```
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
+
+use crate::command_metadata::CommandMetadataRegistry;
+use crate::error::Error;
+use crate::plan::{ParameterValue, Plan, Step};
+use crate::query::Key;
+use crate::recipes::RecipeList;
+
+/// The `tree:` section of a `recipes.yaml`.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+pub struct TreeDeclaration {
+    /// Declared roots, as filenames. Empty: the recipes nothing depends on (or the `result`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roots: Vec<String>,
+    /// The single asset the tree stands for, as a filename. It is then the only root.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<String>,
+    /// `dag` (the default) or `tree` (no node with two parents).
+    #[serde(default, skip_serializing_if = "TreeShape::is_default")]
+    pub shape: TreeShape,
+    /// `open` (the default) or `strict` (the folder is self-contained).
+    #[serde(default, skip_serializing_if = "DependencyMode::is_default")]
+    pub dependencies: DependencyMode,
+}
+
+/// The shape a tree must have.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TreeShape {
+    /// Any acyclic graph: a node may have several parents.
+    #[default]
+    Dag,
+    /// Every node has at most one parent.
+    Tree,
+}
+
+impl TreeShape {
+    fn is_default(&self) -> bool {
+        *self == TreeShape::default()
+    }
+}
+
+/// Which dependencies the nodes of a tree may have.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DependencyMode {
+    /// Any dependency.
+    #[default]
+    Open,
+    /// Only files directly in the folder, by relative keys, and no link arguments: the folder
+    /// works wherever it is copied.
+    Strict,
+}
+
+impl DependencyMode {
+    fn is_default(&self) -> bool {
+        *self == DependencyMode::default()
+    }
+}
+
+/// Where a node comes from.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum NodeOrigin {
+    /// The recipe at this index computes it.
+    Recipe(usize),
+    /// The recipe at this index declares it a source: its value is the stored data.
+    Source(usize),
+    /// Only the folder listing has it: a stored file no recipe declares.
+    Listed,
+}
+
+/// One node of a tree.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct TreeNode {
+    /// The node's filename, `wheel.glb`.
+    pub filename: String,
+    /// The node's name, its filename without the extension: `wheel`.
+    pub name: String,
+    /// The recipe's title; empty for a stored file.
+    pub title: String,
+    /// Where it comes from.
+    pub origin: NodeOrigin,
+}
+
+/// How a recipe refers to a key.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum RefKind {
+    /// A resource segment or pipeline element (`-R/./x`, `{resource: ./x}`), or a nested query.
+    Resource,
+    /// A Node argument given by name, in the action at this index of the plan's steps.
+    NodeArg {
+        /// Index of the action step.
+        action: usize,
+        /// The argument's name.
+        arg: String,
+    },
+    /// A link or nested pipeline written by the recipe for an argument.
+    Link {
+        /// The argument's name.
+        arg: String,
+    },
+    /// A key used as a value (`-R-key/./x` as the query itself).
+    KeyValue,
+}
+
+/// One reference of a recipe.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct TreeEdge {
+    /// The referring node's filename.
+    pub from: String,
+    /// The referenced key, encoded as the recipe wrote it (`./tyre.glb`, `data/x.csv`).
+    pub to: String,
+    /// How it is referenced.
+    pub kind: RefKind,
+}
+
+impl TreeEdge {
+    /// The filename this edge points to, when its key is directly in the folder (`./x`).
+    pub fn local_target(&self) -> Option<&str> {
+        self.to.strip_prefix("./").filter(|rest| !rest.contains('/'))
+    }
+}
+
+/// A folder's recipes read as a graph.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+pub struct TreeGraph {
+    /// Nodes by filename.
+    pub nodes: BTreeMap<String, TreeNode>,
+    /// Every reference found in the recipes, in recipe order.
+    pub edges: Vec<TreeEdge>,
+}
+
+/// One problem a tree check found.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TreeFinding {
+    /// A recipe has no filename, so it cannot be a node.
+    NoFilename {
+        /// Index of the recipe.
+        recipe: usize,
+        /// Its query.
+        query: String,
+    },
+    /// Two recipes produce the same file.
+    DuplicateFilename {
+        /// The filename.
+        filename: String,
+    },
+    /// A recipe could not be planned, so its references are unknown.
+    PlanFailed {
+        /// The node.
+        node: String,
+        /// The planning error.
+        error: String,
+    },
+    /// A declared root is not a node (AC-3).
+    UnknownRoot {
+        /// The root.
+        root: String,
+    },
+    /// The declared result is not a node (AC-19).
+    ResultNotANode {
+        /// The result.
+        result: String,
+    },
+    /// Roots and a result are both declared, and the roots are not the result alone (AC-19).
+    RootsBesideResult {
+        /// The result.
+        result: String,
+        /// The declared roots.
+        roots: Vec<String>,
+    },
+    /// The references form a cycle (AC-4).
+    Cycle {
+        /// The nodes of the cycle, in order; the first is repeated at the end.
+        nodes: Vec<String>,
+    },
+    /// Under `shape: tree`, a node has more than one parent (AC-5).
+    SecondParent {
+        /// The node.
+        node: String,
+        /// Its parents.
+        parents: Vec<String>,
+    },
+    /// No root reaches this node (AC-6). A warning.
+    Orphan {
+        /// The node.
+        node: String,
+    },
+    /// Under strict mode, a keyed dependency is not directly in the folder (AC-7).
+    StrictKey {
+        /// The node.
+        node: String,
+        /// The key.
+        key: String,
+    },
+    /// Under strict mode, the recipe passes an argument as a link or nested pipeline (AC-23).
+    StrictLink {
+        /// The node.
+        node: String,
+        /// The argument.
+        argument: String,
+    },
+    /// Under strict mode, the recipe changes the working directory (AC-7).
+    StrictCwd {
+        /// The node.
+        node: String,
+        /// The directory it sets.
+        key: String,
+    },
+    /// A reference names a file of the folder that is neither a recipe nor stored (AC-8).
+    Dangling {
+        /// The node.
+        node: String,
+        /// The missing key.
+        key: String,
+    },
+    /// A source declaration's file is not in the folder listing (AC-27).
+    MissingSource {
+        /// The source node.
+        node: String,
+    },
+    /// Under strict mode, a referenced file is not declared by a recipe (AC-28).
+    UndeclaredSource {
+        /// The node.
+        node: String,
+        /// The file.
+        file: String,
+    },
+    /// Without a listing, a reference to a file no recipe declares could not be checked. A
+    /// warning.
+    Unchecked {
+        /// The node.
+        node: String,
+        /// The file.
+        file: String,
+    },
+    /// Nodes share a name and something depends on one of them (AC-16).
+    NameCollision {
+        /// The shared name.
+        name: String,
+        /// The filenames.
+        filenames: Vec<String>,
+    },
+}
+
+impl fmt::Display for TreeFinding {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TreeFinding::NoFilename { recipe, query } => {
+                write!(f, "recipe {recipe} ('{query}') has no filename, so it is not a node")
+            }
+            TreeFinding::DuplicateFilename { filename } => {
+                write!(f, "two recipes produce '{filename}'")
+            }
+            TreeFinding::PlanFailed { node, error } => {
+                write!(f, "'{node}' cannot be planned: {error}")
+            }
+            TreeFinding::UnknownRoot { root } => write!(f, "root '{root}' is not a node"),
+            TreeFinding::ResultNotANode { result } => write!(f, "result '{result}' is not a node"),
+            TreeFinding::RootsBesideResult { result, roots } => write!(
+                f,
+                "result '{result}' is the only root, but roots {} are declared",
+                roots.join(", ")
+            ),
+            TreeFinding::Cycle { nodes } => write!(f, "cycle: {}", nodes.join(" -> ")),
+            TreeFinding::SecondParent { node, parents } => write!(
+                f,
+                "'{node}' has more than one parent ({}) in a tree",
+                parents.join(", ")
+            ),
+            TreeFinding::Orphan { node } => write!(f, "'{node}' is reached from no root"),
+            TreeFinding::StrictKey { node, key } => write!(
+                f,
+                "'{node}' depends on '{key}', which is not directly in the folder (strict)"
+            ),
+            TreeFinding::StrictLink { node, argument } => write!(
+                f,
+                "'{node}' passes argument '{argument}' as a link or pipeline (strict allows \
+                 node names only)"
+            ),
+            TreeFinding::StrictCwd { node, key } => {
+                write!(f, "'{node}' sets the working directory to '{key}' (strict)")
+            }
+            TreeFinding::Dangling { node, key } => {
+                write!(f, "'{node}' refers to '{key}', which is neither a recipe nor stored")
+            }
+            TreeFinding::MissingSource { node } => {
+                write!(f, "source '{node}' is declared but not stored")
+            }
+            TreeFinding::UndeclaredSource { node, file } => write!(
+                f,
+                "'{node}' refers to '{file}', which no recipe declares (strict: add \
+                 {{query: {file}}})"
+            ),
+            TreeFinding::Unchecked { node, file } => write!(
+                f,
+                "'{node}' refers to '{file}', which no recipe declares; not checked (a stored file?)"
+            ),
+            TreeFinding::NameCollision { name, filenames } => write!(
+                f,
+                "name '{name}' is shared by {} and one of them is referenced",
+                filenames.join(", ")
+            ),
+        }
+    }
+}
+
+impl TreeFinding {
+    /// The finding as an error.
+    pub fn to_error(&self) -> Error {
+        match self {
+            TreeFinding::StrictKey { node, key } => {
+                Error::strict_dependency(node, key, &self.to_string())
+            }
+            TreeFinding::StrictLink { node, argument } => {
+                Error::strict_dependency(node, argument, &self.to_string())
+            }
+            TreeFinding::StrictCwd { node, key } => {
+                Error::strict_dependency(node, key, &self.to_string())
+            }
+            TreeFinding::Cycle { nodes } => Error::tree_cycle(nodes),
+            TreeFinding::NoFilename { .. }
+            | TreeFinding::DuplicateFilename { .. }
+            | TreeFinding::PlanFailed { .. }
+            | TreeFinding::UnknownRoot { .. }
+            | TreeFinding::ResultNotANode { .. }
+            | TreeFinding::RootsBesideResult { .. }
+            | TreeFinding::SecondParent { .. }
+            | TreeFinding::Orphan { .. }
+            | TreeFinding::Dangling { .. }
+            | TreeFinding::MissingSource { .. }
+            | TreeFinding::UndeclaredSource { .. }
+            | TreeFinding::Unchecked { .. }
+            | TreeFinding::NameCollision { .. } => Error::tree_check(&self.to_string()),
+        }
+    }
+}
+
+/// The result of [`check_tree`].
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+pub struct TreeReport {
+    /// The roots, declared or found.
+    pub roots: Vec<String>,
+    /// The declared result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<String>,
+    /// The graph.
+    pub graph: TreeGraph,
+    /// Errors: the tree fails its check.
+    pub errors: Vec<TreeFinding>,
+    /// Warnings.
+    pub warnings: Vec<TreeFinding>,
+}
+
+impl TreeReport {
+    /// The first error as an [`Error`], with every error in its message; `None` when the tree
+    /// checks.
+    pub fn error(&self) -> Option<Error> {
+        match self.errors.as_slice() {
+            [] => None,
+            [one] => Some(one.to_error()),
+            [first, ..] => {
+                let all: Vec<String> = self.errors.iter().map(|f| f.to_string()).collect();
+                let mut error = first.to_error();
+                error.message = format!("{}; all findings: {}", error.message, all.join("; "));
+                Some(error)
+            }
+        }
+    }
+}
+
+/// A node's name: its filename without the extension.
+pub fn node_name(filename: &str) -> &str {
+    match filename.rfind('.') {
+        Some(i) if i > 0 => &filename[..i],
+        Some(_) | None => filename,
+    }
+}
+
+/// Whether `key` is directly in the folder: `./<filename>`.
+fn is_local(key: &Key) -> bool {
+    key.len() == 2 && key.iter().next().map(|n| n.name.as_str()) == Some(".")
+}
+
+/// A reference found in a plan, before it is attributed to a node.
+struct PlanRef {
+    to: Key,
+    kind: RefKind,
+}
+
+/// What [`walk_plan`] collects.
+#[derive(Default)]
+struct PlanWalk {
+    refs: Vec<PlanRef>,
+    /// Arguments passed as links or pipelines by the recipe.
+    link_arguments: Vec<String>,
+    /// Working directories the recipe sets (beyond the leading one of its own `cwd`).
+    cwds: Vec<Key>,
+    /// Errors met while walking (a nested pipeline that cannot be planned).
+    errors: Vec<String>,
+}
+
+/// Collects the references of a plan. Steps of a pipeline command's body are command logic:
+/// only Node names bound into it from the call are collected.
+fn walk_plan(plan: &Plan, cmr: &CommandMetadataRegistry, walk: &mut PlanWalk, body: bool) {
+    for (index, step) in plan.steps.iter().enumerate() {
+        match step {
+            Step::GetAsset(key)
+            | Step::GetAssetBinary(key)
+            | Step::GetAssetMetadata(key)
+            | Step::GetAssetRecipe(key)
+            | Step::GetAssetDirectory(key)
+            | Step::GetResource(key)
+            | Step::GetResourceMetadata(key)
+            | Step::GetResourceDirectory(key) => {
+                if !body {
+                    walk.refs.push(PlanRef {
+                        to: key.clone(),
+                        kind: RefKind::Resource,
+                    });
+                }
+            }
+            Step::UseKeyValue(key) => {
+                if !body {
+                    walk.refs.push(PlanRef {
+                        to: key.clone(),
+                        kind: RefKind::KeyValue,
+                    });
+                }
+            }
+            Step::Evaluate(query) => {
+                if !body {
+                    if let Some(key) = query.key() {
+                        walk.refs.push(PlanRef {
+                            to: key,
+                            kind: RefKind::Resource,
+                        });
+                    }
+                }
+            }
+            Step::SetCwd(key) => {
+                if !body {
+                    walk.cwds.push(key.clone());
+                }
+            }
+            Step::Action { parameters, .. } => {
+                for parameter in &parameters.0 {
+                    walk_parameter(parameter, index, cmr, walk, body);
+                }
+            }
+            Step::PipelineCommand {
+                parameters, plan, ..
+            } => {
+                for parameter in &parameters.0 {
+                    walk_parameter(parameter, index, cmr, walk, body);
+                }
+                walk_plan(plan, cmr, walk, true);
+            }
+            Step::Plan(nested) => walk_plan(nested, cmr, walk, body),
+            Step::UseQueryValue(_)
+            | Step::UseValue(_)
+            | Step::Filename(_)
+            | Step::Info(_)
+            | Step::Warning(_)
+            | Step::Error(_) => {}
+        }
+    }
+}
+
+fn walk_parameter(
+    parameter: &ParameterValue,
+    action: usize,
+    cmr: &CommandMetadataRegistry,
+    walk: &mut PlanWalk,
+    body: bool,
+) {
+    match parameter {
+        ParameterValue::NodeLink(arg, _, query, _) => {
+            if let Some(key) = query.key() {
+                walk.refs.push(PlanRef {
+                    to: key,
+                    kind: RefKind::NodeArg {
+                        action,
+                        arg: arg.clone(),
+                    },
+                });
+            }
+        }
+        ParameterValue::ParameterLink(arg, query, _) | ParameterValue::OverrideLink(arg, query) => {
+            if body {
+                return;
+            }
+            walk.link_arguments.push(arg.clone());
+            if let Some(key) = query.key() {
+                walk.refs.push(PlanRef {
+                    to: key,
+                    kind: RefKind::Link { arg: arg.clone() },
+                });
+            }
+        }
+        ParameterValue::ParameterPipeline(arg, pipeline, _)
+        | ParameterValue::OverridePipeline(arg, pipeline) => {
+            if body {
+                return;
+            }
+            walk.link_arguments.push(arg.clone());
+            match pipeline.to_plan(cmr) {
+                Ok(plan) => {
+                    let mut nested = PlanWalk::default();
+                    walk_plan(&plan, cmr, &mut nested, false);
+                    for r in nested.refs {
+                        walk.refs.push(PlanRef {
+                            to: r.to,
+                            kind: RefKind::Link { arg: arg.clone() },
+                        });
+                    }
+                    walk.errors.extend(nested.errors);
+                }
+                Err(error) => walk.errors.push(error.to_string()),
+            }
+        }
+        ParameterValue::MultipleParameters(_, items) => {
+            for item in items {
+                walk_parameter(item, action, cmr, walk, body);
+            }
+        }
+        // Trusted command logic (AC-23), and values.
+        ParameterValue::DefaultLink(_, _)
+        | ParameterValue::DefaultPipeline(_, _)
+        | ParameterValue::EnumLink(_, _, _)
+        | ParameterValue::DefaultValue(_, _)
+        | ParameterValue::ParameterValue(_, _, _)
+        | ParameterValue::OverrideValue(_, _)
+        | ParameterValue::Placeholder(_)
+        | ParameterValue::Injected(_)
+        | ParameterValue::InputState(_)
+        | ParameterValue::FrameArgument(_, _)
+        | ParameterValue::None => {}
+    }
+}
+
+/// The plan of `recipe`, with no working directory so keys stay as written.
+fn unfrozen_plan(
+    recipe: &crate::recipes::Recipe,
+    cmr: &CommandMetadataRegistry,
+) -> Result<Plan, Error> {
+    let mut recipe = recipe.clone();
+    recipe.cwd = None;
+    recipe.to_plan(cmr)
+}
+
+/// The per-recipe strict rules (AC-7, AC-23) over one recipe's unfrozen plan: keyed
+/// dependencies directly in the folder only, no link or nested-pipeline argument written by the
+/// recipe, and no change of the working directory. `node` names the recipe in the findings.
+pub fn check_strict(node: &str, plan: &Plan, cmr: &CommandMetadataRegistry) -> Vec<TreeFinding> {
+    let mut walk = PlanWalk::default();
+    walk_plan(plan, cmr, &mut walk, false);
+    strict_findings(node, &walk)
+}
+
+fn strict_findings(node: &str, walk: &PlanWalk) -> Vec<TreeFinding> {
+    let mut findings = Vec::new();
+    for key in &walk.cwds {
+        findings.push(TreeFinding::StrictCwd {
+            node: node.to_owned(),
+            key: key.encode(),
+        });
+    }
+    for argument in &walk.link_arguments {
+        findings.push(TreeFinding::StrictLink {
+            node: node.to_owned(),
+            argument: argument.clone(),
+        });
+    }
+    for r in &walk.refs {
+        if matches!(r.kind, RefKind::Link { .. }) {
+            continue; // already refused as a link argument
+        }
+        if !is_local(&r.to) {
+            findings.push(TreeFinding::StrictKey {
+                node: node.to_owned(),
+                key: r.to.encode(),
+            });
+        }
+    }
+    findings
+}
+
+impl TreeGraph {
+    /// Plans each recipe (unfrozen, so keys stay relative) and collects its references. The
+    /// nodes are the recipes and declared sources, merged with `listing` when given: a `listdir`
+    /// of the folder from the store, the asset manager or the recipe provider (names already in
+    /// the recipes are merged, so any of the three works). `None` when the listing is unknown.
+    ///
+    /// Fails only on the first recipe that cannot be planned; [`check_tree`] reports every
+    /// such recipe instead.
+    pub fn build(
+        list: &RecipeList,
+        listing: Option<&[String]>,
+        cmr: &CommandMetadataRegistry,
+    ) -> Result<Self, Error> {
+        let (graph, analysis) = analyse(list, listing, cmr);
+        match analysis.plan_errors.into_iter().next() {
+            Some(error) => Err(error),
+            None => Ok(graph),
+        }
+    }
+
+    /// Filenames of the nodes that `filename` references, directly in the folder, in order and
+    /// without repetition.
+    pub fn children(&self, filename: &str) -> Vec<String> {
+        let mut seen = BTreeSet::new();
+        let mut children = Vec::new();
+        for edge in self.edges.iter().filter(|e| e.from == filename) {
+            if let Some(target) = edge.local_target() {
+                if self.nodes.contains_key(target) && seen.insert(target.to_owned()) {
+                    children.push(target.to_owned());
+                }
+            }
+        }
+        children
+    }
+
+    /// Filenames of the nodes that reference `filename`.
+    pub fn parents(&self, filename: &str) -> Vec<String> {
+        let mut parents: Vec<String> = self
+            .edges
+            .iter()
+            .filter(|e| e.local_target() == Some(filename) && e.from != filename)
+            .map(|e| e.from.clone())
+            .collect();
+        parents.sort();
+        parents.dedup();
+        parents
+    }
+}
+
+/// What building the graph found besides it.
+#[derive(Default)]
+struct Analysis {
+    findings: Vec<TreeFinding>,
+    plan_errors: Vec<Error>,
+    strict_findings: Vec<TreeFinding>,
+}
+
+fn analyse(
+    list: &RecipeList,
+    listing: Option<&[String]>,
+    cmr: &CommandMetadataRegistry,
+) -> (TreeGraph, Analysis) {
+    let mut graph = TreeGraph::default();
+    let mut analysis = Analysis::default();
+    for (index, recipe) in list.recipes.iter().enumerate() {
+        let filename = match recipe.filename() {
+            Ok(Some(f)) => f.name,
+            Ok(None) => {
+                analysis.findings.push(TreeFinding::NoFilename {
+                    recipe: index,
+                    query: recipe.query.clone(),
+                });
+                continue;
+            }
+            Err(error) => {
+                analysis.findings.push(TreeFinding::PlanFailed {
+                    node: format!("recipe {index}"),
+                    error: error.to_string(),
+                });
+                analysis.plan_errors.push(error);
+                continue;
+            }
+        };
+        if graph.nodes.contains_key(&filename) {
+            analysis.findings.push(TreeFinding::DuplicateFilename {
+                filename: filename.clone(),
+            });
+            continue;
+        }
+        let origin = if recipe.is_source_declaration() {
+            NodeOrigin::Source(index)
+        } else {
+            NodeOrigin::Recipe(index)
+        };
+        graph.nodes.insert(
+            filename.clone(),
+            TreeNode {
+                name: node_name(&filename).to_owned(),
+                filename: filename.clone(),
+                title: recipe.title.clone(),
+                origin,
+            },
+        );
+        let plan = match unfrozen_plan(recipe, cmr) {
+            Ok(plan) => plan,
+            Err(error) => {
+                analysis.findings.push(TreeFinding::PlanFailed {
+                    node: filename.clone(),
+                    error: error.to_string(),
+                });
+                analysis.plan_errors.push(error);
+                continue;
+            }
+        };
+        let mut walk = PlanWalk::default();
+        walk_plan(&plan, cmr, &mut walk, false);
+        for error in &walk.errors {
+            analysis.findings.push(TreeFinding::PlanFailed {
+                node: filename.clone(),
+                error: error.clone(),
+            });
+        }
+        analysis
+            .strict_findings
+            .extend(strict_findings(&filename, &walk));
+        for r in walk.refs {
+            graph.edges.push(TreeEdge {
+                from: filename.clone(),
+                to: r.to.encode(),
+                kind: r.kind,
+            });
+        }
+    }
+    if let Some(listing) = listing {
+        for name in listing {
+            if name == "recipes.yaml" || name.is_empty() || name.contains('/') {
+                continue;
+            }
+            graph.nodes.entry(name.clone()).or_insert_with(|| TreeNode {
+                filename: name.clone(),
+                name: node_name(name).to_owned(),
+                title: String::new(),
+                origin: NodeOrigin::Listed,
+            });
+        }
+    }
+    (graph, analysis)
+}
+
+/// The whole tree check (AC-3–AC-8, AC-16, AC-19, AC-23, AC-27, AC-28). Never fails: every
+/// problem is a finding in the report. Without a `tree:` section the list is checked with the
+/// defaults (`dag`, `open`).
+///
+/// `listing` is the folder's `listdir` (see [`TreeGraph::build`]). Without it, a reference to a
+/// file no recipe declares is a warning, and an error under strict mode.
+pub fn check_tree(
+    list: &RecipeList,
+    listing: Option<&[String]>,
+    cmr: &CommandMetadataRegistry,
+) -> TreeReport {
+    let declaration = list.tree.clone().unwrap_or_default();
+    let strict = declaration.dependencies == DependencyMode::Strict;
+    let (graph, analysis) = analyse(list, listing, cmr);
+    let mut errors = analysis.findings;
+    let mut warnings = Vec::new();
+    if strict {
+        errors.extend(analysis.strict_findings);
+    }
+
+    // References to files of the folder: dangling, undeclared, unchecked (AC-8, AC-28).
+    let mut reported = BTreeSet::new();
+    for edge in &graph.edges {
+        let Some(target) = edge.local_target() else {
+            continue;
+        };
+        if !reported.insert((edge.from.clone(), target.to_owned())) {
+            continue;
+        }
+        match graph.nodes.get(target).map(|n| n.origin) {
+            Some(NodeOrigin::Recipe(_)) | Some(NodeOrigin::Source(_)) => {}
+            Some(NodeOrigin::Listed) => {
+                if strict {
+                    errors.push(TreeFinding::UndeclaredSource {
+                        node: edge.from.clone(),
+                        file: target.to_owned(),
+                    });
+                }
+            }
+            None => match (listing.is_some(), strict) {
+                (true, _) => errors.push(TreeFinding::Dangling {
+                    node: edge.from.clone(),
+                    key: edge.to.clone(),
+                }),
+                (false, true) => errors.push(TreeFinding::UndeclaredSource {
+                    node: edge.from.clone(),
+                    file: target.to_owned(),
+                }),
+                (false, false) => warnings.push(TreeFinding::Unchecked {
+                    node: edge.from.clone(),
+                    file: target.to_owned(),
+                }),
+            },
+        }
+    }
+
+    // Declared sources must be stored, when the listing says what is stored (AC-27).
+    if let Some(listing) = listing {
+        for node in graph.nodes.values() {
+            if matches!(node.origin, NodeOrigin::Source(_))
+                && !listing.iter().any(|name| *name == node.filename)
+            {
+                errors.push(TreeFinding::MissingSource {
+                    node: node.filename.clone(),
+                });
+            }
+        }
+    }
+
+    // Name collisions matter only when something depends on one of the nodes (AC-16).
+    let mut by_name: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for node in graph.nodes.values() {
+        by_name
+            .entry(node.name.as_str())
+            .or_default()
+            .push(node.filename.as_str());
+    }
+    for (name, filenames) in &by_name {
+        if filenames.len() > 1
+            && filenames
+                .iter()
+                .any(|f| graph.edges.iter().any(|e| e.local_target() == Some(f)))
+        {
+            errors.push(TreeFinding::NameCollision {
+                name: (*name).to_owned(),
+                filenames: filenames.iter().map(|f| (*f).to_owned()).collect(),
+            });
+        }
+    }
+
+    // Roots and result (AC-3, AC-19).
+    let roots: Vec<String> = match &declaration.result {
+        Some(result) => {
+            if !graph.nodes.contains_key(result) {
+                errors.push(TreeFinding::ResultNotANode {
+                    result: result.clone(),
+                });
+            }
+            if !declaration.roots.is_empty() && declaration.roots != [result.clone()] {
+                errors.push(TreeFinding::RootsBesideResult {
+                    result: result.clone(),
+                    roots: declaration.roots.clone(),
+                });
+            }
+            vec![result.clone()]
+        }
+        None if !declaration.roots.is_empty() => {
+            for root in &declaration.roots {
+                if !graph.nodes.contains_key(root) {
+                    errors.push(TreeFinding::UnknownRoot { root: root.clone() });
+                }
+            }
+            declaration.roots.clone()
+        }
+        // The recipes nothing depends on; a source or a stored file nothing uses is an orphan.
+        None => graph
+            .nodes
+            .values()
+            .filter(|n| matches!(n.origin, NodeOrigin::Recipe(_)))
+            .filter(|n| graph.parents(&n.filename).is_empty())
+            .map(|n| n.filename.clone())
+            .collect(),
+    };
+
+    errors.extend(find_cycles(&graph));
+
+    if declaration.shape == TreeShape::Tree {
+        for node in graph.nodes.keys() {
+            let parents = graph.parents(node);
+            if parents.len() > 1 {
+                errors.push(TreeFinding::SecondParent {
+                    node: node.clone(),
+                    parents,
+                });
+            }
+        }
+    }
+
+    // Orphans (AC-6): reached from no root.
+    let mut reached = BTreeSet::new();
+    let mut stack: Vec<String> = roots
+        .iter()
+        .filter(|r| graph.nodes.contains_key(*r))
+        .cloned()
+        .collect();
+    while let Some(node) = stack.pop() {
+        if reached.insert(node.clone()) {
+            stack.extend(graph.children(&node));
+        }
+    }
+    for node in graph.nodes.keys() {
+        if !reached.contains(node) {
+            warnings.push(TreeFinding::Orphan { node: node.clone() });
+        }
+    }
+
+    TreeReport {
+        roots,
+        result: declaration.result.clone(),
+        graph,
+        errors,
+        warnings,
+    }
+}
+
+/// Every cycle of the node graph, each once, in reference order (AC-4).
+fn find_cycles(graph: &TreeGraph) -> Vec<TreeFinding> {
+    #[derive(Clone, Copy, PartialEq)]
+    enum Mark {
+        New,
+        Open,
+        Done,
+    }
+    fn visit(
+        node: &str,
+        graph: &TreeGraph,
+        marks: &mut BTreeMap<String, Mark>,
+        path: &mut Vec<String>,
+        found: &mut Vec<TreeFinding>,
+    ) {
+        marks.insert(node.to_owned(), Mark::Open);
+        path.push(node.to_owned());
+        for child in graph.children(node) {
+            match marks.get(&child).copied().unwrap_or(Mark::New) {
+                Mark::New => visit(&child, graph, marks, path, found),
+                Mark::Open => {
+                    if let Some(start) = path.iter().position(|n| *n == child) {
+                        let mut nodes: Vec<String> = path[start..].to_vec();
+                        nodes.push(child.clone());
+                        found.push(TreeFinding::Cycle { nodes });
+                    }
+                }
+                Mark::Done => {}
+            }
+        }
+        path.pop();
+        marks.insert(node.to_owned(), Mark::Done);
+    }
+    let mut marks: BTreeMap<String, Mark> = BTreeMap::new();
+    let mut found = Vec::new();
+    for node in graph.nodes.keys() {
+        if marks.get(node).copied().unwrap_or(Mark::New) == Mark::New {
+            visit(node, graph, &mut marks, &mut Vec::new(), &mut found);
+        }
+    }
+    // A self-reference is a cycle of one.
+    for edge in &graph.edges {
+        if edge.local_target() == Some(edge.from.as_str()) {
+            let nodes = vec![edge.from.clone(), edge.from.clone()];
+            if !found.contains(&TreeFinding::Cycle {
+                nodes: nodes.clone(),
+            }) {
+                found.push(TreeFinding::Cycle { nodes });
+            }
+        }
+    }
+    found
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::command_metadata::{ArgumentInfo, ArgumentType, CommandKey, NodeArgument};
+
+    fn cmr() -> CommandMetadataRegistry {
+        let mut cmr = CommandMetadataRegistry::new();
+        let mut attach = crate::command_metadata::CommandMetadata::from_key(CommandKey::new_name(
+            "attach",
+        ));
+        let mut part = ArgumentInfo::any_argument("part");
+        part.argument_type = ArgumentType::Node(NodeArgument::new("glb"));
+        attach.with_argument(part);
+        cmr.add_command(&attach);
+        let mut material = crate::command_metadata::CommandMetadata::from_key(
+            CommandKey::new_name("material"),
+        );
+        let mut m = ArgumentInfo::any_argument("m");
+        m.argument_type = ArgumentType::Node(NodeArgument::new("mat"));
+        material.with_argument(m);
+        cmr.add_command(&material);
+        let mut with_dir =
+            crate::command_metadata::CommandMetadata::from_key(CommandKey::new_name("with_dir"));
+        let mut dir = ArgumentInfo::any_argument("dir");
+        dir.default = crate::command_metadata::CommandParameterValue::Query(
+            crate::parse::parse_query("-R-key/.").expect("query"),
+        );
+        with_dir.with_argument(dir);
+        cmr.add_command(&with_dir);
+        let mut any = crate::command_metadata::CommandMetadata::from_key(CommandKey::new_name("any"));
+        any.with_argument(ArgumentInfo::any_argument("x"));
+        cmr.add_command(&any);
+        cmr
+    }
+
+    fn list(yaml: &str) -> RecipeList {
+        serde_yaml::from_str(yaml).expect("recipes.yaml")
+    }
+
+    const CAR: &str = r#"
+recipes:
+  - {query: body.glb, title: Body}
+  - {query: tyre.glb, title: Tyre}
+  - {query: rubber.mat, title: Rubber}
+  - {title: Wheel, query: "-R/./tyre.glb/-/material-rubber/wheel.glb"}
+  - {title: Car, query: "-R/./body.glb/-/attach-wheel/car.glb"}
+"#;
+
+    fn car(tree: &str) -> RecipeList {
+        list(&format!("{tree}{CAR}"))
+    }
+
+    fn listing() -> Vec<String> {
+        ["body.glb", "tyre.glb", "rubber.mat", "recipes.yaml"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
+    }
+
+    fn has<F: Fn(&TreeFinding) -> bool>(findings: &[TreeFinding], f: F) -> bool {
+        findings.iter().any(f)
+    }
+
+    /// AC-1, AC-27: resource segments and Node names are edges; sources are nodes with titles.
+    #[test]
+    fn graph_lists_resource_node_and_link_edges() {
+        let cmr = cmr();
+        let graph = TreeGraph::build(&car(""), Some(&listing()), &cmr).expect("graph");
+        assert_eq!(graph.children("car.glb"), vec!["body.glb", "wheel.glb"]);
+        assert_eq!(graph.children("wheel.glb"), vec!["tyre.glb", "rubber.mat"]);
+        assert!(graph.edges.iter().any(|e| e.from == "car.glb"
+            && e.to == "./wheel.glb"
+            && matches!(&e.kind, RefKind::NodeArg { arg, .. } if arg == "part")));
+        assert!(graph
+            .edges
+            .iter()
+            .any(|e| e.from == "car.glb" && e.to == "./body.glb" && e.kind == RefKind::Resource));
+        let linked = list(
+            "recipes:\n  - {query: \"-R/./a.glb/-/any-~X~-R/./b.glb~E/c.glb\"}\n  - {query: a.glb}\n  - {query: b.glb}\n",
+        );
+        let graph = TreeGraph::build(&linked, None, &cmr).expect("graph");
+        assert!(graph.edges.iter().any(|e| e.to == "./b.glb"
+            && matches!(&e.kind, RefKind::Link { arg } if arg == "x")));
+    }
+
+    /// AC-27: a source declaration is a node with the recipe's title.
+    #[test]
+    fn source_declaration_is_a_node_with_title() {
+        let graph = TreeGraph::build(&car(""), None, &cmr()).expect("graph");
+        let body = &graph.nodes["body.glb"];
+        assert_eq!(body.title, "Body");
+        assert_eq!(body.name, "body");
+        assert!(matches!(body.origin, NodeOrigin::Source(0)));
+        assert!(matches!(graph.nodes["car.glb"].origin, NodeOrigin::Recipe(4)));
+    }
+
+    /// AC-3: without declarations the roots are the recipes nothing depends on.
+    #[test]
+    fn default_roots_are_unreferenced_nodes() {
+        let report = check_tree(&car(""), Some(&listing()), &cmr());
+        assert!(report.errors.is_empty(), "{:?}", report.errors);
+        assert_eq!(report.roots, vec!["car.glb"]);
+        assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    }
+
+    /// AC-3: a declared root must be a node.
+    #[test]
+    fn declared_root_must_be_a_node() {
+        let report = check_tree(&car("tree: {roots: [car.glb, boat.glb]}\n"), None, &cmr());
+        assert!(has(&report.errors, |f| matches!(f, TreeFinding::UnknownRoot { root } if root == "boat.glb")));
+        assert!(!has(&report.errors, |f| matches!(f, TreeFinding::UnknownRoot { root } if root == "car.glb")));
+    }
+
+    /// AC-4: a cycle is reported with its nodes in order.
+    #[test]
+    fn cycle_reported_in_order() {
+        let cyclic = list(
+            "recipes:\n  - {query: \"-R/./b.glb/-/a.glb\"}\n  - {query: \"-R/./c.glb/-/b.glb\"}\n  - {query: \"-R/./a.glb/-/c.glb\"}\n",
+        );
+        let report = check_tree(&cyclic, None, &cmr());
+        let cycles: Vec<&TreeFinding> = report
+            .errors
+            .iter()
+            .filter(|f| matches!(f, TreeFinding::Cycle { .. }))
+            .collect();
+        assert_eq!(cycles.len(), 1, "{:?}", report.errors);
+        assert_eq!(
+            cycles[0],
+            &TreeFinding::Cycle {
+                nodes: vec!["a.glb".into(), "b.glb".into(), "c.glb".into(), "a.glb".into()]
+            }
+        );
+        assert_eq!(cycles[0].to_error().error_type, crate::error::ErrorType::DependencyCycle);
+    }
+
+    const SHARED: &str = r#"
+recipes:
+  - {query: tyre.glb}
+  - {query: "-R/./tyre.glb/-/front.glb"}
+  - {query: "-R/./tyre.glb/-/rear.glb"}
+  - {query: "-R/./front.glb/-/attach-rear/car.glb"}
+"#;
+
+    /// AC-5: under `shape: tree` a node with two parents is refused.
+    #[test]
+    fn tree_shape_refuses_two_parents() {
+        let report = check_tree(&list(&format!("tree: {{shape: tree}}{SHARED}")), None, &cmr());
+        assert!(has(&report.errors, |f| matches!(f,
+            TreeFinding::SecondParent { node, parents }
+                if node == "tyre.glb" && parents == &vec!["front.glb".to_string(), "rear.glb".to_string()])));
+    }
+
+    /// AC-5: a DAG allows it.
+    #[test]
+    fn dag_allows_two_parents() {
+        let report = check_tree(&list(SHARED), None, &cmr());
+        assert!(report.errors.is_empty(), "{:?}", report.errors);
+    }
+
+    /// AC-6: a node reached from no root is a warning.
+    #[test]
+    fn orphan_is_a_warning() {
+        let mut files = listing();
+        files.push("spare.glb".into());
+        let report = check_tree(&car("tree: {result: car.glb}\n"), Some(&files), &cmr());
+        assert!(report.errors.is_empty(), "{:?}", report.errors);
+        assert!(has(&report.warnings, |f| matches!(f, TreeFinding::Orphan { node } if node == "spare.glb")));
+    }
+
+    /// AC-7: strict refuses absolute, parent and subfolder keys.
+    #[test]
+    fn strict_refuses_absolute_parent_and_subfolder_keys() {
+        let strict = list(
+            r#"
+tree: {dependencies: strict}
+recipes:
+  - {query: "-R/data/x.glb/-/a.glb"}
+  - {query: "-R/../x.glb/-/b.glb"}
+  - {query: "-R/./sub/x.glb/-/c.glb"}
+  - {query: "-R/./ok.glb/-/d.glb"}
+  - {query: ok.glb}
+"#,
+        );
+        let report = check_tree(&strict, None, &cmr());
+        for (node, key) in [("a.glb", "data/x.glb"), ("b.glb", "../x.glb"), ("c.glb", "./sub/x.glb")] {
+            assert!(
+                has(&report.errors, |f| matches!(f, TreeFinding::StrictKey { node: n, key: k } if n == node && k == key)),
+                "{node}: {:?}",
+                report.errors
+            );
+        }
+        assert!(!has(&report.errors, |f| matches!(f, TreeFinding::StrictKey { node, .. } if node == "d.glb")));
+        let open = check_tree(&list(&strict_yaml_without_tree()), None, &cmr());
+        assert!(!has(&open.errors, |f| matches!(f, TreeFinding::StrictKey { .. })));
+    }
+
+    fn strict_yaml_without_tree() -> String {
+        "recipes:\n  - {query: \"-R/data/x.glb/-/a.glb\"}\n".to_string()
+    }
+
+    /// AC-8: a reference to a file that is neither a recipe nor stored is an error.
+    #[test]
+    fn dangling_reference_is_an_error() {
+        let report = check_tree(&car(""), Some(&["body.glb".to_string()]), &cmr());
+        assert!(has(&report.errors, |f| matches!(f,
+            TreeFinding::MissingSource { node } if node == "tyre.glb")));
+        let dangling = list("recipes:\n  - {query: \"-R/./gone.glb/-/a.glb\"}\n");
+        let report = check_tree(&dangling, Some(&[]), &cmr());
+        assert!(has(&report.errors, |f| matches!(f,
+            TreeFinding::Dangling { node, key } if node == "a.glb" && key == "./gone.glb")));
+        let report = check_tree(&dangling, None, &cmr());
+        assert!(report.errors.is_empty(), "{:?}", report.errors);
+        assert!(has(&report.warnings, |f| matches!(f, TreeFinding::Unchecked { .. })));
+    }
+
+    /// AC-16: two nodes with one name are refused when one is referenced.
+    #[test]
+    fn name_collision_refused_when_referenced() {
+        let files = vec!["logo.png".to_string(), "logo.jpg".to_string()];
+        let used = list("recipes:\n  - {query: \"-R/./logo.png/-/a.txt\"}\n");
+        let report = check_tree(&used, Some(&files), &cmr());
+        assert!(has(&report.errors, |f| matches!(f,
+            TreeFinding::NameCollision { name, filenames }
+                if name == "logo" && filenames.len() == 2)));
+    }
+
+    /// AC-16: they are allowed while nothing depends on either.
+    #[test]
+    fn name_collision_allowed_when_unreferenced() {
+        let files = vec!["logo.png".to_string(), "logo.jpg".to_string()];
+        let report = check_tree(&list("recipes:\n  - {query: a.txt}\n"), Some(&files), &cmr());
+        assert!(!has(&report.errors, |f| matches!(f, TreeFinding::NameCollision { .. })));
+    }
+
+    /// AC-19: the result is the only root, and must be a node.
+    #[test]
+    fn result_is_the_only_root() {
+        let report = check_tree(&car("tree: {result: wheel.glb}\n"), Some(&listing()), &cmr());
+        assert_eq!(report.roots, vec!["wheel.glb"]);
+        assert_eq!(report.result.as_deref(), Some("wheel.glb"));
+        assert!(has(&report.warnings, |f| matches!(f, TreeFinding::Orphan { node } if node == "car.glb")));
+        let report = check_tree(&car("tree: {result: boat.glb}\n"), None, &cmr());
+        assert!(has(&report.errors, |f| matches!(f, TreeFinding::ResultNotANode { .. })));
+        let report = check_tree(&car("tree: {result: car.glb, roots: [wheel.glb]}\n"), None, &cmr());
+        assert!(has(&report.errors, |f| matches!(f, TreeFinding::RootsBesideResult { .. })));
+    }
+
+    /// AC-23: a strict recipe may not pass a link, whatever the argument's type.
+    #[test]
+    fn strict_refuses_link_argument() {
+        let strict = list(
+            r#"
+tree: {dependencies: strict}
+recipes:
+  - {query: a.glb}
+  - {query: b.glb}
+  - {query: "-R/./a.glb/-/any-~X~-R/./b.glb~E/c.glb"}
+  - {query: "-R/./a.glb/-/attach-~X~-R/./b.glb~E/d.glb"}
+"#,
+        );
+        let report = check_tree(&strict, None, &cmr());
+        for (node, arg) in [("c.glb", "x"), ("d.glb", "part")] {
+            assert!(
+                has(&report.errors, |f| matches!(f,
+                    TreeFinding::StrictLink { node: n, argument } if n == node && argument == arg)),
+                "{node}: {:?}",
+                report.errors
+            );
+        }
+        let error = report.error().expect("an error");
+        assert_eq!(error.error_type, crate::error::ErrorType::ParameterError);
+    }
+
+    /// AC-23: a command's default link is trusted.
+    #[test]
+    fn strict_trusts_default_and_enum_links() {
+        let strict = list(
+            "tree: {dependencies: strict}\nrecipes:\n  - {query: a.glb}\n  - {query: \"-R/./a.glb/-/with_dir/b.glb\"}\n",
+        );
+        let report = check_tree(&strict, None, &cmr());
+        assert!(report.errors.is_empty(), "{:?}", report.errors);
+    }
+
+    /// AC-28: a strict folder declares every file it uses.
+    #[test]
+    fn strict_requires_declared_sources() {
+        let mut stored = list("tree: {dependencies: strict}\nrecipes:\n  - {query: \"-R/./a.glb/-/b.glb\"}\n");
+        let files = vec!["a.glb".to_string()];
+        let report = check_tree(&stored, Some(&files), &cmr());
+        assert!(has(&report.errors, |f| matches!(f,
+            TreeFinding::UndeclaredSource { node, file } if node == "b.glb" && file == "a.glb")));
+        let report = check_tree(&stored, None, &cmr());
+        assert!(has(&report.errors, |f| matches!(f, TreeFinding::UndeclaredSource { .. })));
+        stored.recipes.push(crate::recipes::Recipe::new("a.glb".into(), "A".into(), String::new()).expect("recipe"));
+        let report = check_tree(&stored, Some(&files), &cmr());
+        assert!(report.errors.is_empty(), "{:?}", report.errors);
+    }
+
+    /// AC-2: the `tree:` section round-trips; defaults are not written.
+    #[test]
+    fn tree_section_round_trips() {
+        let yaml = "tree:\n  result: car.glb\n  dependencies: strict\nrecipes: []\n";
+        let parsed = list(yaml);
+        let declaration = parsed.tree.clone().expect("tree");
+        assert_eq!(declaration.shape, TreeShape::Dag);
+        let written = serde_yaml::to_string(&parsed).expect("yaml");
+        assert_eq!(list(&written).tree, Some(declaration));
+        assert!(!written.contains("shape"), "{written}");
+        assert!(serde_yaml::to_string(&list("recipes: []\n")).expect("yaml").find("tree").is_none());
+    }
+}

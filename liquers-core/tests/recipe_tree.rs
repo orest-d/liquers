@@ -8,7 +8,7 @@ use liquers_core::{
     metadata::{Metadata, MetadataRecord, Status},
     parse::{parse_key, parse_query},
     query::Key,
-    recipes::DefaultRecipeProvider,
+    recipes::{DefaultRecipeProvider, RecipeList},
     state::State,
     store::{AsyncMemoryStore, AsyncStore},
     value::{Value, ValueInterface},
@@ -143,12 +143,28 @@ async fn source_declaration_without_data_is_key_not_found() -> Result<(), Box<dy
     Ok(())
 }
 
-/// AC-2, AC-26: the car evaluates through its recipes and source declarations.
+/// AC-2, AC-26: without a `tree:` section the car evaluates through its recipes and source
+/// declarations; with an open one, identically.
 #[tokio::test]
-async fn car_evaluates_through_source_declarations() -> Result<(), Box<dyn std::error::Error>> {
-    let store = AsyncMemoryStore::new(&Key::new());
-    seed_car(&store, "scenes/car", "").await?;
-    let envref = make_env(store)?;
-    assert_eq!(text(&envref, "-R/scenes/car/car.glb").await?, "body+tyre~rubber");
+async fn folder_without_tree_unchanged() -> Result<(), Box<dyn std::error::Error>> {
+    for tree in ["", "tree: {result: car.glb}\n"] {
+        let store = AsyncMemoryStore::new(&Key::new());
+        seed_car(&store, "scenes/car", tree).await?;
+        let envref = make_env(store)?;
+        assert_eq!(text(&envref, "-R/scenes/car/car.glb").await?, "body+tyre~rubber", "{tree}");
+    }
+    Ok(())
+}
+
+/// AC-2: a `tree:` section is kept when the list is read and written back.
+#[tokio::test]
+async fn tree_declaration_round_trips() -> Result<(), Box<dyn std::error::Error>> {
+    let yaml = "tree:\n  roots:\n  - car.glb\n  shape: tree\n  dependencies: strict\nrecipes:\n- query: body.glb\n  title: Body\n";
+    let list: RecipeList = serde_yaml::from_str(yaml)?;
+    let written = serde_yaml::to_string(&list)?;
+    // The tree section is written back as it was read (recipes add their own default fields).
+    assert!(written.starts_with(&yaml[..yaml.find("recipes:").unwrap_or(0)]), "{written}");
+    let back: RecipeList = serde_yaml::from_str(&written)?;
+    assert_eq!(back.tree, list.tree);
     Ok(())
 }

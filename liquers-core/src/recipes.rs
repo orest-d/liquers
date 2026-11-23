@@ -1043,6 +1043,10 @@ impl<E: Environment> AsyncRecipeProvider<E> for DefaultRecipeProvider {
 /// Serialized root of a `recipes.yaml` file.
 /// It can also be used as a general collection of recipes (e.g. for batch processing).
 pub struct RecipeList {
+    /// The `tree:` section: the folder is a self-contained recipe tree
+    /// ([`crate::recipe_tree`]). Absent, the list reads exactly as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tree: Option<crate::recipe_tree::TreeDeclaration>,
     /// Recipes in file order.
     pub recipes: Vec<Recipe>,
 }
@@ -1051,6 +1055,7 @@ impl RecipeList {
     /// Creates an empty recipe list.
     pub fn new() -> Self {
         RecipeList {
+            tree: None,
             recipes: Vec::new(),
         }
     }
