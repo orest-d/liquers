@@ -827,7 +827,8 @@ Keys are a shared vocabulary, so that a key means the same thing under every par
 - Orest (2026-11-24): this works, and it is a general convention, a dictionary of scalars as
   a variadic argument, useful for other commands too. It is the key-value case of the feature
   `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS` (`specs/issues/`), which should define it once for all
-  commands. Until then a command takes a flat list of strings and pairs them up itself.
+  commands (its design `composite-variadic-arguments` was widened to dictionaries and scalars on
+  2026-11-24, PR #288). Until then a command takes a flat list of strings and pairs them up itself.
 - The exact command signatures are D2's, checked with `liquers-validate`.
 
 Not tested. A free grid in the spike workspace would check it.
