@@ -30,6 +30,9 @@ the protocol.
   2026-11-23, revised the same day after Orest's review.
 - [Spike S1 stage 1 findings](../../archive/2026-11-23-ui-runner-spike.md) — the runner built under
   egui, a terminal, a retained host and a split pair; eight problems found.
+- [Spike S1 stage 2 findings](../../archive/2026-11-24-ui-runner-spike-web.md) — the same runner
+  in a browser: DOM host, DOM and Leptos native views, thick, mixed and thin clients over
+  WebSocket, a very thin HTML client, sizes; seven problems found.
 - [Plan](./plan.md) — target architecture sketch, designs D1–D21 with dependencies, spikes S1–S4,
   milestones M0–M7 and Orest's decisions.
 

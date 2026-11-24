@@ -24,7 +24,10 @@ Signatures are sketches that fix the shape, not final code.
 
 **Verification.** Stage 1 of spike S1 built the runner of §12 under egui, a terminal, a retained
 host and a split pair ([findings](../../archive/2026-11-23-ui-runner-spike.md)). What it
-confirmed and what it corrected is marked "S1" below.
+confirmed and what it corrected is marked "S1" below. Stage 2 ran the same runner in a browser:
+a DOM host, hand-written DOM and Leptos views, thick, mixed and thin generic clients over
+WebSocket, and a very thin HTML client
+([findings](../../archive/2026-11-24-ui-runner-spike-web.md)); its results are in §12.2.
 
 **Contents.** 1 Requirements · 2 Answer in short · 3 Which abstraction · 4 Concepts ·
 5 Elements · 6 Lifecycle · 7 Messages and events · 8 Turns · 9 Effects and subscriptions ·
@@ -850,6 +853,43 @@ three roles. S1 built it with no toolkit type in it, and five consumers on four 
 - **Lending without a lock.** For a native view the runner takes the part out of its node for
   the call, so the runner stays usable and the view can draw its children through it.
 
+### 12.2 The runner on the web (S1 stage 2)
+
+Stage 2 ran the unchanged core in a browser and against a WebSocket server.
+
+- **The DOM host is a retained adapter**: one container node per handle, fed by the change
+  list. A portable view is rendered to HTML and morphed into the container, so focus and caret
+  survive an update. A child sits in the slot node its parent's view names; the host places
+  children again after a parent's update. The waker is one coalesced browser callback, and an
+  idle page does no work.
+- **A native web view is `mount(node, cx)` returning an update function.** Hand-written DOM
+  code and a Leptos component both fit it, and both nest in portable parents. State is reached
+  through `cx.with(...)`, which reports the change itself, so S1-c (§28) is a question for
+  immediate mode only.
+- **Client forms.** One wasm module ran monolithic, thick, mixed and thin generic with the
+  stage 1 protocol unchanged. The very thin web client is 68 lines of JavaScript; its server
+  side is another retained adapter over the change list, sharing the HTML renderer with the DOM
+  host.
+- **Size.** The UI runtime's own share of a web client is 316 KB of wasm (110 KB gzipped);
+  Leptos adds about 105 KB (30 KB gzipped). The 5 MB goal depends on the Liquers code a client
+  carries, not on the UI runtime.
+
+Rules this adds to the design:
+
+1. **A text field's content belongs to the frontend while it has focus.** Without the rule the
+   echo of an older value corrupts what the user types (shown by a control run). `Input` and the
+   view carry an input sequence number, so a client can accept a correction newer than its last
+   key. This is part of the portable vocabulary (§10) and of the view-level protocol (§16.4).
+2. **The waker is `Send` only on targets with threads.** A browser callback is not `Send`.
+3. **Event listeners post to the mailbox; they do not call into the runner.** A DOM event can
+   fire synchronously while the host changes the DOM.
+4. **A retained host owns listeners and native views per node** and releases them when the
+   node is removed.
+5. **The server end of a connection is woken like a host**, not polled.
+
+Open from stage 2: how a native parent says where each child goes (portable parents use slots),
+and keyed slots in the diff so that a re-rendered parent never detaches a child.
+
 ## 13. Transparency
 
 R6 asks that the lifecycle and events be visible. Four mechanisms, all in the core:
@@ -1349,7 +1389,8 @@ liquers-core
   release profile alone brings it to 9.5 MB and 2.7 MB; dropping AVIF, OpenEXR and the other
   unused image formats to 7.0 MB and 2.0 MB; records add 2.0 MB raw. The standard web client of
   this design carries no environment and no command library, so it should come in below these
-  figures; spike S1 stage 2 measures it. Polars is not in it. Large native widgets (a code
+  figures. Spike S1 stage 2 measured the UI runtime's own share at 316 KB raw and 110 KB
+  gzipped (§12.2); a client with Liquers code in it is not measured yet. Polars is not in it. Large native widgets (a code
   editor engine, a chart library) load lazily. The size is reported by CI from D7 on.
 - Each frontend crate owns its native view trait (`EguiView`, `DomView`, `TuiView`) and its
   registry.
@@ -1515,11 +1556,15 @@ Raised by spike S1 (findings §8), to be decided before D1's architecture:
 - **S1-b. State held only in a client part is invisible to the server.** Answered: not saved by
   default; an optional "saved state" message lets a client part opt in (§20).
 - **S1-c. A native immediate-mode view must report that it changed state.** Require an explicit
-  call, or have the runner assume a change whenever such a view handled input?
+  call, or have the runner assume a change whenever such a view handled input? Stage 2 narrowed
+  this: retained native views (DOM, Leptos) report through their state access and need no call.
 - **S1-d. A client cannot reserve a handle** for a node it asks the server to add. Client-side
   handle ranges, or request ids?
 - **S1-e. One part trait or two?** S1 used one trait for monolithic, server and client parts,
   with different services. §5.3 has a separate `ClientPart`.
+
+- **S1-f. Where does a native parent put its children?** A portable parent names a slot per
+  child. A native DOM or Leptos parent needs an equivalent (§12.2).
 
 For the spikes and the sub-designs, not blocking approval:
 
