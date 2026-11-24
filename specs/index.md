@@ -8,10 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 270
+Total rows: 268
 - P1: 1
-- P2: 70
-- P3: 199
+- P2: 69
+- P3: 198
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -46,7 +46,6 @@ Total rows: 270
 | [`EXPRESSION-DEPENDENCY-RECORD-IS-LOST-ON-RELOAD`](issues/EXPRESSION-DEPENDENCY-RECORD-IS-LOST-ON-RELOAD.md) | issue | A keyed asset that read a key only through a non-keyed expression is not expired by that key after a reload | draft |  |  | P2 | M | core/assets |  | 2026-10-20 |
 | [`MANIFEST-TEMPLATE-BATCH-ONLY-AT-THE-END-OF-THE-QUERY`](issues/MANIFEST-TEMPLATE-BATCH-ONLY-AT-THE-END-OF-THE-QUERY.md) | feature | A records manifest template can put the batch offset and size only at the end of its query | draft |  |  | P2 | M | records;core/plan |  | 2026-11-02 |
 | [`PY-SHUTDOWN-AFTER-EVALUATE-LOSES-THE-STORE-WRITE`](issues/PY-SHUTDOWN-AFTER-EVALUATE-LOSES-THE-STORE-WRITE.md) | issue | shutdown right after an evaluation loses the store write of a keyed result | draft |  |  | P2 | M | py |  | 2026-11-09 |
-| [`QUERY-CONSOLE-EDITOR-LOSES-EDITS-WHEN-UPDATE-IMMEDIATELY-IS-OFF`](issues/QUERY-CONSOLE-EDITOR-LOSES-EDITS-WHEN-UPDATE-IMMEDIATELY-IS-OFF.md) | issue | The query console's editor panel drops an edit made with "Update immediately" off, and never re-evaluates | draft |  |  | P2 | M | lib/ui | [phase1](design/query-update-modes/phase1-high-level-design.md)  [phase2](design/query-update-modes/phase2-architecture.md)  [phase3](design/query-update-modes/phase3-examples.md)  [phase4](design/query-update-modes/phase4-implementation.md)  [phase5](design/query-update-modes/phase5-documentation.md)  | 2026-11-24 |
 | [`STORE-OPENDAL-FS-CONCURRENT-WRITES-TO-ONE-KEY-FAIL`](issues/STORE-OPENDAL-FS-CONCURRENT-WRITES-TO-ONE-KEY-FAIL.md) | issue | Concurrent writes to one key of an OpenDAL fs store can fail with a write error | draft |  |  | P2 | M | store/backends |  | 2026-11-01 |
 | [`UI-INTERFACE-FSD-DESCRIBES-UNBUILT-API`](issues/UI-INTERFACE-FSD-DESCRIBES-UNBUILT-API.md) | issue | UI_INTERFACE_FSD describes a UI API that was never built | draft |  |  | P2 | M | docs;lib/ui |  | 2026-10-27 |
 | [`USER-GUIDE-EXAMPLES-ARE-NOT-EXECUTED`](issues/USER-GUIDE-EXAMPLES-ARE-NOT-EXECUTED.md) | issue | User guide chapter examples are not executed | draft |  |  | P2 | M | docs;build |  | 2026-11-01 |
@@ -135,7 +134,6 @@ Total rows: 270
 | [`PY-LIVE-HANDLE-COUNT-FALLS-DURING-A-TEST`](issues/PY-LIVE-HANDLE-COUNT-FALLS-DURING-A-TEST.md) | issue | A live handle count can fall during a liquers-py test that compares it to its baseline | draft |  |  | P3 | S | py |  | 2026-11-03 |
 | [`PY-STORE-SET-OF-BYTES-IGNORES-THE-KEY-EXTENSION`](issues/PY-STORE-SET-OF-BYTES-IGNORES-THE-KEY-EXTENSION.md) | issue | Environment.store_set of bytes records the format b whatever the key's extension | draft |  |  | P3 | S | py |  | 2026-11-09 |
 | [`PY-UI-CHANGE-DOES-NOT-WAKE-AN-OPEN-WINDOW`](issues/PY-UI-CHANGE-DOES-NOT-WAKE-AN-OPEN-WINDOW.md) | issue | A change made from Python while a window shows waits for the window's next poll | draft |  |  | P3 | S | py;lib/egui |  | 2026-11-11 |
-| [`QUERY-CONSOLE-EDITOR-CANNOT-BROWSE-THE-STORE`](issues/QUERY-CONSOLE-EDITOR-CANNOT-BROWSE-THE-STORE.md) | issue | The query console's editor panel opens a store browser that never lists anything | draft |  |  | P3 | S | lib/ui | [phase1](design/query-update-modes/phase1-high-level-design.md)  [phase2](design/query-update-modes/phase2-architecture.md)  [phase3](design/query-update-modes/phase3-examples.md)  [phase4](design/query-update-modes/phase4-implementation.md)  [phase5](design/query-update-modes/phase5-documentation.md)  | 2026-11-24 |
 | [`QUERY-SYNTAX-HAS-NO-INCLUDABLE-SECTION`](issues/QUERY-SYNTAX-HAS-NO-INCLUDABLE-SECTION.md) | issue | Query Language section of PROJECT_OVERVIEW cannot be included in the user guides | draft |  |  | P3 | S | docs |  | 2026-11-01 |
 | [`REC-ROWID-REFUSES-A-MANIFEST-STORED-AS-TEXT`](issues/REC-ROWID-REFUSES-A-MANIFEST-STORED-AS-TEXT.md) | issue | ns-rec/rowid on a manifest key fails with unknown data format 'txt' where the other record commands read it | draft |  |  | P3 | S | records |  | 2026-11-14 |
 | [`RECIPE-MISSING-RECIPE-IS-A-GENERAL-ERROR`](issues/RECIPE-MISSING-RECIPE-IS-A-GENERAL-ERROR.md) | issue | Asking a recipe provider for a recipe it does not have raises a General error, not KeyNotFound | draft |  |  | P3 | S | core/assets;core/error |  | 2026-11-01 |

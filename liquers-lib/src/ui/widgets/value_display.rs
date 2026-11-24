@@ -33,22 +33,22 @@
 //! # Examples
 //!
 //! ```
-//! use liquers_core::metadata::{Metadata, Status};
-//! use liquers_lib::ui::{AssetSnapshot, DisplayTimer, SnapshotOutcome, ValueDisplay};
-//! use liquers_lib::value::Value;
-//! use std::sync::Arc;
-//!
-//! let snapshot = |query: &str, value: Option<&str>, status| AssetSnapshot {
-//!     value: value.map(|v| Arc::new(Value::from(v))),
-//!     metadata: Metadata::new(),
-//!     error: None,
-//!     status,
-//!     query: Some(query.to_string()),
-//!     preview: false,
-//! };
-//! let mut display = ValueDisplay::default();
-//! display.request("a", false);
-//! display.on_snapshot(&snapshot("a", Some("old"), Status::Ready));
+//! # use liquers_core::metadata::{Metadata, Status};
+//! # use liquers_lib::ui::{AssetSnapshot, DisplayTimer, SnapshotOutcome, ValueDisplay};
+//! # use liquers_lib::value::Value;
+//! # use std::sync::Arc;
+//! #
+//! # let snapshot = |query: &str, value: Option<&str>, status| AssetSnapshot {
+//! #     value: value.map(|v| Arc::new(Value::from(v))),
+//! #     metadata: Metadata::new(),
+//! #     error: None,
+//! #     status,
+//! #     query: Some(query.to_string()),
+//! #     preview: false,
+//! # };
+//! # let mut display = ValueDisplay::default();
+//! # display.request("a", false);
+//! # display.on_snapshot(&snapshot("a", Some("old"), Status::Ready));
 //!
 //! let generation = display.request("b", false);
 //! assert_eq!(display.on_snapshot(&snapshot("b", None, Status::Processing)), SnapshotOutcome::Progress);

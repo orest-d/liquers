@@ -2,7 +2,7 @@
 id: QUERY-CONSOLE-EDITOR-CANNOT-BROWSE-THE-STORE
 kind: issue
 title: The query console's editor panel opens a store browser that never lists anything
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [lib/ui]
@@ -30,3 +30,7 @@ In the console the key of a resource must be typed. "Add key…" on an empty que
 The browse button in the console lists the store like the standalone editor does: the console
 sends the same directory request for its handle and passes `UpdateMessage::Directory` to its
 editor state.
+
+## Resolution
+
+The console now sends `AppMessage::ListDirectory` for the panel's `EditorEffect::ListDirectory` and passes the `UpdateMessage::Directory` answer to the panel. Evidence: `browse_lists_the_store` in `liquers-lib/src/ui/widgets/query_console_element.rs` (design `query-update-modes` Part A, PR #285).

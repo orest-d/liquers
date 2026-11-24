@@ -2,7 +2,7 @@
 id: QUERY-CONSOLE-EDITOR-LOSES-EDITS-WHEN-UPDATE-IMMEDIATELY-IS-OFF
 kind: issue
 title: The query console's editor panel drops an edit made with "Update immediately" off, and never re-evaluates
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [lib/ui]
@@ -39,3 +39,7 @@ immediately, the console then re-evaluates (debounced); On demand, it re-evaluat
 button beside the query field or Enter. The mode is the console's own, shown once in the console's
 toolbar; the panel shows no second switch or Update button.
 Design: `specs/design/query-update-modes/`.
+
+## Resolution
+
+The console's panel editor now always applies at once and persists across frames (rebuilt only when a query is applied), and the console decides when to evaluate: Apply immediately after a 300 ms debounce, On demand on ✓ or Enter. Evidence: `pending_panel_edits_survive_a_frame` and `panel_edit_evaluates_after_the_debounce` in `liquers-lib/src/ui/widgets/query_console_element.rs` (design `query-update-modes` Part A, PR #285).

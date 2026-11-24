@@ -45,13 +45,9 @@
 //! # Examples
 //!
 //! ```
-//! use liquers_lib::ui::editor::UpdateMode;
-//! use liquers_lib::ui::QueryConsoleElement;
-//!
+//! # use liquers_lib::ui::editor::UpdateMode;
+//! # use liquers_lib::ui::QueryConsoleElement;
 //! let mut console = QueryConsoleElement::new("Console".into(), "-R/a.csv/-/head-3".into());
-//! assert!(!console.show_parameters());
-//! console.set_show_parameters(true);
-//! assert!(console.show_parameters());
 //! assert_eq!(console.update_mode(), UpdateMode::ApplyImmediately);
 //! console.set_update_mode(UpdateMode::OnDemand);
 //! assert_eq!(console.update_mode(), UpdateMode::OnDemand);

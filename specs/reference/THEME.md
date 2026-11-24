@@ -3,7 +3,7 @@ title: UI Themes
 kind: reference
 audience: internal
 area: [lib/ui, lib/egui]
-reviewed: 2026-11-22
+reviewed: 2026-11-24
 ---
 # UI Themes
 
@@ -58,6 +58,7 @@ onto its own controls (§4).
 | | `focus-ring` | the outline of a focused control |
 | | `danger`, `warning`, `success` | status colours; `danger` also marks a refused edit |
 | | `modified` | the mark of a card with unsaved edits |
+| | `preview` | the frame of a value that previews unapplied edits, and the Live preview mode icon and ✓ (`--lq-preview`; dark `#e8b04a`, light `#b7791f`) |
 | `syntax` | one per `SyntaxRole` | the colour of a token of a highlighted query (§1.2) |
 
 ### 1.2 Query syntax roles
@@ -314,5 +315,6 @@ the Python configuration's `ui` section for `UI.run()`. `liquers-web`'s `mountUI
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-24 | §1.1: `state.preview`, the preview colour (`StateRoles::preview`, `--lq-preview`). | `design/query-update-modes/` |
 | 2026-11-22 | §2.2, §2.3, §2.4: a bare icon name means `icons.icon-set` (Phosphor by default), resolved by `icon_for`; `ph:` is always Phosphor. | `design/query-editor-ergonomics/`, `issues/THEME-ICON-SET-SETTING-IS-IGNORED.md` |
 | 2026-11-22 | Created: the model, icons, layers, renderers, run time and configuration, reviewed against the implementation. | `design/query-editor-ergonomics/` |

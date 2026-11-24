@@ -14,10 +14,26 @@ Each step compiles and its tests pass before the next. No prerequisite issue mus
 - [x] Step 2: `ValueDisplay`, `AssetSnapshot.query`/`preview`, and `schedule_event`
 - [x] Step 3: the console on `ValueDisplay`: panel effects, debounce, ✓, Enter, expiry by mode
 - [x] Step 4: renderers: egui and web toolbars, keys, the theme's preview colour
-- [ ] Step 5: Part A checks, docs, PR
+- [x] Step 5: Part A checks, docs, PR
 - [ ] Step 6: `EditorElement` modes, legacy `continuous`, preview effects
 - [ ] Step 7: the runner's `AppMessage::Preview` and the binding tests
 - [ ] Step 8: the `mode` arguments, the registry, Part B checks, docs, PR
+
+## Implementation Notes (Part A)
+
+Deviations from Phase 2, to be reviewed in Phase 5:
+
+- `ValueDisplay` has no `show` / `render_html`: it holds the state (value, phase, timers, status
+  line, dimming, preview), and the console draws it with its own content area, because the value's
+  drawing (a nested element, metadata pane, scroll handling) is the console's already.
+- The browser always draws ✓ (class `lq-go lq-qc-check`, accented while pending): it cannot see
+  text typed since the last render, so hiding ✓ in Apply immediately would leave typed text no
+  button. egui shows the lightning mark when nothing is pending, as designed.
+- `schedule_event` drops the timer outside a tokio runtime (a plain `#[test]`); tests deliver
+  `lq:timer` events themselves, as the Learning Log of Phase 3 planned.
+- Steps 3 and 4 landed as one commit (the console's renderers changed with its fields).
+- Phase 3's parse-error example `-R/a/-/head-` plans (an empty argument takes the default); the
+  test uses `-R/a.csv/-/head-~`, which does not parse.
 
 ## Implementation Steps
 
