@@ -824,8 +824,11 @@ Keys are a shared vocabulary, so that a key means the same thing under every par
 - A parent ignores a key that does not apply to it and reports a key it does not know.
 - Not covered on purpose: rules that depend on the size of the screen. They belong to the
   parent's properties, not to a child.
-- The exact command signatures (a variadic argument for the pairs) are D2's, checked with
-  `liquers-validate`.
+- Orest (2026-11-24): this works, and it is a general convention, a dictionary of scalars as
+  a variadic argument, useful for other commands too. It is the key-value case of the feature
+  `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS` (`specs/issues/`), which should define it once for all
+  commands. Until then a command takes a flat list of strings and pairs them up itself.
+- The exact command signatures are D2's, checked with `liquers-validate`.
 
 Not tested. A free grid in the spike workspace would check it.
 
