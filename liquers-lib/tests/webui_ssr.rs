@@ -124,8 +124,8 @@ layout: vertical
     Ok(())
 }
 
-/// ui-events: the console's input is field `query` and both the input and the Go button declare
-/// `submit`; the Go control is a keyboard-reachable `<button>` and no `Apply` action remains.
+/// ui-events: the console's input is field `query` and declares `submit`; ✓ beside it sends
+/// `qc:update` (query-update-modes); the ✓ control is a keyboard-reachable `<button>` and no `Apply` action remains.
 #[tokio::test]
 async fn query_console_declares_field_and_submit_event() -> Result<(), Box<dyn std::error::Error>> {
     use liquers_lib::ui::QueryConsoleElement;
@@ -147,7 +147,7 @@ async fn query_console_declares_field_and_submit_event() -> Result<(), Box<dyn s
     );
     assert!(
         html.contains(
-            "<button type=\"button\" class=\"lq-go\" data-lq-event=\"submit\">Go</button>"
+            "<button type=\"button\" class=\"lq-go lq-qc-check lq-ed-pending-check\" title=\"Apply the query (Enter)\" data-lq-event=\"qc:update\">"
         ),
         "html: {html}"
     );

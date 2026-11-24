@@ -66,6 +66,7 @@ have a row here (`specs/guides/USER_DOCS_EDITING_GUIDE.md`, maintenance).
 | 2026-11-21 | 11-ui.md | reviewed against `design/query-editor-ergonomics/`: new section on editing queries (Simple and Advanced modes, cards, keys, icons, themes and the `ui` section), from `_shared/ui-editors.md`; the reference section is renumbered |
 | 2026-11-21 | 05-commands.md | reviewed against `design/query-editor-ergonomics/`: still true; a Python command cannot set an icon, presets or next yet, recorded as an issue |
 | 2026-11-22 | 11-ui.md | reviewed: a bare icon name means the theme's icon set, Phosphor unless the theme changes it; `ph:` is always Phosphor |
+| 2026-11-24 | 11-ui.md | reviewed against `design/query-update-modes/` Part A: the editors section gains "When edits take effect" (Apply immediately, On demand, ✓, Enter on valid text, Undo / Redo, the console's status line and dimming) |
 | 2026-11-15 | 02-installing.md | the default environment can be configured (`lq.configure`, `lq.configure_from_command_line`) |
 | 2026-11-15 | 08-environment.md | §8.1 configuring the default environment with `lq.configure`; §8.2 `env.configure`; §8.3–8.4 when files and settings are read; new §8.7 "Starting an application" (`add_arguments`, `configure_from_args`, `configure_from_command_line`, `overrides`); examples run |
 | 2026-11-15 | 11-ui.md | every UI example starts from a `liquers.yaml` configuration; the window with a server from its `server` section; examples run |

@@ -42,6 +42,7 @@ fn dark() -> Palette {
             warning: c(0xe0a23a),
             success: c(0x3fb27f),
             modified: c(0xe0a23a),
+            preview: c(0xe8b04a),
         },
         syntax: SyntaxRoles {
             header: c(0x6f9fe8),
@@ -87,6 +88,7 @@ fn light() -> Palette {
             warning: c(0xb97a14),
             success: c(0x2a8a5f),
             modified: c(0xb97a14),
+            preview: c(0xb7791f),
         },
         syntax: SyntaxRoles {
             header: c(0x3b6fb8),

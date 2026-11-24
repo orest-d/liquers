@@ -86,10 +86,10 @@ pub use command::{EditorCommand, EditorEffect, NewElement};
 pub use element::{recipe_folder, EditorBinding, EditorElement};
 pub use keys::{editor_keymap, keymap_table, shortcut_text, EditorKey, KeyScope};
 pub use layout::{
-    card_marks, command_id, editor_layout, form_rows, header_parts, node_label, simple_card, toolbar_items, Card,
+    card_marks, command_id, editor_layout, form_rows, header_parts, node_label, offers_key, simple_card, toolbar_items, Card,
     CardGroup, CardGroupKind, CardMarks, EditorLayout, EditorMode, FormRow, HeaderPart, StepChip, ToolItem,
 };
-pub use state::{EditorKind, EditorState};
+pub use state::{EditorKind, EditorState, UpdateMode};
 pub use tree::{
     default_text, effective_gui, is_numeric, json_text, scale_numeric, Browser, CatalogCommand,
     CatalogNamespace, Confirmation, DirectoryEntry, DirectoryListing, EditorField, EditorNode,

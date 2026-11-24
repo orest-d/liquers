@@ -52,6 +52,7 @@ have a row here (`specs/guides/USER_DOCS_EDITING_GUIDE.md`, maintenance).
 | 2026-11-22 | 11-ui.md | reviewed: a bare icon name means the theme's icon set, Phosphor unless the theme changes it; `ph:` is always Phosphor |
 | 2026-11-23 | 07-assets.md | reviewed against `design/recipe-tree/`: section 7.8 gains Recipe trees (the `tree:` section, source recipes, strict mode, the check and `TreeEditor`) |
 | 2026-11-23 | 05-commands.md | reviewed against `design/recipe-tree/`: section 5.3 gains Node arguments |
+| 2026-11-24 | 11-ui.md | reviewed against `design/query-update-modes/` Part A: the editors section gains "When edits take effect" (Apply immediately, On demand, ✓, Enter on valid text, Undo / Redo, the console's status line and dimming) |
 | 2026-11-15 | 06-stores.md | reviewed for `py-command-line-config` (`ConfigDocument::overlay`, a missing file is a `ConfigurationError`): still right; no edit |
 | 2026-11-15 | 08-environment.md | reviewed for `py-command-line-config` (`ConfigDocument::overlay`, a missing file is a `ConfigurationError`): still right; no edit |
 | 2026-11-15 | 12-serving.md | reviewed for `py-command-line-config` (`ConfigDocument::overlay`, a missing file is a `ConfigurationError`): still right; no edit |

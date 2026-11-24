@@ -87,8 +87,12 @@ pub enum EditorCommand {
     Update,
     /// Drops the pending edits and reloads the accessor's value (AC-26).
     Revert,
-    /// Turns "Update immediately" on or off (AC-26).
-    SetContinuous(bool),
+    /// Sets the update mode: what a committed edit does (design `query-update-modes`).
+    SetUpdateMode(super::UpdateMode),
+    /// Restores the working copy before the last edit (AC-10).
+    Undo,
+    /// Re-applies the edit the last [`EditorCommand::Undo`] took back (AC-10).
+    Redo,
     /// Renames node `from` of the folder's recipe tree to `to`, rewriting every reference in
     /// `recipes.yaml` and renaming a stored file (design `recipe-tree`, AC-25). Needs a
     /// [`super::NodeContext`].
@@ -111,4 +115,8 @@ pub enum EditorEffect {
         folder: String,
         editor: Box<liquers_core::recipe_tree::TreeEditor>,
     },
+    /// Show `value` as a preview (Live preview); nothing is written (AC-17).
+    Preview(Value),
+    /// Drop the preview and show the applied value again (Revert, or a write in Live preview).
+    ClearPreview,
 }
