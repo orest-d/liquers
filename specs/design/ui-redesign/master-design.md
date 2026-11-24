@@ -752,6 +752,44 @@ one text line high and one character wide in a terminal, and the base spacing to
 `Fixed(20)` means "about twenty characters" everywhere. Pixel-exact layout is out of scope for
 the common vocabulary and belongs to native widgets.
 
+### 10.9 Children, slots and placement (proposed 2026-11-24)
+
+The old design gives a parent an ordered list of children. That mixes two things, and it cannot
+express a splitter, a grid or a dock layout. Orest (2026-11-24) is not comfortable with the
+linear list. The proposal separates the two:
+
+- **Membership** belongs to the runner. A child has exactly one parent. The runner uses this
+  for lifecycle and cleanup (§6) and needs no order for it.
+- **Arrangement** is the parent element's own state. A list container keeps an ordered list of
+  handles; a splitter keeps `left` and `right`; a tab element an order and the active child; a
+  grid a map from cell to handle; a dock layout a tree of splits with handles at its leaves.
+- **A slot** is the place where a parent draws one child. A portable view names it with a
+  `Child(handle)` node. A native immediate-mode view calls `cx.show_child(ui, handle)` at that
+  place (S1). A native retained view (DOM, Leptos, Slint) gives the host a node marked with the
+  child's handle, and the host puts the child's widget there when the child is placed. This
+  last form is not built yet (§28 S1-f).
+- **Placement** is how a child gets its place. The command or message that adds or moves a
+  child carries an optional placement value, which only the parent interprets:
+
+| Parent | Placement | Without a placement |
+|---|---|---|
+| List container (panel, toolbar, tabs) | `first`, `last`, `before(handle)`, `after(handle)`, an index | `last` |
+| Named slots (splitter, window with header and body) | a name | the first free slot |
+| Grid | a cell (row, column, optional span) | the next free cell |
+| Dock layout | a target and a side, or a tab group | a new tab in the focused group |
+
+- The relative commands of the old `lui` namespace are the list container's placements, so they
+  keep working unchanged. A parent rejects a placement it does not understand with an error
+  message to the sender; the child is then not added.
+- The parent receives `ChildAdded(handle, placement)` and `ChildRemoved(handle)` (§7) and
+  updates its arrangement. Moving a child inside one parent is a message to that parent and
+  does not touch membership.
+- In a UISpec a child may carry `slot:` with the placement (§14). Saved state (§20) needs
+  nothing new: the arrangement is part of the parent's state.
+
+Not tested. A splitter and a grid in the spike workspace would check it, with a native retained
+parent among them.
+
 ## 11. Frontends: three patterns over one store
 
 ```rust
@@ -876,10 +914,14 @@ Stage 2 ran the unchanged core in a browser and against a WebSocket server.
 
 Rules this adds to the design:
 
-1. **A text field's content belongs to the frontend while it has focus.** Without the rule the
-   echo of an older value corrupts what the user types (shown by a control run). `Input` and the
-   view carry an input sequence number, so a client can accept a correction newer than its last
-   key. This is part of the portable vocabulary (§10) and of the view-level protocol (§16.4).
+1. **A widget's own value belongs to the frontend.** A text field, checkbox, radio group,
+   dropdown and slider each hold a value between the user's action and the element's state, as
+   do caret, selection and scroll position. When the element runs on the other side of a
+   connection, the echo of an older value must not overwrite a newer one; a control run without
+   the rule corrupted typed text. The client numbers its inputs, a view says which input the
+   server has seen, and the client ignores a value older than its last input. This needs no
+   lock and is separate from locking an accessor, which decides who may write the data. It is
+   part of the portable vocabulary (§10) and of the view-level protocol (§16.4).
 2. **The waker is `Send` only on targets with threads.** A browser callback is not `Send`.
 3. **Event listeners post to the mailbox; they do not call into the runner.** A DOM event can
    fire synchronously while the host changes the DOM.
@@ -887,8 +929,8 @@ Rules this adds to the design:
    node is removed.
 5. **The server end of a connection is woken like a host**, not polled.
 
-Open from stage 2: how a native parent says where each child goes (portable parents use slots),
-and keyed slots in the diff so that a re-rendered parent never detaches a child.
+Open from stage 2: the slot marker for a native retained parent (§10.9), and keyed slots in the
+diff so that a re-rendered parent never detaches a child.
 
 ## 13. Transparency
 
@@ -1555,16 +1597,19 @@ Raised by spike S1 (findings §8), to be decided before D1's architecture:
   is known per subtree (§17). Still open: is the subtree the only unit of attachment?
 - **S1-b. State held only in a client part is invisible to the server.** Answered: not saved by
   default; an optional "saved state" message lets a client part opt in (§20).
-- **S1-c. A native immediate-mode view must report that it changed state.** Require an explicit
-  call, or have the runner assume a change whenever such a view handled input? Stage 2 narrowed
-  this: retained native views (DOM, Leptos) report through their state access and need no call.
+- **S1-c. A native immediate-mode view must report that it changed state.** Answered
+  (2026-11-24): the element is responsible. "Report" is a local flag to its own runner with no
+  payload; no state is sent anywhere. It is automatic inside `update` and wherever state is
+  reached through `cx` (retained native views: DOM, Leptos, Slint). Only immediate-mode code
+  that changes state while drawing makes the one call.
 - **S1-d. A client cannot reserve a handle** for a node it asks the server to add. Client-side
   handle ranges, or request ids?
 - **S1-e. One part trait or two?** S1 used one trait for monolithic, server and client parts,
   with different services. §5.3 has a separate `ClientPart`.
 
-- **S1-f. Where does a native parent put its children?** A portable parent names a slot per
-  child. A native DOM or Leptos parent needs an equivalent (§12.2).
+- **S1-f. Children, slots and placement** (§10.9): is the split into membership (runner),
+  arrangement (parent state) and a placement value on add and move the right replacement for
+  the linear child list? The slot marker for a native retained parent is still to be built.
 
 For the spikes and the sub-designs, not blocking approval:
 
