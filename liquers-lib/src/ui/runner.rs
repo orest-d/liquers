@@ -135,6 +135,17 @@ impl ContextParts {
 }
 
 /// A theme layer from an asset value: YAML text, or an already structured value.
+/// The pipeline a value text stands for, when it is a pipeline's JSON (an editor's
+/// `value_text`) rather than a query: a query never starts with `{` or `[`.
+fn pipeline_text(text: &str) -> Option<liquers_core::pipeline::Pipeline> {
+    let trimmed = text.trim_start();
+    if !(trimmed.starts_with('{') || trimmed.starts_with('[')) {
+        return None;
+    }
+    let json: serde_json::Value = serde_json::from_str(trimmed).ok()?;
+    liquers_core::pipeline::Pipeline::from_json(&json).ok()
+}
+
 fn theme_layer_of(value: &Value) -> Result<ThemeLayer, Error> {
     match value.try_into_json_value() {
         Ok(serde_json::Value::String(text)) => ThemeLayer::from_yaml(&text),
@@ -477,6 +488,9 @@ where
                 AppMessage::RequestAssetUpdates { handle, query } => {
                     self.handle_request_asset_updates(handle, query, app_state)
                         .await;
+                }
+                AppMessage::Preview { handle, query, cwd } => {
+                    self.handle_preview(handle, query, cwd, app_state).await;
                 }
                 AppMessage::ApplyToInput {
                     handle,
@@ -1008,14 +1022,57 @@ where
         query: String,
         app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
     ) {
-        // 1. Evaluate the query (async, returns AssetRef)
-        match self.envref.evaluate(&query).await {
+        let evaluated = match pipeline_text(&query) {
+            // A pipeline editor's value is the pipeline's JSON.
+            Some(pipeline) => {
+                let recipe = Recipe { pipeline: Some(pipeline), ..Recipe::default() };
+                self.envref.get_asset_manager().apply_queued(recipe, State::new()).await
+            }
+            None => self.envref.evaluate(&query).await,
+        };
+        self.monitor_evaluation(handle, query, false, evaluated, app_state).await;
+    }
+
+    /// `AppMessage::Preview`: `query` as an ad-hoc asset with `cwd`, monitored like any request.
+    async fn handle_preview(
+        &mut self,
+        handle: UIHandle,
+        query: String,
+        cwd: Option<String>,
+        app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
+    ) {
+        let recipe = match pipeline_text(&query) {
+            // A pipeline editor's value is the pipeline's JSON.
+            Some(pipeline) => Ok(Recipe { pipeline: Some(pipeline), ..Recipe::default() }),
+            None => parse_query(&query).map(Recipe::from),
+        };
+        let evaluated = match recipe {
+            Ok(mut recipe) => {
+                recipe.cwd = cwd;
+                self.envref.get_asset_manager().apply_queued(recipe, State::new()).await
+            }
+            Err(e) => Err(e),
+        };
+        self.monitor_evaluation(handle, query, true, evaluated, app_state).await;
+    }
+
+    /// Delivers the first snapshot of an evaluation to `handle` and monitors the asset (replacing
+    /// what the handle monitored), or delivers its error.
+    async fn monitor_evaluation(
+        &mut self,
+        handle: UIHandle,
+        query: String,
+        preview: bool,
+        evaluated: Result<AssetRef<E>, Error>,
+        app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
+    ) {
+        match evaluated {
             Ok(asset_ref) => {
                 // 2. Subscribe to notifications
                 let notification_rx = asset_ref.subscribe_to_notifications().await;
 
                 // 3. Build initial snapshot
-                let snapshot = Self::build_snapshot(&asset_ref, &query, false).await;
+                let snapshot = Self::build_snapshot(&asset_ref, &query, preview).await;
 
                 // 4. Deliver snapshot to element
                 let status = snapshot.status;
@@ -1042,7 +1099,7 @@ where
                                 asset_ref,
                                 notification_rx,
                                 query,
-                                preview: false,
+                                preview,
                             },
                         );
                     }
@@ -1057,7 +1114,7 @@ where
                     error: Some(e),
                     status: Status::Error,
                     query: Some(query.clone()),
-                    preview: false,
+                    preview,
                 };
                 let error = error_snapshot.error.clone();
                 let outcome = Self::deliver_update(

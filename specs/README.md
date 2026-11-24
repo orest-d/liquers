@@ -264,7 +264,7 @@ on wasm.
 - **Native UI driver and egui window (`NativeDriver`, `spawn_headless`, `run_window`)** — built → [`design/egui-native-app/`](design/egui-native-app/)
 - **Query, pipeline, action and resource editors (tree view, `gui_info` widgets, presets, store file selector, accessor binding; supersedes `command-parameter-editor`)** — complete → [`design/query-pipeline-editor/`](design/query-pipeline-editor/)
 - **Query editor ergonomics (action cards, Simple and Advanced modes, icons, shortcuts, jump from text to field, theme proof of concept)** — complete → [`design/query-editor-ergonomics/`](design/query-editor-ergonomics/)
-- **Update modes for the query editors and console (on demand, live preview, apply immediately; ✓ and Enter; undo; a value display with a status bar instead of flicker; views follow upstream expiry by mode)** — designing → [`design/query-update-modes/`](design/query-update-modes/)
+- **Update modes for the query editors and console (on demand, live preview, apply immediately; ✓ and Enter; undo; a value display with a status bar instead of flicker; views follow upstream expiry by mode)** — complete → [`design/query-update-modes/`](design/query-update-modes/)
 - **Liquers UI from Python (the model, and an egui window)** — built → [`design/liquers-py-ui/`](design/liquers-py-ui/), [`design/liquers-py-ui-window/`](design/liquers-py-ui-window/)
 - **UI redesign: UI crate(s), egui, web and ratatui frontends, monolithic and split client-server, Tauri, sessions, themes, tools, charts, MIDI** — planned → [`design/ui-redesign/`](design/ui-redesign/) *(idea map and plan of designs D1–D21; investigation: [`design/ui-split-elements/`](design/ui-split-elements/); issue: [`issues/UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE.md`](issues/UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE.md))*
 
@@ -667,6 +667,7 @@ deliberately folded behind a broader line.
 - feature `DEPENDENCY-ANALYSIS-SUMMARIES-NOT-REUSED-ACROSS-EVALUATIONS`
 - feature `DOCS-SITE-HAS-NO-PER-RELEASE-VERSIONS`
 - feature `EDITOR-CANNOT-EDIT-INSIDE-A-NESTED-PIPELINE`
+- feature `EDITOR-HAS-NO-KEY-TO-DISCARD-A-PREVIEW`
 - feature `ENVIRONMENT-ORDERLY-SHUTDOWN`
 - feature `EXTENDED-SCALARS-NOT-MAPPED-BY-LANGUAGE-BRIDGES`
 - feature `EXTERNAL-INDEX-HAS-NO-RECONCILIATION-CONTRACT`
@@ -692,6 +693,7 @@ deliberately folded behind a broader line.
 - feature `NO-TEMPLATE-EDITOR-UI`
 - feature `NO-WRITE-PATH-FROM-RECORDS-INTO-A-RELATIONAL-DATABASE`
 - feature `PIPELINE-RESULTS-ARE-NEVER-CACHED`
+- feature `PREVIEW-IS-FRAMED-ONLY-IN-THE-QUERY-CONSOLE`
 - feature `PY-CANNOT-INSPECT-THE-DEPENDENCY-MANAGER`
 - feature `PY-COMMAND-CANNOT-SET-ICON-PRESETS-OR-NEXT`
 - feature `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`
@@ -702,7 +704,6 @@ deliberately folded behind a broader line.
 - feature `QUERY-CANNOT-CHOOSE-A-DATA-FORMAT`
 - feature `QUERY-CANNOT-MARK-CACHED-INTERMEDIATES`
 - feature `QUERY-COST-IS-UNKNOWN-TO-THE-UI`
-- feature `QUERY-EDITOR-HAS-NO-LIVE-PREVIEW`
 - feature `RECIPE-TREE-CANNOT-BE-EXPORTED-AS-AN-ARCHIVE`
 - feature `RECIPE-TREES-NOT-IN-LANGUAGE-BINDINGS`
 - feature `RECORD-FIELD-TYPE-HAS-NO-DECIMAL`

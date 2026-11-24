@@ -61,6 +61,9 @@
 #             resource_editor and key_editor (editor elements bound to an accessor).
 # 2026-11-21  query-editor-ergonomics Step 9: hint icon on 110 pl/img/rec commands; presets on
 #             pl/head, rec/head, img/blur, img/rotate; next on pl/gt, pl/sort, rec/sort.
+# 2026-11-24  query-update-modes Part B: lui/query_console, query_editor, action_editor,
+#             resource_editor and key_editor take a `mode` argument (enum; console and
+#             action/resource/key editors immediate|on_demand, query_editor preview default).
 # CHANGELOG-END
 commands:
 - realm: store_config
@@ -756,10 +759,25 @@ commands:
     label: state
     default: None
     gui_info: !TextField 40
+  arguments:
+  - name: mode
+    label: Update mode
+    description: 'When an edit is evaluated: immediate (after each edit) or on_demand (on ✓ or Enter)'
+    default: !Value immediate
+    argument_type: !Enum
+      name: mode
+      values:
+      - alias: immediate
+        value: !Value immediate
+      - alias: on_demand
+        value: !Value on_demand
+      others_allowed: false
+      value_type: string
+    gui_info: VerticalRadioEnum
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 353776d67c163324e56c942bfbcfe6b0
+  impl_version: 83e36b670ec86aa3cbcb9cb030bb4042
 - namespace: lui
   name: query_editor
   label: Query editor
@@ -769,10 +787,27 @@ commands:
     label: state
     default: None
     gui_info: !TextField 40
+  arguments:
+  - name: mode
+    label: Update mode
+    description: 'When an edit takes effect: preview (shown in place until ✓), immediate (written at once) or on_demand (written on ✓)'
+    default: !Value preview
+    argument_type: !Enum
+      name: mode
+      values:
+      - alias: preview
+        value: !Value preview
+      - alias: immediate
+        value: !Value immediate
+      - alias: on_demand
+        value: !Value on_demand
+      others_allowed: false
+      value_type: string
+    gui_info: VerticalRadioEnum
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 9b61655c0546b153272c93366cfe00c7
+  impl_version: f815148b3d8365012941a5816e6a16a1
 - namespace: lui
   name: action_editor
   label: Action editor
@@ -782,10 +817,25 @@ commands:
     label: state
     default: None
     gui_info: !TextField 40
+  arguments:
+  - name: mode
+    label: Update mode
+    description: 'When an edit is written: immediate (at once) or on_demand (on ✓)'
+    default: !Value immediate
+    argument_type: !Enum
+      name: mode
+      values:
+      - alias: immediate
+        value: !Value immediate
+      - alias: on_demand
+        value: !Value on_demand
+      others_allowed: false
+      value_type: string
+    gui_info: VerticalRadioEnum
   volatile: false
   expires: never
   definition: Registered
-  impl_version: a2ed32fadf9a9a7b135bc3410de0eb15
+  impl_version: 31250a7dd69a90091a7b8207c524eb83
 - namespace: lui
   name: resource_editor
   label: Resource editor
@@ -795,10 +845,25 @@ commands:
     label: state
     default: None
     gui_info: !TextField 40
+  arguments:
+  - name: mode
+    label: Update mode
+    description: 'When an edit is written: immediate (at once) or on_demand (on ✓)'
+    default: !Value immediate
+    argument_type: !Enum
+      name: mode
+      values:
+      - alias: immediate
+        value: !Value immediate
+      - alias: on_demand
+        value: !Value on_demand
+      others_allowed: false
+      value_type: string
+    gui_info: VerticalRadioEnum
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 9da6abf7a500f71dbf3f1c1093b70137
+  impl_version: b9cb45e8e3905dd2b2f7d22d2faacbcc
 - namespace: lui
   name: key_editor
   label: Key editor
@@ -808,10 +873,25 @@ commands:
     label: state
     default: None
     gui_info: !TextField 40
+  arguments:
+  - name: mode
+    label: Update mode
+    description: 'When an edit is written: immediate (at once) or on_demand (on ✓)'
+    default: !Value immediate
+    argument_type: !Enum
+      name: mode
+      values:
+      - alias: immediate
+        value: !Value immediate
+      - alias: on_demand
+        value: !Value on_demand
+      others_allowed: false
+      value_type: string
+    gui_info: VerticalRadioEnum
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 1b71a6d76d06f8fff92a7950d09bfd3d
+  impl_version: 202368a1f00bd87e5c0182904bc26b54
 - namespace: lui
   name: submit
   label: Submit
