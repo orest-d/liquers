@@ -5,6 +5,10 @@
 //! `recipes.yaml` is rewritten, the other editor follows, and the console re-evaluates the result.
 //! Untick "Update immediately" to collect edits and write them with Update.
 //!
+//! The recipes panel (`lui/recipes_editor`) lists the folder's recipes: click one to open its
+//! form, right-click for View, Metadata, Evaluate, Rename, Save as and the rest, `{}` for the
+//! YAML window. "Edit the recipe as a form" adds a `lui/recipe_editor` of `result.txt`.
+//!
 //! The window's look comes from a theme override, `config/demo-theme.yaml` in the store, named by
 //! the configuration's `ui` section ([`UI_YAML`]). It is a layer over the built-in theme: it gives
 //! the `demo` namespace an icon and a hue, the `repeat` and `wrap` commands their own icons, and
@@ -111,8 +115,14 @@ init:
 - "-R-key/reports/recipes.yaml/-/ns-acc/accessor/recipe-0/query/ns-lui/query_editor/q/add-child"
 - "-R-key/reports/recipes.yaml/-/ns-acc/accessor/recipe-0/query/action-2/ns-lui/action_editor/q/add-child"
 - "-R/reports/result.txt/-/q/ns-lui/query_console/q/add-child"
+- "-R-key/reports/recipes.yaml/-/ns-acc/accessor/ns-lui/recipes_editor/q/add-child"
 menu:
   items:
+  - !button
+    label: Edit the recipe as a form
+    action:
+      query: "-R-key/reports/recipes.yaml/-/ns-acc/accessor/recipe_file-result.txt/ns-lui/recipe_editor/q/add-child"
+
   - !button
     label: Add key editor
     action:

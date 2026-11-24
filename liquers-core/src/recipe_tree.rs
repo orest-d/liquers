@@ -1442,9 +1442,23 @@ impl TreeEditor {
         listing: Option<Vec<String>>,
         renames: Vec<DataRename>,
     ) -> Result<&mut Self, Error> {
+        self.commit_new(candidate, listing, renames, None)
+    }
+
+    /// [`Self::commit`] of an edit adding the recipe of `added`: a new recipe is a source
+    /// declaration until its query is written, so its own `MissingSource` is not an added error
+    /// (design `recipes-editor`, AC-7).
+    fn commit_new(
+        &mut self,
+        candidate: RecipeList,
+        listing: Option<Vec<String>>,
+        renames: Vec<DataRename>,
+        added: Option<&str>,
+    ) -> Result<&mut Self, Error> {
         let before = self.report().errors;
         let after = check_tree(&candidate, listing.as_deref(), &self.cmr);
-        if let Some(new) = after.errors.iter().find(|e| !before.contains(e)) {
+        let tolerated = |e: &TreeFinding| matches!(e, TreeFinding::MissingSource { node } if Some(node.as_str()) == added);
+        if let Some(new) = after.errors.iter().find(|e| !before.contains(e) && !tolerated(e)) {
             return Err(new.to_error());
         }
         self.list = candidate;
@@ -1632,7 +1646,7 @@ impl TreeEditor {
             Source::Value(Json::String(name)),
         )?;
         candidate.recipes.push(recipe);
-        self.commit(candidate, self.listing.clone(), self.renames.clone())
+        self.commit_new(candidate, self.listing.clone(), self.renames.clone(), Some(&filename))
     }
 
     /// The Node arguments of the recipe of `parent` a new child can be named in (design
@@ -1685,7 +1699,7 @@ impl TreeEditor {
         }
         let mut candidate = self.list.clone();
         candidate.recipes.push(recipe);
-        self.commit(candidate, self.listing.clone(), self.renames.clone())
+        self.commit_new(candidate, self.listing.clone(), self.renames.clone(), Some(&filename))
     }
 
     /// Appends a copy of the recipe of `node` under `to` (a name, keeping the extension, or a
@@ -2250,6 +2264,15 @@ recipes:
         assert!(editor.add(boat).is_err());
         let no_name = Recipe::new("-R/./body.glb/-/attach-wheel".into(), String::new(), String::new()).expect("recipe");
         assert!(editor.add(no_name).is_err());
+        // A new recipe is a source declaration until its query is written: it is added, and
+        // the check reports it.
+        let fresh = Recipe::new("note.txt".into(), "Note".into(), String::new()).expect("recipe");
+        editor.add(fresh).expect("a new, unstored source is added");
+        assert!(editor
+            .report()
+            .errors
+            .iter()
+            .any(|f| matches!(f, TreeFinding::MissingSource { node } if node == "note.txt")));
     }
 
     /// recipes-editor AC-9: a copy under a new name, with the original's references.
