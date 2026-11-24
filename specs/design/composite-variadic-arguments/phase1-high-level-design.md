@@ -102,11 +102,13 @@ Today `liquers-validate` answers `Too many parameters for command 'add': accepts
 
 - **AC-15** A JSON value from the parameters
   WHEN `data: serde_json::Value multiple` receives its parameters
-  THEN none gives `null`; one parameter gives a number or a string; a sequence starting with a
-  number gives a list; a sequence starting with an empty string gives the rest as a list; a
-  sequence starting with any other string gives a dictionary of key and value pairs
+  THEN none gives `null`; one parameter gives a number or a string; a sequence starting with an
+  empty string gives the rest as a list, and one empty string alone is the empty list; any other
+  sequence gives a dictionary of key and value pairs, whose keys are text even when they read as
+  numbers (`1-a` is `{"1": "a"}`)
 - **AC-16** JSON value errors
-  WHEN the pairs of AC-15 are incomplete or repeat a literal key
+  WHEN two or more parameters do not start with an empty string, and they are incomplete pairs
+  or repeat a literal key
   THEN planning fails as in AC-3 and AC-10; when the first parameter is a link, the shape is
   decided, and the same errors raised, at run time
 - **AC-17** A JSON object
@@ -158,7 +160,7 @@ it gains one sentence and no new feature id: a declared element shape is carried
 - **Readiness:** needs-decision
 - **Automatic fixing:** not-eligible. It adds fields to `ArgumentInfo`, public traits and
   `register_command!` syntax across four crates.
-- **Leading issue:** **Open design - one empty string as a JSON value** (question 4).
+- **Leading issue:** **Open design - where the shape is stored** (question 1).
 - **Explanation:** the mechanism is known and fits the existing flat path. Orest decided most
   questions on 2026-11-25; the rest change a serialized format or a public type.
 - **Decided:**
@@ -173,6 +175,10 @@ it gains one sentence and no new feature id: a declared element shape is carried
      and value together.
   6. **No composite in a non-variadic position** (2026-11-25).
   7. **A JSON value type** with the five rules of AC-15 (2026-11-25, Orest's proposal).
+  8. **A list in a JSON value always starts with an empty string** (2026-11-25). One empty
+     string alone is the empty list, and an empty string scalar cannot be written. Every other
+     sequence is key and value pairs, so `1-a` is `{"1": "a"}`. This replaces the earlier rule
+     "a sequence starting with a number is a list".
 - **Open questions:**
   1. **Open design - where the shape is stored.** Recommended: a `shape` field on `ArgumentInfo`
      beside `multiple`, valid only when `multiple` is true, omitted for a plain list. Then
@@ -182,16 +188,11 @@ it gains one sentence and no new feature id: a declared element shape is carried
      query stays flat and the plan keeps one flat `MultipleParameters` list.
   3. **Open design - which map types.** Recommended: `BTreeMap<String, V>` (sorted, stable
      output) and `serde_json::Map`. `HashMap` can follow.
-  4. **Open design - one empty string as a JSON value.** It matches two rules of AC-15: a scalar
-     empty string, or the list marker with nothing after it. Recommended: the empty list, since
-     nothing else can write one; an empty string scalar is then not expressible.
-  5. **Accepted limit to confirm - numeric keys.** In a JSON value `1-a` is the list `[1, "a"]`,
-     never `{"1": "a"}`. A declared dictionary has no such limit.
-  6. **Open design - the custom-type trait.** Recommended: one element trait with a fixed arity
+  4. **Open design - the custom-type trait.** Recommended: one element trait with a fixed arity
      and declared component types (AC-12).
-  7. **Open design - per-component widgets.** Recommended: the widget follows from the component
+  5. **Open design - per-component widgets.** Recommended: the widget follows from the component
      type; `columns:` gives labels (AC-14).
-  8. **Proposed resolution - arity bounds.** 2 to 4 components in a tuple.
+  6. **Proposed resolution - arity bounds.** 2 to 4 components in a tuple.
 
 ## Design Dependencies
 

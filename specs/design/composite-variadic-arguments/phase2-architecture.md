@@ -25,12 +25,9 @@ The `json` shape is decided by the data (Orest's rules):
 | Parameters | Value |
 |---|---|
 | none | `null` |
-| one | a number or a string |
-| a sequence starting with a number | a list |
-| a sequence starting with an empty string | the rest, as a list |
-| a sequence starting with any other string | key and value pairs: an object |
-
-One empty string alone is the empty list (Phase 1 question 4).
+| one, not empty | a number or a string |
+| a sequence starting with an empty string | the rest, as a list; one empty string alone is the empty list |
+| any other sequence | key and value pairs: an object; keys are text, so `1-a` is `{"1": "a"}` |
 
 The query and the plan stay flat: the plan holds one `MultipleParameters` list, as today. The
 plan builder types the parameters and checks counts and duplicate literal keys, retrieval builds
@@ -143,8 +140,9 @@ registration for a custom type, whose arity the macro cannot see).
   parameter *j* with component `j % n`; for `map`, even positions are keys and odd positions are
   parsed with `argument_type`. When every parameter is a literal: an incomplete element is a
   positioned error at its first parameter (AC-3), and a repeated key a positioned error at the
-  second one (AC-10). For `json`, the same two checks apply when the first parameter is a
-  non-empty literal that is not a number (AC-16); otherwise nothing is checked at plan time.
+  second one (AC-10). For `json`, the same two checks apply when there are two or more
+  parameters and the first is a non-empty literal (AC-16); a link in first place defers them to
+  run time.
 - `liquers-core/src/command_metadata.rs` `ArgumentInfo::check`: a shape other than `list`
   requires `multiple`; `tuples` requires 2 to 4 scalar components; `columns` is empty or of the
   shape's arity (AC-6). `ArgumentType` is not changed.
@@ -159,7 +157,7 @@ registration for a custom type, whose arity the macro cannot see).
   today. It keeps doing so for `list`; `tuples` is an array of `prefixItems` arrays; `map` is
   `{"type": "object", "additionalProperties": …}`, not wrapped; `json` is unconstrained, not
   wrapped. `server.rs` turns an object into pairs and a list into parameters, adding the
-  empty-string marker when a list does not start with a number.
+  empty-string marker in front of every list.
 - Display of an argument (`liquers-lib/src/commands.rs`, `search/command_catalog.rs`,
   `egui/widgets.rs`, `liquers-py/src/command_metadata.rs`, `liquers-web/src/typescript.rs`): show
   the shape beside "multiple". No exhaustive `ArgumentType` match changes.
@@ -189,8 +187,7 @@ SetItems { path: NodePath, arg: String, texts: Vec<String> },   // replace the w
   pair is added through one form that takes key and value together and sends one `InsertRow`; a
   duplicate key is refused there. An incomplete pair cannot be written (Orest, 2026-11-25).
 - **JSON value**: a choice of none, scalar, list or dictionary, then the matching editor. The
-  editor writes the empty-string marker itself when a list does not start with a number, and
-  refuses a dictionary key that reads as a number. Changing the form sends one `SetItems`.
+  editor writes the empty-string marker of a list itself. Changing the form sends one `SetItems`.
 - Views: `liquers-lib/src/egui/editor.rs` `items_ui` and `liquers-lib/src/ui/web/editor.rs`.
 
 ## Error Handling
@@ -225,6 +222,6 @@ parameters: "Elements made of several parameters", "A dictionary", "Your own ele
 | Existing tests likely to change | none; scalar variadics keep their exact plans (AC-8) |
 | New validation | Phase 3 tests; `bash scripts/check-build-matrix.sh` (egui and web arms are gated) |
 | Compatibility / data | two new optional fields on an argument; `ArgumentType` is unchanged, so an older reader fails only on a registry that uses a shape |
-| JSON value ambiguity | the form depends on the first parameter: a numeric key, a boolean and an empty string scalar cannot be written; a link in first place defers every check to run time |
+| JSON value ambiguity | the form depends on the count and the first parameter: a boolean, an empty string scalar and an empty key cannot be written; a link in first place defers every check to run time |
 | Recovery | revert; no stored data uses the variants until a command adopts one |
 | Certainty | medium: the tuple and map paths fit the existing flat path; the JSON rules, the custom trait and the shaped editor are new and unproven |

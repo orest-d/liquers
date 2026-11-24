@@ -120,8 +120,10 @@ shape is declared in the metadata, so that the plan, the registry and a GUI all 
 - Composites in a non-variadic position are not allowed.
 - One more type, a JSON value, read from the parameters like this: none is `null`; one number
   or string is a scalar (booleans cannot be told from strings, so they are not supported); a
-  sequence starting with a number is a list; a sequence starting with an empty string is the
-  rest as a list; a sequence starting with a string is key and value pairs.
+  sequence starting with an empty string is the rest as a list, and one empty string alone is
+  the empty list; any other sequence is key and value pairs, so `1-a` is `{"1": "a"}`. (His
+  first proposal also read a sequence starting with a number as a list; he withdrew that the
+  same day, so that a list is always declared by the leading empty string.)
 
 **Scope** (design `composite-variadic-arguments`, Phases 1 and 2 rewritten on 2026-11-24 and
 revised on 2026-11-25):
