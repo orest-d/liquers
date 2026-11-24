@@ -1089,7 +1089,7 @@ impl<E: Environment> AsyncRecipeProvider<E> for DefaultRecipeProvider {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 /// Serialized root of a `recipes.yaml` file.
 /// It can also be used as a general collection of recipes (e.g. for batch processing).
 pub struct RecipeList {
