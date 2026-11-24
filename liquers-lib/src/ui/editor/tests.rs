@@ -1057,11 +1057,11 @@ fn car_context() -> NodeContext {
         "recipes:\n  - {query: tyre.glb, title: Tyre}\n  - {query: \"-R/./tyre.glb/-/wheel.glb\", title: Wheel}\n  - {query: \"-R/./body.glb/-/attach-wheel/car.glb\", title: Car}\n",
     )
     .expect("recipes");
-    NodeContext {
-        folder: "scenes/car".into(),
+    NodeContext::new(
+        "scenes/car",
         recipes,
-        listing: Some(vec!["body.glb".into(), "tyre.glb".into(), "recipes.yaml".into()]),
-    }
+        Some(vec!["body.glb".into(), "tyre.glb".into(), "recipes.yaml".into()]),
+    )
 }
 
 fn node_editor(query: &str) -> EditorState {

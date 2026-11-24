@@ -145,11 +145,11 @@ pub struct Recipe {
     /// Provider-supplied indication that validation found a circular dependency.
     /// This serves as an early warning that the recipe may not be valid.
     /// `Recipe::to_plan` does not recompute or enforce this field.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub has_circular_dependencies: bool,
     /// Key reported by the provider when `has_circular_dependencies` is true.
     /// This is used to identify the circular dependency.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub circular_dependency_key: Option<Key>,
     /// Recipe-level expiration, combined into the plan's own expiration by [`Self::to_plan`].
     ///
@@ -161,7 +161,7 @@ pub struct Recipe {
     /// An expiration that is itself volatile (`Expires::Immediately`, or a combination
     /// containing one) is the exception, and contributes
     /// [`crate::plan::VolatilitySource::Declared`] like `volatile: true`.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Expires::is_never")]
     pub expires: Expires,
 
     /// When present, controls whether the produced value is written to the store.
@@ -1089,7 +1089,7 @@ impl<E: Environment> AsyncRecipeProvider<E> for DefaultRecipeProvider {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 /// Serialized root of a `recipes.yaml` file.
 /// It can also be used as a general collection of recipes (e.g. for batch processing).
 pub struct RecipeList {

@@ -1035,6 +1035,21 @@ pub struct NodeChoice {
     pub title: String,
 }
 
+/// A Node argument of a recipe that a new child can be named in (design `recipes-editor`,
+/// AC-7): the argument `arg` of the action at index `action` (counting the recipe's actions
+/// from 0), taking a node of `extension`.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ChildSlot {
+    /// The action's index among the recipe's actions.
+    pub action: usize,
+    /// The command's name, for display.
+    pub command: String,
+    /// The argument's name.
+    pub arg: String,
+    /// The extension a node named there must have.
+    pub extension: String,
+}
+
 /// A stored file [`TreeEditor::save`] renames.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct DataRename {
@@ -1427,9 +1442,23 @@ impl TreeEditor {
         listing: Option<Vec<String>>,
         renames: Vec<DataRename>,
     ) -> Result<&mut Self, Error> {
+        self.commit_new(candidate, listing, renames, None)
+    }
+
+    /// [`Self::commit`] of an edit adding the recipe of `added`: a new recipe is a source
+    /// declaration until its query is written, so its own `MissingSource` is not an added error
+    /// (design `recipes-editor`, AC-7).
+    fn commit_new(
+        &mut self,
+        candidate: RecipeList,
+        listing: Option<Vec<String>>,
+        renames: Vec<DataRename>,
+        added: Option<&str>,
+    ) -> Result<&mut Self, Error> {
         let before = self.report().errors;
         let after = check_tree(&candidate, listing.as_deref(), &self.cmr);
-        if let Some(new) = after.errors.iter().find(|e| !before.contains(e)) {
+        let tolerated = |e: &TreeFinding| matches!(e, TreeFinding::MissingSource { node } if Some(node.as_str()) == added);
+        if let Some(new) = after.errors.iter().find(|e| !before.contains(e) && !tolerated(e)) {
             return Err(new.to_error());
         }
         self.list = candidate;
@@ -1617,7 +1646,145 @@ impl TreeEditor {
             Source::Value(Json::String(name)),
         )?;
         candidate.recipes.push(recipe);
+        self.commit_new(candidate, self.listing.clone(), self.renames.clone(), Some(&filename))
+    }
+
+    /// The Node arguments of the recipe of `parent` a new child can be named in (design
+    /// `recipes-editor`, AC-7), for [`Self::add_child`].
+    pub fn child_slots(&self, parent: &str) -> Result<Vec<ChildSlot>, Error> {
+        let file = self.resolve(parent)?;
+        let index = self
+            .recipe_index(&file)
+            .ok_or_else(|| Error::tree_check(&format!("'{file}' has no recipe")))?;
+        let recipe = &self.list.recipes[index];
+        let pipeline = match (&recipe.pipeline, recipe.query.is_empty()) {
+            (Some(p), true) => p.clone(),
+            (Some(_), false) | (None, true) | (None, false) => Pipeline::from_query_text(&recipe.query)?,
+        };
+        let mut slots = Vec::new();
+        let actions = pipeline.elements.iter().filter_map(|e| match &e.item {
+            ElementKind::Action(a) => Some(a),
+            _ => None,
+        });
+        for (action, element) in actions.enumerate() {
+            let Ok(md) = crate::pipeline::resolve_action(&self.cmr, &pipeline.realm, element) else {
+                continue;
+            };
+            for argument in crate::pipeline::positional_arguments(&md) {
+                if let ArgumentType::Node(node) = &argument.argument_type {
+                    slots.push(ChildSlot {
+                        action,
+                        command: element.action.clone(),
+                        arg: argument.name.clone(),
+                        extension: node.extension.clone(),
+                    });
+                }
+            }
+        }
+        Ok(slots)
+    }
+
+    /// Appends `recipe` as a new node (design `recipes-editor`, AC-7). A recipe without a
+    /// filename, or with the filename of another recipe, is refused.
+    pub fn add(&mut self, recipe: Recipe) -> Result<&mut Self, Error> {
+        let filename = recipe
+            .filename()?
+            .ok_or_else(|| Error::tree_check("a new recipe needs a filename"))?
+            .name;
+        if filename == "recipes.yaml" || !crate::escape::is_resource_name(&filename) {
+            return Err(Error::invalid_token(&filename, "a recipe filename"));
+        }
+        if self.recipe_index(&filename).is_some() {
+            return Err(Error::tree_check(&format!("'{filename}' already has a recipe")));
+        }
+        let mut candidate = self.list.clone();
+        candidate.recipes.push(recipe);
+        self.commit_new(candidate, self.listing.clone(), self.renames.clone(), Some(&filename))
+    }
+
+    /// Appends a copy of the recipe of `node` under `to` (a name, keeping the extension, or a
+    /// filename); the copy's references are those of the original (design `recipes-editor`,
+    /// AC-9). Stored data is not copied.
+    pub fn duplicate(&mut self, node: &str, to: &str) -> Result<&mut Self, Error> {
+        let from_file = self.resolve(node)?;
+        let index = self
+            .recipe_index(&from_file)
+            .ok_or_else(|| Error::tree_check(&format!("'{from_file}' has no recipe")))?;
+        let to_file = if to.contains('.') {
+            to.to_owned()
+        } else {
+            match extension_of(&from_file) {
+                "" => to.to_owned(),
+                ext => format!("{to}.{ext}"),
+            }
+        };
+        if !crate::escape::is_resource_name(&to_file) || to_file == "recipes.yaml" {
+            return Err(Error::invalid_token(to, "a node name"));
+        }
+        let (graph, _) = analyse(&self.list, self.listing.as_deref(), &self.cmr);
+        if graph.nodes.contains_key(&to_file) {
+            return Err(Error::tree_check(&format!("'{to_file}' is already a node")));
+        }
+        let from_name = node_name(&from_file).to_owned();
+        let to_name = node_name(&to_file).to_owned();
+        let rewriter = Rewriter {
+            from_file: &from_file,
+            from_name: &from_name,
+            mode: Rewrite::Rename {
+                to_file: &to_file,
+                to_name: &to_name,
+            },
+            cmr: &self.cmr,
+        };
+        let mut copy = self.list.recipes[index].clone();
+        rewriter.recipe(index, &mut copy)?;
+        let mut candidate = self.list.clone();
+        candidate.recipes.push(copy);
         self.commit(candidate, self.listing.clone(), self.renames.clone())
+    }
+
+    /// Replaces the recipe with filename `filename` by `recipe`, which must keep the filename (a
+    /// rename is [`Self::rename`]); refused when it adds a check error (design `recipes-editor`,
+    /// AC-5, AC-14).
+    pub fn set_recipe(&mut self, filename: &str, recipe: Recipe) -> Result<&mut Self, Error> {
+        let index = self
+            .recipe_index(filename)
+            .ok_or_else(|| Error::tree_check(&format!("'{filename}' has no recipe")))?;
+        match recipe.filename()? {
+            Some(name) if name.name == filename => {}
+            Some(_) | None => {
+                return Err(Error::tree_check(&format!(
+                    "the recipe '{filename}' must keep its filename; rename the node instead"
+                )))
+            }
+        }
+        let mut candidate = self.list.clone();
+        candidate.recipes[index] = recipe;
+        self.commit(candidate, self.listing.clone(), self.renames.clone())
+    }
+
+    /// Declares `node` the tree's single result, or clears the result with `None` (AC-19). A
+    /// list without a `tree:` section gets one.
+    pub fn set_result(&mut self, node: Option<&str>) -> Result<&mut Self, Error> {
+        let file = match node {
+            Some(node) => Some(self.resolve(node)?),
+            None => None,
+        };
+        let mut candidate = self.list.clone();
+        let tree = candidate.tree.get_or_insert_with(TreeDeclaration::default);
+        tree.result = file;
+        self.commit(candidate, self.listing.clone(), self.renames.clone())
+    }
+
+    /// Replaces the whole list, as typed in a YAML editor (design `recipes-editor`, AC-12). It
+    /// is not checked: a file being repaired may have errors, which the report then shows. The
+    /// working directory a provider set on each recipe is cleared, as in [`Self::new`].
+    pub fn replace(&mut self, mut list: RecipeList) -> Result<&mut Self, Error> {
+        for recipe in list.recipes.iter_mut() {
+            recipe.cwd = None;
+        }
+        self.list = list;
+        Ok(self)
     }
 
     /// Deletes the recipe of `node` (AC-12). A node something references is refused, naming its
@@ -2081,5 +2248,86 @@ recipes:
         assert_eq!(list(&written).tree, Some(declaration));
         assert!(!written.contains("shape"), "{written}");
         assert!(serde_yaml::to_string(&list("recipes: []\n")).expect("yaml").find("tree").is_none());
+    }
+
+    fn car_editor() -> TreeEditor {
+        TreeEditor::new(car(""), Some(listing()), Arc::new(cmr())).expect("editor")
+    }
+
+    /// recipes-editor AC-7: a new recipe is appended; a used filename is refused.
+    #[test]
+    fn add_appends_and_refuses_a_used_name() {
+        let mut editor = car_editor();
+        let boat = Recipe::new("-R/./body.glb/-/boat.glb".into(), "Boat".into(), String::new()).expect("recipe");
+        editor.add(boat.clone()).expect("added");
+        assert_eq!(editor.recipes().recipes.last().map(|r| r.title.as_str()), Some("Boat"));
+        assert!(editor.add(boat).is_err());
+        let no_name = Recipe::new("-R/./body.glb/-/attach-wheel".into(), String::new(), String::new()).expect("recipe");
+        assert!(editor.add(no_name).is_err());
+        // A new recipe is a source declaration until its query is written: it is added, and
+        // the check reports it.
+        let fresh = Recipe::new("note.txt".into(), "Note".into(), String::new()).expect("recipe");
+        editor.add(fresh).expect("a new, unstored source is added");
+        assert!(editor
+            .report()
+            .errors
+            .iter()
+            .any(|f| matches!(f, TreeFinding::MissingSource { node } if node == "note.txt")));
+    }
+
+    /// recipes-editor AC-9: a copy under a new name, with the original's references.
+    #[test]
+    fn duplicate_copies_under_a_new_name() {
+        let mut editor = car_editor();
+        editor.duplicate("wheel", "spare").expect("duplicated");
+        let spare = editor.recipes().get("spare.glb").expect("spare").clone();
+        assert_eq!(spare.query, "-R/./tyre.glb/-/material-rubber/spare.glb");
+        assert!(editor.recipes().get("wheel.glb").is_some());
+        assert!(editor.duplicate("wheel", "spare").is_err());
+    }
+
+    /// recipes-editor AC-5, AC-14: a recipe is replaced in place; one adding a cycle is refused.
+    #[test]
+    fn set_recipe_refuses_a_new_cycle() {
+        let mut editor = car_editor();
+        let mut wheel = editor.recipes().get("wheel.glb").expect("wheel").clone();
+        wheel.title = "Rim".into();
+        editor.set_recipe("wheel.glb", wheel).expect("set");
+        assert_eq!(editor.recipes().get("wheel.glb").expect("wheel").title, "Rim");
+        let before = editor.recipes().clone();
+        let cyclic = Recipe::new("-R/./car.glb/-/material-rubber/tyre.glb".into(), "Tyre".into(), String::new()).expect("recipe");
+        assert!(editor.set_recipe("tyre.glb", cyclic).is_err());
+        assert_eq!(editor.recipes(), &before);
+        let renamed = Recipe::new("rim.glb".into(), String::new(), String::new()).expect("recipe");
+        assert!(editor.set_recipe("tyre.glb", renamed).is_err());
+    }
+
+    /// recipes-editor AC-3: the result is declared, creating the `tree:` section.
+    #[test]
+    fn set_result_declares_the_result() {
+        let mut editor = car_editor();
+        editor.set_result(Some("car")).expect("result");
+        assert_eq!(editor.recipes().tree.as_ref().and_then(|t| t.result.clone()).as_deref(), Some("car.glb"));
+        editor.set_result(None).expect("cleared");
+        assert_eq!(editor.recipes().tree.as_ref().and_then(|t| t.result.clone()), None);
+    }
+
+    /// recipes-editor AC-12: a parsed list replaces the recipes even with findings.
+    #[test]
+    fn replace_takes_any_parsed_list() {
+        let mut editor = car_editor();
+        let dangling = list("recipes:\n  - {query: \"-R/./nothing.glb/-/attach-wheel/x.glb\"}\n");
+        editor.replace(dangling.clone()).expect("replaced");
+        assert_eq!(editor.recipes(), &dangling);
+    }
+
+    /// recipes-editor AC-7: the Node arguments a child can be named in.
+    #[test]
+    fn child_slots_list_node_arguments() {
+        let editor = car_editor();
+        let slots = editor.child_slots("car").expect("slots");
+        assert_eq!(slots.len(), 1);
+        assert_eq!((slots[0].action, slots[0].arg.as_str(), slots[0].extension.as_str()), (0, "part", "glb"));
+        assert!(editor.child_slots("body").expect("slots").is_empty());
     }
 }

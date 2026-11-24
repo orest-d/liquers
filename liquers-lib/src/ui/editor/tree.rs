@@ -151,6 +151,31 @@ pub struct NodeContext {
     pub recipes: liquers_core::recipes::RecipeList,
     /// The folder's listing, when known.
     pub listing: Option<Vec<String>>,
+    /// The asset manager's information of each file of the folder, by filename: status,
+    /// progress, icon and type (design `recipes-editor`, AC-2, AC-17). Empty when unknown.
+    pub assets: std::collections::BTreeMap<String, liquers_core::metadata::AssetInfo>,
+    /// The data formats each file's type can be written in, by filename (AC-19 Export).
+    pub formats: std::collections::BTreeMap<String, Vec<String>>,
+    /// The outcome of the last Save as, for the recipes editor to show.
+    pub notice: Option<String>,
+}
+
+impl NodeContext {
+    /// A context with the recipes and listing only.
+    pub fn new(
+        folder: impl Into<String>,
+        recipes: liquers_core::recipes::RecipeList,
+        listing: Option<Vec<String>>,
+    ) -> Self {
+        NodeContext {
+            folder: folder.into(),
+            recipes,
+            listing,
+            assets: Default::default(),
+            formats: Default::default(),
+            notice: None,
+        }
+    }
 }
 
 impl EditorField {
