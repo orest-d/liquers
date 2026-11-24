@@ -1,7 +1,7 @@
 ---
 id: COMPOSITE-VARIADIC-ARGUMENTS
 kind: design
-title: Complex values as variadic arguments (tuples, dictionaries, scalars)
+title: Complex values as variadic arguments (tuples, dictionaries, JSON values)
 status: in_review
 phase: architecture
 readiness: needs-decision
@@ -20,13 +20,15 @@ direction.
 
 **Rewritten 2026-11-24** at Orest's request, after the UI redesign produced a first user
 (per-child layout data as key and value pairs, `design/ui-redesign/master-design.md` §10.9).
-Phases 1 and 2 now cover tuples, dictionaries, a scalar read from its text, a trait for a
-command author's own types, registration macro support and GUI support. **Phases 3 and 4 are
+Phases 1 and 2 now cover tuples, dictionaries, a JSON value, a trait for a command author's own
+types, registration macro support and GUI support. Revised on 2026-11-25 after Orest's review:
+the shape is a field of a variadic argument and not an argument type, there is no separate scalar
+type, and a JSON value shape was added. **Phases 3 and 4 are
 stale**: they were written for tuples alone and must be redone after Phases 1 and 2 are approved.
 
 ## Phases
 
-- [Phase 1](./phase1-high-level-design.md) — rewritten 2026-11-24
-- [Phase 2](./phase2-architecture.md) — rewritten 2026-11-24
+- [Phase 1](./phase1-high-level-design.md) — rewritten 2026-11-24, revised 2026-11-25
+- [Phase 2](./phase2-architecture.md) — rewritten 2026-11-24, revised 2026-11-25
 - [Phase 3](./phase3-examples.md) — stale (tuples only)
 - [Phase 4](./phase4-implementation.md) — stale (tuples only)

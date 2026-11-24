@@ -1,12 +1,13 @@
 # Phase 1: High-Level Design — composite-variadic-arguments
 
-Rewritten on 2026-11-24. The first version (2026-10-20) covered tuple elements only. Scenarios
-AC-1 to AC-8 keep their ids; AC-9 onward are new. Scope changes are listed at the end.
+Rewritten on 2026-11-24 and revised on 2026-11-25 after Orest's review. The first version
+(2026-10-20) covered tuple elements only. Scenarios AC-1 to AC-8 keep their ids; AC-9 onward are
+new; AC-11 is withdrawn. Scope changes are listed at the end.
 
 ## Purpose
 
 A variadic argument can hold only a flat list of scalars. A command that needs something richer
-in that position, a list of pairs, a dictionary or a small structured value, has to take
+in that position, a list of pairs, a dictionary or a JSON value, has to take
 `Vec<String>` and decode it by hand, and then neither the plan, nor the registry, nor a GUI knows
 the shape. Let a variadic argument **declare the complex value it carries**, so that the plan
 checks it, the command receives it typed, and an editor shows it as rows. The query language does
@@ -37,8 +38,9 @@ ns-lui/add-child-current-row-0-col-8-colspan-4
 ```
 
 Today `liquers-validate` answers `Too many parameters for command 'add': accepts 2, but parameter
-#3 'row' was supplied`. Wanted: `add` declares `layout: BTreeMap<String, Scalar> multiple` and
-receives `{row: 0, col: 8, colspan: 4}` with `0`, `8` and `4` as integers; `…-row-0-row-1` and
+#3 'row' was supplied`. Wanted: `add` declares
+`layout: BTreeMap<String, serde_json::Value> multiple` and receives
+`{row: 0, col: 8, colspan: 4}` with `0`, `8` and `4` as numbers; `…-row-0-row-1` and
 `…-row` fail at plan time, positioned at the offending parameter.
 
 ## Scope and Acceptance Criteria
@@ -58,11 +60,11 @@ receives `{row: 0, col: 8, colspan: 4}` with `0`, `8` and `4` as integers; `…-
   THEN the command gets an empty list or an empty dictionary
 - **AC-5** Metadata shows the shape
   WHEN the command's metadata is exported or serialized
-  THEN the argument's type is `{"Tuple": ["string", "string"]}` with `multiple: true`, a
-  dictionary is `{"Map": ["string", "scalar"]}`, and both deserialize back unchanged
+  THEN the argument has `multiple: true` and a `shape`: `{"tuples": ["string", "string"]}`,
+  `"map"` or `"json"`; a plain list has no `shape`; all deserialize back unchanged
 - **AC-6** Misdeclarations are refused
   WHEN an element has fewer than 2 or more than 4 components, a component is not a scalar type
-  (`Vec`, `Option`, tuple), or a `Tuple` or `Map` type appears on an argument that is not `multiple`
+  (`Vec`, `Option`, tuple), or a shape appears on an argument that is not `multiple`
   THEN the macro refuses it at compile time, and `CommandMetadata::check` refuses hand-built metadata
 - **AC-7** Links and overrides
   WHEN an element parameter is a link, or a recipe overrides the argument with JSON
@@ -74,36 +76,52 @@ receives `{row: 0, col: 8, colspan: 4}` with `0`, `8` and `4` as integers; `…-
   WHEN a scalar `Vec<T> multiple` argument is used
   THEN plans, retrieval and the exported registry are unchanged
 - **AC-9** A dictionary from key and value pairs
-  WHEN `layout: BTreeMap<String, Scalar> multiple` receives `add-child-current-row-0-col-8`
-  THEN the command gets a map with `row` and `col`
+  WHEN `layout: BTreeMap<String, serde_json::Value> multiple` receives
+  `add-child-current-row-0-col-8-role-sidebar`
+  THEN the command gets a map with `row: 0`, `col: 8` and `role: "sidebar"`. A parameter that
+  reads as a number is a number, anything else is a string; there are no booleans, because
+  `true` cannot be told from a string. `BTreeMap<String, String>` gets every value as text
 - **AC-10** Duplicate keys are refused
   WHEN a dictionary argument receives the same literal key twice
   THEN planning fails, positioned at the second key, naming the key and the argument
-- **AC-11** A scalar is read from its text
-  WHEN a component of type `Scalar` receives `8`, `0.5`, `true` or `sidebar`
-  THEN it is an integer, a float, a boolean or a string, and its original text stays available
+- **AC-11** Withdrawn 2026-11-25: there is no separate `Scalar` type
+  WHEN a dictionary value or a JSON value is read from a parameter
+  THEN it is the JSON scalar of AC-9, a number or a string, and no other scalar type exists
 - **AC-12** A command author's own element type
   WHEN a type implements the element trait with arity 2 and is declared as `Vec<Point> multiple`
   THEN `curve-0-0-1-2.5` gives two points, and the metadata shows a tuple of two floats
-- **AC-13** The argument editor shows rows
-  WHEN an action with a tuple or dictionary argument is opened in the query editor
-  THEN each element is one row with one widget per component, rows can be added, removed and
-  reordered, an incomplete row and a duplicate key are marked, and the edited query equals the one
-  typed by hand
+- **AC-13** The argument editor shows the shape
+  WHEN an action with a shaped argument is opened in the query editor
+  THEN tuples are rows with one widget per component; a dictionary is a list of pairs where a
+  pair is added with its key and value together, so an incomplete pair cannot be written, and a
+  duplicate key is refused; a JSON value has a choice of none, scalar, list or dictionary; the
+  edited query equals the one typed by hand
 - **AC-14** Component labels
   WHEN the declaration names the components (`columns: ["Old name", "New name"]`)
   THEN the metadata carries the names and the editor uses them as column headers
 
-Non-goals: new query syntax or a delimiter between elements; a composite value in a non-variadic
-position (`origin: (f64, f64)` between other arguments, as the Python `liquer` parsers allowed);
-nested shapes (a tuple of tuples, a dictionary of lists); `Option` or enum components; named
-struct fields in the query.
+- **AC-15** A JSON value from the parameters
+  WHEN `data: serde_json::Value multiple` receives its parameters
+  THEN none gives `null`; one parameter gives a number or a string; a sequence starting with a
+  number gives a list; a sequence starting with an empty string gives the rest as a list; a
+  sequence starting with any other string gives a dictionary of key and value pairs
+- **AC-16** JSON value errors
+  WHEN the pairs of AC-15 are incomplete or repeat a literal key
+  THEN planning fails as in AC-3 and AC-10; when the first parameter is a link, the shape is
+  decided, and the same errors raised, at run time
+- **AC-17** A JSON object
+  WHEN `layout: serde_json::Map<String, serde_json::Value> multiple` is declared
+  THEN it behaves as the dictionary of AC-9
+
+Non-goals: new query syntax or a delimiter between elements; **a composite value in a
+non-variadic position** (Orest, 2026-11-25: not allowed); nested shapes (a list of dictionaries, a
+dictionary of lists); booleans in a JSON value; `Option` or enum components; named struct fields.
 
 ## Core Interactions
 
 Query: no syntax change. Plan: parameters are typed by their position in the element, counts and
-duplicate keys are checked. Commands: two new argument types, grouped retrieval, a trait for
-custom types. Macro: tuple, map and custom element types. Recipes: override shapes. MCP: tool
+duplicate keys are checked. Commands: a shape on a variadic argument, grouped retrieval, a trait
+for custom types. Macro: tuple, map, JSON and custom element types. Recipes: override shapes. MCP: tool
 schema. UI: the argument editor (`liquers-lib/src/ui/editor/`, egui view) draws rows.
 
 ## Crate Placement
@@ -138,46 +156,47 @@ it gains one sentence and no new feature id: a declared element shape is carried
 ## Design Readiness
 
 - **Readiness:** needs-decision
-- **Automatic fixing:** not-eligible. It adds `ArgumentType` variants, public traits and
+- **Automatic fixing:** not-eligible. It adds fields to `ArgumentInfo`, public traits and
   `register_command!` syntax across four crates.
-- **Leading issue:** **Open design - the dictionary's value type** (question 3): it decides
-  whether a new scalar type enters `liquers-core`.
-- **Explanation:** the mechanism is known and fits the existing flat path. The questions below
-  each change a serialized format or a public type, so each is a maintainer decision.
+- **Leading issue:** **Open design - one empty string as a JSON value** (question 4).
+- **Explanation:** the mechanism is known and fits the existing flat path. Orest decided most
+  questions on 2026-11-25; the rest change a serialized format or a public type.
+- **Decided:**
+  1. **Build it** (2026-11-24). The UI layout data is the first user. A `key=value` string
+     convention is not chosen.
+  2. **No separate `Scalar` type** (2026-11-25). A dictionary's values are JSON scalars or
+     strings.
+  3. **The shape is not an `ArgumentType`** (2026-11-25): it only makes sense on a variadic
+     argument.
+  4. **Value types** (2026-11-25): string values, JSON values, and a JSON object.
+  5. **The editor cannot write an incomplete pair** (2026-11-25): a dictionary editor takes key
+     and value together.
+  6. **No composite in a non-variadic position** (2026-11-25).
+  7. **A JSON value type** with the five rules of AC-15 (2026-11-25, Orest's proposal).
 - **Open questions:**
-  1. **Decided 2026-11-24 - whether to build it.** Orest asked for it; the UI layout data is the
-     first user. The `key=value` string convention is not chosen: it cannot type values and gives
-     a GUI nothing.
+  1. **Open design - where the shape is stored.** Recommended: a `shape` field on `ArgumentInfo`
+     beside `multiple`, valid only when `multiple` is true, omitted for a plain list. Then
+     `argument_type` keeps its meaning, the type of one element or one dictionary value, and
+     existing registries read unchanged. Alternative: turn `multiple` itself into the shape.
   2. **Open design - layering.** Recommended: grouping is a metadata and retrieval concept. The
      query stays flat and the plan keeps one flat `MultipleParameters` list.
-  3. **Open design - the scalar.** Recommended: a small `Scalar` type in `liquers-core` that keeps
-     the original text and its inferred kind (integer, float, boolean, string). Alternatives: the
-     environment's `Value` (richer, but ties a dictionary to the value type), or strings only
-     (the command converts). A string that looks like a number cannot be forced to stay a string;
-     the kept text is the answer: a consumer that wants a string reads the text.
-  4. **Open design - representation.** Recommended: `ArgumentType::Tuple(Vec<ArgumentType>)` and
-     `ArgumentType::Map(Box<ArgumentType>, Box<ArgumentType>)`, scalar components only.
-     Alternative: a `shape` field on `ArgumentInfo`, which avoids new `match` arms but lets two
-     fields disagree.
-  5. **Open design - which map types.** Recommended: `BTreeMap<String, V>` only (sorted, stable
-     output). `HashMap` and an order-preserving map can follow. Should keys other than `String`
-     be allowed?
+  3. **Open design - which map types.** Recommended: `BTreeMap<String, V>` (sorted, stable
+     output) and `serde_json::Map`. `HashMap` can follow.
+  4. **Open design - one empty string as a JSON value.** It matches two rules of AC-15: a scalar
+     empty string, or the list marker with nothing after it. Recommended: the empty list, since
+     nothing else can write one; an empty string scalar is then not expressible.
+  5. **Accepted limit to confirm - numeric keys.** In a JSON value `1-a` is the list `[1, "a"]`,
+     never `{"1": "a"}`. A declared dictionary has no such limit.
   6. **Open design - the custom-type trait.** Recommended: one element trait with a fixed arity
-     and declared component types (AC-12). A second trait for a whole variadic value of unbounded
-     length is possible; is it wanted now, or only when a type needs it?
-  7. **Open design - the editor's incomplete row.** A new row has empty cells. Recommended: the
-     editor keeps the row in its own state and writes it to the query only when it is complete.
-     Alternative: write empty parameters and mark the row.
-  8. **Open design - per-component widgets.** Recommended: the widget follows from the component
-     type; `columns:` gives labels (AC-14). Per-component `gui:` hints are left for later.
-  9. **Proposed resolution - arity bounds.** 2 to 4 components.
-  10. **Open - the non-variadic position.** A fixed-size composite between other arguments is a
-      non-goal here. It would change how arguments count parameters. Is it wanted as a follow-up?
+     and declared component types (AC-12).
+  7. **Open design - per-component widgets.** Recommended: the widget follows from the component
+     type; `columns:` gives labels (AC-14).
+  8. **Proposed resolution - arity bounds.** 2 to 4 components in a tuple.
 
 ## Design Dependencies
 
 - `variadic-link-array-expansion` — **requires** (weak): AC-7 groups after expansion.
-- `ui-redesign` — `required-by`: master design §10.9 uses AC-9 to AC-11 for layout data; until
+- `ui-redesign` — `required-by`: master design §10.9 uses AC-9 and AC-10 for layout data; until
   this ships, its commands take `Vec<String>` and pair the elements themselves.
 - `UI-VARIADIC-ARGUMENT-LIST-EDITOR` (closed): the list editor AC-13 extends
   (`FieldValue::Items` in `liquers-lib/src/ui/editor/tree.rs`).
@@ -188,13 +207,13 @@ it gains one sentence and no new feature id: a declared element shape is carried
 - 2026-11-24: dictionaries (AC-9, AC-10), the scalar (AC-11), custom element types (AC-12), GUI
   support (AC-13, AC-14) and language integration decisions added. Map types and the row editor
   were non-goals before. AC-4, AC-5, AC-6 and AC-7 were widened to dictionaries.
+- 2026-11-25 (Orest's review): the `Scalar` type withdrawn (AC-11); the shape moved from
+  `ArgumentType` to a field of the argument (AC-5); the JSON value (AC-15, AC-16) and the JSON
+  object (AC-17) added; the dictionary editor of AC-13 made unable to write an incomplete pair.
 
 ## References
 
 - Issue `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS`, update of 2026-11-24 (the discussion).
 - Python `liquer`, `liquer/commands.py`: `ArgumentParser`, `SequenceArgumentParser`.
-- Exhaustive `ArgumentType` matches exist in 9 files (core: `plan.rs`, `recipes.rs`,
-  `command_metadata.rs`, `command_declaration.rs`; `liquers-macro`; `liquers-lib`: `commands.rs`,
-  `search/command_catalog.rs`, `egui/widgets.rs`; `liquers-mcp`: `schema.rs`, `server.rs`), plus
-  `liquers-py/src/command_metadata.rs` and `liquers-web/src/typescript.rs`. Each gets explicit
-  arms. No `_ =>` is added.
+- `ArgumentType` is not changed, so its exhaustive matches (9 files) are untouched. The places
+  that display an argument show the shape beside "multiple".

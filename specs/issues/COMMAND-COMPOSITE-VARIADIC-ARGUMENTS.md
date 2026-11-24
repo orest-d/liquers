@@ -110,14 +110,29 @@ the list and returned a value and the rest; parsers were combined with `+`
 widely. The proposal here is simpler: grouping happens only in the variadic position, and the
 shape is declared in the metadata, so that the plan, the registry and a GUI all see it.
 
-**Scope after this discussion** (design `composite-variadic-arguments`, Phases 1 and 2
-rewritten on 2026-11-24):
+**Orest's review of the first draft (2026-11-25).**
 
-1. Tuple elements: `Vec<(A, B)> multiple` (the original scope).
-2. A dictionary: `BTreeMap<String, V> multiple`, with duplicate keys refused.
-3. A scalar component whose type is read from its text.
-4. A trait, so that a command author's own type can be an element or a whole variadic value.
-5. Registration macro support for all of the above, with compile-time rejections.
-6. GUI support: the argument editor shows one row per element, with a column per component.
+- A separate scalar type is confusing and not wanted. Dictionary values are strings or JSON
+  scalars.
+- A shape only works on a variadic argument, so it does not belong in `ArgumentType`.
+- Value types wanted: string values, JSON values, and a JSON object.
+- A dictionary editor naturally makes an incomplete key and value pair impossible.
+- Composites in a non-variadic position are not allowed.
+- One more type, a JSON value, read from the parameters like this: none is `null`; one number
+  or string is a scalar (booleans cannot be told from strings, so they are not supported); a
+  sequence starting with a number is a list; a sequence starting with an empty string is the
+  rest as a list; a sequence starting with a string is key and value pairs.
+
+**Scope** (design `composite-variadic-arguments`, Phases 1 and 2 rewritten on 2026-11-24 and
+revised on 2026-11-25):
+
+1. A `shape` on a variadic argument: list (today), tuples, map, JSON.
+2. Tuple elements: `Vec<(A, B)> multiple` (the original scope).
+3. A dictionary: `BTreeMap<String, V> multiple` or a JSON object, with duplicate keys refused.
+4. A JSON value: `serde_json::Value multiple`, with the rules above.
+5. A trait, so that a command author's own type can be a tuple element.
+6. Registration macro support for all of the above, with compile-time rejections.
+7. GUI support: the argument editor shows tuples as rows, a dictionary as pairs added whole, and
+   a JSON value with a choice of form.
 
 Open questions are listed in the design's Phase 1, `## Design Readiness`.
