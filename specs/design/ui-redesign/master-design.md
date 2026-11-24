@@ -752,43 +752,48 @@ one text line high and one character wide in a terminal, and the base spacing to
 `Fixed(20)` means "about twenty characters" everywhere. Pixel-exact layout is out of scope for
 the common vocabulary and belongs to native widgets.
 
-### 10.9 Children, slots and placement (proposed 2026-11-24)
+### 10.9 Children, slots and layout data (proposed 2026-11-24)
 
-The old design gives a parent an ordered list of children. That mixes two things, and it cannot
-express a splitter, a grid or a dock layout. Orest (2026-11-24) is not comfortable with the
-linear list. The proposal separates the two:
+**Children stay an ordered list**, as in the old design, and the relative commands of the old
+`lui` namespace (first, last, before or after a handle) keep working unchanged. The list covers
+most containers: a panel, a toolbar, tabs, a splitter (two children, which may be layouts), a
+grid with a fixed number of columns that grows in one direction, and a dock layout built from
+nested splitter and tab elements. Orest (2026-11-24) asked what the list cannot do.
 
-- **Membership** belongs to the runner. A child has exactly one parent. The runner uses this
-  for lifecycle and cleanup (§6) and needs no order for it.
-- **Arrangement** is the parent element's own state. A list container keeps an ordered list of
-  handles; a splitter keeps `left` and `right`; a tab element an order and the active child; a
-  grid a map from cell to handle; a dock layout a tree of splits with handles at its leaves.
-- **A slot** is the place where a parent draws one child. A portable view names it with a
-  `Child(handle)` node. A native immediate-mode view calls `cx.show_child(ui, handle)` at that
-  place (S1). A native retained view (DOM, Leptos, Slint) gives the host a node marked with the
-  child's handle, and the host puts the child's widget there when the child is placed. This
-  last form is not built yet (§28 S1-f).
-- **Placement** is how a child gets its place. The command or message that adds or moves a
-  child carries an optional placement value, which only the parent interprets:
+- **A slot** is only the place where a parent draws one child. A portable view names it with a
+  `Child(handle)` node; a native immediate-mode view calls `cx.show_child(ui, handle)` there
+  (S1); a native retained view (DOM, Leptos, Slint) gives the host a node marked with the
+  child's handle, which is not built yet (§28 S1-f). Slots do not change the child mechanism.
+- **What the list cannot hold is per-child layout data**: the cell and span of a child in a
+  free grid, or the role of a child in a window (sidebar, body, footer). Kept in the parent's
+  properties as a second array matched by index, it breaks: a command adding a child cannot say
+  where it goes, removing a child shifts the indices after it, and a role moves to the wrong
+  child when an optional one is absent.
+- **Proposal: a child may carry optional layout data that only its parent interprets.** The
+  parent keeps it per handle, as part of its state. This is the attached-property pattern of
+  XAML (`Grid.Row`), CSS (`grid-area`) and Flutter. The data is structured like element
+  properties, so no key syntax is needed.
 
-| Parent | Placement | Without a placement |
-|---|---|---|
-| List container (panel, toolbar, tabs) | `first`, `last`, `before(handle)`, `after(handle)`, an index | `last` |
-| Named slots (splitter, window with header and body) | a name | the first free slot |
-| Grid | a cell (row, column, optional span) | the next free cell |
-| Dock layout | a target and a side, or a tab group | a new tab in the focused group |
+```yaml
+grid:
+  columns: 12
+  children:
+    - chart: {query: ...}
+      layout: {row: 0, col: 0, colspan: 8, rowspan: 2}
+    - table: {query: ...}
+      layout: {row: 0, col: 8, colspan: 4}
+    - log: {}
+      layout: {row: 2, col: 0, colspan: 12}
+```
 
-- The relative commands of the old `lui` namespace are the list container's placements, so they
-  keep working unchanged. A parent rejects a placement it does not understand with an error
-  message to the sender; the child is then not added.
-- The parent receives `ChildAdded(handle, placement)` and `ChildRemoved(handle)` (§7) and
-  updates its arrangement. Moving a child inside one parent is a message to that parent and
-  does not touch membership.
-- In a UISpec a child may carry `slot:` with the placement (§14). Saved state (§20) needs
-  nothing new: the arrangement is part of the parent's state.
+- The command or message that adds a child may carry layout data; the parent receives it with
+  `ChildAdded` (§7). Changing it later is a message to the parent. In a query, it is ordinary
+  command arguments (a grid command taking row, column and spans).
+- A linear container ignores layout data and uses the order. A parent that needs layout data
+  and gets none chooses a default (the next free cell, the body role).
+- Saved state (§20) needs nothing new: the layout data is part of the parent's state.
 
-Not tested. A splitter and a grid in the spike workspace would check it, with a native retained
-parent among them.
+Not tested. A free grid in the spike workspace would check it.
 
 ## 11. Frontends: three patterns over one store
 
@@ -1601,15 +1606,16 @@ Raised by spike S1 (findings §8), to be decided before D1's architecture:
   (2026-11-24): the element is responsible. "Report" is a local flag to its own runner with no
   payload; no state is sent anywhere. It is automatic inside `update` and wherever state is
   reached through `cx` (retained native views: DOM, Leptos, Slint). Only immediate-mode code
-  that changes state while drawing makes the one call.
+  that changes state while drawing makes the one call; a debug build can catch a forgotten
+  call by comparing the state before and after the frame.
 - **S1-d. A client cannot reserve a handle** for a node it asks the server to add. Client-side
   handle ranges, or request ids?
 - **S1-e. One part trait or two?** S1 used one trait for monolithic, server and client parts,
   with different services. §5.3 has a separate `ClientPart`.
 
-- **S1-f. Children, slots and placement** (§10.9): is the split into membership (runner),
-  arrangement (parent state) and a placement value on add and move the right replacement for
-  the linear child list? The slot marker for a native retained parent is still to be built.
+- **S1-f. Children and layout data** (§10.9): children stay an ordered list; is optional
+  per-child layout data, interpreted by the parent, the right extension for free grids and
+  roles? The slot marker for a native retained parent is still to be built.
 
 For the spikes and the sub-designs, not blocking approval:
 
