@@ -8,10 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 270
+Total rows: 272
 - P1: 1
 - P2: 69
-- P3: 200
+- P3: 202
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -119,6 +119,7 @@ Total rows: 270
 | [`DOCS-CHECK-FLAGS-A-CODE-SPAN-AS-A-MYST-ROLE`](issues/DOCS-CHECK-FLAGS-A-CODE-SPAN-AS-A-MYST-ROLE.md) | issue | liquers-docs reports a code span ending in a brace as a MyST role | draft |  |  | P3 | S | docs |  | 2026-11-09 |
 | [`DRAFT-MARKERS-LOOK-ALIKE`](issues/DRAFT-MARKERS-LOOK-ALIKE.md) | issue | Draft builds show every editorial marker the same way | draft |  |  | P3 | S | docs |  | 2026-11-01 |
 | [`DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE`](issues/DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE.md) | issue | Removing a computed value with a stored record leaves an empty data file at its key | draft |  |  | P3 | S | core/assets;core/store |  | 2026-10-27 |
+| [`DUPLICATE-OF-EXTERNAL-RESOURCE-RECIPE-KEEPS-ITS-FILENAME`](issues/DUPLICATE-OF-EXTERNAL-RESOURCE-RECIPE-KEEPS-ITS-FILENAME.md) | issue | Duplicating a recipe whose query is only a resource outside the folder is refused | draft |  |  | P3 | S | core/plan |  | 2026-11-24 |
 | [`EDITOR-HAS-NO-KEY-TO-DISCARD-A-PREVIEW`](issues/EDITOR-HAS-NO-KEY-TO-DISCARD-A-PREVIEW.md) | feature | Escape does not discard a Live preview in the query editor | draft |  |  | P3 | S | lib/egui |  | 2026-11-24 |
 | [`EGUI-EXAMPLES-HAND-WRITE-THE-FRAME-LOOP`](issues/EGUI-EXAMPLES-HAND-WRITE-THE-FRAME-LOOP.md) | issue | Six egui examples keep their own runtime, runner loop and repaint policy instead of the native driver | draft |  |  | P3 | S | lib/egui |  | 2026-11-10 |
 | [`GUIDE-SECTION-ANCHORS-DIFFER-BETWEEN-RENDERERS`](issues/GUIDE-SECTION-ANCHORS-DIFFER-BETWEEN-RENDERERS.md) | issue | Section links between chapters break in the EPUB and PDF | draft |  |  | P3 | S | docs |  | 2026-11-01 |
@@ -139,6 +140,7 @@ Total rows: 270
 | [`REC-ROWID-REFUSES-A-MANIFEST-STORED-AS-TEXT`](issues/REC-ROWID-REFUSES-A-MANIFEST-STORED-AS-TEXT.md) | issue | ns-rec/rowid on a manifest key fails with unknown data format 'txt' where the other record commands read it | draft |  |  | P3 | S | records |  | 2026-11-14 |
 | [`RECIPE-MISSING-RECIPE-IS-A-GENERAL-ERROR`](issues/RECIPE-MISSING-RECIPE-IS-A-GENERAL-ERROR.md) | issue | Asking a recipe provider for a recipe it does not have raises a General error, not KeyNotFound | draft |  |  | P3 | S | core/assets;core/error |  | 2026-11-01 |
 | [`RECIPE-OVERRIDES-MISS-A-FINAL-PIPELINE-COMMAND`](issues/RECIPE-OVERRIDES-MISS-A-FINAL-PIPELINE-COMMAND.md) | issue | Recipe argument and link overrides do not reach a pipeline command that is the query's last action | draft |  |  | P3 | S | core/plan | [notation](design/composite-command-definition/notation-and-integration.md)  [phase1](design/composite-command-definition/phase1-high-level-design.md)  [phase2](design/composite-command-definition/phase2-architecture.md)  [phase3](design/composite-command-definition/phase3-examples.md)  [phase4](design/composite-command-definition/phase4-implementation.md)  [phase5](design/composite-command-definition/phase5-documentation.md)  [pipeline](design/composite-command-definition/pipeline-and-plan.md)  [pipeline](design/composite-command-definition/pipeline-structure-and-sources.md)  [recipe](design/composite-command-definition/recipe-and-pipeline-structures.md)  | 2026-11-04 |
+| [`RECIPES-EDITOR-SAVE-AS-HAS-NO-FILE-DIALOG`](issues/RECIPES-EDITOR-SAVE-AS-HAS-NO-FILE-DIALOG.md) | issue | Save as in the egui recipes panel asks for a typed path instead of a file dialog | draft |  |  | P3 | S | lib/egui |  | 2026-11-24 |
 | [`RECORD-ACCESSOR-STEPS-HAVE-NO-COMMANDS`](issues/RECORD-ACCESSOR-STEPS-HAVE-NO-COMMANDS.md) | feature | Record rows, columns and cells cannot be projected from a query | draft |  |  | P3 | S | lib/value;records |  | 2026-11-16 |
 | [`RUSTDOC-PRIVATE-INTRA-DOC-LINKS-RECUR`](issues/RUSTDOC-PRIVATE-INTRA-DOC-LINKS-RECUR.md) | issue | Public rustdoc in liquers-core and liquers-records links private items again | draft |  |  | P3 | S | docs;core/plan;core/assets;records |  | 2026-11-03 |
 | [`RUSTDOC-WASM-CRATE-NOT-MERGED-INTO-API-TREE`](issues/RUSTDOC-WASM-CRATE-NOT-MERGED-INTO-API-TREE.md) | issue | liquers-web's Rust API page does not link the other crates and is missing from the API search | draft |  |  | P3 | S | web;docs |  | 2026-11-02 |
@@ -228,6 +230,7 @@ Total rows: 270
 | [`WEB-EVALUATE-CANNOT-RETURN-THE-SERIALIZED-RESULT`](issues/WEB-EVALUATE-CANNOT-RETURN-THE-SERIALIZED-RESULT.md) | feature | A page cannot get the bytes of a result in the format its file name asks for | draft |  |  | P3 | M | web |  | 2026-11-10 |
 | [`WEB-FOLDER-SERVES-STORED-FILES-ONLY`](issues/WEB-FOLDER-SERVES-STORED-FILES-ONLY.md) | feature | The web folder serves stored files only; a page that a recipe would compute is 404 | draft |  |  | P3 | M | axum |  | 2026-11-06 |
 | [`WEB-HAS-NO-READ-WRITE-REMOTE-STORE`](issues/WEB-HAS-NO-READ-WRITE-REMOTE-STORE.md) | feature | A browser page cannot mount a Liquers server's store read/write | draft |  |  | P3 | M | web |  | 2026-10-20 |
+| [`WEB-RECIPES-EDITOR-CANNOT-DOWNLOAD`](issues/WEB-RECIPES-EDITOR-CANNOT-DOWNLOAD.md) | feature | The browser recipes panel cannot save or export a value to a local file | draft |  |  | P3 | M | lib/ui |  | 2026-11-24 |
 | [`WEB-RELEASE-MODULE-IS-20-MB`](issues/WEB-RELEASE-MODULE-IS-20-MB.md) | issue | The optimized browser module with records is 20 MB, and liquers-web/README.md says 16.5 MB | draft |  |  | P3 | M | web;build |  | 2026-11-10 |
 | [`WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG`](issues/WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG.md) | issue | liquers-web hand-rolls the environment configuration that EnvironmentConfig will own | draft |  |  | P3 | M | web;core/store;core/context |  | 2026-08-31 |
 | [`YAML-DOCUMENT-EDIT-DROPS-COMMENTS`](issues/YAML-DOCUMENT-EDIT-DROPS-COMMENTS.md) | feature | Editing a YAML document through an accessor drops its comments and formatting | draft |  |  | P3 | M | core/value |  | 2026-11-16 |
@@ -270,7 +273,6 @@ Total rows: 270
 | [`COMMAND-REGISTRY-NOT-ORGANIZED-BY-REALM`](issues/COMMAND-REGISTRY-NOT-ORGANIZED-BY-REALM.md) | issue | The command metadata registry is a flat list, so a realm cannot have its own default namespaces | draft |  |  | P3 | L | core/commands;core/plan |  | 2026-11-01 |
 | [`INDEX-PAGE-IS-A-FIXED-REDIRECT`](issues/INDEX-PAGE-IS-A-FIXED-REDIRECT.md) | feature | A Liquers server's index page can only redirect to the web folder | draft |  |  | P3 | L | axum;core/value;core/commands |  | 2026-11-06 |
 | [`MODULE-DOCS-DO-NOT-FOLLOW-THE-API-DOC-RULES`](issues/MODULE-DOCS-DO-NOT-FOLLOW-THE-API-DOC-RULES.md) | issue | Existing module docs lack purpose, usage, related concepts and examples | draft |  |  | P3 | L | docs;core/commands;core/value;lib/commands;axum;py |  | 2026-11-01 |
-| [`NO-RECIPE-OR-RECIPES-EDITOR-UI`](issues/NO-RECIPE-OR-RECIPES-EDITOR-UI.md) | feature | There is no UI element that edits a whole recipe or a folder's recipes.yaml | draft |  |  | P3 | L | lib/ui;lib/egui |  | 2026-11-24 |
 | [`NO-RENDERER-NEUTRAL-STYLESHEET`](issues/NO-RENDERER-NEUTRAL-STYLESHEET.md) | feature | Styles cannot be written once as selector rules and resolved for egui, the browser and a terminal UI | draft |  |  | P3 | L | lib/ui |  | 2026-11-21 |
 | [`NO-SOURCE-CODE-AND-API-DOC-NAVIGATION`](issues/NO-SOURCE-CODE-AND-API-DOC-NAVIGATION.md) | feature | Source code and API documentation cannot be navigated or extracted | draft |  |  | P3 | L | lib/commands |  | 2026-10-11 |
 | [`NO-SQL-ENGINE-IN-WASM-BUILDS`](issues/NO-SQL-ENGINE-IN-WASM-BUILDS.md) | feature | SQL over records is unavailable in wasm builds, where polars does not build | draft |  |  | P3 | L | records;lib/commands;web |  | 2026-10-21 |

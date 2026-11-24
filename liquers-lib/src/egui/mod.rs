@@ -56,6 +56,7 @@ pub mod commands;
 #[cfg(feature = "polars")]
 pub mod dataframe;
 pub mod editor;
+pub mod recipes;
 pub mod theme;
 pub mod widgets;
 

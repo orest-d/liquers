@@ -7,6 +7,7 @@
 
 pub mod app;
 pub mod editor;
+pub mod recipes;
 #[cfg(feature = "polars")]
 pub mod dataframe;
 pub mod html;
