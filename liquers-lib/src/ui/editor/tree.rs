@@ -69,6 +69,16 @@ impl NodePath {
             .collect::<Result<Vec<_>, _>>()
             .map(NodePath)
     }
+    /// The path of the element after this one at the same level: where "Insert action after"
+    /// inserts (at the end of the level, it appends). Unchanged when the path does not end with
+    /// an element.
+    pub fn next_sibling(&self) -> Self {
+        let mut steps = self.0.clone();
+        if let Some(PathStep::Element(i)) = steps.last_mut() {
+            *i += 1;
+        }
+        NodePath(steps)
+    }
     /// The last element index of the path, if it ends with one.
     pub fn last_element(&self) -> Option<usize> {
         match self.0.last() {

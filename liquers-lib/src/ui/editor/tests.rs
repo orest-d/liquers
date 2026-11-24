@@ -1049,3 +1049,23 @@ fn node_selector_rename_writes_document_and_data() {
         .expect_err("car is taken");
     assert!(error.message.contains("car.glb"), "{error}");
 }
+
+// "Insert action after": the picker inserts at the next sibling, also after the last step.
+#[test]
+fn insert_action_after_a_step() {
+    let mut state = editor(EditorKind::Query, "-R/a.csv/-/ns-pl/sort");
+    let resource = state.tree().nodes[0].path().clone();
+    assert_eq!(resource.next_sibling(), NodePath::element(1));
+    state
+        .apply(EditorCommand::SearchCommands { insert_at: Some(resource.next_sibling()), filter: String::new() })
+        .expect("picker");
+    state.apply(EditorCommand::PickCommand(CommandKey::new("", "pl", "is_in"))).expect("pick");
+    assert!(state.tree().text.starts_with("-R/a.csv/-/ns-pl/is_in"), "{}", state.tree().text);
+
+    let last = state.tree().nodes[state.tree().last_action().expect("last")].path().clone();
+    state
+        .apply(EditorCommand::SearchCommands { insert_at: Some(last.next_sibling()), filter: String::new() })
+        .expect("picker");
+    state.apply(EditorCommand::PickCommand(CommandKey::new("", "pl", "is_in"))).expect("pick after the last");
+    assert!(state.tree().text.ends_with("/sort/is_in"), "{}", state.tree().text);
+}

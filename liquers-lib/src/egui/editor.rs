@@ -970,6 +970,9 @@ fn node_menu(ui: &mut egui::Ui, path: &NodePath, out: &mut Vec<EditorCommand>) {
         if ui.button("Insert action before").clicked() {
             out.push(EditorCommand::SearchCommands { insert_at: Some(path.clone()), filter: String::new() });
         }
+        if ui.button("Insert action after").clicked() {
+            out.push(EditorCommand::SearchCommands { insert_at: Some(path.next_sibling()), filter: String::new() });
+        }
         if ui.button("Insert resource before").clicked() {
             out.push(EditorCommand::Insert { path: path.clone(), element: NewElement::Resource("data".into()) });
         }

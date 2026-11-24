@@ -470,6 +470,7 @@ fn card_html(h: &mut String, tree: &EditorTree, node: &EditorNode, mode: EditorM
                     HeaderPart::Menu => {
                         if !path.0.is_empty() {
                             h.push_str(&button("+", "picker", path, "", "Insert a command before"));
+                            h.push_str(&button("+›", "picker", &path.next_sibling(), "", "Insert a command after"));
                         }
                     }
                     HeaderPart::Chevron | HeaderPart::Icon | HeaderPart::Realm(_) | HeaderPart::Label(_) | HeaderPart::CommandId(_) => {}
