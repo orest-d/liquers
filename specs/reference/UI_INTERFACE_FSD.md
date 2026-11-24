@@ -436,8 +436,18 @@ then `recipes.yaml`) and sends the context again. Without a folder the field is 
 
 **Edits.** `EditorState` (backend-free) applies each `EditorCommand` as a validated edit of a
 `liquers_core::pipeline::QueryEditor` / `PipelineEditor` working copy: a refused edit changes
-nothing and is shown at its node. "Update immediately" (`continuous`, default on) writes each
-committed edit; otherwise edits are pending until Update, and Revert reloads. A namespace edit that
+nothing and is shown at its node. When a committed edit takes effect is the state's
+`UpdateMode` (serde and `mode` names `on-demand`, `preview`, `immediate`): **Apply immediately**
+writes it (`EditorEffect::Write`); **Live preview** keeps it pending and returns
+`EditorEffect::Preview(value)`, Update writing it and Revert or Undo back to the applied value
+returning `ClearPreview`; **On demand** keeps it pending until Update, and Revert reloads.
+`EditorState::with_update_modes` limits the modes its control offers. Undo and Redo
+(`EditorCommand::Undo` / `Redo`, at most 100 steps; a new edit clears Redo) restore earlier
+working copies and commit them like any edit; `EditorTree::{update_mode, update_modes, can_undo,
+can_redo}` carry the state to the renderers, and `host_controls` tells them that the host draws the
+mode control, Undo, Redo and ✓ itself. The editor element (`lui/query_editor`) still serializes
+`continuous` and offers On demand and Apply immediately; its Live preview through the followed view
+is `design/query-update-modes/` Part B. A namespace edit that
 changes what a command resolves to waits for Confirm; one that leaves a command unresolved is
 refused. Unknown commands and excess parameters are shown read-only and kept.
 
@@ -473,7 +483,11 @@ text, Ctrl+J jump, F6 / Shift+F6 regions, PageUp / PageDown / Home / End between
 a field), Enter / Escape / Space / arrows on a header, Ctrl+Shift+[ and ] collapse and expand all,
 Alt+R reset, Alt+P presets, Alt+Shift+N next (Alt+N is the browser console's New Console),
 Alt+1…9 apply a preset, Ctrl+K add an action, Alt+Up / Down move, Ctrl+Delete delete, Alt+L
-link, Ctrl+Space complete, Ctrl+Enter update. **Ctrl+J** jumps from the query text to the field
+link, Ctrl+Space complete, Ctrl+Enter update, Ctrl+Z undo, Ctrl+Shift+Z or Ctrl+Y redo. The toolbar
+holds the mode control (one icon per mode: `hand-tap`, `eye`, `lightning`, the Live preview icon in
+the theme's preview colour), Undo and Redo; ✓ sits beside the query field (a filled
+`check-circle` while edits are pending; in Apply immediately a lightning mark instead).
+**Ctrl+J** jumps from the query text to the field
 whose span holds the cursor (committing typed text first) and back to that field's span. In
 Simple mode, a jump to a step other than the shown card asks for Advanced mode
 (`EditorView::mode_request`, reported as `EditorOutput::mode`) with that step the open card. The
@@ -500,6 +514,33 @@ its filename field (`EditorTree::hide_text`): `Ctrl+J` in the
 console's query field opens the panel on the step under the cursor, in Advanced mode when that is
 not the last action, and `Ctrl+J` in a panel field selects that field's text in the console's
 query field (`EditorOutput::select_text`).
+
+**Console update modes** (`design/query-update-modes/` Part A). The console has two modes,
+serialized as `update_mode`: Apply immediately (the default) and On demand (an editor's Live
+preview reads as Apply immediately). The panel's `EditorState` always applies at once and has
+`host_controls`, so it never holds an edit and shows no mode control or ✓; it persists, with its
+undo history, and follows the query only when one is applied (Enter, ✓, history, a preset). Every
+panel edit rewrites the query text at once; in Apply immediately the text is evaluated
+`DEBOUNCE_MS` (300 ms) after the last such edit, On demand only on ✓ (`qc:update`) or Enter
+(`Submit`). Text typed in the query field is applied only on Enter or ✓, and only when it parses and
+plans (`PlanBuilder` with the context's registry); otherwise `typed_error` is shown and nothing is
+evaluated. A panel edit made after unentered typing replaces the typed text with the edited applied
+query. ✓ is enabled while the text differs from the query last evaluated or that asset changed
+upstream (`check_mark_enabled`); the browser always draws it (class `lq-go lq-qc-check`), since it
+cannot see typing between renders. The toolbar has the mode control (`qc:mode::<name>`) and Undo /
+Redo (`qc:undo`, `qc:redo`, Ctrl+Z / Ctrl+Shift+Z in egui). "Browse…" in the panel sends
+`AppMessage::ListDirectory` and the `UpdateMessage::Directory` answer reaches the panel. The value
+is kept in a `ui::widgets::ValueDisplay`: a new value replaces the old one with no empty frame; a
+snapshot whose `AssetSnapshot::query` (and `preview` flag) is not the one awaited is ignored; an
+evaluation still running after `QUIET_MS` (250 ms) dims the value and shows a status bar
+(`.lq-status-bar`: status, progress, last log), after `SLOW_MS` (3 s) with "Switch to On demand";
+an error keeps the old value, dimmed. An `Expired` snapshot without a value is recalculated in
+Apply immediately and marked "changed upstream" (dimmed, ✓ recalculates) On demand. A preview
+value is framed in the theme's `preview` colour (`.lq-value-preview`), a stale one dimmed
+(`.lq-value-stale`). The console's timers are UI events it sends itself through
+`ui::schedule_event` (`lq:timer`, fields `timer` and `generation`; tokio natively, `gloo_timers` in
+the browser), so a test delivers them instead of sleeping; outside a tokio runtime the timer is
+dropped.
 
 ## Hosts
 
@@ -906,3 +947,4 @@ Candidate universal operations identified across use cases:
 | 2026-11-22 | Editors: links the new theme reference. | `design/query-editor-ergonomics/` |
 | 2026-11-23 | Editors: no outline or part titles in Advanced mode, one card open on entering it, argument help and defaults in hovers only, Ctrl+J opens Advanced mode on another step; the query console's editor panel is a side column behind a pencil button and does not repeat the query. Those parts reviewed against the implementation. | — |
 | 2026-11-24 | Editors: "Add key…" on a query with no key; the console's panel keeps "Add action…". `UIElement::scrolls_itself` lets the console draw a self-scrolling element (Markdown) without a second scroll area. Those parts reviewed against the implementation. | — |
+| 2026-11-24 | Editors: update modes (On demand, Live preview, Apply immediately), Undo / Redo, ✓ beside the query field, `host_controls`; the query console's update modes, debounce, typed-text validation, `ValueDisplay` (no flicker, status bar, dimming, preview frame), expiry by mode, Browse in the panel, `schedule_event` (`design/query-update-modes/` Part A). Those parts reviewed against the implementation. | — |

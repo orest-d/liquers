@@ -418,11 +418,13 @@ mod browser {
         root.set_inner_html(&html);
     }
 
-    /// The focused element and, for a text field, its selection — captured before markup is
-    /// replaced so it can be put back afterwards.
+    /// The focused element and, for a text field, its selection and what was typed in it —
+    /// captured before markup is replaced so it can be put back afterwards.
     struct FocusSnapshot {
         element_id: String,
         selection: Option<(u32, u32)>,
+        /// The field's typed value and the value its markup last rendered.
+        draft: Option<(String, String)>,
     }
 
     fn capture_focus(doc: &web_sys::Document) -> Option<FocusSnapshot> {
@@ -439,9 +441,13 @@ mod browser {
                     _ => None,
                 },
             );
+        let draft = active
+            .dyn_ref::<web_sys::HtmlInputElement>()
+            .map(|input| (input.value(), input.default_value()));
         Some(FocusSnapshot {
             element_id,
             selection,
+            draft,
         })
     }
 
@@ -452,6 +458,15 @@ mod browser {
         };
         if let Some(html_el) = element.dyn_ref::<web_sys::HtmlElement>() {
             let _ = html_el.focus();
+        }
+        // Text typed but not yet sent survives a re-render that did not change the field's
+        // rendered value (a timer, a snapshot): only the model's own change replaces it.
+        if let (Some(input), Some((typed, rendered))) =
+            (element.dyn_ref::<web_sys::HtmlInputElement>(), &snapshot.draft)
+        {
+            if input.default_value() == *rendered && input.value() != *typed {
+                input.set_value(typed);
+            }
         }
         if let (Some(input), Some((start, end))) = (
             element.dyn_ref::<web_sys::HtmlInputElement>(),

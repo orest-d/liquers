@@ -84,6 +84,10 @@ use super::ui_context::UIContext;
 struct MonitoredAsset<E: Environment> {
     asset_ref: AssetRef<E>,
     notification_rx: tokio::sync::watch::Receiver<AssetNotificationMessage>,
+    /// The query asked for, carried by every snapshot (design `query-update-modes`, AC-6).
+    query: String,
+    /// The asset is a preview (AC-17).
+    preview: bool,
 }
 
 /// A status change of one element, recorded by the runner and read by the backend after `run`.
@@ -1011,7 +1015,7 @@ where
                 let notification_rx = asset_ref.subscribe_to_notifications().await;
 
                 // 3. Build initial snapshot
-                let snapshot = Self::build_snapshot(&asset_ref).await;
+                let snapshot = Self::build_snapshot(&asset_ref, &query, false).await;
 
                 // 4. Deliver snapshot to element
                 let status = snapshot.status;
@@ -1037,6 +1041,8 @@ where
                             MonitoredAsset {
                                 asset_ref,
                                 notification_rx,
+                                query,
+                                preview: false,
                             },
                         );
                     }
@@ -1050,6 +1056,8 @@ where
                     metadata: liquers_core::metadata::Metadata::new(),
                     error: Some(e),
                     status: Status::Error,
+                    query: Some(query.clone()),
+                    preview: false,
                 };
                 let error = error_snapshot.error.clone();
                 let outcome = Self::deliver_update(
@@ -1084,7 +1092,8 @@ where
                 let _notification = monitored.notification_rx.borrow_and_update().clone();
 
                 // Build fresh snapshot
-                let snapshot = Self::build_snapshot(&monitored.asset_ref).await;
+                let snapshot =
+                    Self::build_snapshot(&monitored.asset_ref, &monitored.query, monitored.preview).await;
 
                 // Deliver to element
                 let status = snapshot.status;
@@ -1120,7 +1129,7 @@ where
     }
 
     /// Build an AssetSnapshot from an AssetRef.
-    async fn build_snapshot(asset_ref: &AssetRef<E>) -> AssetSnapshot {
+    async fn build_snapshot(asset_ref: &AssetRef<E>, query: &str, preview: bool) -> AssetSnapshot {
         // Get status
         let status = asset_ref.status().await;
 
@@ -1147,6 +1156,8 @@ where
             metadata,
             error,
             status,
+            query: Some(query.to_string()),
+            preview,
         }
     }
 
@@ -1227,7 +1238,7 @@ where
                     let mut notification_rx = asset_ref.subscribe_to_notifications().await;
                     let _ = notification_rx.borrow_and_update();
                     self.apply_theme_asset(&asset_ref).await;
-                    self.theme_watch = Some((query, MonitoredAsset { asset_ref, notification_rx }));
+                    self.theme_watch = Some((query, MonitoredAsset { asset_ref, notification_rx, query: String::new(), preview: false }));
                 }
                 Err(e) => {
                     eprintln!("theme '{query}' could not be evaluated: {e}");
@@ -1261,7 +1272,7 @@ where
     /// Composes the theme asset's value over the built-in theme and swaps it into the cell; a
     /// value that is not a theme keeps the previous one (AC-16).
     async fn apply_theme_asset(&mut self, asset_ref: &AssetRef<E>) {
-        let snapshot = Self::build_snapshot(asset_ref).await;
+        let snapshot = Self::build_snapshot(asset_ref, "", false).await;
         if let Some(e) = snapshot.error {
             eprintln!("theme asset failed: {e}");
             self.record(None, Status::Error, Some(e));
