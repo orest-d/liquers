@@ -41,6 +41,22 @@ depends on the *update mode*, chosen with the mode control in the toolbar:
 - **On demand** (a hand icon) keeps the edits until you press ✓, the button beside the query
   text, or Enter in it. ✓ is highlighted while there is something to apply.
 
+- **Live preview** (an eye icon; a query editor only, and its default) evaluates each edit and
+  shows the result in place of the value it would change, framed in the preview colour, without
+  saving anything: when the editor edits a recipe, the recipe file stays as it is and nothing that
+  depends on it is recalculated. ✓ saves the edit, and the dependents then update; Revert or Undo
+  drops the preview. This shows the effect of one change before an expensive cascade.
+
+An element starts in the mode its command names, so a spec can give an expensive query a console
+that waits for ✓:
+
+```text
+-R/data/sales.csv/-/ns-pl/head-3/ns-lui/query_console-on_demand
+```
+
+`ns-lui/query_console` takes `immediate` (the default) or `on_demand`; `ns-lui/query_editor`
+takes `preview` (the default), `immediate` or `on_demand`.
+
 Text you type into the query field itself is taken only when you press Enter or ✓, and only when
 the query parses and every command in it exists; otherwise the error is shown and the value stays
 as it was. Undo and Redo (the arrow buttons, Ctrl+Z and Ctrl+Shift+Z) step back and forth through

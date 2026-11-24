@@ -3,12 +3,11 @@ id: QUERY-UPDATE-MODES
 kind: design
 title: Update modes for the query editors and console - on demand, live preview and apply immediately, with undo and a value display that does not flicker
 workflow: liquers-project
-status: approved
-phase: implementation
+status: complete
 priority: P2
 complexity: L
 area: [lib/ui, lib/egui]
-issues: [QUERY-CONSOLE-EDITOR-LOSES-EDITS-WHEN-UPDATE-IMMEDIATELY-IS-OFF, QUERY-CONSOLE-EDITOR-CANNOT-BROWSE-THE-STORE, QUERY-EDITOR-HAS-NO-LIVE-PREVIEW]
+issues: [QUERY-CONSOLE-EDITOR-LOSES-EDITS-WHEN-UPDATE-IMMEDIATELY-IS-OFF, QUERY-CONSOLE-EDITOR-CANNOT-BROWSE-THE-STORE, QUERY-EDITOR-HAS-NO-LIVE-PREVIEW, PREVIEW-IS-FRAMED-ONLY-IN-THE-QUERY-CONSOLE, EDITOR-HAS-NO-KEY-TO-DISCARD-A-PREVIEW]
 affects_docs: [specs/reference/UI_INTERFACE_FSD.md, specs/reference/THEME.md, specs/command_registry.yaml, docs/guides/rust/11-ui.md, docs/guides/python/11-ui.md, docs/guides/web/11-ui.md]
 created: 2026-11-24
 ---
@@ -29,7 +28,7 @@ before it cascades, all three modes (`query-update-modes`), with a mode argument
 visual cues for preview, stale and mode (agreed). Phase 1 approved (`proceed`) on 2026-11-24, with
 Live preview as an accessor-bound editor's default and the work split into two parts. Phase 2
 written the same day. Pre-approved after Phase 2 on 2026-11-24 (`proceed all`); Phases 3 and
-4 written the same day.
+4 written the same day. Part A merged in PR #285 (2026-11-24); Part B and Phase 5 completed the design on 2026-11-24 (pre-approved).
 
 ## Phases
 
