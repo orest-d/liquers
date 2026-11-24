@@ -345,7 +345,16 @@ pub struct EditorTree {
     pub filename_default: Option<String>,
     /// Edits not yet set into the accessor (AC-26).
     pub pending: bool,
-    pub continuous: bool,
+    /// What a committed edit does (design `query-update-modes`).
+    pub update_mode: super::UpdateMode,
+    /// The modes the mode control offers (all three in an editor, two in the console).
+    pub update_modes: Vec<super::UpdateMode>,
+    /// An edit can be undone, or redone (AC-10).
+    pub can_undo: bool,
+    pub can_redo: bool,
+    /// The host (the query console) draws the update mode, ✓ and undo controls, so the editor
+    /// draws none of its own (AC-13).
+    pub host_controls: bool,
     /// The editor cannot write (no accessor, a read-only binding, or the binding failed).
     pub read_only: bool,
     /// A refusal, a conflict or another message for the user, with the path it concerns.

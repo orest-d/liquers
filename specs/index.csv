@@ -382,9 +382,12 @@ QUERY-BUILDER-NOT-IN-BINDINGS,feature,JavaScript has no validating query builder
 QUERY-BUILDER-TOOLING,issue,No programmatic builder for constructing queries,closed,local,,ready,not-eligible,P2,L,core/query;core/validate,,,,composite-command-definition,,2026-08-08,specs/issues/QUERY-BUILDER-TOOLING.md
 QUERY-CANNOT-CHOOSE-A-DATA-FORMAT,feature,A query cannot choose a data format or a format refinement except through a filename,draft,local,,needs-decision,not-eligible,P2,M,lib/commands;core/value,,,,query-data-format-command,,2026-10-20,specs/issues/QUERY-CANNOT-CHOOSE-A-DATA-FORMAT.md
 QUERY-CANNOT-MARK-CACHED-INTERMEDIATES,feature,A query cannot mark which of its intermediates are worth caching,draft,local,,needs-decision,not-eligible,P3,M,core/plan;core/assets;core/query,,,,query-cache-directives,,2026-10-10,specs/issues/QUERY-CANNOT-MARK-CACHED-INTERMEDIATES.md
-QUERY-CONSOLE-EDITOR-CANNOT-BROWSE-THE-STORE,issue,The query console's editor panel opens a store browser that never lists anything,draft,local,,,,P3,S,lib/ui,,,,,,2026-11-24,specs/issues/QUERY-CONSOLE-EDITOR-CANNOT-BROWSE-THE-STORE.md
+QUERY-CONSOLE-EDITOR-CANNOT-BROWSE-THE-STORE,issue,The query console's editor panel opens a store browser that never lists anything,closed,local,,,,P3,S,lib/ui,,,,query-update-modes,,2026-11-24,specs/issues/QUERY-CONSOLE-EDITOR-CANNOT-BROWSE-THE-STORE.md
+QUERY-CONSOLE-EDITOR-LOSES-EDITS-WHEN-UPDATE-IMMEDIATELY-IS-OFF,issue,"The query console's editor panel drops an edit made with ""Update immediately"" off, and never re-evaluates",closed,local,,,,P2,M,lib/ui,,,,query-update-modes,,2026-11-24,specs/issues/QUERY-CONSOLE-EDITOR-LOSES-EDITS-WHEN-UPDATE-IMMEDIATELY-IS-OFF.md
 QUERY-CONSOLE-HAS-NO-QUERY-EDITOR-ON-DEMAND,feature,The query console cannot show a query editor of its whole query on demand,closed,local,,,,P3,M,lib/ui;lib/egui;web,,,,query-editor-ergonomics,,2026-11-17,specs/issues/QUERY-CONSOLE-HAS-NO-QUERY-EDITOR-ON-DEMAND.md
+QUERY-COST-IS-UNKNOWN-TO-THE-UI,feature,"The UI cannot tell an expensive query from a cheap one, so an element's update mode cannot follow it",draft,local,,,,P3,M,lib/ui;core/commands,,,,,,2026-11-24,specs/issues/QUERY-COST-IS-UNKNOWN-TO-THE-UI.md
 QUERY-DOCS-CLAIM-LINK-PARAMETERS-DO-NOT-PARSE,issue,"query.rs module docs say link parameters do not parse, but they do",closed,local,,,,P3,S,core/query;docs,,,,,,2026-10-13,specs/issues/QUERY-DOCS-CLAIM-LINK-PARAMETERS-DO-NOT-PARSE.md
+QUERY-EDITOR-HAS-NO-LIVE-PREVIEW,feature,A query editor cannot show an edit's result without writing it upstream,draft,local,,,,P2,L,lib/ui;lib/egui,,,,query-update-modes,,2026-11-24,specs/issues/QUERY-EDITOR-HAS-NO-LIVE-PREVIEW.md
 QUERY-SYNTAX-HAS-NO-INCLUDABLE-SECTION,issue,Query Language section of PROJECT_OVERVIEW cannot be included in the user guides,draft,local,,,,P3,S,docs,,,,,,2026-11-01,specs/issues/QUERY-SYNTAX-HAS-NO-INCLUDABLE-SECTION.md
 QUERY-TOKEN-CLASSES-TRUNCATE-NON-ASCII,issue,"Action names, filenames and header values accept non-ASCII characters by low-byte truncation",closed,local,,ready,eligible,P2,S,core/query,,,,query-token-classes-ascii,,2026-10-21,specs/issues/QUERY-TOKEN-CLASSES-TRUNCATE-NON-ASCII.md
 QUEUED-MANAGER-EVICTION-RACE,issue,The queued manager's cache evictions can delete a replacement asset,closed,local,,ready,,P2,S,core/assets,,,,queued-manager-conditional-eviction,,2026-08-09,specs/issues/QUEUED-MANAGER-EVICTION-RACE.md
@@ -911,6 +914,7 @@ ACTIVE-08,design,Design for QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS,complete,local,,
 QUERY-LINK-PARSER,design,Action-parameter link parsing (~X~~E),complete,local,,,,,,core/query,,17,,query-link-parser,,2026-03-02,specs/design/query-link-parser/DESIGN.md
 QUERY-PIPELINE-EDITOR,design,"Query, pipeline, action, resource and key editors as UI elements",complete,local,,,,,,lib/ui;lib/egui;core/query,,,,query-pipeline-editor,,2026-11-16,specs/design/query-pipeline-editor/DESIGN.md
 QUERY-TOKEN-CLASSES-ASCII,design,"Action names, filenames, segment headers and header values are tested as ASCII",complete,local,,ready,eligible,P2,S,core/query,,193,,query-token-classes-ascii,,2026-10-26,specs/design/query-token-classes-ascii/DESIGN.md
+QUERY-UPDATE-MODES,design,"Update modes for the query editors and console - on demand, live preview and apply immediately, with undo and a value display that does not flicker",approved,local,implementation,,,,,lib/ui;lib/egui,,,,query-update-modes,,2026-11-24,specs/design/query-update-modes/DESIGN.md
 QUERY-VALIDATION,design,Offline query and recipe validation,complete,local,,,,,,core/validate,,15,,query-validation,,2026-03-02,specs/design/query-validation/DESIGN.md
 QUEUED-MANAGER-CONDITIONAL-EVICTION,design,Conditional queued-manager cache eviction,complete,local,,ready,,P2,S,core/assets,,,,queued-manager-conditional-eviction,,2026-08-29,specs/design/queued-manager-conditional-eviction/DESIGN.md
 REALM-TYPE-REGISTRY,design,"A type registry that describes every realm, and what each type does at a boundary",in_review,local,implementation,needs-decision,not-eligible,P2,L,core/value;web,,,,realm-type-registry,,2026-10-20,specs/design/realm-type-registry/DESIGN.md
@@ -1112,7 +1116,7 @@ SEARCH,reference,Search,current,local,,,,,,records;lib/commands,,,,,2026-10-17,,
 STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,,store/config,,,,,2026-11-01,,specs/reference/STORE_CONFIG_FSD.md
 STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-27,,specs/reference/STORE_SEMANTICS.md
 TEMPLATE_LANGUAGE,reference,Template Language,current,local,,,,,,core/query;lib/commands,,,,,2026-11-04,,specs/reference/TEMPLATE_LANGUAGE.md
-THEME,reference,UI Themes,current,local,,,,,,lib/ui;lib/egui,,,,,2026-11-22,,specs/reference/THEME.md
+THEME,reference,UI Themes,current,local,,,,,,lib/ui;lib/egui,,,,,2026-11-24,,specs/reference/THEME.md
 UI_INTERFACE_FSD,reference,UI Interface Specification,current,local,,,,,,lib/ui,,,,,2026-11-24,,specs/reference/UI_INTERFACE_FSD.md
 VALUE_ACCESSORS,reference,Value Accessors,current,local,,,,,,core/value;core/assets;core/query;lib/value;axum;py;web,,,,,2026-11-24,,specs/reference/VALUE_ACCESSORS.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-11-16,,specs/reference/VALUE_TYPE_SYSTEM.md
@@ -1157,7 +1161,7 @@ python/07-assets,chapter,"Recipes, assets and caching",ready,local,,,,,,docs,,,,
 python/08-environment,chapter,The environment,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/08-environment.md
 python/09-data,chapter,Working with data,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/09-data.md
 python/10-templates,chapter,Templates,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/10-templates.md
-python/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-22,,docs/guides/python/11-ui.md
+python/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-24,,docs/guides/python/11-ui.md
 python/12-serving,chapter,Serving and embedding,ready,local,,,,,,docs,,,,,2026-11-16,,docs/guides/python/12-serving.md
 python/13-records,chapter,Records,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/13-records.md
 python/14-testing,chapter,Testing,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/python/14-testing.md
@@ -1178,7 +1182,7 @@ rust/07-assets,chapter,"Recipes, assets and caching",ready,local,,,,,,docs,,,,,2
 rust/08-environment,chapter,The environment,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/08-environment.md
 rust/09-data,chapter,Working with data,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/09-data.md
 rust/10-templates,chapter,Templates,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/10-templates.md
-rust/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-22,,docs/guides/rust/11-ui.md
+rust/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-24,,docs/guides/rust/11-ui.md
 rust/12-serving,chapter,Serving and embedding,ready,local,,,,,,docs,,,,,2026-11-16,,docs/guides/rust/12-serving.md
 rust/13-records,chapter,Records,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/13-records.md
 rust/14-testing,chapter,Testing,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/14-testing.md
@@ -1199,7 +1203,7 @@ web/07-assets,chapter,"Recipes, assets and caching",ready,local,,,,,,docs,,,,,20
 web/08-environment,chapter,The environment,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/08-environment.md
 web/09-data,chapter,Working with data,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/09-data.md
 web/10-templates,chapter,Templates,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/10-templates.md
-web/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-22,,docs/guides/web/11-ui.md
+web/11-ui,chapter,User interfaces,ready,local,,,,,,docs,,,,,2026-11-24,,docs/guides/web/11-ui.md
 web/12-serving,chapter,Serving and embedding,ready,local,,,,,,docs,,,,,2026-11-16,,docs/guides/web/12-serving.md
 web/13-records,chapter,Records,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/web/13-records.md
 web/14-testing,chapter,Testing,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/web/14-testing.md

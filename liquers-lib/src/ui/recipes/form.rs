@@ -190,7 +190,10 @@ impl RecipeForm {
                 EditorEffect::None
                 | EditorEffect::Reload
                 | EditorEffect::ListDirectory(_)
-                | EditorEffect::RenameData { .. } => return Ok(FormChange::None),
+                | EditorEffect::RenameData { .. }
+                // A form writes its recipe; it has no live preview of the query.
+                | EditorEffect::Preview(_)
+                | EditorEffect::ClearPreview => return Ok(FormChange::None),
             },
         }
         self.recipe = recipe.clone();

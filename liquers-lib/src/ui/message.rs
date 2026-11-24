@@ -57,6 +57,11 @@ pub struct AssetSnapshot {
     pub error: Option<Error>,
     /// Current asset status.
     pub status: Status,
+    /// The query the runner was asked to evaluate, so a display can ignore the snapshot of a
+    /// query it no longer waits for (design `query-update-modes`, AC-6). `None` when unknown.
+    pub query: Option<String>,
+    /// The value is a preview: evaluated from an edit that is not applied (AC-17).
+    pub preview: bool,
 }
 
 /// Messages sent from the render loop (or any synchronous context) to the
