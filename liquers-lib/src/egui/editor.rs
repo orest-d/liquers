@@ -376,6 +376,14 @@ fn footer(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, layout: &crate:
                 }
             }
         }
+        if crate::ui::editor::offers_key(tree) {
+            if ui.button("Add key…").on_hover_text("Start the query with a key (a resource)").clicked() {
+                cx.out.push(EditorCommand::Insert {
+                    path: NodePath::element(0),
+                    element: NewElement::Resource(String::new()),
+                });
+            }
+        }
         if tree.has_filename {
             let add = format!("Add action… ({})", shortcut_text(EditorKey::AddAction).unwrap_or(""));
             if ui.button(add).on_hover_text("Append a command").clicked() {
@@ -399,8 +407,8 @@ fn footer(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, layout: &crate:
             }
         }
     });
-    if tree.has_filename && cx.mode == EditorMode::Advanced {
-        filename(ui, tree, view, &mut cx.out);
+    if tree.has_filename && !tree.hide_text && cx.mode == EditorMode::Advanced {
+        filename(ui, tree, view, &mut cx.out); // with the text hidden, the host shows the filename
     }
 }
 

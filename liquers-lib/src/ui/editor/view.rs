@@ -391,6 +391,8 @@ fn decode_named(name: &str, field_text: &dyn Fn(&str) -> Option<String>) -> Opti
             }
             EditorCommand::SetNamespaces { path, namespaces: list }
         }
+        // "Add key…": a resource with an empty key, first in the query (AC: an empty query).
+        "addkey" => EditorCommand::Insert { path: NodePath::element(0), element: NewElement::Resource(String::new()) },
         "confirm" => EditorCommand::ConfirmNamespaces,
         "cancel" => EditorCommand::CancelNamespaces,
         "append" => match extra {

@@ -382,6 +382,9 @@ pub fn editor_html_open(
             }
         }
     }
+    if crate::ui::editor::offers_key(tree) {
+        h.push_str(&button("Add key…", "addkey", &root, "", "Start the query with a key (a resource)"));
+    }
     if tree.has_filename {
         h.push_str(&button("Add action…", "picker", &root, "", "Append a command (Ctrl+K)"));
         if mode == EditorMode::Advanced {
@@ -390,7 +393,7 @@ pub fn editor_html_open(
         }
     }
     h.push_str("</div>");
-    if tree.has_filename && mode == EditorMode::Advanced {
+    if tree.has_filename && !tree.hide_text && mode == EditorMode::Advanced {
         h.push_str(&format!(
             "<div class=\"lq-ed-filename\">filename <input type=\"text\" value=\"{}\"{}{}>",
             escape_html(&tree.filename),

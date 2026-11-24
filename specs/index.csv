@@ -380,6 +380,7 @@ QUERY-BUILDER-NOT-IN-BINDINGS,feature,JavaScript has no validating query builder
 QUERY-BUILDER-TOOLING,issue,No programmatic builder for constructing queries,closed,local,,ready,not-eligible,P2,L,core/query;core/validate,,,,composite-command-definition,,2026-08-08,specs/issues/QUERY-BUILDER-TOOLING.md
 QUERY-CANNOT-CHOOSE-A-DATA-FORMAT,feature,A query cannot choose a data format or a format refinement except through a filename,draft,local,,needs-decision,not-eligible,P2,M,lib/commands;core/value,,,,query-data-format-command,,2026-10-20,specs/issues/QUERY-CANNOT-CHOOSE-A-DATA-FORMAT.md
 QUERY-CANNOT-MARK-CACHED-INTERMEDIATES,feature,A query cannot mark which of its intermediates are worth caching,draft,local,,needs-decision,not-eligible,P3,M,core/plan;core/assets;core/query,,,,query-cache-directives,,2026-10-10,specs/issues/QUERY-CANNOT-MARK-CACHED-INTERMEDIATES.md
+QUERY-CONSOLE-EDITOR-CANNOT-BROWSE-THE-STORE,issue,The query console's editor panel opens a store browser that never lists anything,draft,local,,,,P3,S,lib/ui,,,,,,2026-11-24,specs/issues/QUERY-CONSOLE-EDITOR-CANNOT-BROWSE-THE-STORE.md
 QUERY-CONSOLE-HAS-NO-QUERY-EDITOR-ON-DEMAND,feature,The query console cannot show a query editor of its whole query on demand,closed,local,,,,P3,M,lib/ui;lib/egui;web,,,,query-editor-ergonomics,,2026-11-17,specs/issues/QUERY-CONSOLE-HAS-NO-QUERY-EDITOR-ON-DEMAND.md
 QUERY-DOCS-CLAIM-LINK-PARAMETERS-DO-NOT-PARSE,issue,"query.rs module docs say link parameters do not parse, but they do",closed,local,,,,P3,S,core/query;docs,,,,,,2026-10-13,specs/issues/QUERY-DOCS-CLAIM-LINK-PARAMETERS-DO-NOT-PARSE.md
 QUERY-SYNTAX-HAS-NO-INCLUDABLE-SECTION,issue,Query Language section of PROJECT_OVERVIEW cannot be included in the user guides,draft,local,,,,P3,S,docs,,,,,,2026-11-01,specs/issues/QUERY-SYNTAX-HAS-NO-INCLUDABLE-SECTION.md
@@ -1107,7 +1108,7 @@ STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,
 STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-27,,specs/reference/STORE_SEMANTICS.md
 TEMPLATE_LANGUAGE,reference,Template Language,current,local,,,,,,core/query;lib/commands,,,,,2026-11-04,,specs/reference/TEMPLATE_LANGUAGE.md
 THEME,reference,UI Themes,current,local,,,,,,lib/ui;lib/egui,,,,,2026-11-22,,specs/reference/THEME.md
-UI_INTERFACE_FSD,reference,UI Interface Specification,current,local,,,,,,lib/ui,,,,,2026-11-23,,specs/reference/UI_INTERFACE_FSD.md
+UI_INTERFACE_FSD,reference,UI Interface Specification,current,local,,,,,,lib/ui,,,,,2026-11-24,,specs/reference/UI_INTERFACE_FSD.md
 VALUE_ACCESSORS,reference,Value Accessors,current,local,,,,,,core/value;core/assets;core/query;lib/value;axum;py;web,,,,,2026-11-16,,specs/reference/VALUE_ACCESSORS.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-11-16,,specs/reference/VALUE_TYPE_SYSTEM.md
 VISION,reference,Liquers Vision and Strategy,current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/VISION.md
