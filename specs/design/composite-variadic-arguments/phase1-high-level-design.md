@@ -157,10 +157,12 @@ it gains one sentence and no new feature id: a declared element shape is carried
 
 ## Design Readiness
 
-- **Readiness:** needs-decision
+- **Readiness:** ready
 - **Automatic fixing:** not-eligible. It adds fields to `ArgumentInfo`, public traits and
   `register_command!` syntax across four crates.
-- **Leading issue:** **Open design - where the shape is stored** (question 1).
+- **Leading issue:** none. The questions below were shown to Orest with their recommended
+  answers on 2026-11-25, and he pre-approved the remaining phases (`proceed all`); the
+  recommended answers are taken as the design's assumptions.
 - **Explanation:** the mechanism is known and fits the existing flat path. Orest decided most
   questions on 2026-11-25; the rest change a serialized format or a public type.
 - **Decided:**
@@ -179,7 +181,7 @@ it gains one sentence and no new feature id: a declared element shape is carried
      string alone is the empty list, and an empty string scalar cannot be written. Every other
      sequence is key and value pairs, so `1-a` is `{"1": "a"}`. This replaces the earlier rule
      "a sequence starting with a number is a list".
-- **Open questions:**
+- **Assumptions (recommended answers, pre-approved 2026-11-25):**
   1. **Open design - where the shape is stored.** Recommended: a `shape` field on `ArgumentInfo`
      beside `multiple`, valid only when `multiple` is true, omitted for a plain list. Then
      `argument_type` keeps its meaning, the type of one element or one dictionary value, and
