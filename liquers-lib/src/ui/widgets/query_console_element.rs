@@ -296,6 +296,7 @@ impl QueryConsoleElement {
                 Ok(EditorEffect::None)
                 | Ok(EditorEffect::Reload)
                 | Ok(EditorEffect::ListDirectory(_))
+                | Ok(EditorEffect::RenameData { .. })
                 | Err(_) => {}
             }
         }
@@ -774,7 +775,7 @@ impl UIElement for QueryConsoleElement {
             UpdateMessage::AssetNotification(_) => UpdateResponse::Unchanged,
             UpdateMessage::Timer { .. } => UpdateResponse::Unchanged,
             UpdateMessage::Custom(_) => UpdateResponse::Unchanged,
-            UpdateMessage::Accessor(_) | UpdateMessage::Directory(_) => UpdateResponse::Unchanged,
+            UpdateMessage::Accessor(_) | UpdateMessage::Directory(_) | UpdateMessage::NodeContext(_) => UpdateResponse::Unchanged,
             UpdateMessage::UI(event) => self.handle_ui_event(event, ctx),
         }
     }
@@ -921,6 +922,8 @@ mod tests {
             | Ok(AppMessage::Deserialize { .. })
             | Ok(AppMessage::Accessor { .. })
             | Ok(AppMessage::ListDirectory { .. })
+            | Ok(AppMessage::NodeContext { .. })
+            | Ok(AppMessage::RenameData { .. })
             | Ok(AppMessage::LoadIcon { .. })
             | Err(_) => None,
         }
@@ -1558,6 +1561,8 @@ mod tests {
                 | AppMessage::Deserialize { .. }
                 | AppMessage::Accessor { .. }
                 | AppMessage::ListDirectory { .. }
+                | AppMessage::NodeContext { .. }
+                | AppMessage::RenameData { .. }
                 | AppMessage::LoadIcon { .. } => panic!("Expected RequestAssetUpdates"),
             }
         }

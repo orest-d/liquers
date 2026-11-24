@@ -150,6 +150,7 @@ pub mod parse;
 pub mod pipeline;
 pub mod plan;
 pub mod query;
+pub mod recipe_tree;
 pub mod recipes;
 pub mod state;
 pub mod store;

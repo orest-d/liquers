@@ -24,8 +24,9 @@ use super::command::{EditorCommand, EditorEffect, NewElement};
 use super::tree::{
     default_text, effective_gui, enum_alternatives, is_numeric, json_text, scale_numeric,
     Browser, Confirmation, DirectoryListing, EditorField, EditorNode, EditorTree, FieldValue,
-    NodePath, PathStep, Picker, PresetEntry,
+    NodeContext, NodePath, PathStep, Picker, PresetEntry,
 };
+use liquers_core::recipe_tree::TreeEditor;
 use crate::value::Value;
 
 /// What an editor element edits.
@@ -209,7 +210,8 @@ fn literal(info: &ArgumentInfo, text: &str) -> Json {
         | ArgumentType::Enum(_)
         | ArgumentType::GlobalEnum(_)
         | ArgumentType::Any
-        | ArgumentType::None => Json::String(text.to_string()),
+        | ArgumentType::None
+        | ArgumentType::Node(_) => Json::String(text.to_string()),
     }
 }
 
@@ -303,6 +305,8 @@ pub struct EditorState {
     browser: Option<Browser>,
     confirmation: Option<Confirmation>,
     message: Option<(NodePath, String)>,
+    /// The folder of the edited recipe, for Node arguments (design `recipe-tree`).
+    node_context: Option<NodeContext>,
     tree: EditorTree,
 }
 
@@ -324,10 +328,23 @@ impl EditorState {
             browser: None,
             confirmation: None,
             message: None,
+            node_context: None,
             tree: EditorTree::default(),
         };
         state.rebuild();
         state
+    }
+
+    /// Sets the folder the edited query belongs to, so Node arguments list its nodes and can be
+    /// renamed (design `recipe-tree`, AC-18, AC-25); `None` makes them text boxes again.
+    pub fn set_node_context(&mut self, context: Option<NodeContext>) {
+        self.node_context = context;
+        self.rebuild();
+    }
+
+    /// The folder set by [`Self::set_node_context`].
+    pub fn node_context(&self) -> Option<&NodeContext> {
+        self.node_context.as_ref()
     }
 
     /// Sets "Update immediately" (AC-26) without writing.
@@ -810,6 +827,34 @@ impl EditorState {
                     Ok(EditorEffect::None)
                 }
             }
+            EditorCommand::RenameNode { from, to } => {
+                let context = self.node_context.as_mut().ok_or_else(|| {
+                    Error::general_error(
+                        "renaming a node needs the recipes of its folder".to_string(),
+                    )
+                })?;
+                let mut editor = TreeEditor::new(
+                    context.recipes.clone(),
+                    context.listing.clone(),
+                    self.registry.clone(),
+                )?;
+                editor.rename(&from, &to)?;
+                // Shown at once; the runner writes the document and the edited query follows.
+                context.recipes = editor.recipes().clone();
+                if let Some(listing) = context.listing.as_mut() {
+                    for rename in editor.pending_data_renames() {
+                        for name in listing.iter_mut() {
+                            if *name == rename.from {
+                                *name = rename.to.clone();
+                            }
+                        }
+                    }
+                }
+                Ok(EditorEffect::RenameData {
+                    folder: context.folder.clone(),
+                    editor: Box::new(editor),
+                })
+            }
         }
     }
 
@@ -971,6 +1016,9 @@ impl EditorState {
                 catalog: command_catalog(&self.registry, &realm, filter),
             });
         }
+        if let Some(context) = &self.node_context {
+            fill_node_choices(&mut tree.nodes, context, &self.registry);
+        }
         self.tree = tree;
     }
 }
@@ -1024,8 +1072,40 @@ fn command_path(command: &EditorCommand) -> NodePath {
         | EditorCommand::SetNumeric { .. }
         | EditorCommand::Update
         | EditorCommand::Revert
-        | EditorCommand::SetContinuous(_) => NodePath::default(),
+        | EditorCommand::SetContinuous(_)
+        | EditorCommand::RenameNode { .. } => NodePath::default(),
     }
+}
+
+/// Lists the nodes of `context` in every Node field of `nodes`, links included.
+fn fill_node_choices(nodes: &mut [EditorNode], context: &NodeContext, registry: &Arc<CommandMetadataRegistry>) {
+    let editor = match TreeEditor::new(context.recipes.clone(), context.listing.clone(), registry.clone()) {
+        Ok(editor) => editor,
+        Err(_) => return,
+    };
+    fn walk(nodes: &mut [EditorNode], editor: &TreeEditor) {
+        for node in nodes.iter_mut() {
+            match node {
+                EditorNode::Action { fields, .. } => {
+                    for field in fields.iter_mut() {
+                        if let Some(ext) = &field.node_extension {
+                            field.node_choices = editor.node_choices(ext);
+                        }
+                        if let FieldValue::Link { nodes, .. } = &mut field.value {
+                            walk(nodes, editor);
+                        }
+                    }
+                }
+                EditorNode::Nested { nodes, .. } => walk(nodes, editor),
+                EditorNode::Resource { .. }
+                | EditorNode::Namespaces { .. }
+                | EditorNode::Directive { .. }
+                | EditorNode::Value { .. }
+                | EditorNode::Opaque { .. } => {}
+            }
+        }
+    }
+    walk(nodes, &editor);
 }
 
 /// The nodes of one level.
@@ -1129,6 +1209,16 @@ fn action_node(
             Ok(Some(source)) => field_value(&source, &arg_path, info.multiple, registry),
             Ok(None) | Err(_) => FieldValue::Unset,
         };
+        // A link to a node of the folder is shown as the node's name (AC-18).
+        let value = match (info.argument_type.node(), value) {
+            (Some(node), FieldValue::Link { query, nodes, is_key }) => {
+                match parse_query(&query).ok().and_then(|q| node.name_of(&q)) {
+                    Some(name) => FieldValue::Text(name),
+                    None => FieldValue::Link { query, nodes, is_key },
+                }
+            }
+            (_, value) => value,
+        };
         let (alternatives, others_allowed) = match &info.argument_type {
             ArgumentType::Enum(e) => (enum_alternatives(e), e.others_allowed),
             ArgumentType::String
@@ -1140,7 +1230,8 @@ fn action_node(
             | ArgumentType::BooleanOption
             | ArgumentType::GlobalEnum(_)
             | ArgumentType::Any
-            | ArgumentType::None => (Vec::new(), true),
+            | ArgumentType::None
+            | ArgumentType::Node(_) => (Vec::new(), true),
         };
         let numeric_index = if is_numeric(&info) {
             numeric += 1;
@@ -1169,6 +1260,8 @@ fn action_node(
                 })
                 .collect(),
             numeric_index,
+            node_extension: info.argument_type.node().map(|n| n.extension.clone()),
+            node_choices: Vec::new(),
         });
     }
     let slots = md.arguments.iter().filter(|a| !a.injected).count();

@@ -107,6 +107,7 @@ impl UIElement for QuietElement {
             | UpdateMessage::Custom(_)
             | UpdateMessage::Accessor(_)
             | UpdateMessage::Directory(_)
+            | UpdateMessage::NodeContext(_)
             | UpdateMessage::UI(_) => UpdateResponse::Unchanged,
         }
     }

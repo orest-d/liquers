@@ -429,6 +429,7 @@ fn prepare_call<'py>(
             | ParameterValue::ParameterLink(_, _, _)
             | ParameterValue::OverrideLink(_, _)
             | ParameterValue::EnumLink(_, _, _)
+            | ParameterValue::NodeLink(_, _, _, _)
             | ParameterValue::Placeholder(_)
             | ParameterValue::Injected(_)
             | ParameterValue::ParameterPipeline(_, _, _)

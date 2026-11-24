@@ -1,8 +1,8 @@
 ---
 title: Commands
 status: ready
-sources: [guides/COMMAND_REGISTRATION_GUIDE.md, guides/COMMAND_DESIGN_GUIDE.md, reference/COMMAND_DECLARATION.md, reference/REGISTER_COMMAND_FSD.md, reference/PIPELINES.md, guides/PIPELINE_GUIDE.md, guides/TEMPLATE_GUIDE.md]
-reviewed: 2026-11-21
+sources: [guides/COMMAND_REGISTRATION_GUIDE.md, reference/RECIPE_TREES.md, guides/COMMAND_DESIGN_GUIDE.md, reference/COMMAND_DECLARATION.md, reference/REGISTER_COMMAND_FSD.md, reference/PIPELINES.md, guides/PIPELINE_GUIDE.md, guides/TEMPLATE_GUIDE.md]
+reviewed: 2026-11-23
 ---
 # 5. Commands
 
@@ -222,6 +222,23 @@ assert_eq!(error.error_type, ErrorType::TooManyParameters);
 that query, and the result becomes a dependency of the command's own result. A caller can
 override it with another link, written between `~X~` and `~E` (section 3.6). Section 5.5 uses a
 link for a common need, the working directory.
+
+**Nodes.** An argument can name a file of the folder the query works in, a *node*. Declare it
+with `node:` and the file's extension:
+
+```rust
+// Sketch: `attach` receives the value of `<name>.glb` in the working folder.
+register_command!(cr, fn attach(state, part: Value (node: local, ext: "glb")) -> result)?;
+register_command!(cr, fn locate(dir: Key (node: local, ext: "glb", form: key)) -> result)?;
+```
+
+A query then names the node by its file name without the extension: `attach-wheel` means
+`attach-~X~-R/./wheel.glb~E`, and the result of `wheel.glb` becomes a dependency, as with any
+link. With `form: key` the command receives the key instead of the value. A bare name needs a
+working directory, which a recipe has (its folder) and an ad-hoc query sets with `-R-cwd/…`
+(section 5.5); without one the query fails, naming the argument and the node. A link can always be
+given instead of a name. User interfaces show such an argument as a list of the folder's nodes.
+Section 7.8 shows the recipe trees these arguments are made for.
 
 **`injected`.** An argument marked `injected` is not read from the query. It is taken from the
 payload of the evaluation, the value that a user interface passes along with a query

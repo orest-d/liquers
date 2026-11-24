@@ -791,6 +791,41 @@ fn input_html(field: &EditorField, name: &str, text: &str) -> String {
             escape_html(text),
             event_attr(&UIEventKind::Submit)
         ),
+        // A node of the folder's recipe tree, by filename and title, with Rename (design
+        // `recipe-tree`, AC-18, AC-25).
+        ArgumentGUIInfo::NodeSelector if !field.node_choices.is_empty() => {
+            let mut s = format!("<select{attrs}{}>", change(name));
+            if !field.node_choices.iter().any(|c| c.name == shown) {
+                s.push_str(&format!("<option value=\"{0}\" selected>{0}</option>", escape_html(&shown)));
+            }
+            for c in &field.node_choices {
+                let label = if c.title.is_empty() {
+                    c.filename.clone()
+                } else {
+                    format!("{} \u{2014} {}", c.filename, c.title)
+                };
+                s.push_str(&format!(
+                    "<option value=\"{}\"{}>{}</option>",
+                    escape_html(&c.name),
+                    if c.name == shown { " selected" } else { "" },
+                    escape_html(&label)
+                ));
+            }
+            s.push_str("</select>");
+            // `name` is `f:<path>:<arg>`; the rename input and button carry the same pair.
+            if let (Some(rest), false) = (name.strip_prefix("f:"), shown.is_empty()) {
+                s.push_str(&format!(
+                    "<input type=\"text\" size=\"10\" value=\"{}\"{}>",
+                    escape_html(&shown),
+                    field_attr(&format!("nrename:{rest}"))
+                ));
+                s.push_str(&format!(
+                    "<button type=\"button\" class=\"lq-ed-btn\" title=\"Rename this node in the folder\"{}>Rename</button>",
+                    event_attr(&UIEventKind::Named(format!("ed:rename:{rest}:{shown}")))
+                ));
+            }
+            s
+        }
         ArgumentGUIInfo::EnumSelector | ArgumentGUIInfo::HorizontalRadioEnum | ArgumentGUIInfo::VerticalRadioEnum
             if !field.alternatives.is_empty() && !field.others_allowed =>
         {
@@ -805,7 +840,10 @@ fn input_html(field: &EditorField, name: &str, text: &str) -> String {
             s.push_str("</select>");
             s
         }
-        ArgumentGUIInfo::EnumSelector | ArgumentGUIInfo::HorizontalRadioEnum | ArgumentGUIInfo::VerticalRadioEnum => {
+        ArgumentGUIInfo::EnumSelector
+        | ArgumentGUIInfo::HorizontalRadioEnum
+        | ArgumentGUIInfo::VerticalRadioEnum
+        | ArgumentGUIInfo::NodeSelector => {
             let list = format!("{name}-list");
             let mut s = format!(
                 "<input type=\"text\" list=\"{}\" value=\"{}\"{attrs}{}><datalist id=\"{}\">",

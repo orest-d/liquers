@@ -275,7 +275,9 @@ fn text_to_override(argument: &ArgumentInfo, texts: &[String]) -> Result<TextOve
         )));
     };
     match ParameterValue::from_string(argument, text, &Position::unknown())? {
-        ParameterValue::EnumLink(_, link, _) => Ok(TextOverride::Link(link)),
+        ParameterValue::EnumLink(_, link, _) | ParameterValue::NodeLink(_, _, link, _) => {
+            Ok(TextOverride::Link(link))
+        }
         other => other.value().map(TextOverride::Value).ok_or_else(|| {
             Error::conversion_error_with_message(text, &argument.name, "no value for this text")
         }),

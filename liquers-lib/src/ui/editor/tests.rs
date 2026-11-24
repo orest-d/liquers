@@ -944,3 +944,108 @@ fn mode_event_names_the_chip_step() {
     let switch = UIEvent::new(UIEventKind::Named("ed:mode::advanced".into()));
     assert_eq!(EditorView::mode_event_path(&switch), None);
 }
+
+// --- Node arguments (design `recipe-tree`) ---
+
+fn tree_registry() -> Arc<CommandMetadataRegistry> {
+    use liquers_core::command_metadata::{ArgumentType, NodeArgument};
+    let mut cmr = CommandMetadataRegistry::new();
+    let mut attach = CommandMetadata::new("attach");
+    let mut part = ArgumentInfo::any_argument("part");
+    part.argument_type = ArgumentType::Node(NodeArgument::new("glb"));
+    attach.with_argument(part);
+    cmr.add_command(&attach);
+    Arc::new(cmr)
+}
+
+fn car_context() -> NodeContext {
+    let recipes: liquers_core::recipes::RecipeList = serde_yaml::from_str(
+        "recipes:\n  - {query: tyre.glb, title: Tyre}\n  - {query: \"-R/./tyre.glb/-/wheel.glb\", title: Wheel}\n  - {query: \"-R/./body.glb/-/attach-wheel/car.glb\", title: Car}\n",
+    )
+    .expect("recipes");
+    NodeContext {
+        folder: "scenes/car".into(),
+        recipes,
+        listing: Some(vec!["body.glb".into(), "tyre.glb".into(), "recipes.yaml".into()]),
+    }
+}
+
+fn node_editor(query: &str) -> EditorState {
+    let mut state = EditorState::new(EditorKind::Query, tree_registry());
+    let q = parse_query(query).expect("query");
+    state.on_snapshot(&Value::from_query(&q), Some(fp(1))).expect("snapshot");
+    state
+}
+
+/// AC-18: a Node field lists the folder's nodes of its extension, with filename and title.
+#[test]
+fn node_selector_lists_filename_and_title() {
+    let mut state = node_editor("-R/./body.glb/-/attach-wheel/car.glb");
+    assert!(field(state.tree(), 1, "part").node_choices.is_empty(), "no folder yet");
+    assert_eq!(field(state.tree(), 1, "part").widget, ArgumentGUIInfo::NodeSelector);
+    state.set_node_context(Some(car_context()));
+    let f = field(state.tree(), 1, "part");
+    let choices: Vec<(&str, &str, &str)> = f
+        .node_choices
+        .iter()
+        .map(|c| (c.name.as_str(), c.filename.as_str(), c.title.as_str()))
+        .collect();
+    assert_eq!(
+        choices,
+        vec![
+            ("body", "body.glb", ""),
+            ("car", "car.glb", "Car"),
+            ("tyre", "tyre.glb", "Tyre"),
+            ("wheel", "wheel.glb", "Wheel")
+        ]
+    );
+    assert_eq!(f.value, FieldValue::Text("wheel".into()));
+    assert_eq!(
+        recipe_folder("-R-key/scenes/car/recipes.yaml/-/ns-acc/accessor/recipe-2/query").as_deref(),
+        Some("scenes/car")
+    );
+    assert_eq!(recipe_folder("-R/data/x.csv"), None);
+}
+
+/// AC-18: a link to a node of the folder is shown as the node's name.
+#[test]
+fn node_selector_shows_link_as_name() {
+    let state = node_editor("-R/./body.glb/-/attach-~X~-R/./wheel.glb~E/car.glb");
+    assert_eq!(field(state.tree(), 1, "part").value, FieldValue::Text("wheel".into()));
+    let other = node_editor("-R/./body.glb/-/attach-~X~-R/data/wheel.glb~E/car.glb");
+    assert!(matches!(field(other.tree(), 1, "part").value, FieldValue::Link { .. }));
+}
+
+/// AC-25: Rename rewrites the whole document and asks for the stored file's rename.
+#[test]
+fn node_selector_rename_writes_document_and_data() {
+    let mut state = node_editor("-R/./body.glb/-/attach-wheel/car.glb");
+    assert!(state
+        .apply(EditorCommand::RenameNode { from: "wheel".into(), to: "w".into() })
+        .is_err(), "no folder: refused");
+    state.set_node_context(Some(car_context()));
+    match state
+        .apply(EditorCommand::RenameNode { from: "tyre".into(), to: "tire".into() })
+        .expect("rename")
+    {
+        EditorEffect::RenameData { folder, editor } => {
+            assert_eq!(folder, "scenes/car");
+            let queries: Vec<&str> =
+                editor.recipes().recipes.iter().map(|r| r.query.as_str()).collect();
+            assert_eq!(queries, vec!["tire.glb", "-R/./tire.glb/-/wheel.glb", "-R/./body.glb/-/attach-wheel/car.glb"]);
+            assert_eq!(editor.pending_data_renames().len(), 1);
+            assert_eq!(editor.pending_data_renames()[0].to, "tire.glb");
+        }
+        other => panic!("expected RenameData, got {other:?}"),
+    }
+    let names: Vec<String> = field(state.tree(), 1, "part")
+        .node_choices
+        .iter()
+        .map(|c| c.name.clone())
+        .collect();
+    assert!(names.contains(&"tire".to_string()), "{names:?}");
+    let error = state
+        .apply(EditorCommand::RenameNode { from: "wheel".into(), to: "car".into() })
+        .expect_err("car is taken");
+    assert!(error.message.contains("car.glb"), "{error}");
+}

@@ -672,6 +672,7 @@ fn argument_type_label(argument_type: &ArgumentType) -> String {
         ArgumentType::None => "none".to_string(),
         ArgumentType::GlobalEnum(name) => format!("global-enum({})", name),
         ArgumentType::Enum(e) => format!("enum({}; {} values)", e.name, e.values.len()),
+        ArgumentType::Node(n) => format!("node(.{})", n.extension),
     }
 }
 

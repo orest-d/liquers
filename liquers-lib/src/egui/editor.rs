@@ -1083,6 +1083,50 @@ fn widget(
             let c = r.changed().then(|| commit(x.to_string()));
             (Some(r), c)
         }
+        // A node of the folder's recipe tree, by filename and title, with Rename (design
+        // `recipe-tree`, AC-18, AC-25).
+        ArgumentGUIInfo::NodeSelector if !field.node_choices.is_empty() => {
+            let mut chosen = shown.clone();
+            let label = |c: &liquers_core::recipe_tree::NodeChoice| {
+                if c.title.is_empty() {
+                    c.filename.clone()
+                } else {
+                    format!("{} \u{2014} {}", c.filename, c.title)
+                }
+            };
+            let selected = field
+                .node_choices
+                .iter()
+                .find(|c| c.name == shown)
+                .map(label)
+                .unwrap_or_else(|| shown.clone());
+            let mut rename: Option<EditorCommand> = None;
+            let r = ui
+                .horizontal(|ui| {
+                    egui::ComboBox::from_id_salt(("node", &id))
+                        .selected_text(selected)
+                        .show_ui(ui, |ui| {
+                            for c in &field.node_choices {
+                                ui.selectable_value(&mut chosen, c.name.clone(), label(c));
+                            }
+                        });
+                    if !shown.is_empty() {
+                        let buffer = view.buffer(&format!("{id}#rename"), &shown);
+                        let edit = ui.add(egui::TextEdit::singleline(buffer).desired_width(90.0));
+                        let to = buffer.clone();
+                        let clicked = ui.small_button("Rename").clicked();
+                        if (clicked || (edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))))
+                            && !to.is_empty()
+                            && to != shown
+                        {
+                            rename = Some(EditorCommand::RenameNode { from: shown.clone(), to });
+                        }
+                    }
+                })
+                .response;
+            let command = rename.or_else(|| (chosen != shown).then(|| commit(chosen)));
+            (Some(r), command)
+        }
         ArgumentGUIInfo::EnumSelector | ArgumentGUIInfo::HorizontalRadioEnum | ArgumentGUIInfo::VerticalRadioEnum
             if !field.alternatives.is_empty() =>
         {
@@ -1143,6 +1187,7 @@ fn widget(
         | ArgumentGUIInfo::EnumSelector
         | ArgumentGUIInfo::HorizontalRadioEnum
         | ArgumentGUIInfo::VerticalRadioEnum
+        | ArgumentGUIInfo::NodeSelector
         | ArgumentGUIInfo::None => {
             let width = match &field.widget {
                 ArgumentGUIInfo::TextField(w) | ArgumentGUIInfo::CodeField(w, _) | ArgumentGUIInfo::DateField(w) => {

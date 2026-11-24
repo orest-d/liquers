@@ -55,6 +55,7 @@ encoding, and the interpreter that turns a plan into asset evaluation.
 - **Plan building and evaluation** — documented → [`reference/api/DOC_01_ARCHITECTURE_REFERENCE.md`](reference/api/DOC_01_ARCHITECTURE_REFERENCE.md)
 - **One evaluation path: flows and public surface** — documented → [`reference/ASSET_LIFECYCLE.md`](reference/ASSET_LIFECYCLE.md) *(design in [`design/evaluate-path-consolidation/`](design/evaluate-path-consolidation/))*
 - **Recipes and plan contracts** — documented → [`reference/RECIPES_AND_PLANS.md`](reference/RECIPES_AND_PLANS.md)
+- **Self-contained recipe trees (`tree:` section, Node arguments, strict mode, `TreeEditor`)** — documented → [`reference/RECIPE_TREES.md`](reference/RECIPE_TREES.md) *(design in [`design/recipe-tree/`](design/recipe-tree/))*
 - **Planner instructions (`ns`, `q`, `v`, resource header instructions) versus commands** — documented → [`reference/RECIPES_AND_PLANS.md`](reference/RECIPES_AND_PLANS.md) §Planner instructions
 - **Metadata ownership during plan execution (asset, context, step state)** — documented → [`reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`](reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md) §Metadata ownership during evaluation *(design in [`design/plan-step-state-metadata/`](design/plan-step-state-metadata/))*
 - **Offline query and recipe validation** — built → [`design/query-validation/`](design/query-validation/)
@@ -698,7 +699,8 @@ deliberately folded behind a broader line.
 - feature `QUERY-BUILDER-NOT-IN-BINDINGS`
 - feature `QUERY-CANNOT-CHOOSE-A-DATA-FORMAT`
 - feature `QUERY-CANNOT-MARK-CACHED-INTERMEDIATES`
-- feature `RECIPES-CANNOT-DESCRIBE-A-SELF-CONTAINED-ASSET-TREE`
+- feature `RECIPE-TREE-CANNOT-BE-EXPORTED-AS-AN-ARCHIVE`
+- feature `RECIPE-TREES-NOT-IN-LANGUAGE-BINDINGS`
 - feature `RECORD-FIELD-TYPE-HAS-NO-DECIMAL`
 - feature `RECORD-FIELD-TYPE-HAS-NO-UUID-TIME-OR-INTERVAL`
 - feature `RECORD-SOURCE-ROWS-CANNOT-BE-STREAMED`
