@@ -3,7 +3,7 @@ title: Command Registration Guide
 kind: guide
 audience: internal
 area: [core/commands, macro]
-reviewed: 2026-11-22
+reviewed: 2026-11-23
 ---
 # Command Registration Guide
 
@@ -591,6 +591,18 @@ Notes:
 - Unknown enum aliases fail unless `others: true`.
 - If `gui:` is omitted, enum arguments default to `VerticalRadioEnum` (small sets) or `EnumSelector`.
 
+**Node argument** (a file of the working folder, by name):
+```rust
+register_command!(cr, fn attach(state, part: Value (node: local, ext: "glb")) -> result)?;
+register_command!(cr, fn locate(dir: Key (node: local, ext: "glb", form: key)) -> result)?;
+```
+
+`attach-wheel` passes the value of `./wheel.glb` (`form: key` passes the key); a link
+(`attach-~X~-R/data/x.glb~E`) works too. A bare name needs a working directory
+(`-R-cwd/scenes/car/-/…`, or a recipe of the folder). Editors list the folder's nodes and offer
+Rename. In a strict recipe tree it is the only way to reference another file from an argument
+(`specs/reference/RECIPE_TREES.md`).
+
 ---
 
 ## 2. Manual Registration
@@ -1150,6 +1162,7 @@ only) action is that command ([`AGENT_MEMORY_SERVICE.md`](../reference/AGENT_MEM
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-23 | §1: Node arguments (`node: local, ext: "…"`, `form: key`). | `design/recipe-tree/` |
 | 2026-11-22 | §5: a bare `hint icon` name means the theme's icon set (Phosphor by default); `ph:` is always Phosphor. | `issues/THEME-ICON-SET-SETTING-IS-IGNORED.md` |
 | 2026-11-21 | §5 Provide Comprehensive Metadata: `hint icon` forms, presets as chips, `next:` as Simple mode's "Continue with". | `design/query-editor-ergonomics/` |
 | 2026-11-17 | §5 Provide Comprehensive Metadata: what the editors show from the metadata. | `design/query-pipeline-editor/` |

@@ -9,21 +9,24 @@
 //! # Main components
 //!
 //! - [`show_editor`]: the mode switch and the toolbar ("Update immediately", Update, Revert), the
-//!   highlighted query text, then the [`editor_layout`] of the mode. Simple mode: step chips, one
-//!   card for the last action and "Continue with" chips. Advanced mode: an outline beside the key
-//!   part and query part cards, link arguments nested under their field, Collapse all / Expand
-//!   all, and the filename field.
+//!   highlighted query text (unless the host draws it: [`EditorTree::hide_text`]), then the
+//!   [`editor_layout`] of the mode. Simple mode: step chips, one card for the last action and
+//!   "Continue with" chips. Advanced mode: every card, collapsed except one (the last action, or
+//!   the step a chip or `Ctrl+J` opened), link arguments nested under their field, Collapse all /
+//!   Expand all, and the filename field.
 //! - Cards: a themed frame; a header of [`header_parts`] (chevron, icon, label, dimmed
 //!   `namespace/name`, marks, position, menu); the [`toolbar_items`] when expanded, with presets as
 //!   chips (at most three, the active one lit, the rest under "+N"); and a form grid of
-//!   [`form_rows`] (labels, editors, per-field actions, help and the refused edit's message).
+//!   [`form_rows`] (labels, editors, per-field actions and the refused edit's message; an
+//!   argument's description and default are in the hover of its label and editor).
 //! - The keyboard model of [`editor_keymap`], and `Ctrl+J` between the query text and the field
-//!   at the cursor (the jump of [`EditorView`]).
+//!   at the cursor (the jump of [`EditorView`]); a jump in Simple mode to another step switches
+//!   to Advanced mode with that step open.
 //! - Variadic items and `ns` lists reorder by drag and drop (`Ui::dnd_drag_source`).
 //!
 //! # Where it is used
 //!
-//! - `EditorElement::show_in_egui` (`crate::ui::editor`) and the query console's Parameters panel.
+//! - `EditorElement::show_in_egui` (`crate::ui::editor`) and the query console's editor panel.
 //!
 //! # Related concepts
 //!
@@ -55,7 +58,7 @@ use liquers_core::command_metadata::ArgumentGUIInfo;
 
 use crate::egui::theme::{color, draw_icon, spacing_style};
 use crate::ui::editor::{
-    editor_keymap, editor_layout, field_id, form_rows, header_parts, shortcut_text, toolbar_items, CardGroupKind,
+    editor_keymap, editor_layout, field_id, form_rows, header_parts, shortcut_text, toolbar_items,
     CardMenu, EditorCommand, EditorField, EditorKey, EditorMode, EditorNode, EditorTree, EditorView, FieldValue,
     FocusTarget, HeaderPart, KeyScope, NewElement, NodePath, StepChip, ToolItem, RESOURCE_HEADERS,
 };
@@ -72,8 +75,12 @@ fn ph(name: &str, fallback: &'static str) -> &'static str {
 pub struct EditorOutput {
     /// The edits, in order.
     pub commands: Vec<EditorCommand>,
-    /// The mode the user switched to (the mode switch, `Ctrl+B`, a step chip, "Open in Advanced").
+    /// The mode the user switched to (the mode switch, `Ctrl+B`, a step chip, a `Ctrl+J` jump to
+    /// a step Simple mode does not show).
     pub mode: Option<EditorMode>,
+    /// `Ctrl+J` in a field of an editor whose text the host draws ([`EditorTree::hide_text`]):
+    /// the byte range of [`EditorTree::text`] the host should select in its own query field.
+    pub select_text: Option<std::ops::Range<usize>>,
 }
 
 /// The most chips a card's toolbar shows before "+N" (AC-7).
@@ -89,6 +96,7 @@ struct Cx<'a> {
     ui_ctx: Option<&'a UIContext>,
     out: Vec<EditorCommand>,
     mode_change: Option<EditorMode>,
+    select_text: Option<std::ops::Range<usize>>,
     /// Widgets of this editor that can hold keyboard focus.
     ours: Vec<Id>,
     /// The id of the query text field.
@@ -138,19 +146,22 @@ pub fn show_editor(
             ui_ctx,
             out: Vec::new(),
             mode_change: None,
+            select_text: None,
             ours: Vec::new(),
             text_id: ui.id().with("lq-editor-text"),
             base: ui.id(),
             cards: Vec::new(),
         };
+        view.enter_mode(tree, mode);
         view.resume_jump(tree, mode);
-        let pending_at_start = view.focus_pending;
+        let pending_at_start = view.focus_pending && view.mode_request.is_none();
         body(ui, &mut cx, view);
         if pending_at_start && view.focus_pending {
             view.focus_pending = false; // its target was not drawn
         }
         handle_keys(ui, &mut cx, view);
-        EditorOutput { commands: cx.out, mode: cx.mode_change }
+        let mode = cx.mode_change.or_else(|| view.mode_request.take());
+        EditorOutput { commands: cx.out, mode, select_text: cx.select_text }
     })
     .inner
 }
@@ -158,17 +169,6 @@ pub fn show_editor(
 fn body(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView) {
     toolbar(ui, cx);
     query_text(ui, cx, view);
-    if let Some(path) = view.simple_offer.clone() {
-        ui.horizontal(|ui| {
-            let label = format!("Open in Advanced ({})", shortcut_text(EditorKey::ToggleMode).unwrap_or("Ctrl+B"));
-            if ui.button(label).on_hover_text("This step is not the card Simple mode shows").clicked() {
-                cx.mode_change = Some(EditorMode::Advanced);
-                view.simple_offer = None;
-                view.focus = Some(FocusTarget::Node(path));
-                view.focus_pending = true;
-            }
-        });
-    }
     if let Some((path, message)) = &cx.tree.message {
         if path.0.is_empty() {
             ui.colored_label(cx.danger(), message);
@@ -181,34 +181,13 @@ fn body(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView) {
         if !layout.before.is_empty() {
             chips(ui, cx, view, &layout.before);
         }
-        let cards = |ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView| {
-            let mut position = 0;
-            for group in &layout.groups {
-                if layout.outline {
-                    let title = match group.kind {
-                        CardGroupKind::KeyPart => "Key part",
-                        CardGroupKind::QueryPart => "Query part",
-                    };
-                    ui.label(RichText::new(title).small().color(cx.muted()));
-                }
-                for card_item in &group.cards {
-                    position += 1;
-                    card(ui, cx, view, card_item.node, position);
-                    ui.add_space(cx.sp.card_gap);
-                }
+        let mut position = 0;
+        for group in &layout.groups {
+            for card_item in &group.cards {
+                position += 1;
+                card(ui, cx, view, card_item.node, position);
+                ui.add_space(cx.sp.card_gap);
             }
-        };
-        if layout.outline {
-            ui.horizontal_top(|ui| {
-                ui.vertical(|ui| {
-                    ui.set_width(150.0);
-                    outline(ui, cx, view);
-                });
-                ui.separator();
-                ui.vertical(|ui| cards(ui, cx, view));
-            });
-        } else {
-            cards(ui, cx, view);
         }
         if !layout.after.is_empty() {
             chips(ui, cx, view, &layout.after);
@@ -265,6 +244,9 @@ fn char_of_byte(text: &str, offset: usize) -> usize {
 
 fn query_text(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView) {
     let tree = cx.tree;
+    if tree.hide_text {
+        return; // the host shows the query
+    }
     if tree.text_editable {
         let theme = cx.theme.clone();
         let text_id = cx.text_id;
@@ -369,20 +351,6 @@ fn chips(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, chips: &[StepChi
             }
         }
     });
-}
-
-fn outline(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView) {
-    ui.label(RichText::new("Outline").small().color(cx.muted()));
-    let tree = cx.tree;
-    for node in &tree.nodes {
-        let focused = view.focus.as_ref().is_some_and(|f| focus_card(f) == Some(node.path()));
-        let label = crate::ui::editor::node_label(node);
-        if ui.selectable_label(focused, label).clicked() {
-            view.focus = Some(FocusTarget::Node(node.path().clone()));
-            view.focus_pending = true;
-            view.collapsed.remove(&node.path().id());
-        }
-    }
 }
 
 /// The card a focus target is in.
@@ -783,10 +751,8 @@ fn form_grid(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, node: &Edito
             );
             let mut row_active = false;
             ui.vertical(|ui| {
+                // The description and the default are in the hover, not under the field.
                 row_active = field_editor(ui, cx, view, &path, field);
-                if !row.help.is_empty() {
-                    ui.add(egui::Label::new(RichText::new(&row.help).small().color(cx.faint())).extend());
-                }
                 if let Some(message) = &row.message {
                     ui.colored_label(cx.danger(), message);
                 }
@@ -852,6 +818,7 @@ fn field_editor(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, path: &No
     let Some(response) = response else {
         return ui.ui_contains_pointer();
     };
+    let response = response.on_hover_text(field.hover());
     cx.ours.push(response.id);
     if response.gained_focus() {
         view.focus = Some(target.clone());
@@ -886,7 +853,11 @@ fn field_actions(ui: &mut egui::Ui, cx: &mut Cx, path: &NodePath, field: &Editor
                 EditorCommand::ToLink { path: path.clone(), arg: field.name.clone() }
             });
         }
-        if ui.add(egui::Button::new(RichText::new(ph("arrow-counter-clockwise", "R")).color(tint)).frame(false)).on_hover_text("Reset to the default").clicked() {
+        let tip = match &field.default_text {
+            Some(d) => format!("Reset to the default: {d}"),
+            None => "Reset to the default".to_string(),
+        };
+        if ui.add(egui::Button::new(RichText::new(ph("arrow-counter-clockwise", "R")).color(tint)).frame(false)).on_hover_text(tip).clicked() {
             cx.out.push(EditorCommand::Reset { path: path.clone(), arg: field.name.clone() });
         }
     });
@@ -1112,6 +1083,50 @@ fn widget(
             let c = r.changed().then(|| commit(x.to_string()));
             (Some(r), c)
         }
+        // A node of the folder's recipe tree, by filename and title, with Rename (design
+        // `recipe-tree`, AC-18, AC-25).
+        ArgumentGUIInfo::NodeSelector if !field.node_choices.is_empty() => {
+            let mut chosen = shown.clone();
+            let label = |c: &liquers_core::recipe_tree::NodeChoice| {
+                if c.title.is_empty() {
+                    c.filename.clone()
+                } else {
+                    format!("{} \u{2014} {}", c.filename, c.title)
+                }
+            };
+            let selected = field
+                .node_choices
+                .iter()
+                .find(|c| c.name == shown)
+                .map(label)
+                .unwrap_or_else(|| shown.clone());
+            let mut rename: Option<EditorCommand> = None;
+            let r = ui
+                .horizontal(|ui| {
+                    egui::ComboBox::from_id_salt(("node", &id))
+                        .selected_text(selected)
+                        .show_ui(ui, |ui| {
+                            for c in &field.node_choices {
+                                ui.selectable_value(&mut chosen, c.name.clone(), label(c));
+                            }
+                        });
+                    if !shown.is_empty() {
+                        let buffer = view.buffer(&format!("{id}#rename"), &shown);
+                        let edit = ui.add(egui::TextEdit::singleline(buffer).desired_width(90.0));
+                        let to = buffer.clone();
+                        let clicked = ui.small_button("Rename").clicked();
+                        if (clicked || (edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))))
+                            && !to.is_empty()
+                            && to != shown
+                        {
+                            rename = Some(EditorCommand::RenameNode { from: shown.clone(), to });
+                        }
+                    }
+                })
+                .response;
+            let command = rename.or_else(|| (chosen != shown).then(|| commit(chosen)));
+            (Some(r), command)
+        }
         ArgumentGUIInfo::EnumSelector | ArgumentGUIInfo::HorizontalRadioEnum | ArgumentGUIInfo::VerticalRadioEnum
             if !field.alternatives.is_empty() =>
         {
@@ -1172,6 +1187,7 @@ fn widget(
         | ArgumentGUIInfo::EnumSelector
         | ArgumentGUIInfo::HorizontalRadioEnum
         | ArgumentGUIInfo::VerticalRadioEnum
+        | ArgumentGUIInfo::NodeSelector
         | ArgumentGUIInfo::None => {
             let width = match &field.widget {
                 ArgumentGUIInfo::TextField(w) | ArgumentGUIInfo::CodeField(w, _) | ArgumentGUIInfo::DateField(w) => {
@@ -1184,16 +1200,7 @@ fn widget(
             if let Some(d) = &field.default_text {
                 edit = edit.hint_text(d.as_str());
             }
-            let inner = ui.horizontal(|ui| {
-                let r = ui.add(edit);
-                if item.is_none() {
-                    if let Some(d) = &field.default_text {
-                        ui.label(RichText::new(format!("default {d}")).small().weak());
-                    }
-                }
-                r
-            });
-            let r = inner.inner;
+            let r = ui.add(edit);
             let c = (r.lost_focus() && *buffer != text).then(|| commit(buffer.clone()));
             (Some(r), c)
         }
@@ -1269,7 +1276,13 @@ fn run_key(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, focus: &FocusT
             }
             FocusTarget::Node(_) | FocusTarget::Field { .. } => {
                 if let Some(range) = view.jump_to_text(cx.tree) {
-                    select_text(ui.ctx(), cx.text_id, &cx.tree.text, range);
+                    if cx.tree.hide_text {
+                        view.focus = None; // focus leaves for the host's query field
+                        view.focus_pending = false;
+                        cx.select_text = Some(range);
+                    } else {
+                        select_text(ui.ctx(), cx.text_id, &cx.tree.text, range);
+                    }
                 }
             }
         },
@@ -1681,6 +1694,9 @@ mod tests {
         frame(&ctx, &tree, &mut view, EditorMode::Advanced, vec![key(egui::Key::CloseBracket, collapse_all)]);
         assert!(view.collapsed.is_empty());
 
+        // The cards just expanded lay out their grids for the first time: let that frame settle
+        // (egui discards a sizing pass, and a key in it would be read by the discarded pass).
+        frame(&ctx, &tree, &mut view, EditorMode::Advanced, vec![]);
         let out = frame(&ctx, &tree, &mut view, EditorMode::Advanced, vec![key(egui::Key::K, egui::Modifiers::COMMAND)]);
         assert_eq!(out.commands, [EditorCommand::SearchCommands { insert_at: None, filter: String::new() }]);
 
@@ -1733,6 +1749,24 @@ mod tests {
         let (a, b) = (range.primary.index.0.min(range.secondary.index.0), range.primary.index.0.max(range.secondary.index.0));
         let selected: String = query.chars().skip(a).take(b - a).collect();
         assert_eq!(selected, "20");
+    }
+
+    /// With the text drawn by the host, `Ctrl+J` in a field reports the range to select there.
+    #[test]
+    fn hidden_text_reports_the_jump_back() {
+        let mut tree = tree_of(P);
+        tree.hide_text = true;
+        tree.text_editable = false;
+        let head = head_path(&tree);
+        let ctx = egui::Context::default();
+        let field = FocusTarget::Field { path: head.clone(), arg: "n".into(), item: None };
+        let mut view = EditorView { focus: Some(field), focus_pending: true, ..EditorView::default() };
+        frame(&ctx, &tree, &mut view, EditorMode::Simple, vec![]);
+        frame(&ctx, &tree, &mut view, EditorMode::Simple, vec![]);
+        let out = frame(&ctx, &tree, &mut view, EditorMode::Simple, vec![key(egui::Key::J, egui::Modifiers::COMMAND)]);
+        let range = out.select_text.expect("a range for the host");
+        assert_eq!(&tree.text[range], "20");
+        assert_eq!(view.focus, None, "focus leaves the editor");
     }
 
     // Codex review of PR #278: two editors showing the same argument do not share its widget.

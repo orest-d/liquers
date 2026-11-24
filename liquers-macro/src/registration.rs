@@ -456,6 +456,8 @@ enum ArgumentGUIInfo {
     VerticalRadioEnum,
     /// Select enum from a dropdown list.
     EnumSelector,
+    /// Select a node of a recipe tree (filename and title), with rename.
+    NodeSelector,
     /// Color picker for a color value
     /// Should edit the color in form of a color name or hex code RGB or RGBA.
     /// The hex code does NOT start with `#`, but is just a string of 6 or 8 hexadecimal digits.
@@ -576,8 +578,43 @@ enum CommandParameter {
         gui: ArgumentGUIInfo,
         gui_explicit: bool,
         enum_spec: Option<EnumParameterSpec>,
+        /// `node: local, ext: "…"` (and optionally `form: …`): a Node argument.
+        node_spec: Option<NodeParameterSpec>,
     },
     Context,
+}
+
+/// How a Node argument's bare name becomes a link (`form:` in the DSL).
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum NodeFormSpec {
+    /// `-R/./<name>.<ext>` (the default).
+    Resource,
+    /// `-R-key/./<name>.<ext>`.
+    Key,
+}
+
+/// The `node:` / `ext:` / `form:` options of an argument.
+#[derive(Debug, Clone, PartialEq)]
+struct NodeParameterSpec {
+    extension: String,
+    form: NodeFormSpec,
+}
+
+impl NodeParameterSpec {
+    fn to_argument_type_expression(&self) -> proc_macro2::TokenStream {
+        let ext = &self.extension;
+        let form = match self.form {
+            NodeFormSpec::Resource => {
+                quote! { liquers_core::command_metadata::NodeLinkForm::Resource }
+            }
+            NodeFormSpec::Key => quote! { liquers_core::command_metadata::NodeLinkForm::Key },
+        };
+        quote! {
+            liquers_core::command_metadata::ArgumentType::Node(
+                liquers_core::command_metadata::NodeArgument::new(#ext).with_form(#form)
+            )
+        }
+    }
 }
 
 impl CommandParameter {
@@ -704,10 +741,14 @@ impl CommandParameter {
             CommandParameter::Param {
                 ty,
                 enum_spec,
+                node_spec,
                 name,
                 multiple,
                 ..
             } => {
+                if let Some(node_spec) = node_spec {
+                    return node_spec.to_argument_type_expression();
+                }
                 if let Some(enum_spec) = enum_spec {
                     let name_str = name.to_string();
                     return enum_spec
@@ -806,6 +847,7 @@ impl CommandParameter {
                 gui,
                 gui_explicit,
                 enum_spec,
+                node_spec,
             } => {
                 let name_str = name.to_string();
                 let default_label = name_str.replace('_', " ");
@@ -820,7 +862,9 @@ impl CommandParameter {
                 let argument_type = self.argument_type_expression();
                 let default_value_expression = self.default_value_expression();
                 let gui_expr = if !*gui_explicit {
-                    if let Some(enum_spec) = enum_spec {
+                    if node_spec.is_some() {
+                        quote! { liquers_core::command_metadata::ArgumentGUIInfo::NodeSelector }
+                    } else if let Some(enum_spec) = enum_spec {
                         match enum_spec {
                             EnumParameterSpec::Ref(_) => quote! {
                                 liquers_core::command_metadata::ArgumentGUIInfo::EnumSelector
@@ -1147,12 +1191,89 @@ fn default_value_fits_enum(
     }
 }
 
+/// Checks the `node:` / `ext:` / `form:` options of one argument and builds its spec.
+///
+/// `node` and `ext` come together; the key form passes a key, so the argument must be a `Key`
+/// or a `Value`.
+fn node_parameter_spec(
+    name: &syn::Ident,
+    ty: &syn::Type,
+    kind: Option<syn::Ident>,
+    ext: Option<syn::LitStr>,
+    form: Option<syn::Ident>,
+    has_enum: bool,
+    multiple: bool,
+) -> syn::Result<Option<NodeParameterSpec>> {
+    match (kind, ext) {
+        (None, None) => {
+            if let Some(form) = form {
+                return Err(syn::Error::new(
+                    form.span(),
+                    "`form` applies to a Node argument; add `node: local, ext: \"…\"`",
+                ));
+            }
+            Ok(None)
+        }
+        (Some(_), None) => Err(syn::Error::new(
+            name.span(),
+            "a Node argument needs `ext: \"…\"` (its file extension)",
+        )),
+        (None, Some(ext)) => Err(syn::Error::new(
+            ext.span(),
+            "`ext` applies to a Node argument; add `node: local`",
+        )),
+        (Some(_), Some(ext)) => {
+            if has_enum {
+                return Err(syn::Error::new(
+                    name.span(),
+                    "a Node argument cannot also be an enum",
+                ));
+            }
+            if multiple {
+                return Err(syn::Error::new(
+                    name.span(),
+                    "a Node argument cannot be `multiple`",
+                ));
+            }
+            let form = match form {
+                Some(f) if f == "key" => NodeFormSpec::Key,
+                Some(_) | None => NodeFormSpec::Resource,
+            };
+            if form == NodeFormSpec::Key {
+                let type_name = match ty {
+                    syn::Type::Path(p) => p.path.get_ident().map(|i| i.to_string()),
+                    _ => None,
+                };
+                match type_name.as_deref() {
+                    Some("Key" | "Value") => {}
+                    _ => {
+                        return Err(syn::Error::new_spanned(
+                            ty,
+                            "a Node argument with `form: key` must be a `Key` or a `Value`",
+                        ));
+                    }
+                }
+            }
+            Ok(Some(NodeParameterSpec {
+                extension: ext.value(),
+                form,
+            }))
+        }
+    }
+}
+
 enum CommandParameterStatement {
     Label(String),
     Description(String),
     Gui(ArgumentGUIInfo),
     Enum(EnumParameterSpec),
     EnumRef(String),
+    /// `node: local` — the node kind (only `local` exists).
+    Node(syn::Ident),
+    /// `ext: "glb"` — the node's file extension.
+    Ext(syn::LitStr),
+    /// `form: resource|key` — how the bare name becomes a link.
+    Form(syn::Ident),
 }
 
 impl Parse for CommandParameterStatement {
@@ -1182,6 +1303,40 @@ impl Parse for CommandParameterStatement {
                 input.parse::<syn::Token![:]>()?;
                 let lit: syn::LitStr = input.parse()?;
                 Ok(CommandParameterStatement::EnumRef(lit.value()))
+            }
+            "node" => {
+                input.parse::<syn::Token![:]>()?;
+                let kind: syn::Ident = input.call(syn::Ident::parse_any)?;
+                if kind != "local" {
+                    return Err(syn::Error::new(
+                        kind.span(),
+                        format!("unknown node kind `{kind}`; expected `local`"),
+                    ));
+                }
+                Ok(CommandParameterStatement::Node(kind))
+            }
+            "ext" => {
+                input.parse::<syn::Token![:]>()?;
+                let lit: syn::LitStr = input.parse()?;
+                let ext = lit.value();
+                if ext.is_empty() || ext.contains('/') || ext.starts_with('.') {
+                    return Err(syn::Error::new(
+                        lit.span(),
+                        "`ext` must be a file extension without the dot, such as \"glb\"",
+                    ));
+                }
+                Ok(CommandParameterStatement::Ext(lit))
+            }
+            "form" => {
+                input.parse::<syn::Token![:]>()?;
+                let form: syn::Ident = input.call(syn::Ident::parse_any)?;
+                if form != "resource" && form != "key" {
+                    return Err(syn::Error::new(
+                        form.span(),
+                        format!("unknown node form `{form}`; expected `resource` or `key`"),
+                    ));
+                }
+                Ok(CommandParameterStatement::Form(form))
             }
             // Argument hints were once parsed and silently dropped. Until `ArgumentInfo` hints
             // can be set from the macro (design `command-metadata-descriptions-and-hints`), a
@@ -1632,6 +1787,7 @@ impl Parse for ArgumentGUIInfo {
             "HorizontalRadioEnum" => Ok(ArgumentGUIInfo::HorizontalRadioEnum),
             "VerticalRadioEnum" => Ok(ArgumentGUIInfo::VerticalRadioEnum),
             "EnumSelector" => Ok(ArgumentGUIInfo::EnumSelector),
+            "NodeSelector" => Ok(ArgumentGUIInfo::NodeSelector),
             "ColorString" => Ok(ArgumentGUIInfo::ColorString),
             "DateField" => {
                 let width: syn::LitInt = input.parse()?;
@@ -1694,6 +1850,9 @@ impl ToTokens for ArgumentGUIInfo {
             }
             ArgumentGUIInfo::EnumSelector => {
                 quote! { liquers_core::command_metadata::ArgumentGUIInfo::EnumSelector }
+            }
+            ArgumentGUIInfo::NodeSelector => {
+                quote! { liquers_core::command_metadata::ArgumentGUIInfo::NodeSelector }
             }
             ArgumentGUIInfo::ColorString => {
                 quote! { liquers_core::command_metadata::ArgumentGUIInfo::ColorString }
@@ -1849,6 +2008,9 @@ impl Parse for CommandParameter {
                 let mut gui = ArgumentGUIInfo::TextField(40);
                 let mut gui_explicit = false;
                 let mut enum_spec: Option<EnumParameterSpec> = None;
+                let mut node_kind: Option<syn::Ident> = None;
+                let mut node_ext: Option<syn::LitStr> = None;
+                let mut node_form: Option<syn::Ident> = None;
                 if input.peek(syn::token::Paren) {
                     let content;
                     syn::parenthesized!(content in input);
@@ -1879,6 +2041,24 @@ impl Parse for CommandParameter {
                                 }
                                 enum_spec = Some(EnumParameterSpec::Ref(spec));
                             }
+                            CommandParameterStatement::Node(kind) => {
+                                if node_kind.is_some() {
+                                    return Err(syn::Error::new(kind.span(), "duplicate `node`"));
+                                }
+                                node_kind = Some(kind);
+                            }
+                            CommandParameterStatement::Ext(ext) => {
+                                if node_ext.is_some() {
+                                    return Err(syn::Error::new(ext.span(), "duplicate `ext`"));
+                                }
+                                node_ext = Some(ext);
+                            }
+                            CommandParameterStatement::Form(form) => {
+                                if node_form.is_some() {
+                                    return Err(syn::Error::new(form.span(), "duplicate `form`"));
+                                }
+                                node_form = Some(form);
+                            }
                         }
                         if content.peek(syn::Token![,]) {
                             content.parse::<syn::Token![,]>()?;
@@ -1891,6 +2071,16 @@ impl Parse for CommandParameter {
                     default_value_fits_enum(&default_value, spec)?;
                 }
 
+                let node_spec = node_parameter_spec(
+                    &name,
+                    &ty,
+                    node_kind,
+                    node_ext,
+                    node_form,
+                    enum_spec.is_some(),
+                    multiple,
+                )?;
+
                 Ok(CommandParameter::Param {
                     name,
                     ty,
@@ -1902,6 +2092,7 @@ impl Parse for CommandParameter {
                     gui,
                     gui_explicit,
                     enum_spec,
+                    node_spec,
                 })
             }
         } else {
@@ -2372,6 +2563,7 @@ mod tests {
             description: None,
             gui_explicit: false,
             enum_spec: None,
+            node_spec: None,
         };
         let tokens = param.argument_type_expression();
         let expected = quote! { liquers_core::command_metadata::ArgumentType::Integer };
@@ -2391,6 +2583,7 @@ mod tests {
             description: None,
             gui_explicit: false,
             enum_spec: None,
+            node_spec: None,
         };
         let tokens = param.argument_type_expression();
         let expected = quote! { liquers_core::command_metadata::ArgumentType::IntegerOption };
@@ -2410,6 +2603,7 @@ mod tests {
             description: None,
             gui_explicit: false,
             enum_spec: None,
+            node_spec: None,
         };
         let tokens = param.argument_type_expression();
         let expected = quote! { liquers_core::command_metadata::ArgumentType::Float };
@@ -2429,6 +2623,7 @@ mod tests {
             description: None,
             gui_explicit: false,
             enum_spec: None,
+            node_spec: None,
         };
         let tokens = param.argument_type_expression();
         let expected = quote! { liquers_core::command_metadata::ArgumentType::FloatOption };
@@ -2448,6 +2643,7 @@ mod tests {
             description: None,
             gui_explicit: false,
             enum_spec: None,
+            node_spec: None,
         };
         let tokens = param.argument_type_expression();
         let expected = quote! { liquers_core::command_metadata::ArgumentType::String };
@@ -2467,6 +2663,7 @@ mod tests {
             description: None,
             gui_explicit: false,
             enum_spec: None,
+            node_spec: None,
         };
         let tokens = param.argument_type_expression();
         let expected = quote! { liquers_core::command_metadata::ArgumentType::Any };
@@ -3357,6 +3554,42 @@ mod tests {
         assert!(info.contains(
             "gui_info : liquers_core :: command_metadata :: ArgumentGUIInfo :: EnumSelector"
         ));
+    }
+
+    /// recipe-tree AC-17: `node:` / `ext:` / `form:` build a Node argument type.
+    #[test]
+    fn test_parse_node_argument() {
+        let param: CommandParameter = syn::parse_quote! {
+            part: Value (node: local, ext: "glb")
+        };
+        let info = param.argument_info_expression().unwrap().to_string();
+        assert!(info.contains("ArgumentType :: Node"), "{info}");
+        assert!(info.contains("NodeArgument :: new (\"glb\")"), "{info}");
+        assert!(info.contains("NodeLinkForm :: Resource"), "{info}");
+        assert!(info.contains("ArgumentGUIInfo :: NodeSelector"), "{info}");
+        let param: CommandParameter = syn::parse_quote! {
+            dir: Key (node: local, ext: "glb", form: key)
+        };
+        let info = param.argument_info_expression().unwrap().to_string();
+        assert!(info.contains("NodeLinkForm :: Key"), "{info}");
+    }
+
+    /// recipe-tree AC-17: the options that do not fit together are compile errors.
+    #[test]
+    fn test_node_argument_errors() {
+        let cases = [
+            quote! { part: Value (ext: "glb") },
+            quote! { part: Value (node: local) },
+            quote! { part: Value (form: key) },
+            quote! { part: Value (node: remote, ext: "glb") },
+            quote! { part: Value (node: local, ext: ".glb") },
+            quote! { part: String (node: local, ext: "glb", form: key) },
+            quote! { part: String (node: local, ext: "glb", enum: ["a"]) },
+        ];
+        for case in cases {
+            let parsed: syn::Result<CommandParameter> = syn::parse2(case.clone());
+            assert!(parsed.is_err(), "{case} should be refused");
+        }
     }
 
     #[test]

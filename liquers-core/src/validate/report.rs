@@ -225,9 +225,23 @@ pub struct ValidationReport {
     pub registry: RegistryProvenance,
     pub results: Vec<ValidationResult>,
     pub counts: ValidationCounts,
+    /// The recipe-tree check of a `recipes.yaml` with a `tree:` section (design `recipe-tree`,
+    /// AC-9): nodes, edges, roots, result, errors and warnings. Its errors make the report fail.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tree: Option<crate::recipe_tree::TreeReport>,
 }
 
 impl ValidationReport {
+    /// Adds the tree report: an error fails the report, a warning makes an `Ok` one a warning.
+    pub fn set_tree(&mut self, tree: crate::recipe_tree::TreeReport) {
+        if !tree.errors.is_empty() {
+            self.status = ValidationStatus::Error;
+        } else if !tree.warnings.is_empty() && self.status == ValidationStatus::Ok {
+            self.status = ValidationStatus::Warning;
+        }
+        self.tree = Some(tree);
+    }
+
     /// 0 when nothing failed (warnings included), 1 when any result errored.
     ///
     /// Exit 2 is reserved for the *tool* failing and is produced by the binary, not here.
@@ -267,6 +281,14 @@ impl ValidationReport {
                         .unwrap_or_else(|| "validation failed".to_string());
                     lines.push(format!("ERROR    [{}] {}", result.index, message));
                 }
+            }
+        }
+        if let Some(tree) = &self.tree {
+            for finding in &tree.errors {
+                lines.push(format!("ERROR    [tree] {finding}"));
+            }
+            for finding in &tree.warnings {
+                lines.push(format!("WARNING  [tree] {finding}"));
             }
         }
         lines
@@ -399,6 +421,7 @@ mod tests {
             registry: RegistryProvenance::default(),
             results: Vec::new(),
             counts: ValidationCounts::default(),
+            tree: None,
         };
         assert_eq!(report(ValidationStatus::Ok).exit_code(), 0);
         assert_eq!(report(ValidationStatus::Warning).exit_code(), 0);
@@ -487,6 +510,7 @@ mod tests {
             registry: RegistryProvenance::default(),
             results: vec![ok_result(0), warned, failed],
             counts: ValidationCounts::default(),
+            tree: None,
         };
 
         let lines = report.diagnostic_lines();
@@ -527,6 +551,7 @@ mod tests {
                 warning: 0,
                 error: 0,
             },
+            tree: None,
         };
 
         let json = report.to_json()?;

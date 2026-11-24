@@ -1,29 +1,61 @@
 //! Recipe definitions and recipe-provider lookup.
 //!
+//! # Purpose
+//!
 //! A [`Recipe`] augments a query in multiple ways:
 //! - It allows to specify additional human facing data such as title and description, which would be difficult in a compact query string.
 //! - Recipes can specify whether the asset is volatile or when it expires.
-//! - Recipes can place the query in a logical hierarchycal structure similar to a filesystem.
-//!   This allows to organize queries, give them names, lazyly execute them, cache the results (via AssetManager) and access the results similarly as files.
+//! - Recipes can place the query in a logical hierarchical structure similar to a filesystem.
+//!   This allows to organize queries, give them names, lazily execute them, cache the results (via AssetManager) and access the results similarly as files.
 //! - Recipes can override query parameters and pass this way more complex arguments to the query, e.g. longer texts or strings.
 //! - Recipes can be used internally to represent complex asset queries, e.g. to implement web APIs with arguments specified in JSON format.
 //!
 //! Converting a recipe with [`Recipe::to_plan`] builds a [`Plan`] but does not execute it.
-//!
-//! [`AsyncRecipeProvider`] is a service that resolves recipes registered for logical keys.
-//! In other words, it says what recipes are available in each directory.
-//! By default, it reads a [`RecipeList`] from `<directory>/recipes.yaml`; filenames derived from recipe queries
-//! identify the assets in that directory. A recipe looked up by key must use
-//! [`Recipe::to_plan_for_key`], because keyed assets are globally shared and cannot receive a
-//! per-evaluation payload.
-//! Custom recipe providers can be implemented to provide recipes from different sources or automatic default recipes.
-//!
-//! The [`RecipeList`] is a collection of recipes, which conviniently can be loaded from a YAML file.
-//! The **resipes.yaml** files (used by the default recipe provider) are meant to be human-readable and editable
-//! and are typically written by hand, specifying what needs to be calculated and how.
-//!
 //! Recipe conversion is only the synchronous planning phase. Environment-backed dependency
 //! volatility and expiration are incorporated later by interpreter finalization before execution.
+//!
+//! # Main components
+//!
+//! - [`Recipe`]: one query or pipeline with its title, description, overrides and caching
+//!   settings. [`Recipe::is_source_declaration`] tells a *source recipe* — a query that is only a
+//!   filename — which declares stored data instead of computing it.
+//! - [`RecipeList`]: the recipes of a folder, as read from `recipes.yaml`, with the optional
+//!   `tree:` section ([`crate::recipe_tree::TreeDeclaration`]).
+//! - [`AsyncRecipeProvider`]: resolves recipes registered for logical keys — what recipes are
+//!   available in each directory. [`DefaultRecipeProvider`] reads `<directory>/recipes.yaml`;
+//!   filenames derived from recipe queries identify the assets in that directory, and a folder
+//!   declared `dependencies: strict` is checked as a whole and refused on an error. A recipe
+//!   looked up by key must use [`Recipe::to_plan_for_key`], because keyed assets are globally
+//!   shared and cannot receive a per-evaluation payload.
+//! - [`RecipesConfig`], [`RecipeProviderFactory`] and [`RecipeProviderChain`]: recipe providers
+//!   configured by name and chained; custom providers can supply recipes from other sources.
+//!
+//! # Where it is used
+//!
+//! The asset manager (`crate::assets`) asks the environment's provider for a key's recipe and
+//! evaluates it; `liquers-validate --recipes` plans every recipe of a file; the editors of
+//! `liquers-lib` edit a recipe's query in place.
+//!
+//! # Related concepts
+//!
+//! [`crate::plan`] (the plan a recipe becomes), [`crate::recipe_tree`] (a folder's recipes as a
+//! checked tree), `specs/reference/RECIPES_AND_PLANS.md` and `specs/reference/RECIPE_TREES.md`.
+//! The `recipes.yaml` files are meant to be human-readable and editable and are typically written
+//! by hand, specifying what needs to be calculated and how.
+//!
+//! # Examples
+//!
+//! ```
+//! # use liquers_core::recipes::RecipeList;
+//! let list: RecipeList = serde_yaml::from_str(r#"
+//! recipes:
+//!   - {query: tyre.txt, title: Tyre}
+//!   - {query: "-R/./tyre.txt/-/wheel.txt", title: Wheel}
+//! "#).unwrap();
+//! assert!(list.recipes[0].is_source_declaration());
+//! assert!(!list.recipes[1].is_source_declaration());
+//! assert!(list.tree.is_none());
+//! ```
 
 use std::collections::HashMap;
 use std::fmt;
@@ -177,6 +209,32 @@ fn false_default() -> bool {
 }
 
 impl Recipe {
+    /// Whether this recipe declares a source: its query is only a filename (`body.glb`), with
+    /// no pipeline, overrides or volatility.
+    ///
+    /// A source recipe computes nothing. Its value is the data stored under its key; the recipe
+    /// gives it a title and a description and makes it a node of a recipe tree
+    /// (`specs/design/recipe-tree/`, AC-27). Evaluating it with no stored data fails with
+    /// `KeyNotFound`.
+    pub fn is_source_declaration(&self) -> bool {
+        if self.pipeline.is_some()
+            || !self.arguments.is_empty()
+            || !self.links.is_empty()
+            || self.volatile
+        {
+            return false;
+        }
+        let Ok(query) = parse_query(&self.query) else {
+            return false;
+        };
+        match query.segments.as_slice() {
+            [crate::query::QuerySegment::Transform(t)] => {
+                !query.rooted && t.header.is_none() && t.query.is_empty() && t.filename.is_some()
+            }
+            _ => false,
+        }
+    }
+
     /// Creates a recipe after parsing and encoding `query`.
     pub fn new(query: String, title: String, description: String) -> Result<Recipe, Error> {
         Ok(Recipe {
@@ -900,6 +958,24 @@ impl DefaultRecipeProvider {
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let mut list: RecipeList = serde_yaml::from_slice(&bytes)
             .map_err(|e| Error::general_error(format!("Error parsing recipes: {}", e)))?;
+        // A strict tree is valid as a whole or not used (`specs/design/recipe-tree/`, AC-24):
+        // any finding of the tree check refuses every recipe of the folder, and the file is not
+        // cached, so a fix is seen at once.
+        if list
+            .tree
+            .as_ref()
+            .is_some_and(|t| t.dependencies == crate::recipe_tree::DependencyMode::Strict)
+        {
+            let listing = envref.get_async_store().listdir(key).await?;
+            let report = crate::recipe_tree::check_tree(
+                &list,
+                Some(&listing),
+                envref.get_command_metadata_registry(),
+            );
+            if let Some(error) = report.error() {
+                return Err(error.with_key(&recipes_key));
+            }
+        }
         list.set_cwd(key.encode()).map_err(|e| e.with_key(key))?;
         let mut by_name = HashMap::new();
         for (index, recipe) in list.recipes.iter().enumerate() {
@@ -1017,6 +1093,10 @@ impl<E: Environment> AsyncRecipeProvider<E> for DefaultRecipeProvider {
 /// Serialized root of a `recipes.yaml` file.
 /// It can also be used as a general collection of recipes (e.g. for batch processing).
 pub struct RecipeList {
+    /// The `tree:` section: the folder is a self-contained recipe tree
+    /// ([`crate::recipe_tree`]). Absent, the list reads exactly as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tree: Option<crate::recipe_tree::TreeDeclaration>,
     /// Recipes in file order.
     pub recipes: Vec<Recipe>,
 }
@@ -1025,6 +1105,7 @@ impl RecipeList {
     /// Creates an empty recipe list.
     pub fn new() -> Self {
         RecipeList {
+            tree: None,
             recipes: Vec::new(),
         }
     }
@@ -2042,6 +2123,7 @@ fn argument_type_name(argument_type: &ArgumentType) -> String {
         ArgumentType::GlobalEnum(name) => format!("enum {name}"),
         ArgumentType::Any => "any".to_string(),
         ArgumentType::None => "none".to_string(),
+        ArgumentType::Node(n) => format!("node .{}", n.extension),
     }
 }
 
@@ -2175,6 +2257,21 @@ pub(crate) fn convert_scalar(arg: &ArgumentInfo, value: &Value) -> Result<Conver
             },
             Value::Null | Value::Bool(_) | Value::Number(_) | Value::Array(_) | Value::Object(_) => {
                 Ok(ConvertedOverride::Value(value.clone(), None))
+            }
+        },
+        ArgumentType::Node(n) => match value {
+            Value::String(s) => {
+                let link = n.link(s)?;
+                let note = format!(
+                    "Argument '{}': node '{}' expanded to the link {}",
+                    arg.name,
+                    s,
+                    link.encode()
+                );
+                Ok(ConvertedOverride::Link(link, Some(note)))
+            }
+            Value::Null | Value::Bool(_) | Value::Number(_) | Value::Array(_) | Value::Object(_) => {
+                Err(refuse())
             }
         },
         ArgumentType::GlobalEnum(_) | ArgumentType::Any | ArgumentType::None => {
@@ -4339,6 +4436,18 @@ mod recipe_version_tests {
 
     fn recipe(query: &str) -> Recipe {
         Recipe::new(query.to_string(), String::new(), String::new()).expect("valid query")
+    }
+
+    /// recipe-tree AC-27: only a query that is just a filename declares a source.
+    #[test]
+    fn source_declaration_is_a_bare_filename() {
+        assert!(recipe("body.glb").is_source_declaration());
+        for query in ["-R/./body.glb", "make_text/r.txt", "-R/./a.glb/-/b.glb", "/body.glb"] {
+            assert!(!recipe(query).is_source_declaration(), "{query}");
+        }
+        let mut with_link = recipe("body.glb");
+        with_link.links.insert("x".into(), "-R/a".into());
+        assert!(!with_link.is_source_declaration());
     }
 
     #[test]

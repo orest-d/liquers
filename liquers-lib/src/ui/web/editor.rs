@@ -2,10 +2,10 @@
 //!
 //! [`editor_html`] renders an [`EditorTree`] in a mode and a density as plain HTML, with the
 //! layout the egui renderer draws ([`editor_layout`]): Simple mode shows step chips and one card,
-//! Advanced mode an outline beside the key part and query part cards. Cards are `<details>` (the
-//! browser keeps their open state), with the header of [`header_parts`], the toolbar of
+//! Advanced mode every card, closed except one (the last action, or the step named by
+//! [`editor_html_open`]). Cards are `<details>` (the browser keeps their open state), with the header of [`header_parts`], the toolbar of
 //! [`toolbar_items`] with presets as chips, and a CSS grid form of [`form_rows`]. Hover text is
-//! `title=`, fields carry `data-lq-field` names and buttons `data-lq-event` names that
+//! `title=` (an argument's description and default are only there), fields carry `data-lq-field` names and buttons `data-lq-event` names that
 //! [`crate::ui::editor::EditorView::from_ui_event`] decodes back into commands (and
 //! [`crate::ui::editor::EditorView::mode_event`] into a mode). A selector or a checkbox sends
 //! `change:<field>` on the DOM `change` event; Enter in a text field submits every changed field.
@@ -16,7 +16,7 @@
 //!
 //! # Main components
 //!
-//! - [`editor_html`]: the whole editor.
+//! - [`editor_html`]: the whole editor; [`editor_html_open`] names the card Advanced mode opens.
 //! - [`icon_html`]: an icon's first variant the browser can draw: a Phosphor web-font glyph, an
 //!   SVG (sanitized) or raster image as a `data:` URI, else its Unicode text.
 //! - [`EDITOR_CSS`]: the editor's stylesheet.
@@ -50,7 +50,7 @@ use liquers_core::command_metadata::ArgumentGUIInfo;
 
 use super::html::{escape_html, event_attr, field_attr};
 use crate::ui::editor::{
-    editor_layout, event_name, field_id, form_rows, header_parts, node_label, toolbar_items, CardGroupKind, EditorField,
+    editor_layout, event_name, field_id, form_rows, header_parts, toolbar_items, CardGroupKind, EditorField,
     EditorMode, EditorNode, EditorTree, FieldValue, HeaderPart, NodePath, StepChip, ToolItem, RESOURCE_HEADERS,
 };
 use crate::ui::event::UIEventKind;
@@ -70,10 +70,7 @@ pub const EDITOR_CSS: &str = r#"
 .lq-query{font-family:var(--lq-font-mono),monospace}
 .lq-ed-chip{color:var(--lq-ink-muted)}
 .lq-ed-body{display:flex;gap:12px;align-items:flex-start}
-.lq-outline{min-width:150px;border-right:1px solid var(--lq-line);padding-right:8px}
-.lq-outline button{display:block;width:100%;text-align:left;border:none;background:none}
 .lq-ed-cards{flex:1;display:flex;flex-direction:column;gap:var(--lq-card-gap)}
-.lq-group-title{font-size:var(--lq-size-small);color:var(--lq-ink-muted)}
 .lq-card{background:var(--lq-card);border:1px solid var(--lq-line);border-radius:var(--lq-card-radius);padding:var(--lq-card-padding);box-shadow:0 1px 3px var(--lq-shadow)}
 .lq-card.lq-err{border-color:var(--lq-danger)}
 .lq-card-head{display:flex;align-items:center;gap:8px;cursor:pointer}
@@ -94,6 +91,9 @@ pub const EDITOR_CSS: &str = r#"
 .lq-factions{opacity:.45}
 .lq-form>div:hover+.lq-factions,.lq-factions:hover,.lq-factions:focus-within{opacity:1}
 .lq-link-tree{border-left:1px dashed var(--lq-line-strong);padding-left:8px;margin-top:4px}
+.lq-qc-body{display:flex;gap:8px;align-items:flex-start}
+.lq-qc-content{flex:1;min-width:0}
+.lq-qc-editor{flex:0 0 340px;max-width:45%;overflow:auto;border-left:1px solid var(--lq-line)}
 "#;
 
 fn button(label: &str, verb: &str, path: &NodePath, rest: &str, title: &str) -> String {
@@ -276,6 +276,23 @@ fn fallback_icon(node: &EditorNode) -> IconVariant {
 
 /// The editor's markup in `mode` and `density`, with the icons of `theme`.
 pub fn editor_html(tree: &EditorTree, title: &str, mode: EditorMode, density: Density, theme: &Theme) -> String {
+    editor_html_open(tree, title, mode, density, theme, None)
+}
+
+/// [`editor_html`], with the top-level card Advanced mode shows open: `open`, else the card
+/// Simple mode shows (normally the last action). Every other card starts closed.
+pub fn editor_html_open(
+    tree: &EditorTree,
+    title: &str,
+    mode: EditorMode,
+    density: Density,
+    theme: &Theme,
+    open: Option<&NodePath>,
+) -> String {
+    let open = match open {
+        Some(path) => Some(path.clone()),
+        None => crate::ui::editor::open_card(tree, None),
+    };
     let root = NodePath::default();
     let mut h = String::new();
     h.push_str(&format!(
@@ -317,7 +334,9 @@ pub fn editor_html(tree: &EditorTree, title: &str, mode: EditorMode, density: De
             event_attr(&UIEventKind::Submit)
         ));
     }
-    h.push_str(&super::widgets::query_to_html(&tree.text));
+    if !tree.hide_text {
+        h.push_str(&super::widgets::query_to_html(&tree.text));
+    }
     if let Some(note) = &tree.text_note {
         h.push_str(&format!("<div class=\"lq-ed-note\">{}</div>", escape_html(note)));
     }
@@ -332,17 +351,6 @@ pub fn editor_html(tree: &EditorTree, title: &str, mode: EditorMode, density: De
         chips_html(&mut h, &layout.before);
     }
     h.push_str("<div class=\"lq-ed-body\">");
-    if layout.outline {
-        h.push_str("<nav class=\"lq-outline\">");
-        for node in &tree.nodes {
-            h.push_str(&format!(
-                "<button type=\"button\" data-lq-path=\"{}\">{}</button>",
-                escape_html(&node.path().id()),
-                escape_html(&node_label(node))
-            ));
-        }
-        h.push_str("</nav>");
-    }
     h.push_str("<div class=\"lq-ed-cards\">");
     let mut position = 0;
     for group in &layout.groups {
@@ -351,16 +359,10 @@ pub fn editor_html(tree: &EditorTree, title: &str, mode: EditorMode, density: De
             CardGroupKind::QueryPart => "query",
         };
         h.push_str(&format!("<section class=\"lq-group\" data-part=\"{part}\">"));
-        if layout.outline {
-            let title = match group.kind {
-                CardGroupKind::KeyPart => "Key part",
-                CardGroupKind::QueryPart => "Query part",
-            };
-            h.push_str(&format!("<div class=\"lq-group-title\">{title}</div>"));
-        }
         for card in &group.cards {
             position += 1;
-            card_html(&mut h, tree, card.node, mode, theme, position);
+            let is_open = open.as_ref() == Some(card.node.path());
+            card_html(&mut h, tree, card.node, mode, theme, position, is_open);
         }
         h.push_str("</section>");
     }
@@ -416,7 +418,7 @@ fn chips_html(h: &mut String, chips: &[StepChip]) {
     h.push_str("</div>");
 }
 
-fn card_html(h: &mut String, tree: &EditorTree, node: &EditorNode, mode: EditorMode, theme: &Theme, position: usize) {
+fn card_html(h: &mut String, tree: &EditorTree, node: &EditorNode, mode: EditorMode, theme: &Theme, position: usize, open: bool) {
     let path = node.path();
     let fallback = fallback_icon(node);
     let icon = node_icon(theme, node, &fallback);
@@ -433,7 +435,8 @@ fn card_html(h: &mut String, tree: &EditorTree, node: &EditorNode, mode: EditorM
     let refused = tree.message.as_ref().is_some_and(|(p, _)| p == path);
     let class = if refused { "lq-card lq-err" } else { "lq-card" };
     let (open_tag, close_tag, head_tag) = match mode {
-        EditorMode::Advanced => ("<details open", "</details>", "summary"),
+        EditorMode::Advanced if open => ("<details open", "</details>", "summary"),
+        EditorMode::Advanced => ("<details", "</details>", "summary"),
         EditorMode::Simple => ("<div", "</div>", "div"),
     };
     h.push_str(&format!(
@@ -530,9 +533,6 @@ fn card_html(h: &mut String, tree: &EditorTree, node: &EditorNode, mode: EditorM
                     escape_html(&label)
                 ));
                 field_editor_html(h, tree, path, field, mode, theme);
-                if !row.help.is_empty() {
-                    h.push_str(&format!("<div class=\"lq-help\">{}</div>", escape_html(&row.help)));
-                }
                 if let Some(message) = &row.message {
                     h.push_str(&format!("<div class=\"lq-fmsg\">{}</div>", escape_html(message)));
                 }
@@ -586,7 +586,7 @@ fn field_editor_html(h: &mut String, tree: &EditorTree, path: &NodePath, field: 
                     if *is_key { "key link" } else { "link" }
                 ));
                 for (i, n) in nodes.iter().enumerate() {
-                    card_html(h, tree, n, mode, theme, i + 1);
+                    card_html(h, tree, n, mode, theme, i + 1, true);
                 }
                 h.push_str("</div>");
             }
@@ -669,7 +669,7 @@ fn node_body_html(h: &mut String, tree: &EditorTree, node: &EditorNode, mode: Ed
         }
         EditorNode::Nested { nodes, .. } => {
             for (i, n) in nodes.iter().enumerate() {
-                card_html(h, tree, n, mode, theme, i + 1);
+                card_html(h, tree, n, mode, theme, i + 1, true);
             }
         }
         EditorNode::Opaque { path, text, reason } => {
@@ -791,6 +791,41 @@ fn input_html(field: &EditorField, name: &str, text: &str) -> String {
             escape_html(text),
             event_attr(&UIEventKind::Submit)
         ),
+        // A node of the folder's recipe tree, by filename and title, with Rename (design
+        // `recipe-tree`, AC-18, AC-25).
+        ArgumentGUIInfo::NodeSelector if !field.node_choices.is_empty() => {
+            let mut s = format!("<select{attrs}{}>", change(name));
+            if !field.node_choices.iter().any(|c| c.name == shown) {
+                s.push_str(&format!("<option value=\"{0}\" selected>{0}</option>", escape_html(&shown)));
+            }
+            for c in &field.node_choices {
+                let label = if c.title.is_empty() {
+                    c.filename.clone()
+                } else {
+                    format!("{} \u{2014} {}", c.filename, c.title)
+                };
+                s.push_str(&format!(
+                    "<option value=\"{}\"{}>{}</option>",
+                    escape_html(&c.name),
+                    if c.name == shown { " selected" } else { "" },
+                    escape_html(&label)
+                ));
+            }
+            s.push_str("</select>");
+            // `name` is `f:<path>:<arg>`; the rename input and button carry the same pair.
+            if let (Some(rest), false) = (name.strip_prefix("f:"), shown.is_empty()) {
+                s.push_str(&format!(
+                    "<input type=\"text\" size=\"10\" value=\"{}\"{}>",
+                    escape_html(&shown),
+                    field_attr(&format!("nrename:{rest}"))
+                ));
+                s.push_str(&format!(
+                    "<button type=\"button\" class=\"lq-ed-btn\" title=\"Rename this node in the folder\"{}>Rename</button>",
+                    event_attr(&UIEventKind::Named(format!("ed:rename:{rest}:{shown}")))
+                ));
+            }
+            s
+        }
         ArgumentGUIInfo::EnumSelector | ArgumentGUIInfo::HorizontalRadioEnum | ArgumentGUIInfo::VerticalRadioEnum
             if !field.alternatives.is_empty() && !field.others_allowed =>
         {
@@ -805,7 +840,10 @@ fn input_html(field: &EditorField, name: &str, text: &str) -> String {
             s.push_str("</select>");
             s
         }
-        ArgumentGUIInfo::EnumSelector | ArgumentGUIInfo::HorizontalRadioEnum | ArgumentGUIInfo::VerticalRadioEnum => {
+        ArgumentGUIInfo::EnumSelector
+        | ArgumentGUIInfo::HorizontalRadioEnum
+        | ArgumentGUIInfo::VerticalRadioEnum
+        | ArgumentGUIInfo::NodeSelector => {
             let list = format!("{name}-list");
             let mut s = format!(
                 "<input type=\"text\" list=\"{}\" value=\"{}\"{attrs}{}><datalist id=\"{}\">",
@@ -911,7 +949,12 @@ mod tests {
         assert!(icon < label);
         assert!(html.contains("data-lq-event=\"ed:mode::advanced\""), "{html}");
         let advanced = editor_html(&tree, "Editor", EditorMode::Advanced, Density::Comfortable, &Theme::builtin());
-        assert!(advanced.contains("lq-outline") && advanced.contains("data-part=\"key\""));
+        assert!(!advanced.contains("lq-outline") && !advanced.contains("Query part") && advanced.contains("data-part=\"key\""));
+        // Only the last action's card is open.
+        assert_eq!(advanced.matches("<details open class=\"lq-card\"").count(), 1, "{advanced}");
+        assert!(advanced.contains("<details open class=\"lq-card\" data-ns=\"pl\" data-path=\"2\""), "{advanced}");
+        let first = editor_html_open(&tree, "Editor", EditorMode::Advanced, Density::Comfortable, &Theme::builtin(), Some(&NodePath::element(1)));
+        assert!(first.contains("<details open class=\"lq-card\" data-ns=\"pl\" data-path=\"1\""), "{first}");
         let css = format!("{}{}", Theme::builtin().to_css(), EDITOR_CSS);
         assert!(css.contains("--lq-card:") && css.contains(".lq-form{"));
 

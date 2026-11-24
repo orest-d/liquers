@@ -460,6 +460,16 @@ where
                 AppMessage::ListDirectory { handle, folder } => {
                     Box::pin(self.handle_list_directory(handle, folder, app_state)).await;
                 }
+                AppMessage::NodeContext { handle, folder } => {
+                    Box::pin(self.handle_node_context(handle, folder, app_state)).await;
+                }
+                AppMessage::RenameData {
+                    handle,
+                    folder,
+                    editor,
+                } => {
+                    Box::pin(self.handle_rename_data(handle, folder, *editor, app_state)).await;
+                }
                 AppMessage::RequestAssetUpdates { handle, query } => {
                     self.handle_request_asset_updates(handle, query, app_state)
                         .await;
@@ -817,6 +827,82 @@ where
         if let DeliveryOutcome::Missing = self.deliver_accessor(handle, update, app_state).await {
             self.accessors.remove(&handle);
         }
+    }
+
+    /// Handle `AppMessage::NodeContext`: the recipes of `folder` and the asset manager's listing
+    /// of it, for an editor's Node arguments (design `recipe-tree`). A folder that cannot be read
+    /// sends nothing: the fields stay text boxes.
+    async fn handle_node_context(
+        &mut self,
+        handle: UIHandle,
+        folder: String,
+        app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
+    ) {
+        let Some(context) = self.node_context(&folder).await else {
+            return;
+        };
+        let _ = Self::deliver_update(
+            handle,
+            UpdateMessage::NodeContext(context),
+            app_state,
+            &self.context_parts(),
+        )
+        .await;
+    }
+
+    async fn node_context(&self, folder: &str) -> Option<crate::ui::editor::NodeContext> {
+        let key = parse_key(folder).ok()?;
+        let bytes = self
+            .envref
+            .get_async_store()
+            .get_bytes(&key.join("recipes.yaml"))
+            .await
+            .ok()?;
+        let recipes: liquers_core::recipes::RecipeList = serde_yaml::from_slice(&bytes).ok()?;
+        let listing = self
+            .envref
+            .get_asset_manager()
+            .listdir_asset_info(&key)
+            .await
+            .ok()
+            .map(|infos| {
+                infos
+                    .into_iter()
+                    .filter(|info| !info.is_dir)
+                    .filter_map(|info| {
+                        info.filename
+                            .clone()
+                            .filter(|f| !f.is_empty())
+                            .or_else(|| info.key.as_ref().and_then(|k| k.filename().map(|f| f.to_string())))
+                    })
+                    .collect()
+            });
+        Some(crate::ui::editor::NodeContext {
+            folder: folder.to_owned(),
+            recipes,
+            listing,
+        })
+    }
+
+    /// Handle `AppMessage::RenameData`: saves the renamed tree (stored files, then
+    /// `recipes.yaml`) and sends the folder's context again. The edited query follows through
+    /// its accessor. A failure is reported on stderr and leaves the store as the save left it.
+    async fn handle_rename_data(
+        &mut self,
+        handle: UIHandle,
+        folder: String,
+        editor: liquers_core::recipe_tree::TreeEditor,
+        app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
+    ) {
+        match parse_key(&folder) {
+            Ok(key) => {
+                if let Err(e) = editor.save(&key, self.envref.clone()).await {
+                    eprintln!("Renaming a node of {folder} failed: {e}");
+                }
+            }
+            Err(e) => eprintln!("Renaming a node of {folder} failed: {e}"),
+        }
+        self.handle_node_context(handle, folder, app_state).await;
     }
 
     /// Handle `AppMessage::ListDirectory`: the asset manager's listing of `folder` (recipe keys

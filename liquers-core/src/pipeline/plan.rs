@@ -599,7 +599,7 @@ impl<'c> PipelinePlanBuilder<'c> {
                     | ParameterValue::ParameterLink(_, _, _)
                     | ParameterValue::OverrideValue(_, _)
                     | ParameterValue::OverrideLink(_, _)
-                    | ParameterValue::EnumLink(_, _, _)
+                    | ParameterValue::EnumLink(_, _, _) | ParameterValue::NodeLink(_, _, _, _)
                     | ParameterValue::MultipleParameters(_, _)
                     | ParameterValue::Injected(_)
                     | ParameterValue::ParameterPipeline(_, _, _)
@@ -807,6 +807,12 @@ impl<'c> PipelinePlanBuilder<'c> {
     ) -> Result<ParameterValue, Error> {
         let name = argument.name.clone();
         match source {
+            // A node name is planned as a query writes it, so both forms mean the same.
+            Source::Value(serde_json::Value::String(node_name))
+                if argument.argument_type.node().is_some() && !node_name.is_empty() =>
+            {
+                ParameterValue::from_string(argument, node_name, position)
+            }
             Source::Value(value) => match convert_scalar(argument, value)? {
                 ConvertedOverride::Value(v, note) => {
                     if let Some(note) = note {
@@ -887,6 +893,8 @@ fn binding_source(
         | ParameterValue::ParameterLink(_, q, _)
         | ParameterValue::OverrideLink(_, q)
         | ParameterValue::EnumLink(_, q, _) => Source::Link(q.encode()),
+        // A node keeps the name it was written with.
+        ParameterValue::NodeLink(_, node, _, _) => Source::Value(serde_json::Value::String(node.clone())),
         ParameterValue::ParameterPipeline(_, p, _)
         | ParameterValue::OverridePipeline(_, p)
         | ParameterValue::DefaultPipeline(_, p) => Source::Pipeline(p.clone()),

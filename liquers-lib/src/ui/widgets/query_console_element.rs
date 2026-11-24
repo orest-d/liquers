@@ -1,14 +1,18 @@
 //! [`QueryConsoleElement`]: a browser-like query console.
 //!
 //! The console holds a query text with history, shows the evaluated value or its metadata, offers
-//! the next presets of the last command, and opens a Parameters panel: an editor
-//! (`ui::editor::EditorState`) of the whole query, in Simple mode (the last action) or Advanced
-//! mode (every step), whose edits rewrite the text without submitting it.
+//! the next presets of the last command, and opens an editor panel from its edit (pencil) button:
+//! an editor (`ui::editor::EditorState`) of the whole query, drawn as a narrow column beside the
+//! value, in Simple mode (the last action) or Advanced mode (every step, all collapsed but one),
+//! whose edits rewrite the text without submitting it. The panel does not repeat the query text;
+//! `Ctrl+J` in the console's query field opens the panel on the step under the cursor, in
+//! Advanced mode when that is not the last action.
 //!
 //! # Main components
 //!
 //! - [`QueryConsoleElement`]: the element; `show_parameters`, `parameters_tree` and
-//!   `apply_parameter_commands` drive the Parameters panel.
+//!   `apply_parameter_commands` drive the editor panel (still called the Parameters panel in
+//!   the API).
 //!
 //! # Where it is used
 //!
@@ -43,7 +47,9 @@ use liquers_core::state::State;
 use liquers_core::value::ValueInterface;
 
 use crate::ui::app_state::AppState;
-use crate::ui::editor::{EditorCommand, EditorEffect, EditorKind, EditorMode, EditorState, EditorTree, EditorView};
+use crate::ui::editor::{
+    EditorCommand, EditorEffect, EditorKind, EditorMode, EditorState, EditorTree, EditorView, NodePath,
+};
 use crate::ui::theme::Density;
 use crate::ui::element::{UIElement, UpdateMessage, UpdateResponse};
 use crate::ui::event::{UIEvent, UIEventKind};
@@ -133,14 +139,27 @@ pub struct QueryConsoleElement {
     #[serde(skip)]
     #[cfg_attr(not(feature = "egui"), allow(dead_code))]
     parameters_view: EditorView,
+
+    /// The step the browser panel opens in Advanced mode (a step chip's), else the last action.
+    #[serde(skip)]
+    #[cfg_attr(not(feature = "webui"), allow(dead_code))]
+    open_card: Option<NodePath>,
 }
 
-/// The Parameters panel's view of an editor tree.
+/// The Parameters panel's view of an editor tree: the console draws the query text, so the panel
+/// does not repeat it.
 fn panel_tree(tree: &EditorTree) -> EditorTree {
     let mut tree = tree.clone();
     tree.text_editable = false;
+    tree.hide_text = true;
     tree.has_filename = false;
     tree
+}
+
+/// The id of a console's query field, so `Ctrl+J` can read and set its cursor.
+#[cfg(feature = "egui")]
+fn query_field_id(handle: Option<UIHandle>) -> egui::Id {
+    egui::Id::new(("lq-console-query", handle.map(|h| h.0)))
 }
 
 impl QueryConsoleElement {
@@ -166,6 +185,7 @@ impl QueryConsoleElement {
             theme: None,
             parameters: None,
             parameters_view: EditorView::default(),
+            open_card: None,
         }
     }
 
@@ -174,9 +194,41 @@ impl QueryConsoleElement {
         self.show_parameters
     }
 
-    /// Opens or closes the Parameters panel.
+    /// Opens or closes the Parameters panel. Opening it in Advanced mode collapses every step
+    /// but one again.
     pub fn set_show_parameters(&mut self, on: bool) {
+        if on && !self.show_parameters {
+            self.parameters_view.shown_mode = None;
+            self.open_card = None;
+        }
         self.show_parameters = on;
+    }
+
+    /// `Ctrl+J` in the query text with the cursor at byte `offset`: opens the panel on the step
+    /// under the cursor. A step other than the one Simple mode shows (normally the last action)
+    /// opens Advanced mode with that step's card the only one expanded. Returns whether the
+    /// cursor was on a step.
+    pub fn jump_to_editor(&mut self, offset: usize, ctx: &UIContext) -> bool {
+        self.set_show_parameters(true);
+        let Some(tree) = self.parameters_tree(ctx) else {
+            return false;
+        };
+        let Some(path) = tree.locate(offset).map(|s| s.path.clone()) else {
+            return false;
+        };
+        let view = &mut self.parameters_view;
+        view.text = None;
+        view.jump_from_text(&tree, self.mode, offset);
+        if let Some(mode) = view.mode_request.take() {
+            self.mode = mode;
+        }
+        if self.mode == EditorMode::Advanced {
+            // Opened by the jump: only the jumped-to step is expanded.
+            view.shown_mode = None;
+            view.enter_mode(&tree, EditorMode::Advanced);
+            self.open_card = path.0.first().cloned().map(|s| NodePath(vec![s]));
+        }
+        true
     }
 
     /// The Parameters panel's mode.
@@ -244,6 +296,7 @@ impl QueryConsoleElement {
                 Ok(EditorEffect::None)
                 | Ok(EditorEffect::Reload)
                 | Ok(EditorEffect::ListDirectory(_))
+                | Ok(EditorEffect::RenameData { .. })
                 | Err(_) => {}
             }
         }
@@ -292,7 +345,7 @@ impl QueryConsoleElement {
                 UpdateResponse::NeedsRepaint
             }
             UIEventKind::Named(name) if name == "qc:params" => {
-                self.show_parameters = !self.show_parameters;
+                self.set_show_parameters(!self.show_parameters);
                 if self.show_parameters {
                     let _ = self.parameters_tree(ctx);
                 }
@@ -305,8 +358,10 @@ impl QueryConsoleElement {
             }
             UIEventKind::Named(_) | UIEventKind::Change(_) => {
                 if let Some(mode) = EditorView::mode_event(event) {
-                    // Keep what was typed in the panel, then switch (AC-3).
+                    // Keep what was typed in the panel, then switch (AC-3). A step chip names the
+                    // step Advanced mode opens.
                     self.parameter_drafts(event, ctx);
+                    self.open_card = EditorView::mode_event_path(event);
                     self.mode = mode;
                     return UpdateResponse::NeedsRepaint;
                 }
@@ -484,14 +539,27 @@ impl QueryConsoleElement {
                 );
                 ui.fonts_mut(|f| f.layout_job(layout_job))
             };
+            let field_id = query_field_id(self.handle);
             let response = ui.add(
                 egui::TextEdit::singleline(&mut self.query_text)
+                    .id(field_id)
                     .desired_width(ui.available_width() - 200.0)
                     .layouter(&mut layouter)
                     .hint_text("Enter query..."),
             );
             if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 self.handle_ui_event(&UIEvent::new(UIEventKind::Submit), ctx);
+            }
+            // Ctrl+J: edit the step under the cursor.
+            let jump = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::J);
+            if response.has_focus() && ui.input_mut(|i| i.consume_shortcut(&jump)) {
+                let cursor = egui::text_edit::TextEditState::load(ui.ctx(), field_id)
+                    .and_then(|s| s.cursor.char_range())
+                    .map(|r| r.primary.index.0);
+                if let Some(chars) = cursor {
+                    let offset = self.query_text.char_indices().nth(chars).map(|(b, _)| b).unwrap_or(self.query_text.len());
+                    self.jump_to_editor(offset, ctx);
+                }
             }
 
             // Data/Metadata toggle button
@@ -510,13 +578,15 @@ impl QueryConsoleElement {
                 self.data_view = !self.data_view;
             }
 
-            // Parameters panel toggle
+            // The editor panel toggle: an icon button.
+            crate::egui::theme::ensure_icon_font(ui.ctx());
+            let pencil = crate::egui::theme::phosphor_glyph("pencil-simple").unwrap_or("\u{270E}");
             if ui
-                .selectable_label(self.show_parameters, "Parameters")
-                .on_hover_text("Edit the arguments of the last action")
+                .selectable_label(self.show_parameters, pencil)
+                .on_hover_text("Edit the query (Ctrl+J on a step)")
                 .clicked()
             {
-                self.show_parameters = !self.show_parameters;
+                self.set_show_parameters(!self.show_parameters);
             }
 
             // Presets dropdown (only if presets available)
@@ -543,6 +613,41 @@ impl QueryConsoleElement {
             // Status indicator
             crate::egui::widgets::display_status(ui, self.status);
         });
+    }
+
+    /// The editor panel's contents: the editor over the query text, or why there is none.
+    #[cfg(feature = "egui")]
+    fn show_editor_panel(&mut self, ui: &mut egui::Ui, ctx: &UIContext) {
+        let Some(tree) = self.parameters_tree(ctx) else {
+            ui.label("No editor: the query does not parse, or there is no registry.");
+            return;
+        };
+        let mut view = std::mem::take(&mut self.parameters_view);
+        let theme = ctx.theme();
+        let (mode, density) = (self.mode, self.density());
+        let output = ui
+            .push_id("lq-console-parameters", |ui| {
+                crate::egui::editor::show_editor(ui, &tree, &mut view, mode, density, &theme, Some(ctx))
+            })
+            .inner;
+        self.parameters_view = view;
+        if let Some(mode) = output.mode {
+            self.mode = mode;
+        }
+        // Ctrl+J in a field: back to the console's query field, the field's text selected.
+        if let Some(range) = output.select_text {
+            let id = query_field_id(self.handle);
+            let text = &self.query_text;
+            let char_of = |b: usize| text.char_indices().take_while(|(i, _)| *i < b).count();
+            let mut state = egui::text_edit::TextEditState::load(ui.ctx(), id).unwrap_or_default();
+            state.cursor.set_char_range(Some(egui::text::CCursorRange::two(
+                egui::text::CCursor::new(char_of(range.start)),
+                egui::text::CCursor::new(char_of(range.end)),
+            )));
+            state.store(ui.ctx(), id);
+            ui.ctx().memory_mut(|m| m.request_focus(id));
+        }
+        self.apply_parameter_commands(output.commands, ctx);
     }
 
     /// Render the content area: either data view or metadata pane.
@@ -670,7 +775,7 @@ impl UIElement for QueryConsoleElement {
             UpdateMessage::AssetNotification(_) => UpdateResponse::Unchanged,
             UpdateMessage::Timer { .. } => UpdateResponse::Unchanged,
             UpdateMessage::Custom(_) => UpdateResponse::Unchanged,
-            UpdateMessage::Accessor(_) | UpdateMessage::Directory(_) => UpdateResponse::Unchanged,
+            UpdateMessage::Accessor(_) | UpdateMessage::Directory(_) | UpdateMessage::NodeContext(_) => UpdateResponse::Unchanged,
             UpdateMessage::UI(event) => self.handle_ui_event(event, ctx),
         }
     }
@@ -692,30 +797,21 @@ impl UIElement for QueryConsoleElement {
     ) -> egui::Response {
         ui.vertical(|ui| {
             self.show_toolbar(ui, ctx);
-            if self.show_parameters {
-                match self.parameters_tree(ctx) {
-                    Some(tree) => {
-                        let mut view = std::mem::take(&mut self.parameters_view);
-                        let theme = ctx.theme();
-                        let (mode, density) = (self.mode, self.density());
-                        let output = ui
-                            .push_id("lq-console-parameters", |ui| {
-                                crate::egui::editor::show_editor(ui, &tree, &mut view, mode, density, &theme, Some(ctx))
-                            })
-                            .inner;
-                        if let Some(mode) = output.mode {
-                            self.mode = mode;
-                        }
-                        let commands = output.commands;
-                        self.parameters_view = view;
-                        self.apply_parameter_commands(commands, ctx);
-                    }
-                    None => {
-                        ui.label("No parameters: the query does not parse, or there is no registry.");
-                    }
-                }
-            }
             ui.separator();
+            if self.show_parameters {
+                // The editor is a narrow, resizable column beside the value.
+                let panel_id = ui.id().with(("lq-console-editor", self.handle.map(|h| h.0)));
+                egui::Panel::right(panel_id)
+                    .resizable(true)
+                    .default_size(320.0)
+                    .size_range(220.0..=640.0)
+                    .frame(egui::Frame::new().inner_margin(egui::Margin { left: 6, right: 0, top: 0, bottom: 0 }))
+                    .show(ui, |ui| {
+                        egui::ScrollArea::vertical().id_salt("lq-console-editor-scroll").show(ui, |ui| {
+                            self.show_editor_panel(ui, ctx);
+                        });
+                    });
+            }
             self.show_content(ui, ctx, app_state);
         })
         .response
@@ -734,7 +830,7 @@ impl UIElement for QueryConsoleElement {
         // `Submit` UI event to this element, carrying the typed text.
         let submit = event_attr(&UIEventKind::Submit);
         let toolbar = format!(
-            "<div class=\"lq-qc-toolbar\"><input id=\"{}\" class=\"lq-query-input\" value=\"{}\"{}{}/><button type=\"button\" class=\"lq-go\"{}>Go</button><button type=\"button\" class=\"lq-qc-params{}\"{}>Parameters</button>{}</div>",
+            "<div class=\"lq-qc-toolbar\"><input id=\"{}\" class=\"lq-query-input\" value=\"{}\"{}{}/><button type=\"button\" class=\"lq-go\"{}>Go</button><button type=\"button\" class=\"lq-qc-params{}\" title=\"Edit the query\" aria-label=\"Edit the query\"{}>\u{270E}</button>{}</div>",
             input_id,
             escape_html(&self.query_text),
             field_attr("query"),
@@ -748,12 +844,13 @@ impl UIElement for QueryConsoleElement {
         let parameters = match (&self.parameters, self.show_parameters) {
             // Enter in a panel field sends `qc:apply`, so it is never taken for the console's
             // own Submit (the browser sends every field of the element with either).
-            (Some(state), true) => crate::ui::web::editor::editor_html(
+            (Some(state), true) => crate::ui::web::editor::editor_html_open(
                 &panel_tree(state.tree()),
-                "Parameters",
+                "Edit the query",
                 self.mode,
                 self.density(),
                 &self.theme.clone().unwrap_or_default().theme,
+                self.open_card.as_ref(),
             )
             .replace(&submit, &event_attr(&UIEventKind::Named(PARAMETERS_SUBMIT.to_string()))),
             (Some(_), false) | (None, true) | (None, false) => String::new(),
@@ -779,9 +876,15 @@ impl UIElement for QueryConsoleElement {
             None => String::new(),
         };
 
+        // The editor is a narrow column beside the value.
+        let parameters = if parameters.is_empty() {
+            parameters
+        } else {
+            format!("<div class=\"lq-qc-editor\">{parameters}</div>")
+        };
         format!(
-            "<div id=\"{}\" class=\"lq-element lq-QueryConsoleElement\">{}{}<div class=\"lq-qc-content\">{}{}</div></div>",
-            dom_id, toolbar, parameters, error, content
+            "<div id=\"{}\" class=\"lq-element lq-QueryConsoleElement\">{}<div class=\"lq-qc-body\"><div class=\"lq-qc-content\">{}{}</div>{}</div></div>",
+            dom_id, toolbar, error, content, parameters
         )
     }
 }
@@ -792,6 +895,7 @@ mod tests {
     use crate::ui::app_state::DirectAppState;
     use crate::ui::message::{app_message_channel, AssetSnapshot};
     use liquers_core::assets::AssetNotificationMessage;
+    use crate::ui::editor::FocusTarget;
 
     fn create_test_context() -> (UIContext, crate::ui::message::AppMessageReceiver) {
         let (tx, rx) = app_message_channel();
@@ -818,6 +922,8 @@ mod tests {
             | Ok(AppMessage::Deserialize { .. })
             | Ok(AppMessage::Accessor { .. })
             | Ok(AppMessage::ListDirectory { .. })
+            | Ok(AppMessage::NodeContext { .. })
+            | Ok(AppMessage::RenameData { .. })
             | Ok(AppMessage::LoadIcon { .. })
             | Err(_) => None,
         }
@@ -1351,6 +1457,56 @@ mod tests {
         assert_eq!(back.mode(), EditorMode::Advanced);
     }
 
+    /// The panel does not repeat the query; `Ctrl+J` on a step other than the last opens
+    /// Advanced mode with only that step expanded, and on the last one keeps Simple mode.
+    #[test]
+    fn ctrl_j_opens_the_step_under_the_cursor() {
+        use liquers_core::command_metadata::{ArgumentInfo, CommandMetadata};
+        let mut cmr = CommandMetadataRegistry::new();
+        let mut head = CommandMetadata::new("head");
+        head.with_argument(ArgumentInfo::integer_argument("n", false).with_default(5));
+        cmr.add_command(&head);
+        let mut tail = CommandMetadata::new("tail");
+        tail.with_argument(ArgumentInfo::integer_argument("n", false).with_default(5));
+        cmr.add_command(&tail);
+        let (ctx, _rx) = create_test_context();
+        let ctx = ctx.with_command_registry(Arc::new(cmr));
+        let text = "-R/a.csv/-/head-3/tail-2";
+        let mut c = QueryConsoleElement::new("C".to_string(), text.to_string());
+        c.set_handle(UIHandle(1));
+        let tree = c.parameters_tree(&ctx).expect("tree");
+        assert!(tree.hide_text, "the console shows the query; the panel does not repeat it");
+
+        // The last action: the panel opens in Simple mode, on its field.
+        assert!(c.jump_to_editor(text.rfind('2').expect("2"), &ctx));
+        assert!(c.show_parameters());
+        assert_eq!(c.mode(), EditorMode::Simple);
+        assert!(matches!(&c.parameters_view.focus, Some(FocusTarget::Field { arg, .. }) if arg == "n"));
+
+        // Another action: Advanced mode, that step open and the rest collapsed.
+        assert!(c.jump_to_editor(text.find('3').expect("3"), &ctx));
+        assert_eq!(c.mode(), EditorMode::Advanced);
+        let tree = c.parameters_tree(&ctx).expect("tree");
+        let open: Vec<String> = tree
+            .nodes
+            .iter()
+            .map(|n| n.path().id())
+            .filter(|id| !c.parameters_view.collapsed.contains(id))
+            .collect();
+        assert_eq!(open, [NodePath::element(1).id()]);
+        assert_eq!(c.open_card, Some(NodePath::element(1)));
+
+        #[cfg(feature = "webui")]
+        {
+            let html = c.render_web(&DirectAppState::new());
+            assert!(html.contains("lq-qc-editor") && html.contains("lq-qc-body"), "{html}");
+            assert!(!html.contains(">Parameters<"), "an icon button, not a Parameters label: {html}");
+            assert_eq!(html.matches("<details open class=\"lq-card\"").count(), 1, "{html}");
+            let panel = &html[html.find("lq-editor").expect("panel")..];
+            assert!(!panel.contains("lq-query"), "the panel does not repeat the query: {panel}");
+        }
+    }
+
     #[test]
     fn test_typetag_roundtrip() {
         let c = QueryConsoleElement::new("C".to_string(), "q".to_string());
@@ -1405,6 +1561,8 @@ mod tests {
                 | AppMessage::Deserialize { .. }
                 | AppMessage::Accessor { .. }
                 | AppMessage::ListDirectory { .. }
+                | AppMessage::NodeContext { .. }
+                | AppMessage::RenameData { .. }
                 | AppMessage::LoadIcon { .. } => panic!("Expected RequestAssetUpdates"),
             }
         }

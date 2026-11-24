@@ -1,8 +1,8 @@
 ---
 title: Recipes, assets and caching
 status: ready
-sources: [reference/ASSETS.md, reference/ASSET_LIFECYCLE.md, reference/RECIPES_AND_PLANS.md, guides/DEPENDENCY_CONSISTENCY_GUIDE.md, guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md, guides/COMMAND_DESIGN_GUIDE.md]
-reviewed: 2026-11-14
+sources: [reference/ASSETS.md, reference/RECIPE_TREES.md, reference/ASSET_LIFECYCLE.md, reference/RECIPES_AND_PLANS.md, guides/DEPENDENCY_CONSISTENCY_GUIDE.md, guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md, guides/COMMAND_DESIGN_GUIDE.md]
+reviewed: 2026-11-23
 ---
 # 7. Recipes, assets and caching
 
@@ -245,7 +245,45 @@ assert_eq!(String::from_utf8_lossy(&bytes), "region,month,amount\nEU,jan,120\n")
 The result has a key, so it is cached and stored, which a pipeline run with `evaluate_pipeline`
 is not (section 3.10).
 
-API reference: [`Recipe`](https://orest-d.github.io/liquers/api/rust/liquers_core/recipes/struct.Recipe.html).
+### Recipe trees
+
+A folder whose recipes build one thing out of parts can say so. A `tree:` section turns its
+`recipes.yaml` into a *recipe tree*: the files are its nodes, and the references between them
+are checked as a whole.
+
+```yaml
+tree: {dependencies: strict, result: car.glb}
+recipes:
+  - {query: body.glb, title: Body}
+  - {query: tyre.glb, title: Tyre}
+  - {query: rubber.mat, title: Rubber}
+  - {title: Wheel, query: "-R/./tyre.glb/-/material-rubber/wheel.glb"}
+  - {title: Car,   query: "-R/./body.glb/-/attach-wheel/car.glb"}
+```
+
+A recipe whose query is only a file name, like `body.glb`, is a *source recipe*. It computes
+nothing: it declares a stored file and gives it a title and a description, which the asset manager
+reports with the status `Source`. When the file is missing, the key fails with "key not found".
+`rubber` and `wheel` are node names given to Node arguments (section 5.3).
+
+The section's fields are all optional. `result` names the one asset the tree stands for, `roots`
+the files it is reached from when there are several, and `shape: tree` refuses a node used by two
+others. `dependencies: strict` makes the folder *self-contained*: every reference is a file of the
+folder itself, given as `./name` or as a node name, every stored file it reads is declared by a
+source recipe, and no recipe passes a link or sets the working directory. The recipe provider
+checks a strict folder when it reads it and refuses all its recipes, with every problem in the
+message, until it is fixed. In exchange, the folder can be copied to another place or another store
+and evaluates to the same values there.
+
+`liquers_core::recipe_tree::check_tree` runs the same check on any recipe list and returns every
+problem (cycles, references to missing files, nodes nothing reaches); `liquers-validate --recipes`
+reports it too. `TreeEditor` edits a tree without breaking it: renaming a node rewrites every
+reference to it and moves its stored file, and deleting a node that something still uses is
+refused.
+
+API reference: [`Recipe`](https://orest-d.github.io/liquers/api/rust/liquers_core/recipes/struct.Recipe.html),
+[`check_tree`](https://orest-d.github.io/liquers/api/rust/liquers_core/recipe_tree/fn.check_tree.html),
+[`TreeEditor`](https://orest-d.github.io/liquers/api/rust/liquers_core/recipe_tree/struct.TreeEditor.html).
 
 ## 7.9 Recipes from code
 

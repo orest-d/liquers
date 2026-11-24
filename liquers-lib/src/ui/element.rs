@@ -44,6 +44,9 @@ pub enum UpdateMessage {
     Accessor(super::message::AccessorUpdate),
     /// A directory listing an `AppMessage::ListDirectory` of this element asked for.
     Directory(super::editor::DirectoryListing),
+    /// The recipes and listing of a folder an `AppMessage::NodeContext` of this element asked
+    /// for (design `recipe-tree`).
+    NodeContext(super::editor::NodeContext),
 }
 
 /// Element's response to an update.
@@ -549,7 +552,7 @@ impl UIElement for AssetViewElement {
             }
             UpdateMessage::Timer { .. } => UpdateResponse::Unchanged,
             UpdateMessage::Custom(_) => UpdateResponse::Unchanged,
-            UpdateMessage::Accessor(_) | UpdateMessage::Directory(_) => UpdateResponse::Unchanged,
+            UpdateMessage::Accessor(_) | UpdateMessage::Directory(_) | UpdateMessage::NodeContext(_) => UpdateResponse::Unchanged,
             UpdateMessage::AssetUpdate(_) => UpdateResponse::Unchanged,
             UpdateMessage::UI(_) => UpdateResponse::Unchanged,
         }

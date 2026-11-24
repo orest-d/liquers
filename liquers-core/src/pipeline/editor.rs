@@ -817,6 +817,10 @@ fn check_value_type(md: &CommandMetadata, info: &ArgumentInfo, v: &Json) -> Resu
                 e.values.iter().map(|a| a.alias.as_str()).collect::<Vec<_>>().join(", ")
             )),
         },
+        ArgumentType::Node(n) => match text {
+            Some(t) if n.link(t).is_ok() => Ok(()),
+            Some(_) | None => wrong("a node name"),
+        },
         ArgumentType::GlobalEnum(_) | ArgumentType::Any | ArgumentType::None => Ok(()),
     }
 }

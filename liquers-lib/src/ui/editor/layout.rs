@@ -73,11 +73,9 @@ pub struct EditorLayout<'t> {
     pub groups: Vec<CardGroup<'t>>,
     /// Read-only steps after the card (Simple mode): `q`/`v` directives, values.
     pub after: Vec<StepChip>,
-    /// Draw the outline (Advanced mode).
-    pub outline: bool,
 }
 
-/// The label a node reads as, for chips and the outline.
+/// The label a node reads as, for step chips and jump hints.
 pub fn node_label(node: &EditorNode) -> String {
     match node {
         EditorNode::Resource { key, header, .. } => {
@@ -160,7 +158,7 @@ pub fn editor_layout(tree: &EditorTree, mode: EditorMode) -> EditorLayout<'_> {
     match mode {
         EditorMode::Simple => {
             let Some(at) = simple_card(tree) else {
-                return EditorLayout { before: vec![], groups: vec![], after: vec![], outline: false };
+                return EditorLayout { before: vec![], groups: vec![], after: vec![] };
             };
             let is_chip = |n: &&EditorNode| !matches!(*n, EditorNode::Namespaces { .. });
             let before = visible[..at].iter().copied().filter(is_chip).map(chip).collect();
@@ -178,7 +176,6 @@ pub fn editor_layout(tree: &EditorTree, mode: EditorMode) -> EditorLayout<'_> {
                 before,
                 groups: vec![CardGroup { kind, cards: vec![card(tree, visible[at])] }],
                 after,
-                outline: false,
             }
         }
         EditorMode::Advanced => {
@@ -196,7 +193,7 @@ pub fn editor_layout(tree: &EditorTree, mode: EditorMode) -> EditorLayout<'_> {
                     cards: visible[split..].iter().map(|n| card(tree, n)).collect(),
                 });
             }
-            EditorLayout { before: vec![], groups, after: vec![], outline: visible.len() > 1 }
+            EditorLayout { before: vec![], groups, after: vec![] }
         }
     }
 }

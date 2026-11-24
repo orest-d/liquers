@@ -102,6 +102,16 @@ pub enum AppMessage {
     /// List the store directory `folder` for an editor's file selector; the result comes back
     /// as `UpdateMessage::Directory`.
     ListDirectory { handle: UIHandle, folder: String },
+    /// Read the recipes and the listing of `folder` for an editor's Node arguments; the result
+    /// comes back as `UpdateMessage::NodeContext` (design `recipe-tree`, AC-18).
+    NodeContext { handle: UIHandle, folder: String },
+    /// Save a renamed recipe tree of `folder` (`TreeEditor::save`: the stored-file renames, then
+    /// `recipes.yaml`), then send the folder's context again (design `recipe-tree`, AC-25).
+    RenameData {
+        handle: UIHandle,
+        folder: String,
+        editor: Box<liquers_core::recipe_tree::TreeEditor>,
+    },
     /// Load the icon image at store key or query `key` into the context's icon cache (AC-17).
     LoadIcon { key: String },
     /// Request application quit.

@@ -233,7 +233,7 @@ fn collect_parameter_dependency_queries(
         ParameterValue::DefaultLink(_, query)
         | ParameterValue::ParameterLink(_, query, _)
         | ParameterValue::OverrideLink(_, query)
-        | ParameterValue::EnumLink(_, query, _) => {
+        | ParameterValue::EnumLink(_, query, _) | ParameterValue::NodeLink(_, _, query, _) => {
             let resolved = cursor.resolve_query_scoped(query);
             if let Some(key) = resolved.key() {
                 queries.push((key, resolved));
@@ -694,7 +694,7 @@ fn frame_value<E: Environment>(
         | ParameterValue::OverrideValue(_, _)
         | ParameterValue::OverrideLink(_, _)
         | ParameterValue::Placeholder(_)
-        | ParameterValue::EnumLink(_, _, _)
+        | ParameterValue::EnumLink(_, _, _) | ParameterValue::NodeLink(_, _, _, _)
         | ParameterValue::MultipleParameters(_, _)
         | ParameterValue::Injected(_)
         | ParameterValue::ParameterPipeline(_, _, _)
@@ -762,7 +762,8 @@ fn materialize_nested_parameter<'a, E: Environment>(
                 name.clone(),
                 materialize_link_json(context, query, None).await?,
             )),
-            ParameterValue::EnumLink(name, query, position) => Ok(ParameterValue::ParameterValue(
+            ParameterValue::EnumLink(name, query, position)
+            | ParameterValue::NodeLink(name, _, query, position) => Ok(ParameterValue::ParameterValue(
                 name.clone(),
                 materialize_link_json(context, query, Some(position)).await?,
                 position.clone(),
@@ -820,7 +821,7 @@ fn attach_parameter_link_context(error: Error, parameter: &ParameterValue, query
             error.with_query(query)
         }
         ParameterValue::ParameterLink(_, _, position)
-        | ParameterValue::EnumLink(_, _, position)
+        | ParameterValue::EnumLink(_, _, position) | ParameterValue::NodeLink(_, _, _, position)
         | ParameterValue::ParameterPipeline(_, _, position) => error.with_position(position),
         ParameterValue::DefaultValue(_, _)
         | ParameterValue::ParameterValue(_, _, _)
