@@ -135,6 +135,17 @@ impl ContextParts {
 }
 
 /// A theme layer from an asset value: YAML text, or an already structured value.
+/// The pipeline a value text stands for, when it is a pipeline's JSON (an editor's
+/// `value_text`) rather than a query: a query never starts with `{` or `[`.
+fn pipeline_text(text: &str) -> Option<liquers_core::pipeline::Pipeline> {
+    let trimmed = text.trim_start();
+    if !(trimmed.starts_with('{') || trimmed.starts_with('[')) {
+        return None;
+    }
+    let json: serde_json::Value = serde_json::from_str(trimmed).ok()?;
+    liquers_core::pipeline::Pipeline::from_json(&json).ok()
+}
+
 fn theme_layer_of(value: &Value) -> Result<ThemeLayer, Error> {
     match value.try_into_json_value() {
         Ok(serde_json::Value::String(text)) => ThemeLayer::from_yaml(&text),
@@ -1011,7 +1022,14 @@ where
         query: String,
         app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
     ) {
-        let evaluated = self.envref.evaluate(&query).await;
+        let evaluated = match pipeline_text(&query) {
+            // A pipeline editor's value is the pipeline's JSON.
+            Some(pipeline) => {
+                let recipe = Recipe { pipeline: Some(pipeline), ..Recipe::default() };
+                self.envref.get_asset_manager().apply_queued(recipe, State::new()).await
+            }
+            None => self.envref.evaluate(&query).await,
+        };
         self.monitor_evaluation(handle, query, false, evaluated, app_state).await;
     }
 
@@ -1023,9 +1041,13 @@ where
         cwd: Option<String>,
         app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
     ) {
-        let evaluated = match parse_query(&query) {
-            Ok(parsed) => {
-                let mut recipe = Recipe::from(parsed);
+        let recipe = match pipeline_text(&query) {
+            // A pipeline editor's value is the pipeline's JSON.
+            Some(pipeline) => Ok(Recipe { pipeline: Some(pipeline), ..Recipe::default() }),
+            None => parse_query(&query).map(Recipe::from),
+        };
+        let evaluated = match recipe {
+            Ok(mut recipe) => {
                 recipe.cwd = cwd;
                 self.envref.get_asset_manager().apply_queued(recipe, State::new()).await
             }

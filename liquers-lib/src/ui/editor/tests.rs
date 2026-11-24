@@ -1205,7 +1205,14 @@ fn live_preview_clears_on_write_and_revert() {
         other => panic!("expected a preview, got {other:?}"),
     }
     element.apply_commands(vec![EditorCommand::Revert], &ctx);
-    assert!(preview_end(&mut rx), "Revert ends the preview in the view");
+    assert!(
+        matches!(rx.try_recv(), Ok(AppMessage::Accessor { op: crate::ui::message::AccessorOp::Get, .. })),
+        "Revert reloads the working copy"
+    );
+    assert!(!preview_end(&mut rx), "the view waits for the saved value");
+    let value = Arc::new(Value::from_query(&parse_query(PROBLEM).expect("query")));
+    element.update(&UpdateMessage::Accessor(AccessorUpdate::Snapshot { value, fingerprint: Some(fp(1)) }), &ctx);
+    assert!(preview_end(&mut rx), "then the preview in the view ends");
 
     element.apply_commands(vec![set(3, "n", "5"), EditorCommand::Update], &ctx);
     element.update(&UpdateMessage::Accessor(AccessorUpdate::Written { fingerprint: fp(2) }), &ctx);

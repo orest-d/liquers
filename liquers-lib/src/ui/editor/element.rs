@@ -89,6 +89,10 @@ pub struct EditorElement {
     /// The preview of an editor that follows no view, shown in its own area (AC-17).
     #[serde(skip)]
     display: ValueDisplay,
+    /// A Revert dropped the preview of a followed view: once the reload brings the saved value
+    /// back, the view is shown the applied value.
+    #[serde(skip)]
+    revert_pending: bool,
     /// An accessor made in code (empty `address()`), bound as it is for the session.
     #[serde(skip)]
     live: Option<Arc<dyn ValueAccessor<Value>>>,
@@ -116,6 +120,7 @@ impl EditorElement {
             view: EditorView::default(),
             bound: false,
             display: ValueDisplay::default(),
+            revert_pending: false,
             live: None,
             open_card: None,
         }
@@ -291,15 +296,27 @@ impl EditorElement {
         let mut effects = Vec::new();
         if let Some(state) = &mut self.state {
             for command in commands {
+                let revert = matches!(command, EditorCommand::Revert);
                 // A refused edit is shown in the tree's message; the others still apply.
                 if let Ok(effect) = state.apply(command) {
-                    effects.push(effect);
+                    effects.push((effect, revert));
                 }
             }
             self.update_mode = Some(state.update_mode());
         }
-        for effect in effects {
-            self.run_effect(effect, ctx);
+        for (effect, revert) in effects {
+            match (effect, revert) {
+                // Revert in Live preview: the working copy is reloaded too, and a followed view
+                // shows the applied value once the reload has brought it back.
+                (EditorEffect::ClearPreview, true) => {
+                    match self.follow {
+                        Some(_) => self.revert_pending = true,
+                        None => self.display.clear(),
+                    }
+                    self.run_effect(EditorEffect::Reload, ctx);
+                }
+                (effect, _) => self.run_effect(effect, ctx),
+            }
         }
         true
     }
@@ -329,9 +346,17 @@ impl EditorElement {
             EditorEffect::Preview(value) => {
                 // In place, in the followed view, else in the editor's own area (AC-17); a
                 // recipe's preview runs in the recipe's folder (AC-18).
-                let target = self.follow.unwrap_or(handle);
+                let query = value_text(&value);
+                let target = match self.follow {
+                    Some(follow) => follow,
+                    None => {
+                        // Awaited, so that a late snapshot of a dropped preview is not shown.
+                        self.display.request(&query, true);
+                        handle
+                    }
+                };
                 let cwd = self.preview_cwd();
-                ctx.send_message(AppMessage::Preview { handle: target, query: value_text(&value), cwd });
+                ctx.send_message(AppMessage::Preview { handle: target, query, cwd });
             }
             EditorEffect::ClearPreview => self.end_preview(ctx),
         }
@@ -354,8 +379,16 @@ impl EditorElement {
                 )),
             }),
             None => {
-                if let (Some(value), EditorKind::Query) = (self.state.as_ref().and_then(EditorState::value), self.kind) {
-                    ctx.send_message(AppMessage::RequestAssetUpdates { handle: follow, query: value_text(&value) });
+                if let EditorKind::Query = self.kind {
+                    // A memory binding keeps the applied text; another, the working copy (after a
+                    // write or a reload, the applied value).
+                    let query = match &self.binding {
+                        EditorBinding::Memory(text) => Some(text.clone()),
+                        EditorBinding::Accessor(_) => self.state.as_ref().and_then(EditorState::value).map(|v| value_text(&v)),
+                    };
+                    if let Some(query) = query {
+                        ctx.send_message(AppMessage::RequestAssetUpdates { handle: follow, query });
+                    }
                 }
             }
         }
@@ -422,6 +455,11 @@ impl EditorElement {
                     }
                 }
             }
+        }
+        let reloaded = matches!(update, AccessorUpdate::Snapshot { .. } | AccessorUpdate::Failed(_));
+        if reloaded && self.revert_pending {
+            self.revert_pending = false;
+            self.end_preview(ctx);
         }
         if written {
             self.after_write(ctx);
@@ -525,7 +563,11 @@ impl UIElement for EditorElement {
                 }
             }
             UpdateMessage::AssetUpdate(snapshot) => {
-                // The preview of an editor that follows no view (AC-17).
+                // The preview of an editor that follows no view (AC-17); none is awaited once it
+                // was dropped, and a late snapshot of it is not shown.
+                if self.display.requested().is_none() {
+                    return UpdateResponse::Unchanged;
+                }
                 match self.display.on_snapshot(snapshot) {
                     crate::ui::widgets::SnapshotOutcome::Ignored => UpdateResponse::Unchanged,
                     crate::ui::widgets::SnapshotOutcome::Progress

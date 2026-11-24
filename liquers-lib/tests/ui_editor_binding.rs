@@ -399,3 +399,56 @@ async fn apply_expires_a_dependent_view() {
     assert!(h.recipes().await.contains("shout/quiet"));
     assert_eq!(h.shown(handles[0]).await.as_deref(), Some("hello"));
 }
+
+/// query-update-modes AC-17: Revert in Live preview reloads the working copy, and the followed
+/// console shows the applied query again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn revert_of_a_live_preview_restores_the_applied_value() {
+    use liquers_lib::ui::QueryConsoleElement;
+    let console = QueryConsoleElement::new("C".into(), "-R/reports/data.txt/-/shout".into());
+    let (mut h, handles) = Harness::of(vec![Box::new(console)]).await;
+    let editor = EditorElement::new("E", EditorKind::Query, EditorBinding::Memory("-R/reports/data.txt/-/shout".into()))
+        .with_follow(handles[0]);
+    let editor = h.add(Box::new(editor)).await;
+    h.settle().await;
+    assert_eq!(h.shown(handles[0]).await.as_deref(), Some("HELLO"));
+    h.apply(editor, EditorCommand::SetText("-R/reports/data.txt/-/quiet".into())).await;
+    h.settle().await;
+    assert_eq!(h.shown(handles[0]).await.as_deref(), Some("hello"), "the preview");
+    h.apply(editor, EditorCommand::Revert).await;
+    h.settle().await;
+    assert_eq!(h.shown(handles[0]).await.as_deref(), Some("HELLO"), "the applied value again");
+    assert!(!h.console_previews(handles[0]).await);
+    let text = h.with_element(editor, |e, _| e.tree().map(|t| t.text.clone())).await;
+    assert_eq!(text.as_deref(), Some("-R/reports/data.txt/-/shout"), "the working copy reloaded");
+}
+
+/// query-update-modes AC-17: a standalone editor's preview that is dropped before it settles is
+/// not shown when it does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn dropped_standalone_preview_stays_dropped() {
+    let editor = EditorElement::new("E", EditorKind::Query, EditorBinding::Memory("-R/reports/data.txt/-/shout".into()));
+    let (mut h, handles) = Harness::new(vec![editor]).await;
+    h.settle().await;
+    // Edit and revert before the runner answers the preview.
+    h.apply(handles[0], EditorCommand::SetText("-R/reports/data.txt/-/quiet".into())).await;
+    h.apply(handles[0], EditorCommand::Revert).await;
+    h.settle().await;
+    let previewing = h.with_element(handles[0], |e, _| e.display().value().is_some()).await;
+    assert!(!previewing, "the dropped preview is not shown");
+}
+
+/// query-update-modes AC-17: a pipeline editor's value is the pipeline's JSON; its preview is
+/// evaluated as that pipeline.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn preview_of_a_pipeline_value() {
+    use liquers_lib::ui::{AppMessage, QueryConsoleElement};
+    let console = QueryConsoleElement::new("C".into(), String::new());
+    let (mut h, handles) = Harness::of(vec![Box::new(console)]).await;
+    let pipeline = liquers_core::pipeline::Pipeline::from_query_text("-R/reports/data.txt/-/shout").expect("pipeline");
+    h.sender
+        .send(AppMessage::Preview { handle: handles[0], query: pipeline.to_json().to_string(), cwd: None })
+        .expect("send");
+    h.settle().await;
+    assert_eq!(h.shown(handles[0]).await.as_deref(), Some("HELLO"));
+}

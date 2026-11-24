@@ -217,7 +217,7 @@ impl ValueDisplay {
     }
 
     /// Takes a snapshot pushed by the runner. A late snapshot of one of the element's own
-    /// earlier requests is ignored (AC-6). A snapshot of any other query means the element was
+    /// earlier requests, arriving before the latest request is answered, is ignored (AC-6). A snapshot of any other query means the element was
     /// re-pointed from outside (the runner monitors one query per element, the latest asked
     /// for): the display adopts it as the query it now waits for. One without a query (from an
     /// older sender) is taken.
@@ -225,7 +225,12 @@ impl ValueDisplay {
         if let Some(theirs) = &snapshot.query {
             let ours = self.requested.as_deref() == Some(theirs.as_str())
                 && snapshot.preview == self.requested_preview;
-            if !ours {
+            if ours {
+                // The runner answers in order and monitors only the latest request: once this
+                // one is answered, no earlier one can arrive late, and the same query asked for
+                // again from outside is a re-point, not a stale snapshot.
+                self.superseded.clear();
+            } else {
                 if self.superseded.iter().any(|(q, p)| q == theirs && *p == snapshot.preview) {
                     return SnapshotOutcome::Ignored;
                 }
@@ -522,6 +527,20 @@ mod tests {
         display.request("c", false);
         display.on_timer(display.generation() - 1, DisplayTimer::Quiet);
         assert_eq!(display.phase(), DisplayPhase::Waiting);
+    }
+
+    /// query-update-modes AC-6: once the latest request is answered, an earlier query asked for
+    /// again from outside (an editor re-pointing the view) is taken, not ignored as stale.
+    #[test]
+    fn re_point_to_an_earlier_query_after_the_latest_settled() {
+        let mut display = settled("a", "old");
+        display.request("a", false);
+        display.request("b", false);
+        assert_eq!(display.on_snapshot(&snapshot("a", Some("late a"), Status::Ready)), SnapshotOutcome::Ignored);
+        assert_eq!(display.on_snapshot(&snapshot("b", Some("b"), Status::Ready)), SnapshotOutcome::Settled);
+        assert_eq!(display.on_snapshot(&snapshot("a", Some("a again"), Status::Ready)), SnapshotOutcome::Settled);
+        assert_eq!(shown(&display), "a again");
+        assert_eq!(display.requested(), Some("a"));
     }
 
     /// query-update-modes AC-21
