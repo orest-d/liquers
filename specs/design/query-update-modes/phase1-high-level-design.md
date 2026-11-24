@@ -33,8 +33,8 @@ open (pencil). Set `n` to `7` in the panel:
 **A recipe and its dependents (a gap).** An editor of recipe 0 of `reports/recipes.yaml`, and a
 console showing a report that depends on it. Today an edit either rewrites `recipes.yaml` at once
 (expiring the report, which the console then recomputes) or is held unseen. Should: in Live
-preview the editor's preview pane shows the recipe's new result, evaluated in `reports`, while the
-file and the report are unchanged; ✓ applies it, and the console of the report, in Apply
+preview the view the editor follows shows the recipe's new result in place, evaluated in
+`reports` and framed as a preview, while the file and the report are unchanged; ✓ applies it, and the console of the report, in Apply
 immediately, recalculates on the expiry; in On demand it dims the report and offers ✓.
 
 ## Scope and Acceptance Criteria
@@ -92,8 +92,10 @@ immediately, recalculates on the expiry; in On demand it dims the report and off
   THEN the store is listed as in a standalone editor
 - **AC-17** Live preview in an editor
   WHEN an editor bound to an accessor is in Live preview and accepts a GUI edit
-  THEN after a short pause the edited query is evaluated into the editor's preview pane, marked as
-  a preview; the accessor is not written and nothing that depends on it expires until ✓
+  THEN after a short pause the edited query is evaluated and shown **in place** of the applied
+  value, in the view the editor follows (or, with none, the editor's own value area); the accessor
+  is not written and nothing that depends on it expires until ✓; Esc or Undo drops the preview and
+  the view shows the applied value again. A value is never shown twice
 - **AC-18** A recipe is previewed in its folder
   WHEN the previewed query is a recipe of a `recipes.yaml`
   THEN it is evaluated with that folder as its working directory, so it equals what the recipe
@@ -111,6 +113,14 @@ immediately, recalculates on the expiry; in On demand it dims the report and off
 - **AC-21** A slow evaluation suggests On demand
   WHEN an evaluation in Apply immediately or Live preview runs past a few seconds
   THEN the status bar offers a one-click switch to On demand; the mode never changes by itself
+- **AC-22** Visual cues tell preview, stale and mode apart
+  WHEN a view shows a preview, a stale value, or an element is in a given mode
+  THEN a preview is framed in the theme's preview colour with the status bar line "Preview of
+  unapplied edits — ✓ applies, Esc discards"; a stale value is dimmed (a slow preview is both); the
+  mode is a segmented control of three icons (hand: On demand, eye: Live preview, lightning: Apply
+  immediately), and the ✓ follows it: an outline that fills when edits are pending, the preview
+  colour in Live preview, and in Apply immediately a lightning indicator instead, active while
+  writing
 
 Non-goals: live syntax feedback while typing (`query-editor-live-validation`,
 `WEB-QUERY-EDITOR-NOT-LIVE`); cancelling an evaluation; undo across sessions; knowing a query's cost
@@ -120,7 +130,8 @@ in advance (`QUERY-COST-IS-UNKNOWN-TO-THE-UI`).
 
 - **UI:** `ui::editor` (modes, undo history, preview request, ✓ and Enter), `ui::widgets`
   (`QueryConsoleElement`: panel effects, debounced evaluation, expiry by mode), both renderers, and
-  a value display with the status bar shared by the console and the editor's preview pane.
+  a value display with the status bar, preview frame and dimming, shared by the console and the
+  views an editor follows; a theme colour token for the preview (`ui::theme`).
 - **Runner:** `AppRunner` (`ui::runner`): snapshots that name the request they answer (AC-6), a
   preview evaluation in a recipe's folder (AC-17, AC-18), and the console's directory requests.
 - **Assets:** previews are ordinary evaluations with a cwd; expiry notifications reach views as
@@ -145,7 +156,7 @@ in advance (`QUERY-COST-IS-UNKNOWN-TO-THE-UI`).
 
 ## Documentation Intent
 
-- Reference: extend `specs/reference/UI_INTERFACE_FSD.md` (modes, ✓ and Enter, undo, preview pane,
+- Reference: extend `specs/reference/UI_INTERFACE_FSD.md` (modes, ✓ and Enter, undo, in-place preview and its cues,
   expiry by mode, the console's panel and value display).
 - Guide: none.
 - Documents to update: `specs/reference/UI_INTERFACE_FSD.md`, `specs/command_registry.yaml`
@@ -172,8 +183,11 @@ in advance (`QUERY-COST-IS-UNKNOWN-TO-THE-UI`).
 Discussed with Orest on 2026-11-24; answers he agreed to are marked.
 
 1. **Three modes** (agreed): On demand, Live preview, Apply immediately; typed text only on Enter.
-2. **Preview pane** (agreed in principle): the editor's own, collapsible, shown only in Live
-   preview, so the followed views and dependents keep showing the applied value.
+2. **Where a preview shows** (Orest: never twice): in place, in the followed view, framed; the
+   editor's own value area only when it follows no view. Visual cues (AC-22): frame and status
+   line in a preview colour, dimming for stale, a three-icon mode control, and a ✓ that follows the
+   mode; a tinted query field for pending text was considered and left out (the ✓ already shows it).
+   Proposed to Orest 2026-11-24.
 3. **Defaults** (proposed): a `mode` argument with a default (AC-20); no automatic switch, only a
    suggestion on a slow evaluation (AC-21). Default for an editor bound to an accessor: Live
    preview (recommended) or Apply immediately?
