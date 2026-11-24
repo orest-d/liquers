@@ -1,11 +1,11 @@
 ---
 id: COMMAND-COMPOSITE-VARIADIC-ARGUMENTS
 kind: feature
-title: A variadic argument cannot carry composite elements such as pairs or tuples
+title: A variadic argument cannot carry a complex value such as pairs, tuples or a dictionary
 status: draft
 priority: P3
 complexity: L
-area: [core/commands, macro, lib/ui]
+area: [core/commands, macro, lib/ui, lib/egui]
 design: composite-variadic-arguments
 created: 2026-08-25
 github:
@@ -50,7 +50,8 @@ Not proposed. The layering question — whether grouping is a query-language con
 concept, or purely a retrieval concept — should be settled before any of the above is designed, and
 it is the reason this is `complexity: L` rather than an extension of the flat case.
 
-A cheaper interim answer exists and should be weighed first: a scalar variadic argument of strings
+A cheaper interim answer exists and should be weighed first (2026-11-24: weighed and not chosen,
+see the update below; the UI layout data needs typed values and a GUI): a scalar variadic argument of strings
 plus a documented `key=value` convention parsed inside the command. That is a workaround, with the
 same drawbacks as the `split('-')` workaround this family of issues has been removing, but it costs
 nothing and may be sufficient.
@@ -74,3 +75,49 @@ hand today. The origin design `design/variadic-arguments-declaration/` is comple
 now designed in `design/composite-variadic-arguments/` (needs-decision: a flat query, a
 `Tuple` argument type, grouping at retrieval; the first question is whether to build it before a
 command needs it).
+
+## Update 2026-11-24: a first user, the older Python mechanism, and a wider scope
+
+Discussed with Orest on 2026-11-24, during the UI redesign (`design/ui-redesign/master-design.md`
+§10.9).
+
+**A first user exists.** The UI redesign gives a child element optional layout data that only
+its parent interprets: a flat map from a key to a scalar. In a UISpec it is
+`layout: {row: 0, col: 8, colspan: 4}`. In a command it is a trailing list of key and value
+pairs:
+
+```
+ns-lui/add-child-current-row-0-col-8-colspan-4
+ns-lui/add-child-root-role-sidebar-size-240
+```
+
+This needs two things beyond pairs of declared types:
+
+- **A dictionary shape**: keys are unique, and the command wants a map, not a list of pairs.
+- **A scalar whose type is read from its text**: `8` is a number, `true` a boolean, `sidebar` a
+  string. No single declared component type fits.
+
+**The general pattern.** Orest: the pairs are "a convention that allows to represent
+dictionaries or scalars as a variadic argument", and one example of a more general pattern:
+*represent a complex type as a variadic argument*. It should be supported in the command
+metadata and in the registration macro, with GUI support.
+
+**The older Python mechanism.** The Python `liquer` had argument parsers (`ArgumentParser` in
+`liquer/commands.py`): a parser consumed one or more dash-separated parameters from the front of
+the list and returned a value and the rest; parsers were combined with `+`
+(`SequenceArgumentParser`), and a parser with `is_argv` took all that remained. In principle a
+2D vector could be one argument, and a list of 2D vectors a variadic one. It was never used
+widely. The proposal here is simpler: grouping happens only in the variadic position, and the
+shape is declared in the metadata, so that the plan, the registry and a GUI all see it.
+
+**Scope after this discussion** (design `composite-variadic-arguments`, Phases 1 and 2
+rewritten on 2026-11-24):
+
+1. Tuple elements: `Vec<(A, B)> multiple` (the original scope).
+2. A dictionary: `BTreeMap<String, V> multiple`, with duplicate keys refused.
+3. A scalar component whose type is read from its text.
+4. A trait, so that a command author's own type can be an element or a whole variadic value.
+5. Registration macro support for all of the above, with compile-time rejections.
+6. GUI support: the argument editor shows one row per element, with a column per component.
+
+Open questions are listed in the design's Phase 1, `## Design Readiness`.
