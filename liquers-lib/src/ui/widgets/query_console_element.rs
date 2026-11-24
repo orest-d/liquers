@@ -932,6 +932,8 @@ mod tests {
             | Ok(AppMessage::ListDirectory { .. })
             | Ok(AppMessage::NodeContext { .. })
             | Ok(AppMessage::RenameData { .. })
+            | Ok(AppMessage::Evaluate { .. })
+            | Ok(AppMessage::SaveAs { .. })
             | Ok(AppMessage::LoadIcon { .. })
             | Err(_) => None,
         }
@@ -1619,6 +1621,8 @@ mod tests {
                 | AppMessage::ListDirectory { .. }
                 | AppMessage::NodeContext { .. }
                 | AppMessage::RenameData { .. }
+                | AppMessage::Evaluate { .. }
+                | AppMessage::SaveAs { .. }
                 | AppMessage::LoadIcon { .. } => panic!("Expected RequestAssetUpdates"),
             }
         }

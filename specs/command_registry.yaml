@@ -2,7 +2,7 @@
 # Regenerate: cargo run -p liquers-lib --features cli --bin export-command-registry -- \
 #               --format yaml -o specs/command_registry.yaml
 # Origin:   groups=core,lui,egui,image,polars,records,search,template,mem,markdown,accessor,store_config  features=egui,image-support,polars,records,templates,mem,markdown
-# Commands: 192
+# Commands: 195
 # CHANGELOG-BEGIN
 # 2026-08-02  initial export (95 commands: img 47, pl 26, lui 14, root 6, dep 2)
 # 2026-08-25  pl/select_columns and pl/drop_columns take a variadic `columns` argument
@@ -61,6 +61,8 @@
 #             resource_editor and key_editor (editor elements bound to an accessor).
 # 2026-11-21  query-editor-ergonomics Step 9: hint icon on 110 pl/img/rec commands; presets on
 #             pl/head, rec/head, img/blur, img/rotate; next on pl/gt, pl/sort, rec/sort.
+# 2026-11-24  recipes-editor: acc/recipe_file (the recipe of a list by filename), lui/recipes_editor
+#             and lui/recipe_editor (recipe editor elements).
 # CHANGELOG-END
 commands:
 - realm: store_config
@@ -812,6 +814,32 @@ commands:
   expires: never
   definition: Registered
   impl_version: 1b71a6d76d06f8fff92a7950d09bfd3d
+- namespace: lui
+  name: recipes_editor
+  label: Recipes editor
+  doc: 'A side panel editing the recipes.yaml the state accessor reads: outline, dependencies, recipe and YAML windows'
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 3fc5151f69685904049eb8192156a5e8
+- namespace: lui
+  name: recipe_editor
+  label: Recipe editor
+  doc: A form editing the recipe the state accessor reads, with the query editor inside
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 9ec351bb869ce0c7ce8b3499e83df53f
 - namespace: lui
   name: submit
   label: Submit
@@ -4845,6 +4873,25 @@ commands:
     label: index
     default: None
     argument_type: int
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: acc
+  name: recipe_file
+  label: Recipe by filename
+  doc: The accessor of the recipe with this filename in the recipe list the state accessor reads, wherever it sits in the list
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: filename
+    label: filename
+    default: None
+    argument_type: string
     gui_info: !TextField 40
   volatile: false
   expires: never

@@ -59,6 +59,7 @@ pub mod event;
 pub mod handle;
 pub mod message;
 pub mod payload;
+pub mod recipes;
 pub mod resolve;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native;

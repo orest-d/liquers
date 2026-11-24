@@ -1035,6 +1035,21 @@ pub struct NodeChoice {
     pub title: String,
 }
 
+/// A Node argument of a recipe that a new child can be named in (design `recipes-editor`,
+/// AC-7): the argument `arg` of the action at index `action` (counting the recipe's actions
+/// from 0), taking a node of `extension`.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ChildSlot {
+    /// The action's index among the recipe's actions.
+    pub action: usize,
+    /// The command's name, for display.
+    pub command: String,
+    /// The argument's name.
+    pub arg: String,
+    /// The extension a node named there must have.
+    pub extension: String,
+}
+
 /// A stored file [`TreeEditor::save`] renames.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct DataRename {
@@ -1618,6 +1633,41 @@ impl TreeEditor {
         )?;
         candidate.recipes.push(recipe);
         self.commit(candidate, self.listing.clone(), self.renames.clone())
+    }
+
+    /// The Node arguments of the recipe of `parent` a new child can be named in (design
+    /// `recipes-editor`, AC-7), for [`Self::add_child`].
+    pub fn child_slots(&self, parent: &str) -> Result<Vec<ChildSlot>, Error> {
+        let file = self.resolve(parent)?;
+        let index = self
+            .recipe_index(&file)
+            .ok_or_else(|| Error::tree_check(&format!("'{file}' has no recipe")))?;
+        let recipe = &self.list.recipes[index];
+        let pipeline = match (&recipe.pipeline, recipe.query.is_empty()) {
+            (Some(p), true) => p.clone(),
+            (Some(_), false) | (None, true) | (None, false) => Pipeline::from_query_text(&recipe.query)?,
+        };
+        let mut slots = Vec::new();
+        let actions = pipeline.elements.iter().filter_map(|e| match &e.item {
+            ElementKind::Action(a) => Some(a),
+            _ => None,
+        });
+        for (action, element) in actions.enumerate() {
+            let Ok(md) = crate::pipeline::resolve_action(&self.cmr, &pipeline.realm, element) else {
+                continue;
+            };
+            for argument in crate::pipeline::positional_arguments(&md) {
+                if let ArgumentType::Node(node) = &argument.argument_type {
+                    slots.push(ChildSlot {
+                        action,
+                        command: element.action.clone(),
+                        arg: argument.name.clone(),
+                        extension: node.extension.clone(),
+                    });
+                }
+            }
+        }
+        Ok(slots)
     }
 
     /// Appends `recipe` as a new node (design `recipes-editor`, AC-7). A recipe without a
@@ -2246,5 +2296,15 @@ recipes:
         let dangling = list("recipes:\n  - {query: \"-R/./nothing.glb/-/attach-wheel/x.glb\"}\n");
         editor.replace(dangling.clone()).expect("replaced");
         assert_eq!(editor.recipes(), &dangling);
+    }
+
+    /// recipes-editor AC-7: the Node arguments a child can be named in.
+    #[test]
+    fn child_slots_list_node_arguments() {
+        let editor = car_editor();
+        let slots = editor.child_slots("car").expect("slots");
+        assert_eq!(slots.len(), 1);
+        assert_eq!((slots[0].action, slots[0].arg.as_str(), slots[0].extension.as_str()), (0, "part", "glb"));
+        assert!(editor.child_slots("body").expect("slots").is_empty());
     }
 }

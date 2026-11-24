@@ -10,7 +10,8 @@
 //!   navigation words of `ui::resolve`).
 //! - Element constructors: [`ui_spec`], [`markdown`], [`query_console`], and the editors
 //!   [`query_editor`], [`action_editor`], [`resource_editor`], [`key_editor`] (an accessor value is
-//!   bound by its address, any other value is kept in memory).
+//!   bound by its address, any other value is kept in memory), and the recipe editors
+//!   [`recipes_editor`] and [`recipe_editor`] (`ui::recipes`).
 //! - [`submit`]: submit the state as the current element's query.
 //! - [`register_lui_commands!`](crate::register_lui_commands): registers them all.
 //!
@@ -444,6 +445,55 @@ pub fn key_editor(state: &State<Value>) -> Result<Value, Error> {
     editor_element(state, EditorKind::Key, "Key editor")
 }
 
+/// Command: lui/recipes_editor
+/// A narrow side panel editing the `recipes.yaml` the state accessor reads (design
+/// `recipes-editor`): an outline or the tree of dependencies, recipe windows and a YAML window.
+/// Text, or no state, is edited in memory.
+#[liquers_macro::command_version]
+pub fn recipes_editor(state: &State<Value>) -> Result<Value, Error> {
+    use super::recipes::RecipesElement;
+    let element = if state.is_none() {
+        RecipesElement::new("Recipes", EditorBinding::Memory(String::new()))
+    } else {
+        let value = state.data_unchecked();
+        match value.try_into_accessor() {
+            Ok(accessor) => RecipesElement::from_accessor("Recipes", accessor),
+            Err(_) => RecipesElement::new("Recipes", EditorBinding::Memory(value.try_into_string()?)),
+        }
+    };
+    Ok(Value::from(crate::value::ExtValue::UIElement {
+        value: Arc::new(element),
+    }))
+}
+
+/// Command: lui/recipe_editor
+/// A form editing the recipe the state accessor reads, with the query editor inside (design
+/// `recipes-editor`). A recipe value is edited in memory.
+#[liquers_macro::command_version]
+pub fn recipe_editor(state: &State<Value>) -> Result<Value, Error> {
+    use super::recipes::RecipeElement;
+    let element = if state.is_none() {
+        RecipeElement::from_accessor(
+            "Recipe",
+            liquers_core::accessor::memory_accessor(
+                Some(State::new().with_data(Value::from_recipe(Default::default()))),
+                liquers_core::query::Query::new(),
+            ),
+        )
+    } else {
+        match state.data_unchecked().try_into_accessor() {
+            Ok(accessor) => RecipeElement::from_accessor("Recipe", accessor),
+            Err(_) => RecipeElement::from_accessor(
+                "Recipe",
+                liquers_core::accessor::memory_accessor(Some(state.clone()), liquers_core::query::Query::new()),
+            ),
+        }
+    };
+    Ok(Value::from(crate::value::ExtValue::UIElement {
+        value: Arc::new(element),
+    }))
+}
+
 /// Command: lui/submit
 /// Interpret the input state as a query string and submit it bound to the current handle.
 /// This is what makes `UiAction::Apply { query: "ns-lui/submit" }` behave like the old
@@ -632,6 +682,20 @@ macro_rules! register_lui_commands {
             namespace: "lui"
             label: "Key editor"
             doc: "An editor of a key, with a store file selector"
+        version: auto
+        )?;
+        register_command!($cr,
+            fn recipes_editor(state) -> result
+            namespace: "lui"
+            label: "Recipes editor"
+            doc: "A side panel editing the recipes.yaml the state accessor reads: outline, dependencies, recipe and YAML windows"
+        version: auto
+        )?;
+        register_command!($cr,
+            fn recipe_editor(state) -> result
+            namespace: "lui"
+            label: "Recipe editor"
+            doc: "A form editing the recipe the state accessor reads, with the query editor inside"
         version: auto
         )?;
         register_command!($cr,
