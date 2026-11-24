@@ -8,10 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 269
+Total rows: 270
 - P1: 1
 - P2: 70
-- P3: 198
+- P3: 199
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -270,6 +270,7 @@ Total rows: 269
 | [`COMMAND-REGISTRY-NOT-ORGANIZED-BY-REALM`](issues/COMMAND-REGISTRY-NOT-ORGANIZED-BY-REALM.md) | issue | The command metadata registry is a flat list, so a realm cannot have its own default namespaces | draft |  |  | P3 | L | core/commands;core/plan |  | 2026-11-01 |
 | [`INDEX-PAGE-IS-A-FIXED-REDIRECT`](issues/INDEX-PAGE-IS-A-FIXED-REDIRECT.md) | feature | A Liquers server's index page can only redirect to the web folder | draft |  |  | P3 | L | axum;core/value;core/commands |  | 2026-11-06 |
 | [`MODULE-DOCS-DO-NOT-FOLLOW-THE-API-DOC-RULES`](issues/MODULE-DOCS-DO-NOT-FOLLOW-THE-API-DOC-RULES.md) | issue | Existing module docs lack purpose, usage, related concepts and examples | draft |  |  | P3 | L | docs;core/commands;core/value;lib/commands;axum;py |  | 2026-11-01 |
+| [`NO-RECIPE-OR-RECIPES-EDITOR-UI`](issues/NO-RECIPE-OR-RECIPES-EDITOR-UI.md) | feature | There is no UI element that edits a whole recipe or a folder's recipes.yaml | draft |  |  | P3 | L | lib/ui;lib/egui |  | 2026-11-24 |
 | [`NO-RENDERER-NEUTRAL-STYLESHEET`](issues/NO-RENDERER-NEUTRAL-STYLESHEET.md) | feature | Styles cannot be written once as selector rules and resolved for egui, the browser and a terminal UI | draft |  |  | P3 | L | lib/ui |  | 2026-11-21 |
 | [`NO-SOURCE-CODE-AND-API-DOC-NAVIGATION`](issues/NO-SOURCE-CODE-AND-API-DOC-NAVIGATION.md) | feature | Source code and API documentation cannot be navigated or extracted | draft |  |  | P3 | L | lib/commands |  | 2026-10-11 |
 | [`NO-SQL-ENGINE-IN-WASM-BUILDS`](issues/NO-SQL-ENGINE-IN-WASM-BUILDS.md) | feature | SQL over records is unavailable in wasm builds, where polars does not build | draft |  |  | P3 | L | records;lib/commands;web |  | 2026-10-21 |
