@@ -3,7 +3,7 @@ title: UI Interface Specification
 kind: reference
 audience: internal
 area: [lib/ui]
-reviewed: 2026-11-23
+reviewed: 2026-11-24
 ---
 # UI Interface Specification
 
@@ -362,6 +362,11 @@ because handles belong to the shared `AppState` the event reaches its element wh
 it. egui calls an element's handler inline from `show_in_egui` instead of going through the
 channel (the query console's Enter does), so both backends share one handling path.
 
+An element whose egui rendering scrolls its own content (draws a `ScrollArea` filling the space
+it gets) returns `true` from `UIElement::scrolls_itself` (default `false`; the Markdown element
+does); the query console then draws it without a scroll area of its own, so there is one scroll
+bar.
+
 **Web declarations.** `render_web` declares interest in markup (helpers in `ui/web/html.rs`):
 
 | Attribute | On | Meaning |
@@ -488,7 +493,10 @@ empty. Icon images by key are loaded by the runner (`AppMessage::LoadIcon`) into
 The query console's editor panel (the pencil button; `qc:params` in the browser) is the same core
 over the console's text, showing the whole pipeline in a narrow column beside the value (egui: a
 resizable right `Panel`; browser: `.lq-qc-editor` in `.lq-qc-body`); an edit rewrites the text and
-does not submit. The panel does not repeat the query (`EditorTree::hide_text`): `Ctrl+J` in the
+does not submit. On a query with no key, such as an empty one, the editor offers "Add key…"
+(`offers_key`; a resource with an empty key inserted first, `ed:addkey` in the browser) beside
+"Add action…", so a query can be built in the panel. The panel does not repeat the query, nor
+its filename field (`EditorTree::hide_text`): `Ctrl+J` in the
 console's query field opens the panel on the step under the cursor, in Advanced mode when that is
 not the last action, and `Ctrl+J` in a panel field selects that field's text in the console's
 query field (`EditorOutput::select_text`).
@@ -897,3 +905,4 @@ Candidate universal operations identified across use cases:
 | 2026-11-21 | Editors: modes, cards, the egui keymap and Ctrl+J, theme and icons; Hosts: the `ui` section. Those parts reviewed against the implementation. | `design/query-editor-ergonomics/` |
 | 2026-11-22 | Editors: links the new theme reference. | `design/query-editor-ergonomics/` |
 | 2026-11-23 | Editors: no outline or part titles in Advanced mode, one card open on entering it, argument help and defaults in hovers only, Ctrl+J opens Advanced mode on another step; the query console's editor panel is a side column behind a pencil button and does not repeat the query. Those parts reviewed against the implementation. | — |
+| 2026-11-24 | Editors: "Add key…" on a query with no key; the console's panel keeps "Add action…". `UIElement::scrolls_itself` lets the console draw a self-scrolling element (Markdown) without a second scroll area. Those parts reviewed against the implementation. | — |

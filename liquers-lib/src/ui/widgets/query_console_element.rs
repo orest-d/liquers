@@ -146,13 +146,13 @@ pub struct QueryConsoleElement {
     open_card: Option<NodePath>,
 }
 
-/// The Parameters panel's view of an editor tree: the console draws the query text, so the panel
-/// does not repeat it.
+/// The Parameters panel's view of an editor tree: the console draws the query text (and so its
+/// filename), so the panel does not repeat it; it keeps "Add action…" and "Add key…", so an
+/// empty query can be built in the panel.
 fn panel_tree(tree: &EditorTree) -> EditorTree {
     let mut tree = tree.clone();
     tree.text_editable = false;
     tree.hide_text = true;
-    tree.has_filename = false;
     tree
 }
 
@@ -653,7 +653,15 @@ impl QueryConsoleElement {
     /// Render the content area: either data view or metadata pane.
     #[cfg(feature = "egui")]
     fn show_content(&mut self, ui: &mut egui::Ui, ctx: &UIContext, app_state: &mut dyn AppState) {
-        egui::ScrollArea::vertical().show(ui, |ui| {
+        // An element that scrolls itself gets the space as it is: wrapping it in another scroll
+        // area shows two scroll bars.
+        if self.data_view && self.value.is_some() {
+            if let Some(element) = self.ui_element.as_mut().filter(|e| e.scrolls_itself()) {
+                element.show_in_egui(ui, ctx, app_state);
+                return;
+            }
+        }
+        egui::ScrollArea::vertical().id_salt("lq-console-value-scroll").show(ui, |ui| {
             if self.data_view && self.value.is_some() {
                 // If value is a UIElement, render it with show_in_egui
                 if let Some(ref mut element) = self.ui_element {
@@ -1375,7 +1383,7 @@ mod tests {
         c.set_handle(UIHandle(1));
         c.set_show_parameters(true);
         let tree = c.parameters_tree(&ctx).expect("tree");
-        assert!(!tree.text_editable && !tree.has_filename);
+        assert!(!tree.text_editable && tree.hide_text && tree.has_filename);
         let path = tree.nodes[tree.last_action().expect("head")].path().clone();
         let changed = c.apply_parameter_commands(
             vec![EditorCommand::SetField { path: path.clone(), arg: "n".into(), text: "7".into() }],
@@ -1455,6 +1463,54 @@ mod tests {
         let json = serde_json::to_value(&c).expect("json");
         let back: QueryConsoleElement = serde_json::from_value(json).expect("back");
         assert_eq!(back.mode(), EditorMode::Advanced);
+    }
+
+    /// An empty query can be built in the panel: it offers "Add key…" and "Add action…".
+    #[test]
+    fn empty_query_offers_a_key_and_an_action() {
+        use liquers_core::command_metadata::{CommandKey, CommandMetadata};
+        use crate::ui::editor::NewElement;
+        let mut cmr = CommandMetadataRegistry::new();
+        cmr.add_command(&CommandMetadata::new("head"));
+        let (ctx, _rx) = create_test_context();
+        let ctx = ctx.with_command_registry(Arc::new(cmr));
+        let mut c = QueryConsoleElement::new("C".to_string(), String::new());
+        c.set_handle(UIHandle(1));
+        c.set_show_parameters(true);
+        let tree = c.parameters_tree(&ctx).expect("an empty query has a tree");
+        assert!(tree.nodes.is_empty() && tree.has_filename);
+        assert!(crate::ui::editor::offers_key(&tree));
+
+        // "Add key…" in the browser decodes to a resource inserted first.
+        let add_key = UIEvent::new(UIEventKind::Named("ed:addkey::".into()));
+        let commands = EditorView::from_ui_event(&add_key, &tree);
+        assert_eq!(
+            commands,
+            [EditorCommand::Insert { path: NodePath::element(0), element: NewElement::Resource(String::new()) }]
+        );
+        assert!(c.apply_parameter_commands(commands, &ctx));
+        assert_eq!(c.query_text, "-R");
+        let tree = c.parameters_tree(&ctx).expect("tree");
+        assert!(!crate::ui::editor::offers_key(&tree), "a query with a key offers no second one");
+        let path = tree.nodes[0].path().clone();
+        assert!(c.apply_parameter_commands(vec![EditorCommand::SetKey { path, key: "data".into() }], &ctx));
+        assert!(c.apply_parameter_commands(
+            vec![EditorCommand::Append(NewElement::Action(CommandKey::new_name("head")))],
+            &ctx
+        ));
+        assert_eq!(c.query_text, "-R/data/-/head");
+
+        #[cfg(feature = "webui")]
+        {
+            let mut c = QueryConsoleElement::new("C".to_string(), String::new());
+            c.set_handle(UIHandle(1));
+            let toggle = UIEvent::new(UIEventKind::Named("qc:params".into()));
+            c.update(&UpdateMessage::UI(toggle), &ctx);
+            let html = c.render_web(&DirectAppState::new());
+            assert!(html.contains("data-lq-event=\"ed:addkey::\""), "{html}");
+            assert!(html.contains("Add action"), "{html}");
+            assert!(!html.contains("lq-ed-filename"), "the console shows the filename in its query: {html}");
+        }
     }
 
     /// The panel does not repeat the query; `Ctrl+J` on a step other than the last opens

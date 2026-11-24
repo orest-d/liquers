@@ -1,3 +1,38 @@
+//! The [`UIElement`] trait and the built-in elements every host can draw.
+//!
+//! An element is one node of the UI tree kept in an `AppState`: it holds its own state, receives
+//! [`UpdateMessage`]s (asset snapshots, timers, UI events) and answers with an
+//! [`UpdateResponse`], and draws itself in egui (`show_in_egui`) and in the browser
+//! (`render_web`). Elements are serialized with `typetag`, so a UI can be saved and restored.
+//!
+//! # Main components
+//!
+//! - [`UIElement`]: the element trait; `scrolls_itself` tells a host that the element scrolls its
+//!   own content, so the host does not wrap it in a second scroll area.
+//! - [`ElementSource`]: how an element was made (directly, from a query, from a recipe).
+//! - [`UpdateMessage`], [`UpdateResponse`]: what an element receives and returns.
+//! - [`Placeholder`], [`AssetViewElement`], [`StateViewElement`]: the built-in elements.
+//!
+//! # Where it is used
+//!
+//! - `ui::app_state` stores elements; `ui::runner` delivers their messages; the widgets in
+//!   `ui::widgets` (query console, Markdown, UI spec, editors) implement the trait.
+//!
+//! # Related concepts
+//!
+//! - `ui::handle::UIHandle`: an element's address in the tree.
+//! - `specs/reference/UI_INTERFACE_FSD.md`: the UI model.
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_lib::ui::element::{Placeholder, UIElement};
+//!
+//! let placeholder = Placeholder::new();
+//! assert_eq!(placeholder.type_name(), "Placeholder");
+//! assert!(!placeholder.scrolls_itself());
+//! ```
+
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -127,6 +162,14 @@ pub trait UIElement:
     /// Default: None.
     fn get_metadata(&self) -> Option<liquers_core::metadata::Metadata> {
         None
+    }
+
+    /// Whether the element's egui rendering scrolls its own content (it draws a `ScrollArea`
+    /// filling the space it is given). A host that would otherwise wrap the element in a scroll
+    /// area of its own (the query console) draws it directly instead, so there is one scroll
+    /// bar, not two. Default: false.
+    fn scrolls_itself(&self) -> bool {
+        false
     }
 
     /// Render in egui.
