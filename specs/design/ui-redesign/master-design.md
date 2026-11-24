@@ -1198,6 +1198,12 @@ protocol messages → view store copy → frontend.
   the same data: separate sessions. A frontend attached to a session acts with the session's
   principal, so a restricted helper device is a separate session. The unit of attachment is the
   subtree (Orest, 2026-11-24).
+- **A control surface** that only sets values may be its own session, writing to the same value
+  accessors; one that changes trees or steers the focused element of another device joins the
+  session.
+- **A frontend may be connected to several sessions**: two mounts in one page, or two windows of
+  a desktop host. Each attachment has its own tree, focus and shortcuts (D1 AC-11), and nothing
+  crosses between them except through the environment.
 - **Several frontends may attach to one session, but an element instance is connected at most
   once** (Orest, 2026-11-24). Each frontend is attached to its own subtree, like a window: the
   desktop shows one, a phone shows a control surface. There is never "the same" editor in two
