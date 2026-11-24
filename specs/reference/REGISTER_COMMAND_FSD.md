@@ -3,7 +3,7 @@ title: register_command! Macro Functional Specification
 kind: reference
 audience: internal
 area: [macro, core/commands]
-reviewed: 2026-10-20
+reviewed: 2026-11-23
 ---
 # register_command! Macro Functional Specification
 
@@ -123,7 +123,7 @@ Parameters are specified after the state parameter, separated by commas.
 ### Syntax
 
 ```
-<name>: <Type> [injected | multiple] [= <default_value>] [(label: "...", description: "...", gui: ..., enum: ..., enum_ref: ...)]
+<name>: <Type> [injected | multiple] [= <default_value>] [(label: "...", description: "...", gui: ..., enum: ..., enum_ref: ..., node: local, ext: "...", form: ...)]
 ```
 
 | Part | Required | Description |
@@ -272,6 +272,9 @@ register_command!(cr,
 | `gui: <GuiInfo>` | UI rendering hint |
 | `enum: <EnumSpec>` | Inline enum alternatives and mapping |
 | `enum_ref: "..."` | Reference a global enum by name |
+| `node: local` | A Node argument: names a file of the working folder (`ArgumentType::Node`); needs `ext:` |
+| `ext: "glb"` | The Node's file extension, without the dot; needs `node:` |
+| `form: resource \| key` | How a Node name becomes a link: `-R/./<name>.<ext>` (default, the asset's value) or `-R-key/./<name>.<ext>` (the key; the argument must be `Key` or `Value`) |
 
 `hint key: "..."` is rejected with *argument hints are not supported; `hint` would be ignored*.
 It used to be parsed and silently dropped. Argument-level hints remain open
@@ -326,6 +329,7 @@ Runtime rules:
 | `HorizontalRadioEnum` | `HorizontalRadioEnum` | Enum as horizontal radios |
 | `VerticalRadioEnum` | `VerticalRadioEnum` | Enum as vertical radios |
 | `EnumSelector` | `EnumSelector` | Enum dropdown |
+| `NodeSelector` | `NodeSelector` | A node of the folder's recipe tree, with rename |
 | `ColorString` | `ColorString` | Color picker |
 | `DateField` | `DateField 10` | Date input with width |
 | `Hide` | `Hide` | Hidden parameter |
@@ -334,6 +338,11 @@ Runtime rules:
 When enum metadata is present and `gui:` is omitted, defaults are:
 - up to 3 alternatives: `VerticalRadioEnum`
 - 4+ alternatives or `enum_ref`: `EnumSelector`
+
+A Node argument (`node:`) defaults to `NodeSelector`, which lists the folder's nodes of its
+extension. `node:` without `ext:`, `ext:` or `form:` without `node:`, a Node with `enum`, a
+`multiple` Node and a key-form Node whose type is not `Key` or `Value` are compile errors. A bare
+name is planned as a link and needs a working directory; see `RECIPE_TREES.md` §Node arguments.
 
 ---
 
@@ -710,6 +719,7 @@ pub fn register_commands(mut env: DefaultEnvironment<Value>) -> Result<DefaultEn
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-23 | §Parameter Metadata: Node arguments (`node: local`, `ext:`, `form:`) and the `NodeSelector` widget. | `design/recipe-tree/` |
 | 2026-10-20 | Links to `reference/api/DOC_08_RECIPES_PLANS.md` follow its promotion to `reference/RECIPES_AND_PLANS.md`; the `expires:` grammar pointer now names the section that has it. | DOC-08 promotion |
 | 2026-10-12 | Enum validation: an `_opt` type accepts literals of its base type, so `enum(type: bool_opt)` and `enum(type: int_opt)` can list values. An integer parameter outside its width's range is a conversion error, not a wrap. | `design/register-command-option-value/` review |
 | 2026-10-11 | §Supported Types: every integer width maps to `Integer` / `IntegerOption`, `Option<bool>` to `BooleanOption`, `FloatOpt` corrected to `FloatOption`; new §Optional arguments (supported inner types, the compile-time rejection, query spellings, `None` when omitted); `bool_opt` enum type keyword. | `design/register-command-option-value/` |

@@ -250,6 +250,7 @@ fn type_name(argument_type: &ArgumentType) -> String {
         ArgumentType::GlobalEnum(name) => name.clone(),
         ArgumentType::Any => "any".to_string(),
         ArgumentType::None => "none".to_string(),
+        ArgumentType::Node(n) => format!("node .{}", n.extension),
     }
 }
 
@@ -557,7 +558,8 @@ fn check_parameter(
         ParameterValue::DefaultLink(_, query)
         | ParameterValue::ParameterLink(_, query, _)
         | ParameterValue::OverrideLink(_, query)
-        | ParameterValue::EnumLink(_, query, _) => check_query(query, allow, cmr),
+        | ParameterValue::EnumLink(_, query, _)
+        | ParameterValue::NodeLink(_, _, query, _) => check_query(query, allow, cmr),
         // A pipeline is checked through its query form, or else through its own plan.
         ParameterValue::ParameterPipeline(_, pipeline, _)
         | ParameterValue::OverridePipeline(_, pipeline)

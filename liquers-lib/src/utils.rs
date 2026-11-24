@@ -22,6 +22,7 @@ pub fn argument_type_name(argument_type: &ArgumentType) -> String {
         ArgumentType::GlobalEnum(name) => format!("Enum({name})"),
         ArgumentType::Any => "Any".to_string(),
         ArgumentType::None => "None".to_string(),
+        ArgumentType::Node(n) => format!("Node(.{})", n.extension),
     }
 }
 

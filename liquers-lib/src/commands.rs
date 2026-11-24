@@ -93,6 +93,7 @@ fn argument_type_name(at: &ArgumentType) -> &str {
         ArgumentType::Any => "Any",
         ArgumentType::None => "None",
         ArgumentType::GlobalEnum(s) => s.as_str(),
+        ArgumentType::Node(_) => "Node",
     }
 }
 

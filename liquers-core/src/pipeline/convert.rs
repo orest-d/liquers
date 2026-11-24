@@ -389,7 +389,7 @@ impl TryFrom<&crate::plan::ParameterValue> for Pipeline {
             P::DefaultLink(_, q)
             | P::ParameterLink(_, q, _)
             | P::OverrideLink(_, q)
-            | P::EnumLink(_, q, _) => Pipeline::try_from(q),
+            | P::EnumLink(_, q, _) | P::NodeLink(_, _, q, _) => Pipeline::try_from(q),
             P::ParameterPipeline(_, p, _)
             | P::OverridePipeline(_, p)
             | P::DefaultPipeline(_, p) => Ok(p.clone()),
@@ -463,7 +463,8 @@ pub(crate) fn typed_scalar(text: &str, argument_type: &ArgumentType) -> Json {
         | ArgumentType::Enum(_)
         | ArgumentType::GlobalEnum(_)
         | ArgumentType::Any
-        | ArgumentType::None => text_value(),
+        | ArgumentType::None
+        | ArgumentType::Node(_) => text_value(),
     }
 }
 

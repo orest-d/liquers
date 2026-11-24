@@ -503,6 +503,10 @@ pub enum ParameterValue {
     Placeholder(String),
     /// Query link selected through an enum alias.
     EnumLink(String, Query, Position),
+    /// A Node argument given by name: the argument, the node name, and the link the name stands
+    /// for (`NodeArgument::link`). It is evaluated like a link; the name is kept so strict mode
+    /// can tell it from a link the query wrote, and so a rename can find it.
+    NodeLink(String, String, Query, Position),
     /// Resolved elements of a variadic argument, with the argument's name.
     ///
     /// The name is carried here for the same reason every other variant carries one: an argument
@@ -542,6 +546,9 @@ impl Display for ParameterValue {
                 write!(f, "override link {}: {}", name, q.encode())
             }
             ParameterValue::EnumLink(name, q, _) => write!(f, "enum link {}: {}", name, q.encode()),
+            ParameterValue::NodeLink(name, node, q, _) => {
+                write!(f, "node link {}: {} ({})", name, node, q.encode())
+            }
             ParameterValue::MultipleParameters(_, v) => {
                 write!(
                     f,
@@ -915,6 +922,21 @@ impl ParameterValue {
                     ))
                 }
             }
+            ArgumentType::Node(ref node) => {
+                if s.is_empty() {
+                    let res = Self::from_arginfo(arginfo);
+                    if !res.is_none() {
+                        return Ok(res);
+                    }
+                }
+                let link = node.link(s).map_err(|e| e.with_position(pos))?;
+                Ok(ParameterValue::NodeLink(
+                    arginfo.name.clone(),
+                    s.to_owned(),
+                    link,
+                    pos.to_owned(),
+                ))
+            }
             ArgumentType::None => Err(Error::not_supported(
                 "None not supported as argument type".to_string(),
             )),
@@ -957,7 +979,7 @@ impl ParameterValue {
                             ParameterValue::DefaultLink(_, _) => values.push(pv),
                             ParameterValue::ParameterLink(_, _, _) => values.push(pv),
                             ParameterValue::OverrideLink(_, _) => values.push(pv),
-                            ParameterValue::EnumLink(_, _, _) => values.push(pv),
+                            ParameterValue::EnumLink(_, _, _) | ParameterValue::NodeLink(_, _, _, _) => values.push(pv),
                             ParameterValue::MultipleParameters(_, _) => {
                                 return Err(Error::unexpected_error(
                                     "Multiple parameters not supported inside vector argument"
@@ -1048,7 +1070,7 @@ impl ParameterValue {
             ParameterValue::DefaultLink(_, _) => true,
             ParameterValue::ParameterLink(_, _, _) => true,
             ParameterValue::OverrideLink(_, _) => true,
-            ParameterValue::EnumLink(_, _, _) => true,
+            ParameterValue::EnumLink(_, _, _) | ParameterValue::NodeLink(_, _, _, _) => true,
             _ => false,
         }
     }
@@ -1075,7 +1097,7 @@ impl ParameterValue {
             ParameterValue::ParameterLink(name, _, _) => Some(name.clone()),
             ParameterValue::OverrideValue(name, _) => Some(name.clone()),
             ParameterValue::OverrideLink(name, _) => Some(name.clone()),
-            ParameterValue::EnumLink(name, _, _) => Some(name.clone()),
+            ParameterValue::EnumLink(name, _, _) | ParameterValue::NodeLink(name, _, _, _) => Some(name.clone()),
             ParameterValue::Injected(name) => Some(name.clone()),
             ParameterValue::Placeholder(name) => Some(name.clone()),
             ParameterValue::MultipleParameters(name, _) => Some(name.clone()),
@@ -1109,7 +1131,7 @@ impl ParameterValue {
             | ParameterValue::OverrideValue(_, _)
             | ParameterValue::OverrideLink(_, _)
             | ParameterValue::Placeholder(_)
-            | ParameterValue::EnumLink(_, _, _)
+            | ParameterValue::EnumLink(_, _, _) | ParameterValue::NodeLink(_, _, _, _)
             | ParameterValue::MultipleParameters(_, _)
             | ParameterValue::Injected(_)
             | ParameterValue::InputState(_) | ParameterValue::FrameArgument(_, _)
@@ -1122,7 +1144,7 @@ impl ParameterValue {
             ParameterValue::DefaultLink(_, q) => Some(q.clone()),
             ParameterValue::ParameterLink(_, q, _) => Some(q.clone()),
             ParameterValue::OverrideLink(_, q) => Some(q.clone()),
-            ParameterValue::EnumLink(_, q, _) => Some(q.clone()),
+            ParameterValue::EnumLink(_, q, _) | ParameterValue::NodeLink(_, _, q, _) => Some(q.clone()),
             _ => None,
         }
     }
@@ -1140,7 +1162,7 @@ impl ParameterValue {
         match self {
             ParameterValue::ParameterValue(_, _, pos) => pos.clone(),
             ParameterValue::ParameterLink(_, _, pos) => pos.clone(),
-            ParameterValue::EnumLink(_, _, pos) => pos.clone(),
+            ParameterValue::EnumLink(_, _, pos) | ParameterValue::NodeLink(_, _, _, pos) => pos.clone(),
             ParameterValue::ParameterPipeline(_, _, pos) => pos.clone(),
             _ => Position::unknown(),
         }
@@ -1177,19 +1199,31 @@ impl ResolvedParameterValues {
     /// only that link and cannot move the enclosing plan's working key. This mirrors the scope rule
     /// `find_dependencies` already applies, and is what
     /// `find_dependencies_child_query_cwd_does_not_leak` pins.
-    pub(crate) fn freeze_cwd(&mut self, cursor: &mut CwdCursor) {
+    ///
+    /// Fails when a Node argument given by name has no working directory to resolve against.
+    pub(crate) fn freeze_cwd(&mut self, cursor: &mut CwdCursor) -> Result<(), Error> {
         for parameter in self.0.iter_mut() {
-            parameter.freeze_cwd(cursor);
+            parameter.freeze_cwd(cursor)?;
         }
+        Ok(())
     }
 }
 
 impl ParameterValue {
     /// Rewrites this parameter's link query, if it has one, into CWD-absolute form.
     ///
-    /// See [`ResolvedParameterValues::freeze_cwd`] for the scope rule.
-    pub(crate) fn freeze_cwd(&mut self, cursor: &mut CwdCursor) {
+    /// See [`ResolvedParameterValues::freeze_cwd`] for the scope rule. A Node argument given by
+    /// name needs a working directory: without one it fails instead of falling back to the root.
+    pub(crate) fn freeze_cwd(&mut self, cursor: &mut CwdCursor) -> Result<(), Error> {
         match self {
+            ParameterValue::NodeLink(name, node, query, position) => {
+                if cursor.cwd().is_none() {
+                    return Err(Error::node_needs_cwd(name, node).with_position(position));
+                }
+                let mut scoped = cursor.clone();
+                *query = scoped.resolve_query_scoped(query);
+                cursor.absorb_diagnostics(&scoped);
+            }
             ParameterValue::DefaultLink(_, query)
             | ParameterValue::ParameterLink(_, query, _)
             | ParameterValue::OverrideLink(_, query)
@@ -1202,7 +1236,7 @@ impl ParameterValue {
             }
             ParameterValue::MultipleParameters(_, values) => {
                 for value in values.iter_mut() {
-                    value.freeze_cwd(cursor);
+                    value.freeze_cwd(cursor)?;
                 }
             }
             ParameterValue::DefaultValue(_, _)
@@ -1218,6 +1252,7 @@ impl ParameterValue {
             | ParameterValue::OverridePipeline(_, _)
             | ParameterValue::DefaultPipeline(_, _) => {}
         }
+        Ok(())
     }
 }
 impl Default for ResolvedParameterValues {
@@ -1620,7 +1655,7 @@ impl<'c> PlanAssembly<'c> {
             ParameterValue::DefaultLink(_, query)
             | ParameterValue::ParameterLink(_, query, _)
             | ParameterValue::OverrideLink(_, query)
-            | ParameterValue::EnumLink(_, query, _) => {
+            | ParameterValue::EnumLink(_, query, _) | ParameterValue::NodeLink(_, _, query, _) => {
                 // Build a sub-plan for the linked query and check if it's volatile
                 let mut link_pb = PlanBuilder::new(query.clone(), self.command_registry);
                 let link_plan = link_pb.build()?;
@@ -2528,7 +2563,7 @@ impl Plan {
                     *query = step_cursor.resolve_query_scoped(query);
                 }
                 Step::Action { parameters, .. } => {
-                    parameters.freeze_cwd(step_cursor);
+                    parameters.freeze_cwd(step_cursor)?;
                 }
                 Step::Plan(nested) => {
                     nested.freeze_cwd_with(step_cursor)?;
@@ -3146,6 +3181,14 @@ fn collect_parameter_dependencies(
             dependencies.insert(PlanDependency::new(
                 DependencyKey::from(&resolved),
                 DependencyRelation::EnumLink(name.clone()),
+            ));
+        }
+        // A node name is a link the query wrote in short form: the same relation as a link.
+        ParameterValue::NodeLink(name, _, query, _) => {
+            let resolved = cursor.resolve_query_scoped(query);
+            dependencies.insert(PlanDependency::new(
+                DependencyKey::from(&resolved),
+                DependencyRelation::ParameterLink(name.clone()),
             ));
         }
         ParameterValue::MultipleParameters(_, values) => {

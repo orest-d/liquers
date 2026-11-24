@@ -89,6 +89,10 @@ pub enum EditorCommand {
     Revert,
     /// Turns "Update immediately" on or off (AC-26).
     SetContinuous(bool),
+    /// Renames node `from` of the folder's recipe tree to `to`, rewriting every reference in
+    /// `recipes.yaml` and renaming a stored file (design `recipe-tree`, AC-25). Needs a
+    /// [`super::NodeContext`].
+    RenameNode { from: String, to: String },
 }
 
 /// What [`super::EditorState::apply`] asks the runner to do.
@@ -101,4 +105,10 @@ pub enum EditorEffect {
     Reload,
     /// List the store directory `folder` for the file selector.
     ListDirectory(String),
+    /// Save a renamed recipe tree: rename the stored files, then write `recipes.yaml` of
+    /// `folder` (`TreeEditor::save`; design `recipe-tree`, AC-25).
+    RenameData {
+        folder: String,
+        editor: Box<liquers_core::recipe_tree::TreeEditor>,
+    },
 }

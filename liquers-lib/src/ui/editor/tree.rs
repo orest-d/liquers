@@ -121,6 +121,26 @@ pub struct EditorField {
     pub presets: Vec<PresetEntry>,
     /// The field's index among the action's numeric arguments (AC-13).
     pub numeric_index: Option<usize>,
+    /// The extension of a Node argument (`glb`); `None` for any other argument.
+    pub node_extension: Option<String>,
+    /// The nodes a Node argument can name (filename and title), when the editor knows the
+    /// folder's recipes ([`NodeContext`]); empty otherwise, and the field is a text box
+    /// (design `recipe-tree`, AC-18).
+    pub node_choices: Vec<liquers_core::recipe_tree::NodeChoice>,
+}
+
+/// The folder an editor's query belongs to, for its Node arguments (design `recipe-tree`,
+/// AC-18, AC-25): the folder's recipes and, when known, its listing (the asset manager's:
+/// recipes and stored files together). The runner delivers it (`UpdateMessage::NodeContext`)
+/// to an editor bound to a recipe of a `recipes.yaml`.
+#[derive(Debug, Clone)]
+pub struct NodeContext {
+    /// The folder, as a key.
+    pub folder: String,
+    /// The folder's `recipes.yaml`.
+    pub recipes: liquers_core::recipes::RecipeList,
+    /// The folder's listing, when known.
+    pub listing: Option<Vec<String>>,
 }
 
 impl EditorField {
@@ -275,6 +295,9 @@ pub struct EditorTree {
     /// `text_note`).
     pub text: String,
     pub text_editable: bool,
+    /// The host draws the query text itself (the query console), so the editor does not.
+    /// `Ctrl+J` from a field then reports the range in [`EditorTree::text`] to select instead.
+    pub hide_text: bool,
     /// A parse error of the typed text, or why the text is read-only (AC-4, AC-10).
     pub text_note: Option<String>,
     /// The tree no longer matches the typed text (AC-4).
@@ -356,6 +379,7 @@ pub fn effective_gui(argument: &ArgumentInfo) -> ArgumentGUIInfo {
         ArgumentType::Integer | ArgumentType::IntegerOption => ArgumentGUIInfo::IntegerField,
         ArgumentType::Float | ArgumentType::FloatOption => ArgumentGUIInfo::FloatField,
         ArgumentType::Enum(_) | ArgumentType::GlobalEnum(_) => ArgumentGUIInfo::EnumSelector,
+        ArgumentType::Node(_) => ArgumentGUIInfo::NodeSelector,
         ArgumentType::String | ArgumentType::Any | ArgumentType::None => DEFAULT_GUI.clone(),
     }
 }
@@ -373,7 +397,8 @@ pub fn is_numeric(argument: &ArgumentInfo) -> bool {
         | ArgumentType::Enum(_)
         | ArgumentType::GlobalEnum(_)
         | ArgumentType::Any
-        | ArgumentType::None => false,
+        | ArgumentType::None
+        | ArgumentType::Node(_) => false,
     }
 }
 

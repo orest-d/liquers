@@ -11,7 +11,7 @@ use liquers_core::value::ValueInterface;
 use super::command::{EditorCommand, EditorEffect};
 use super::state::{EditorKind, EditorState};
 use super::layout::EditorMode;
-use super::tree::EditorTree;
+use super::tree::{EditorTree, NodePath};
 use super::view::EditorView;
 use crate::ui::element::{UIElement, UpdateMessage, UpdateResponse};
 use crate::ui::handle::UIHandle;
@@ -29,6 +29,21 @@ pub enum EditorBinding {
     /// The value itself, as text (a query, a pipeline's JSON or a key); the runner keeps it in a
     /// memory accessor for the session, and the element keeps the latest text here.
     Memory(String),
+}
+
+/// The folder of the `recipes.yaml` an accessor address reads a recipe of
+/// (`-R-key/reports/recipes.yaml/-/ns-acc/accessor/recipe-0/query` → `reports`), if it does.
+pub fn recipe_folder(address: &str) -> Option<String> {
+    let end = address.find("/recipes.yaml")?;
+    let head = &address[..end];
+    let folder = head
+        .strip_prefix("-R-key/")
+        .or_else(|| head.strip_prefix("-R/"))
+        .or_else(|| head.strip_prefix("-R-stored/"))?;
+    if folder.is_empty() || folder.contains("/-/") {
+        return None;
+    }
+    Some(folder.to_owned())
 }
 
 fn yes() -> bool {
@@ -70,6 +85,10 @@ pub struct EditorElement {
     /// An accessor made in code (empty `address()`), bound as it is for the session.
     #[serde(skip)]
     live: Option<Arc<dyn ValueAccessor<Value>>>,
+    /// The step the browser opens in Advanced mode (a step chip's), else the last action.
+    #[serde(skip)]
+    #[cfg_attr(not(feature = "webui"), allow(dead_code))]
+    open_card: Option<NodePath>,
 }
 
 impl EditorElement {
@@ -89,6 +108,7 @@ impl EditorElement {
             view: EditorView::default(),
             bound: false,
             live: None,
+            open_card: None,
         }
     }
 
@@ -197,6 +217,12 @@ impl EditorElement {
                     None => AccessorOp::Watch,
                 };
                 ctx.send_message(AppMessage::Accessor { handle, binding: self.binding.clone(), op });
+                // A recipe of a `recipes.yaml`: its folder's nodes, for Node arguments.
+                if let EditorBinding::Accessor(address) = &self.binding {
+                    if let Some(folder) = recipe_folder(address) {
+                        ctx.send_message(AppMessage::NodeContext { handle, folder });
+                    }
+                }
             }
         }
     }
@@ -242,6 +268,9 @@ impl EditorElement {
             }),
             EditorEffect::ListDirectory(folder) => {
                 ctx.send_message(AppMessage::ListDirectory { handle, folder })
+            }
+            EditorEffect::RenameData { folder, editor } => {
+                ctx.send_message(AppMessage::RenameData { handle, folder, editor })
             }
         }
     }
@@ -368,6 +397,12 @@ impl UIElement for EditorElement {
                 }
                 UpdateResponse::NeedsRepaint
             }
+            UpdateMessage::NodeContext(context) => {
+                if let Some(state) = &mut self.state {
+                    state.set_node_context(Some(context.clone()));
+                }
+                UpdateResponse::NeedsRepaint
+            }
             UpdateMessage::UI(event) => {
                 if let Some(mode) = EditorView::mode_event(event) {
                     // Commit what was typed but not yet submitted, then switch (AC-3).
@@ -376,6 +411,8 @@ impl UIElement for EditorElement {
                         None => vec![],
                     };
                     self.apply_commands(drafts, ctx);
+                    // A step chip names the step Advanced mode opens.
+                    self.open_card = EditorView::mode_event_path(event);
                     self.mode = mode;
                     return UpdateResponse::NeedsRepaint;
                 }
@@ -436,7 +473,14 @@ impl UIElement for EditorElement {
                 {
                     let theme = self.theme_state();
                     let density = self.effective_density(&theme);
-                    crate::ui::web::editor::editor_html(tree, &self.title, self.mode, density, &theme.theme)
+                    crate::ui::web::editor::editor_html_open(
+                        tree,
+                        &self.title,
+                        self.mode,
+                        density,
+                        &theme.theme,
+                        self.open_card.as_ref(),
+                    )
                 }
             ),
             None => format!(

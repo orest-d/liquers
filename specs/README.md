@@ -55,6 +55,7 @@ encoding, and the interpreter that turns a plan into asset evaluation.
 - **Plan building and evaluation** — documented → [`reference/api/DOC_01_ARCHITECTURE_REFERENCE.md`](reference/api/DOC_01_ARCHITECTURE_REFERENCE.md)
 - **One evaluation path: flows and public surface** — documented → [`reference/ASSET_LIFECYCLE.md`](reference/ASSET_LIFECYCLE.md) *(design in [`design/evaluate-path-consolidation/`](design/evaluate-path-consolidation/))*
 - **Recipes and plan contracts** — documented → [`reference/RECIPES_AND_PLANS.md`](reference/RECIPES_AND_PLANS.md)
+- **Self-contained recipe trees (`tree:` section, Node arguments, strict mode, `TreeEditor`)** — documented → [`reference/RECIPE_TREES.md`](reference/RECIPE_TREES.md) *(design in [`design/recipe-tree/`](design/recipe-tree/))*
 - **Planner instructions (`ns`, `q`, `v`, resource header instructions) versus commands** — documented → [`reference/RECIPES_AND_PLANS.md`](reference/RECIPES_AND_PLANS.md) §Planner instructions
 - **Metadata ownership during plan execution (asset, context, step state)** — documented → [`reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`](reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md) §Metadata ownership during evaluation *(design in [`design/plan-step-state-metadata/`](design/plan-step-state-metadata/))*
 - **Offline query and recipe validation** — built → [`design/query-validation/`](design/query-validation/)
@@ -264,7 +265,7 @@ on wasm.
 - **Query, pipeline, action and resource editors (tree view, `gui_info` widgets, presets, store file selector, accessor binding; supersedes `command-parameter-editor`)** — complete → [`design/query-pipeline-editor/`](design/query-pipeline-editor/)
 - **Query editor ergonomics (action cards, Simple and Advanced modes, icons, shortcuts, jump from text to field, theme proof of concept)** — complete → [`design/query-editor-ergonomics/`](design/query-editor-ergonomics/)
 - **Liquers UI from Python (the model, and an egui window)** — built → [`design/liquers-py-ui/`](design/liquers-py-ui/), [`design/liquers-py-ui-window/`](design/liquers-py-ui-window/)
-- **UI redesign: UI crate(s), one trait per technique, client-server protocol** — planned → [`issues/UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE.md`](issues/UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE.md) *(investigation: [`design/ui-split-elements/`](design/ui-split-elements/))*
+- **UI redesign: UI crate(s), egui, web and ratatui frontends, monolithic and split client-server, Tauri, sessions, themes, tools, charts, MIDI** — planned → [`design/ui-redesign/`](design/ui-redesign/) *(idea map and plan of designs D1–D21; investigation: [`design/ui-split-elements/`](design/ui-split-elements/); issue: [`issues/UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE.md`](issues/UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE.md))*
 
 `design/ui-events/` built the interaction half of the browser backend — `webui-fixes` did the
 rendering half: backend-neutral `UIEvent`s delivered through `update()`, declared in `data-lq-*`
@@ -331,7 +332,9 @@ question are both measure-first items.
 ## Open issues attached to live design work
 
 <!-- BEGIN generated: issues -->
-*None.*
+| Issue | Pri | Cx | Design |
+|---|---|---|---|
+| [`UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE`](issues/UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE.md) | P1 | XL | `ui-redesign` |
 <!-- END generated: issues -->
 
 ## Not yet placed
@@ -697,7 +700,8 @@ deliberately folded behind a broader line.
 - feature `QUERY-BUILDER-NOT-IN-BINDINGS`
 - feature `QUERY-CANNOT-CHOOSE-A-DATA-FORMAT`
 - feature `QUERY-CANNOT-MARK-CACHED-INTERMEDIATES`
-- feature `RECIPES-CANNOT-DESCRIBE-A-SELF-CONTAINED-ASSET-TREE`
+- feature `RECIPE-TREE-CANNOT-BE-EXPORTED-AS-AN-ARCHIVE`
+- feature `RECIPE-TREES-NOT-IN-LANGUAGE-BINDINGS`
 - feature `RECORD-FIELD-TYPE-HAS-NO-DECIMAL`
 - feature `RECORD-FIELD-TYPE-HAS-NO-UUID-TIME-OR-INTERVAL`
 - feature `RECORD-SOURCE-ROWS-CANNOT-BE-STREAMED`

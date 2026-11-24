@@ -246,7 +246,7 @@ impl<E: Environment> CommandArguments<E> {
             | ParameterValue::DefaultLink(_, _)
             | ParameterValue::ParameterLink(_, _, _)
             | ParameterValue::OverrideLink(_, _)
-            | ParameterValue::EnumLink(_, _, _)
+            | ParameterValue::EnumLink(_, _, _) | ParameterValue::NodeLink(_, _, _, _)
             | ParameterValue::Placeholder(_)
             | ParameterValue::Injected(_)
             | ParameterValue::ParameterPipeline(_, _, _)
@@ -281,7 +281,7 @@ impl<E: Environment> CommandArguments<E> {
             ParameterValue::DefaultLink(_, query)
             | ParameterValue::ParameterLink(_, query, _)
             | ParameterValue::OverrideLink(_, query)
-            | ParameterValue::EnumLink(_, query, _) => Err(Error::general_error(format!(
+            | ParameterValue::EnumLink(_, query, _) | ParameterValue::NodeLink(_, _, query, _) => Err(Error::general_error(format!(
                 "Unresolved link in multiple argument #{} '{}': {}",
                 i + 1,
                 name,
