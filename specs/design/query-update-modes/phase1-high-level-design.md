@@ -190,13 +190,13 @@ Discussed with Orest on 2026-11-24; answers he agreed to are marked.
    Orest agreed to frame, ✓ by mode, mode control and status line on 2026-11-24.
 3. **Defaults** (proposed): a `mode` argument with a default (AC-20); no automatic switch, only a
    suggestion on a slow evaluation (AC-21). Default for an editor bound to an accessor: Live
-   preview (recommended) or Apply immediately?
+   preview (agreed at the gate, 2026-11-24).
 4. **Timing** (agreed): quiet threshold 250 ms, debounce 300 ms; "a few seconds" for AC-21 is 3 s.
 5. **A slow result** (agreed): the old value stays dimmed.
 6. **Undo** (agreed): toolbar buttons and the keys. The console has no Revert; an editor keeps
    Revert, which reloads the accessor after a conflict.
 7. **Enter on an invalid query** (agreed): applies nothing and highlights the error.
-8. **Size.** The design now spans editors, console, runner and two commands; it may be split at
+8. **Size** (agreed at the gate, 2026-11-24: two parts, one PR each). The design now spans editors, console, runner and two commands; it may be split at
    Phase 2 into the console part (AC-1 to AC-6, AC-13 to AC-16, AC-19) and the editor part
    (AC-9, AC-17, AC-18, AC-20, AC-21).
 
