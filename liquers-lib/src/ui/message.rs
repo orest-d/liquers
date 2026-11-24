@@ -81,6 +81,11 @@ pub enum AppMessage {
     /// change, including expiration transitions. Monitoring auto-stops when the
     /// element is removed from AppState.
     RequestAssetUpdates { handle: UIHandle, query: String },
+    /// Evaluate `query` as a preview: an ad-hoc asset run with `cwd` as its working directory
+    /// (a recipe's folder), never stored, so nothing upstream is written or expires. Its
+    /// snapshots reach `handle` as `UpdateMessage::AssetUpdate` with `preview: true`, monitored
+    /// as `RequestAssetUpdates` monitors (query-update-modes AC-17, AC-18).
+    Preview { handle: UIHandle, query: String, cwd: Option<String> },
     /// Apply `query` to `input` (used as the input state), binding results to `handle`.
     /// Sent when a `UiAction::Apply` fires: the backend reads the live input value and
     /// forwards it here, where AppRunner runs `apply_immediately(query, state(input))`.

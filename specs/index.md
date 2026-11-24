@@ -8,10 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 270
+Total rows: 271
 - P1: 1
-- P2: 69
-- P3: 200
+- P2: 68
+- P3: 202
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -74,7 +74,6 @@ Total rows: 270
 | [`EXTENDED-FAST-TRACK`](issues/EXTENDED-FAST-TRACK.md) | feature | A cheap query waits behind long-running jobs, because commands cannot be classified for scheduling | accepted | phase2-blocked | not-eligible | P2 | L | core/assets | [phase1](design/command-execution-class/phase1-high-level-design.md)  [phase2](design/command-execution-class/phase2-architecture.md)  | 2026-08-08 |
 | [`CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS`](issues/CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS.md) | issue | Every queued command shares one job queue, so commands cannot be placed by their cost | draft |  |  | P2 | L | core/assets |  | 2026-10-26 |
 | [`PIPELINE-RESULTS-ARE-NEVER-CACHED`](issues/PIPELINE-RESULTS-ARE-NEVER-CACHED.md) | feature | A pipeline's result is never cached, even when the pipeline has a query form | draft |  |  | P2 | L | core/assets;core/context |  | 2026-11-14 |
-| [`QUERY-EDITOR-HAS-NO-LIVE-PREVIEW`](issues/QUERY-EDITOR-HAS-NO-LIVE-PREVIEW.md) | feature | A query editor cannot show an edit's result without writing it upstream | draft |  |  | P2 | L | lib/ui;lib/egui | [phase1](design/query-update-modes/phase1-high-level-design.md)  [phase2](design/query-update-modes/phase2-architecture.md)  [phase3](design/query-update-modes/phase3-examples.md)  [phase4](design/query-update-modes/phase4-implementation.md)  [phase5](design/query-update-modes/phase5-documentation.md)  | 2026-11-24 |
 | [`RING-NEEDS-CLANG-ON-WINDOWS-ARM64`](issues/RING-NEEDS-CLANG-ON-WINDOWS-ARM64.md) | issue | Default builds and cargo doc fail on Windows ARM64 without clang, because Polars and OpenDAL pull in ring | draft |  |  | P2 | L | build;store/backends;lib/polars |  | 2026-11-04 |
 | [`SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED`](issues/SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED.md) | issue | No guideline or user documentation says which Liquers settings are security-sensitive | draft |  |  | P2 | L | docs;axum;py;web |  | 2026-11-06 |
 | [`WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS`](issues/WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS.md) | feature | The web API cannot run a pipeline or recipe document, nor serve recipes as typed endpoints | draft |  |  | P2 | L | axum;core/assets;core/context;mcp |  | 2026-11-01 |
@@ -120,6 +119,7 @@ Total rows: 270
 | [`DRAFT-MARKERS-LOOK-ALIKE`](issues/DRAFT-MARKERS-LOOK-ALIKE.md) | issue | Draft builds show every editorial marker the same way | draft |  |  | P3 | S | docs |  | 2026-11-01 |
 | [`DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE`](issues/DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE.md) | issue | Removing a computed value with a stored record leaves an empty data file at its key | draft |  |  | P3 | S | core/assets;core/store |  | 2026-10-27 |
 | [`DUPLICATE-OF-EXTERNAL-RESOURCE-RECIPE-KEEPS-ITS-FILENAME`](issues/DUPLICATE-OF-EXTERNAL-RESOURCE-RECIPE-KEEPS-ITS-FILENAME.md) | issue | Duplicating a recipe whose query is only a resource outside the folder is refused | draft |  |  | P3 | S | core/plan |  | 2026-11-24 |
+| [`EDITOR-HAS-NO-KEY-TO-DISCARD-A-PREVIEW`](issues/EDITOR-HAS-NO-KEY-TO-DISCARD-A-PREVIEW.md) | feature | Escape does not discard a Live preview in the query editor | draft |  |  | P3 | S | lib/egui |  | 2026-11-24 |
 | [`EGUI-EXAMPLES-HAND-WRITE-THE-FRAME-LOOP`](issues/EGUI-EXAMPLES-HAND-WRITE-THE-FRAME-LOOP.md) | issue | Six egui examples keep their own runtime, runner loop and repaint policy instead of the native driver | draft |  |  | P3 | S | lib/egui |  | 2026-11-10 |
 | [`GUIDE-SECTION-ANCHORS-DIFFER-BETWEEN-RENDERERS`](issues/GUIDE-SECTION-ANCHORS-DIFFER-BETWEEN-RENDERERS.md) | issue | Section links between chapters break in the EPUB and PDF | draft |  |  | P3 | S | docs |  | 2026-11-01 |
 | [`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`](issues/LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT.md) | issue | Language exception class and stack are lost in transport | accepted |  |  | P3 | S | web |  | 2026-08-08 |
@@ -217,6 +217,7 @@ Total rows: 270
 | [`MCP-SERVER-APPLIES-NO-ACCESS-POLICY`](issues/MCP-SERVER-APPLIES-NO-ACCESS-POLICY.md) | feature | The MCP server limits its query tool by a command allow-list, not by an access policy | draft |  |  | P3 | M | mcp |  | 2026-10-20 |
 | [`NAMESPACES-HAVE-NO-METADATA`](issues/NAMESPACES-HAVE-NO-METADATA.md) | feature | A namespace has no metadata, so a user-defined namespace cannot declare its icon, colour, label or doc | draft |  |  | P3 | M | core/commands |  | 2026-11-21 |
 | [`PLAN-BUILDER-DUPLICATES-PIPELINE-PLANNING`](issues/PLAN-BUILDER-DUPLICATES-PIPELINE-PLANNING.md) | issue | Two plan builders plan the same queries once pipelines land | draft |  |  | P3 | M | core/plan | [notation](design/composite-command-definition/notation-and-integration.md)  [phase1](design/composite-command-definition/phase1-high-level-design.md)  [phase2](design/composite-command-definition/phase2-architecture.md)  [phase3](design/composite-command-definition/phase3-examples.md)  [phase4](design/composite-command-definition/phase4-implementation.md)  [phase5](design/composite-command-definition/phase5-documentation.md)  [pipeline](design/composite-command-definition/pipeline-and-plan.md)  [pipeline](design/composite-command-definition/pipeline-structure-and-sources.md)  [recipe](design/composite-command-definition/recipe-and-pipeline-structures.md)  | 2026-11-03 |
+| [`PREVIEW-IS-FRAMED-ONLY-IN-THE-QUERY-CONSOLE`](issues/PREVIEW-IS-FRAMED-ONLY-IN-THE-QUERY-CONSOLE.md) | feature | A Live preview is framed and ended only when the followed view is a query console | draft |  |  | P3 | M | lib/ui;lib/egui |  | 2026-11-24 |
 | [`PY-CANNOT-INSPECT-THE-DEPENDENCY-MANAGER`](issues/PY-CANNOT-INSPECT-THE-DEPENDENCY-MANAGER.md) | feature | Python cannot inspect the dependency manager | draft |  |  | P3 | M | py |  | 2026-11-14 |
 | [`PY-EXIT-WITH-UNCANCELLABLE-COMMAND-CRASHES-BEFORE-3-14`](issues/PY-EXIT-WITH-UNCANCELLABLE-COMMAND-CRASHES-BEFORE-3-14.md) | issue | Exiting Python while a command ignores cancellation can still abort the process before CPython 3.14 | draft |  |  | P3 | M | py |  | 2026-10-31 |
 | [`QUERY-COST-IS-UNKNOWN-TO-THE-UI`](issues/QUERY-COST-IS-UNKNOWN-TO-THE-UI.md) | feature | The UI cannot tell an expensive query from a cheap one, so an element's update mode cannot follow it | draft |  |  | P3 | M | lib/ui;core/commands |  | 2026-11-24 |

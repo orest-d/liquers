@@ -589,6 +589,16 @@ impl QueryConsoleElement {
             UIEventKind::Submit => self.on_apply_event(event, ctx),
             UIEventKind::Named(name) if name == UPDATE_EVENT => self.on_apply_event(event, ctx),
             UIEventKind::Named(name) if name == crate::ui::TIMER_EVENT => self.on_timer_event(event, ctx),
+            UIEventKind::Named(name) if name == crate::ui::editor::PREVIEW_END_EVENT => {
+                // The editor this console follows dropped or applied its preview: show the
+                // console's own query again (AC-17).
+                if self.display.requested_preview() && !self.query_text.is_empty() {
+                    self.evaluate(ctx);
+                    UpdateResponse::NeedsRepaint
+                } else {
+                    UpdateResponse::Unchanged
+                }
+            }
             UIEventKind::Named(name) if name.starts_with(MODE_EVENT) => {
                 match UpdateMode::from_name(&name[MODE_EVENT.len()..]) {
                     Ok(mode) => {
@@ -1057,10 +1067,22 @@ impl QueryConsoleElement {
 
     /// A snapshot pushed by the runner.
     fn on_asset_update(&mut self, snapshot: &crate::ui::message::AssetSnapshot, ctx: &UIContext) -> UpdateResponse {
+        let before = self.display.requested().map(str::to_string);
         let outcome = self.display.on_snapshot(snapshot);
         match outcome {
             SnapshotOutcome::Ignored => return UpdateResponse::Unchanged,
             SnapshotOutcome::Progress | SnapshotOutcome::Settled => {}
+        }
+        // Re-pointed from outside (an editor this console follows): an applied query becomes the
+        // console's text; a preview leaves the text, so ✓ or Enter returns to it (AC-17).
+        let now = self.display.requested().map(str::to_string);
+        if now != before && !self.display.requested_preview() {
+            if let Some(query) = now {
+                self.query_text = query;
+                self.typed_error = None;
+                self.debounced_query = None;
+                self.sync_editor(ctx);
+            }
         }
         if snapshot.value.is_some() {
             self.data_view = true;
@@ -1109,6 +1131,10 @@ impl UIElement for QueryConsoleElement {
 
     fn clone_boxed(&self) -> Box<dyn UIElement> {
         Box::new(self.clone())
+    }
+
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        Some(self)
     }
 
     fn init(&mut self, handle: UIHandle, ctx: &UIContext) -> Result<(), Error> {
@@ -1361,6 +1387,7 @@ mod tests {
             | Ok(AppMessage::Evaluate { .. })
             | Ok(AppMessage::SaveAs { .. })
             | Ok(AppMessage::LoadIcon { .. })
+            | Ok(AppMessage::Preview { .. })
             | Err(_) => None,
         }
     }
@@ -2069,7 +2096,8 @@ mod tests {
                 | AppMessage::RenameData { .. }
                 | AppMessage::Evaluate { .. }
                 | AppMessage::SaveAs { .. }
-                | AppMessage::LoadIcon { .. } => panic!("Expected RequestAssetUpdates"),
+                | AppMessage::LoadIcon { .. }
+                | AppMessage::Preview { .. } => panic!("Expected RequestAssetUpdates"),
             }
         }
     }
@@ -2389,7 +2417,7 @@ mod tests {
         {
             let html = c.render_web(&DirectAppState::new());
             for needle in [
-                "data-lq-event=\"qc:mode::on-demand\"",
+                "data-lq-event=\"qc:mode::on_demand\"",
                 "data-lq-event=\"qc:mode::immediate\"",
                 "data-lq-event=\"qc:undo\"",
                 "lq-status-bar",

@@ -278,20 +278,21 @@ fn pipeline_text_is_read_only() {
 #[test]
 fn element_round_trips_and_old_console_state_loads() {
     let element = EditorElement::new("E", EditorKind::Action, EditorBinding::Memory("ns-pl/head".into()))
-        .with_continuous(false);
+        .with_update_mode(UpdateMode::OnDemand);
     let boxed: Box<dyn UIElement> = Box::new(element);
     let json = serde_json::to_string(&boxed).expect("serialize");
     let back: Box<dyn UIElement> = serde_json::from_str(&json).expect("deserialize");
     let back = back.as_any().and_then(|a| a.downcast_ref::<EditorElement>()).expect("editor");
     assert_eq!(back.kind(), EditorKind::Action);
-    assert!(!back.continuous());
+    assert_eq!(back.update_mode(), UpdateMode::OnDemand);
     assert_eq!(back.binding(), &EditorBinding::Memory("ns-pl/head".into()));
 
-    // An element saved without the optional fields loads with "Update immediately" on.
+    // An element saved without the optional fields loads in Live preview (query-update-modes
+    // AC-15); see `legacy_continuous_loads_as_a_mode` for "Update immediately".
     let old = r#"{"EditorElement":{"handle":null,"title":"E","kind":"Query","binding":{"Accessor":"-R/x"}}}"#;
     let old: Box<dyn UIElement> = serde_json::from_str(old).expect("old");
     let old = old.as_any().and_then(|a| a.downcast_ref::<EditorElement>()).expect("editor");
-    assert!(old.continuous());
+    assert_eq!(old.update_mode(), UpdateMode::LivePreview);
 
     // A query console saved before the Parameters panel loads with it closed.
     let console = crate::ui::widgets::QueryConsoleElement::new("C".to_string(), "-R/x".to_string());
@@ -618,7 +619,7 @@ fn update_mode_names_round_trip() {
     }
     assert_eq!(UpdateMode::default(), UpdateMode::LivePreview);
     let error = UpdateMode::from_name("sometimes").expect_err("unknown");
-    assert!(error.to_string().contains("on-demand, preview or immediate"), "{error}");
+    assert!(error.to_string().contains("on_demand, preview or immediate"), "{error}");
 }
 
 /// query-pipeline-editor AC-26
@@ -1161,4 +1162,84 @@ fn insert_action_after_a_step() {
         .expect("picker");
     state.apply(EditorCommand::PickCommand(CommandKey::new("", "pl", "is_in"))).expect("pick after the last");
     assert!(state.tree().text.ends_with("/sort/is_in"), "{}", state.tree().text);
+}
+
+/// query-update-modes AC-17, AC-18 (the element): a Live preview edit is sent to the followed
+/// view with the recipe's folder; a write or a Revert ends it there.
+#[test]
+fn live_preview_clears_on_write_and_revert() {
+    use crate::ui::app_state::{AppState, DirectAppState};
+    use crate::ui::element::UpdateMessage;
+    use crate::ui::handle::UIHandle;
+    use crate::ui::message::{app_message_channel, AccessorUpdate, AppMessage};
+    use crate::ui::ui_context::UIContext;
+    let (tx, mut rx) = app_message_channel();
+    let app_state: Arc<tokio::sync::Mutex<dyn AppState>> = Arc::new(tokio::sync::Mutex::new(DirectAppState::new()));
+    let ctx = UIContext::new(app_state, tx).with_command_registry(Arc::new(registry()));
+    let address = "-R-key/reports/recipes.yaml/-/ns-acc/accessor/recipe-0/query";
+    let mut element = EditorElement::new("E", EditorKind::Query, EditorBinding::Accessor(address.into()))
+        .with_follow(UIHandle(9));
+    assert_eq!(element.update_mode(), UpdateMode::LivePreview, "the default of a recipe's editor");
+    element.init(UIHandle(1), &ctx).expect("init");
+    while rx.try_recv().is_ok() {}
+    let value = Arc::new(Value::from_query(&parse_query(PROBLEM).expect("query")));
+    element.update(&UpdateMessage::Accessor(AccessorUpdate::Snapshot { value, fingerprint: Some(fp(1)) }), &ctx);
+
+    let preview_end = |rx: &mut crate::ui::message::AppMessageReceiver| loop {
+        match rx.try_recv() {
+            Ok(AppMessage::UIEvent { handle, event }) => {
+                break handle == UIHandle(9)
+                    && matches!(&event.kind, crate::ui::event::UIEventKind::Named(n) if n == PREVIEW_END_EVENT)
+            }
+            Ok(_) => continue,
+            Err(_) => break false,
+        }
+    };
+    element.apply_commands(vec![set(3, "n", "4")], &ctx);
+    match rx.try_recv() {
+        Ok(AppMessage::Preview { handle, query, cwd }) => {
+            assert_eq!(handle, UIHandle(9), "in place, in the followed view");
+            assert!(query.contains("head-4"), "{query}");
+            assert_eq!(cwd.as_deref(), Some("reports"));
+        }
+        other => panic!("expected a preview, got {other:?}"),
+    }
+    element.apply_commands(vec![EditorCommand::Revert], &ctx);
+    assert!(
+        matches!(rx.try_recv(), Ok(AppMessage::Accessor { op: crate::ui::message::AccessorOp::Get, .. })),
+        "Revert reloads the working copy"
+    );
+    assert!(!preview_end(&mut rx), "the view waits for the saved value");
+    let value = Arc::new(Value::from_query(&parse_query(PROBLEM).expect("query")));
+    element.update(&UpdateMessage::Accessor(AccessorUpdate::Snapshot { value, fingerprint: Some(fp(1)) }), &ctx);
+    assert!(preview_end(&mut rx), "then the preview in the view ends");
+
+    element.apply_commands(vec![set(3, "n", "5"), EditorCommand::Update], &ctx);
+    element.update(&UpdateMessage::Accessor(AccessorUpdate::Written { fingerprint: fp(2) }), &ctx);
+    assert!(preview_end(&mut rx), "a write ends it too");
+    assert!(!element.tree().expect("tree").pending);
+}
+
+/// query-update-modes AC-15, AC-20: an element saved with "Update immediately" loads as a mode;
+/// one saved without either loads in Live preview, or Apply immediately where Live preview is
+/// not offered; the mode round-trips.
+#[test]
+fn legacy_continuous_loads_as_a_mode() {
+    let load = |json: &str| -> UpdateMode {
+        let element: Box<dyn UIElement> = serde_json::from_str(json).expect("element");
+        element.as_any().and_then(|a| a.downcast_ref::<EditorElement>()).expect("editor").update_mode()
+    };
+    let saved = |kind: &str, extra: &str| {
+        format!(r#"{{"EditorElement":{{"handle":null,"title":"E","kind":"{kind}","binding":{{"Accessor":"-R/x"}}{extra}}}}}"#)
+    };
+    assert_eq!(load(&saved("Query", r#","continuous":true"#)), UpdateMode::ApplyImmediately);
+    assert_eq!(load(&saved("Query", r#","continuous":false"#)), UpdateMode::OnDemand);
+    assert_eq!(load(&saved("Query", "")), UpdateMode::LivePreview);
+    assert_eq!(load(&saved("Action", "")), UpdateMode::ApplyImmediately);
+    assert_eq!(load(&saved("Query", r#","update_mode":"on_demand""#)), UpdateMode::OnDemand);
+    let element = EditorElement::new("E", EditorKind::Action, EditorBinding::Memory(String::new()))
+        .with_update_mode(UpdateMode::LivePreview);
+    assert_eq!(element.update_mode(), UpdateMode::OnDemand, "an action editor has no Live preview");
+    let json = serde_json::to_string(&(Box::new(element) as Box<dyn UIElement>)).expect("json");
+    assert!(json.contains(r#""update_mode":"on_demand""#) && !json.contains("continuous"), "{json}");
 }

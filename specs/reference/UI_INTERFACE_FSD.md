@@ -437,7 +437,7 @@ then `recipes.yaml`) and sends the context again. Without a folder the field is 
 **Edits.** `EditorState` (backend-free) applies each `EditorCommand` as a validated edit of a
 `liquers_core::pipeline::QueryEditor` / `PipelineEditor` working copy: a refused edit changes
 nothing and is shown at its node. When a committed edit takes effect is the state's
-`UpdateMode` (serde and `mode` names `on-demand`, `preview`, `immediate`): **Apply immediately**
+`UpdateMode` (serde and `mode` names `on_demand`, `preview`, `immediate`): **Apply immediately**
 writes it (`EditorEffect::Write`); **Live preview** keeps it pending and returns
 `EditorEffect::Preview(value)`, Update writing it and Revert or Undo back to the applied value
 returning `ClearPreview`; **On demand** keeps it pending until Update, and Revert reloads.
@@ -445,9 +445,24 @@ returning `ClearPreview`; **On demand** keeps it pending until Update, and Rever
 (`EditorCommand::Undo` / `Redo`, at most 100 steps; a new edit clears Redo) restore earlier
 working copies and commit them like any edit; `EditorTree::{update_mode, update_modes, can_undo,
 can_redo}` carry the state to the renderers, and `host_controls` tells them that the host draws the
-mode control, Undo, Redo and ✓ itself. The editor element (`lui/query_editor`) still serializes
-`continuous` and offers On demand and Apply immediately; its Live preview through the followed view
-is `design/query-update-modes/` Part B. A namespace edit that
+mode control, Undo, Redo and ✓ itself.
+
+**Editor element modes** (`design/query-update-modes/` Part B). `EditorElement` serializes
+`update_mode`; an element saved before it loads its `continuous` ("Update immediately") as Apply
+immediately (`true`) or On demand (`false`), and one with neither loads in Live preview. Live
+preview needs a whole query, so only a query editor offers it: an action, resource or key editor
+offers On demand and Apply immediately (and loads in Apply immediately). The commands take a
+`mode` argument (`lui/query_editor-preview|immediate|on_demand`, default `preview`;
+`action_editor`, `resource_editor`, `key_editor` and `query_console` `immediate|on_demand`, default
+`immediate`). A Live preview edit sends `AppMessage::Preview { handle, query, cwd }` to the view
+the editor follows (`with_follow`), else to the editor itself, which then shows the value framed
+under its form; `cwd` is the folder of the `recipes.yaml` the editor is bound to
+(`recipe_folder`). The runner evaluates it as an ad-hoc asset (`Recipe` with that `cwd`, through
+`AssetManager::apply_queued`), so relative keys (`-R/./data.txt`) read as in the recipe's own
+evaluation and nothing is stored or expires; its snapshots carry `preview: true`. A write or a
+Revert ends the preview: the followed view of a recipe gets the UI event `lq:preview-end`
+(`PREVIEW_END_EVENT`) and evaluates its own query again, which the write has expired; any other
+followed view is re-pointed at the applied query (`RequestAssetUpdates`). A namespace edit that
 changes what a command resolves to waits for Confirm; one that leaves a command unresolved is
 refused. Unknown commands and excess parameters are shown read-only and kept.
 
@@ -531,7 +546,10 @@ cannot see typing between renders. The toolbar has the mode control (`qc:mode::<
 Redo (`qc:undo`, `qc:redo`, Ctrl+Z / Ctrl+Shift+Z in egui). "Browse…" in the panel sends
 `AppMessage::ListDirectory` and the `UpdateMessage::Directory` answer reaches the panel. The value
 is kept in a `ui::widgets::ValueDisplay`: a new value replaces the old one with no empty frame; a
-snapshot whose `AssetSnapshot::query` (and `preview` flag) is not the one awaited is ignored; an
+late snapshot of one of the console's own earlier requests (by `AssetSnapshot::query` and
+`preview`) is ignored, and a snapshot of any other query is the console re-pointed from outside
+(the runner monitors the latest query asked for an element): the display adopts it, and an
+adopted applied query becomes the console's text, while a preview leaves the text; an
 evaluation still running after `QUIET_MS` (250 ms) dims the value and shows a status bar
 (`.lq-status-bar`: status, progress, last log), after `SLOW_MS` (3 s) with "Switch to On demand";
 an error keeps the old value, dimmed. An `Expired` snapshot without a value is recalculated in
@@ -989,3 +1007,4 @@ Candidate universal operations identified across use cases:
 | 2026-11-24 | Editors: "Add key…" on a query with no key; the console's panel keeps "Add action…". `UIElement::scrolls_itself` lets the console draw a self-scrolling element (Markdown) without a second scroll area. Those parts reviewed against the implementation. | — |
 | 2026-11-24 | Editors: recipe editors — `RecipesElement` / `RecipeElement`, `lui/recipes_editor` / `lui/recipe_editor`, `AppMessage::Evaluate` / `SaveAs`, the `NodeContext` asset information, formats and notice. That subsection reviewed against the implementation. | `design/recipes-editor/` |
 | 2026-11-24 | Editors: update modes (On demand, Live preview, Apply immediately), Undo / Redo, ✓ beside the query field, `host_controls`; the query console's update modes, debounce, typed-text validation, `ValueDisplay` (no flicker, status bar, dimming, preview frame), expiry by mode, Browse in the panel, `schedule_event` (`design/query-update-modes/` Part A). Those parts reviewed against the implementation. | — |
+| 2026-11-24 | Editor element modes and Live preview through `AppMessage::Preview` (recipe folder as `cwd`, `lq:preview-end`), the `mode` arguments, mode names `on_demand` / `preview` / `immediate`, the value display adopting a re-pointed query (`design/query-update-modes/` Part B). Those parts reviewed against the implementation. | — |
