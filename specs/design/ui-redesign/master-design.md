@@ -1184,6 +1184,20 @@ protocol messages → view store copy → frontend.
   optional crates, so SSO needs no change to the core. D4 defines the trait.
 - The principal is attached to the session and to every evaluation it starts. What it may do is
   decided by `access-policy-at-entry-points`, not by the UI.
+- **What a session is.** One runner and one element tree, and with them: one handle space
+  (handles mean nothing outside their session), one mailbox (one order of messages), one
+  principal, one lifetime, one saved state, one trace. All sessions share the environment, and
+  so its assets, stores and cache.
+- **Inside a session** an element can message any other element by handle, tree operations can
+  touch any subtree (also one shown by another frontend), `lui` commands act on the session they
+  run in, and control events can go to the focused element of another frontend. **Across
+  sessions** none of that exists: the only bridge is named data in the environment (assets,
+  stores, value accessors with change events). No other cross-session mechanism is planned.
+- **Which to use.** One user, one task, several devices or windows: one session (a control
+  surface, a second window, handover). Different users, different rights, or independent work on
+  the same data: separate sessions. A frontend attached to a session acts with the session's
+  principal, so a restricted helper device is a separate session. The unit of attachment is the
+  subtree (Orest, 2026-11-24).
 - **Several frontends may attach to one session, but an element instance is connected at most
   once** (Orest, 2026-11-24). Each frontend is attached to its own subtree, like a window: the
   desktop shows one, a phone shows a control surface. There is never "the same" editor in two
