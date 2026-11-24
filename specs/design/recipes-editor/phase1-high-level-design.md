@@ -30,20 +30,22 @@ feeds which, means editing the YAML by hand. The accessor addresses a recipe by 
 an editor of `recipe-2` follows a different recipe after the list is reordered.
 
 **Once this exists** `-R-key/scenes/car/recipes.yaml/-/ns-acc/accessor/ns-lui/recipes_editor`
-shows:
+is a narrow **side panel** (a navigator, not a file browser):
 
 ```
- car/  ▸ Outline  ▾                     [ Nodes | Dependencies | YAML ]   ＋ New
-   🫖 body    Body
-   🫖 tyre    Tyre
-   🫖 wheel   Wheel         ⚠ (if a finding)
-   🫖 car     Car           ★ result
+ car/   ≡ ⑂ { } ＋
+ 🫖 body     ●
+ 🫖 tyre     ●
+ 🫖 wheel   42%
+ 🫖 car    ★ ⚠
 ```
 
-Clicking `wheel` opens a window with its recipe editor (title, description, filename, the query
-editor, overrides, options). Renaming `wheel` to `rim` in the outline rewrites `car`'s reference
-and moves stored data. The *Dependencies* view shows `car ▸ body, wheel ▸ tyre`. The *YAML* view
-is the same file as text with syntax highlighting.
+Hovering `wheel` shows its title and description; hovering `42%` shows the progress message;
+hovering `⚠` shows the finding. Clicking `wheel` opens a window with its recipe editor (title,
+description, filename, the query editor, overrides, options); right-clicking opens a menu (View,
+Metadata, Edit, Evaluate, Rename, Duplicate, Delete, Save as, Export). Renaming `wheel` to `rim`
+rewrites `car`'s reference and moves stored data. `⑂` switches to the *Dependencies* view
+(`car ▸ body, wheel ▸ tyre`); `{ }` opens the whole file as highlighted YAML in its own window.
 
 ## Recommendation: the recipe list stays a document, not a new `Value` variant
 
@@ -71,7 +73,8 @@ editor, because the editors accept either text or such a value.
 
 - **AC-1** Outline of a recipes list
   WHEN `lui/recipes_editor` is given an accessor of a folder's `recipes.yaml` without `tree:`
-  THEN it lists one row per recipe in file order: icon, filename and title.
+  THEN it is a narrow side panel listing one row per recipe in file order: the type icon, the
+  label (AC-16) and the status (AC-17).
 - **AC-2** Icon by asset type
   WHEN a row is drawn
   THEN its icon is the asset's `unicode_icon` from its metadata if the asset manager has it, else
@@ -79,8 +82,8 @@ editor, because the editors accept either text or such a value.
   the default icon.
 - **AC-3** Outline of a recipe tree
   WHEN the document has a `tree:` section
-  THEN rows show the node name (filename without extension) with the type icon, never the
-  extension; the result is marked, and stored files the folder declares as sources are rows too.
+  THEN rows label a recipe by its node name (filename without extension) instead of its filename,
+  the type icon standing for the extension; the result is marked, and stored files the folder declares as sources are rows too.
 - **AC-4** Open a recipe in a window
   WHEN a row is clicked
   THEN a window opens with that recipe's editor; clicking it again focuses the same window, and
@@ -117,9 +120,9 @@ editor, because the editors accept either text or such a value.
   result), each node's direct dependencies are its children, a node with several parents appears
   under each, and a cycle is shown once and not expanded further. The default view stays the
   outline in file order.
-- **AC-12** YAML view
-  WHEN the YAML view is chosen
-  THEN the whole document is shown as editable YAML with syntax highlighting (queries inside
+- **AC-12** YAML window (revised 2026-11-24)
+  WHEN the YAML button of the panel is pressed
+  THEN a separate window shows the whole document as editable YAML with syntax highlighting (queries inside
   `query:` highlighted as queries); typed text is applied only when it parses as a recipe list,
   otherwise the parse error is shown at its line and nothing is applied.
 - **AC-13** Update modes apply
@@ -134,6 +137,29 @@ editor, because the editors accept either text or such a value.
   WHEN the file changes elsewhere while an editor has unwritten edits
   THEN the editor reloads or reports a conflict as the query editor does today (`set_if`), and
   never overwrites the other change silently.
+
+- **AC-16** Configurable label
+  WHEN the panel's `label` setting is `name`, `title` or `both` (default `name`)
+  THEN rows show the filename (node name in a tree), the title, or both; a recipe without a title
+  falls back to its name.
+- **AC-17** Status, progress and findings
+  WHEN a row's asset has a status in the asset manager
+  THEN it is a small coloured circle or icon whose tooltip names the status; while the asset
+  reports progress with a total, a tiny percentage (`42%`) replaces it, its tooltip giving the
+  progress message; a check finding or an asset error adds a `⚠`/`✕` whose tooltip gives the
+  message.
+- **AC-18** Tooltips
+  WHEN the pointer rests on a row's name
+  THEN a tooltip shows the title and description; on the title, the description.
+- **AC-19** Context menu
+  WHEN a row is right-clicked (egui; the browser renderer too)
+  THEN a menu offers, each disabled with a reason when it does not apply:
+  **View** (the asset's value, in a window), **Metadata** (its metadata, in a window),
+  **Edit** (the recipe window, as a click does), **Evaluate** (evaluate or re-evaluate the asset;
+  progress shows in the row), **Rename**, **Duplicate**, **Delete**, **Save as** (write the value
+  to a file on the person's computer, not to the store), **Export** (a submenu of the data
+  formats the value's type can be written in, `TypeInfo::supported_data_formats`; each saves a
+  file like Save as); in a tree also **Add child** and **Set as result**.
 
 Non-goals: reordering by drag (later); comment-preserving writes of structured edits
 (`YAML-DOCUMENT-EDIT-DROPS-COMMENTS`); editing several folders in one editor; subfolder nodes
@@ -187,18 +213,25 @@ and elements (`ui/editor/` or a sibling `ui/recipes/`), the `lui` commands, the 
    re-bind the windows. In Apply immediately those accessors write straight through to the store
    accessor. *Recommended: yes.* The alternative — each window bound to the store accessor directly
    — is addressable after a restart but cannot hold a multi-window pending edit.
-3. **One element or two.** One `lui/recipes_editor` with views *Outline* (list or nodes, chosen by
-   the `tree:` section), *Dependencies* and *YAML*, plus `lui/recipe_editor`. *Recommended: yes.*
-   A separate tree element would duplicate everything but the row label.
-4. **Window form.** egui: floating `egui::Window`s owned by the recipes editor; browser: a dialog
-   panel stacked beside the outline. Or a docked split (outline left, one recipe right) with
-   windows optional? *Recommended: floating windows, as asked, with "dock" as a later option.*
+3. **One element or two.** One `lui/recipes_editor` panel with views *Outline* (list or nodes,
+   chosen by the `tree:` section) and *Dependencies*, a YAML window, plus `lui/recipe_editor`.
+   *Recommended: yes.* A separate tree element would duplicate everything but the row label.
+4. **Window form.** egui: floating `egui::Window`s (recipe, YAML, View, Metadata) owned by the
+   panel; browser: dialog panels. *Recommended: floating windows; a docked main area later.*
 5. **YAML highlighting.** A small built-in YAML highlighter with theme roles and the existing
    query highlighter for `query:` values, instead of pulling in `syntect`. *Recommended: built-in.*
 6. **Dependencies view on a plain list.** Offer it for a list without `tree:` too (the graph is
    built for any list, `check_tree` uses defaults). *Recommended: yes.*
 7. **Icons.** Unicode from metadata, else extension, as asked; the theme's icon variants
    (`specs/reference/THEME.md`) can replace them later. *Recommended: as asked.*
+8. **Save as and Export on the desktop.** egui has no file dialog; add the `rfd` crate (native
+   only, behind `egui`) or ask for a path in a small window? Browser: a download.
+   *Recommended: `rfd` on native, download in the browser.*
+9. **Export formats.** Offer only formats the value's type declares (no conversions such as
+   DataFrame to xlsx unless the type lists them); formats needing a conversion command come later.
+   *Recommended: yes.*
+10. **Click action.** A click opens Edit (the recipe window), double-click opens View.
+    *Recommended: yes, as asked; configurable later.*
 
 ## References
 

@@ -61,6 +61,13 @@ h1{font:600 20px/1.2 Inter,sans-serif;margin:0 0 4px}
 .yaml .k{color:var(--y-key)}.yaml .pu{color:var(--y-punct)}.yaml .c{color:var(--y-com)}.yaml .b{color:var(--y-bool)}.yaml .st2{color:var(--y-str)}
 .yaml .errl{background:rgba(226,71,90,.12)}
 .squig{text-decoration:underline wavy var(--danger)}
+.panel{width:250px;flex:none}
+.ptb{display:flex;align-items:center;gap:4px;padding:7px 8px;border-bottom:1px solid var(--line);background:var(--bg);white-space:nowrap}
+.ib{width:24px;height:24px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;color:var(--ink2);font-size:13px}
+.ib.on{background:var(--ctl2);color:var(--ink)}.ib.pri{background:var(--accent);color:#fff}
+.pc{font-size:10.5px;color:var(--accent);font-variant-numeric:tabular-nums}
+.tip{position:absolute;background:#2a2c33;border:1px solid var(--line2);border-radius:6px;padding:6px 9px;font-size:12px;max-width:260px;box-shadow:0 8px 24px rgba(0,0,0,.45);z-index:5}
+.tip b{display:block}.tip span{color:var(--ink2)}
 .note{color:var(--ink3);font-size:12px;margin-top:10px;max-width:1180px}
 """
 
@@ -83,29 +90,29 @@ def q(text):
             out.append(f'<span class=a>{parts[0]}</span>' + "".join(f'<span class=s>-</span><span class=p>{p}</span>' for p in parts[1:]))
     return '<span class=q>' + '<span class=s>/</span>'.join(out) + '</span>'
 
-def toolbar(view, crumb, extra=""):
-    views = "".join(f'<span class="{"on" if v == view else ""}">{v}</span>' for v in ["Outline", "Dependencies", "YAML"])
-    return (f'<div class=tb><span class=dim>📁</span><b>{crumb}</b><span class="badge">recipes.yaml</span>{extra}<span class=sp></span>'
-            f'<span class=seg>{views}</span><span class="btn pri">＋ New</span></div>')
 
-def row(icon, fn, title, badges="", sel=False, dot=None, d=None, tw=""):
-    st = f'<span class=st style="background:{dot}"></span>' if dot else '<span class=st></span>'
+def ptb(crumb, view="Outline", extra=""):
+    o = "on" if view == "Outline" else ""
+    d = "on" if view == "Dependencies" else ""
+    return (f'<div class=ptb><span class=dim>📁</span><b>{crumb}</b>{extra}<span class=sp></span>'
+            f'<span class="ib {o}" title="Outline">≡</span><span class="ib {d}" title="Dependencies">⑂</span>'
+            f'<span class=ib title="YAML">{{ }}</span><span class=ib>⚙</span><span class="ib pri">＋</span></div>')
+
+def row(icon, label, status="", sel=False, d=None, tw="", title=None, plain=False):
     dd = f' style="--d:{d}"' if d is not None else ""
+    t = f'<span class=ti style="overflow:hidden;text-overflow:ellipsis">{title}</span>' if title else ""
     return (f'<div class="r{" sel" if sel else ""}"{dd}>' + (f'<span class=tw>{tw}</span>' if d is not None else "") +
-            f'<span class=ic>{icon}</span><span class=fn>{fn}</span><span class=ti>{title}</span><span class=sp></span>{badges}{st}</div>')
+            f'<span class=ic>{icon}</span><span class=fn style="min-width:0{';font-family:Inter,sans-serif;font-size:13px' if plain else ''}">{label}</span>{t}<span class=sp></span>{status}</div>')
 
-ok, warn, none = "var(--ok)", "var(--warn)", "var(--ctl2)"
+def dot(c): return f'<span class=st style="background:{c}"></span>'
+ok, none, err = "var(--ok)", "var(--ctl2)", "var(--danger)"
+pct = lambda n: f'<span class=pc>{n}%</span>'
+warn = '<span style="color:var(--warn);font-size:12px">⚠</span>'
+res = '<span style="color:#f5c76a;font-size:12px">★</span>'
 
-# 01 — recipes list outline + recipe window
-outline = "".join([
-    row("🧮", "sales.csv", "Raw sales", '<span class="badge src">source</span>', dot=ok),
-    row("🧮", "monthly.parquet", "Monthly totals", dot=ok),
-    row("🎨", "chart.png", "Monthly chart", sel=True, dot=ok),
-    row("📰", "report.html", "Sales report", '<span class="badge warn">⚠ 1</span>', dot=none),
-    row("📄", "notes.txt", "Notes", dot=none),
-])
-recipe = f"""
-<div class=win style="width:640px">
+def recipe_window(w=600):
+    return f"""
+<div class=win style="width:{w}px">
  <div class=tb><span class=ic>🎨</span><b>Monthly chart</b><span class="dim mono">chart.png</span><span class=sp></span>
  <span class="seg"><span class=on>On demand</span><span>Apply immediately</span></span><span class="btn pri">✓</span><span class="btn ghost">↶</span><span class="btn ghost">✕</span></div>
  <div class=form>
@@ -124,49 +131,75 @@ recipe = f"""
   <span class=lab></span><span class="dim">cwd · volatile · expires · stored  (collapsed)</span>
  </div>
 </div>"""
-page("01-recipes-list", "Recipes list: outline and a recipe window",
-     "A folder without <span class=mono>tree:</span> — rows show icon, filename and title; clicking a row opens its recipe editor in a window.",
-     f"""<div class=row>
- <div class=win style="width:520px">{toolbar("Outline", "reports/")}
-  <div class=out>{outline}</div>
-  <div class=foot><span>5 recipes</span><span>1 source</span><span style="color:var(--warn)">⚠ 1 warning</span><span class=sp></span><span>● ready ● not evaluated</span></div>
- </div>{recipe}</div>
- <p class=note>Icons: the asset's <span class=mono>unicode_icon</span> from metadata when known, else from the extension. The status dot comes from the asset manager. The window's mode and ✓ follow <span class=mono>query-update-modes</span>; in On demand the window and the outline share one working copy.</p>""")
 
-# 02 — tree: node names, rename, context menu; and the dependencies view
+# 01 — side panel (label: name) + recipe window, tooltips
+rows1 = "".join([
+    row("🧮", "sales.csv", dot(ok)),
+    row("🧮", "monthly.parquet", pct(42)),
+    row("🎨", "chart.png", dot(ok), sel=True),
+    row("📰", "report.html", warn + dot(none)),
+    row("📄", "notes.txt", dot(err)),
+])
+rows1b = "".join([
+    row("🧮", "Raw sales", dot(ok), plain=True),
+    row("🧮", "Monthly totals", pct(42), plain=True),
+    row("🎨", "Monthly chart", dot(ok), sel=True, plain=True),
+    row("📰", "Sales report", warn + dot(none), plain=True),
+    row("📄", "Notes", dot(err), plain=True),
+])
+rows1c = "".join([
+    row("🧮", "sales.csv", dot(ok), title="Raw sales"),
+    row("🧮", "monthly.parquet", pct(42), title="Monthly…"),
+    row("🎨", "chart.png", dot(ok), sel=True, title="Monthly chart"),
+    row("📰", "report.html", warn + dot(none), title="Sales report"),
+    row("📄", "notes.txt", dot(err), title="Notes"),
+])
+tips = """<div class=tip style="left:70px;top:106px;width:200px"><b>Monthly totals</b><span>Sales summed per month, from sales.csv.</span></div>
+<div class=tip style="left:236px;top:62px;width:190px"><b>Processing · 42%</b><span>Aggregating: 42 of 100 chunks</span></div>"""
+page("01-recipes-list", "Recipes panel: a narrow navigator beside the recipe window",
+     "Label setting: name (default), title or both. Status is a coloured circle, a percentage while progress is known, ⚠/✕ for findings; every one has a tooltip.",
+     f"""<div class=row>
+ <div class=col style="display:flex;flex-direction:column;gap:14px">
+ <div class="win panel" style="position:relative;overflow:visible">{ptb("reports/")}<div class=out>{rows1}</div>{tips}
+  <div class=foot><span>label: name</span></div></div>
+ <div class="win panel">{ptb("reports/")}<div class=out>{rows1b}</div><div class=foot><span>label: title</span></div></div>
+ <div class="win panel" style="width:300px">{ptb("reports/")}<div class=out>{rows1c}</div><div class=foot><span>label: both</span></div></div>
+ </div><div style="margin-left:170px">{recipe_window()}</div></div>
+ <p class=note>Tooltips: on the name — title and description; on the title — description; on the status — status name, or the progress message, or the finding / error. A click opens the recipe window; the status dot comes from the asset manager.</p>""")
+
+# 02 — tree panel with context menu; dependencies panel
 nodes = "".join([
-    row("🫖", "body", "Body", '<span class="badge src">source</span>', dot=ok),
-    row("🫖", "tyre", "Tyre", '<span class="badge src">source</span>', dot=ok),
-    f'<div class="r sel"><span class=ic>🫖</span><span class=ren>rim▍</span><span class=ti>Wheel</span><span class=sp></span><span class="kbd">Enter to rename · Esc</span></div>',
-    row("🫖", "spare", "Spare wheel", dot=none),
-    row("🫖", "car", "Car", '<span class="badge res">★ result</span>', dot=none),
-    row("🎨", "preview", "Preview render", '<span class="badge warn">⚠ orphan</span>', dot=none),
+    row("🫖", "body", dot(ok)),
+    row("🫖", "tyre", dot(ok)),
+    row("🫖", "wheel", pct(7), sel=True),
+    row("🫖", "spare", dot(none)),
+    row("🫖", "car", res + dot(none)),
+    row("🎨", "preview", warn + dot(none)),
 ])
-menu = """<div class=menu style="left:300px;top:150px"><div>Open<span class=kbd>Enter</span></div><div class=h>Rename<span class=kbd>F2</span></div>
-<div>Add child…</div><div>Duplicate<span class=kbd>Mod+D</span></div><hr><div>Set as result</div><hr><div style="color:var(--danger)">Delete<span class=kbd>Del</span></div></div>"""
+menu = """<div class=menu style="left:150px;top:118px;width:200px">
+<div class=h>View<span class=kbd>dbl-click</span></div><div>Metadata</div><div>Edit<span class=kbd>click</span></div><div>Evaluate<span class=kbd>Mod+E</span></div><hr>
+<div>Rename<span class=kbd>F2</span></div><div>Duplicate<span class=kbd>Mod+D</span></div><div>Add child…</div><div>Set as result</div><hr>
+<div>Save as…</div><div>Export ▸</div><hr><div style="color:var(--danger)">Delete<span class=kbd>Del</span></div></div>
+<div class=menu style="left:352px;top:398px;width:150px"><div>glTF binary (glb)</div><div>glTF (gltf)</div><div class=dim>no other formats</div></div>"""
 deps = "".join([
-    row("🫖", "car", "Car", '<span class="badge res">★ result</span>', d=0, tw="▾"),
-    row("🫖", "body", "Body", '<span class="badge src">source</span>', d=1, tw=""),
-    row("🫖", "wheel", "Wheel", "", d=1, tw="▾"),
-    row("🫖", "tyre", "Tyre", '<span class="badge src">source</span>', d=2, tw=""),
-    row("🫖", "spare", "Spare wheel", "", d=1, tw="▾"),
-    row("🫖", "tyre", "Tyre", '<span class="badge src">source</span><span class="badge">also under wheel</span>', d=2, tw=""),
-    row("🎨", "preview", "Preview render", "", d=0, tw="▸"),
+    row("🫖", "car", res, d=0, tw="▾"),
+    row("🫖", "body", "", d=1),
+    row("🫖", "wheel", pct(7), d=1, tw="▾"),
+    row("🫖", "tyre", "", d=2),
+    row("🫖", "spare", "", d=1, tw="▾"),
+    row("🫖", "tyre", '<span class="badge">×2</span>', d=2),
+    row("🎨", "preview", "", d=0, tw="▸"),
 ])
-page("02-recipe-tree", "Recipe tree: node names, rename, dependencies view",
-     "A folder with a <span class=mono>tree:</span> section — rows show the node name (no extension), the type icon carries the file type.",
-     f"""<div class=row>
- <div class=win style="width:575px;position:relative">{toolbar("Outline", "scenes/car/", '<span class="badge">tree · dag · strict</span>')}
-  <div class=out style="min-height:300px">{nodes}</div>{menu}
-  <div class=foot><span>6 nodes</span><span>2 sources</span><span style="color:var(--warn)">⚠ 1</span><span class=sp></span><span>rename rewrites 2 references, moves 0 files</span></div>
+page("02-recipe-tree", "Recipe tree panel: node names, right-click menu, dependencies view",
+     "A folder with a <span class=mono>tree:</span> section — rows show node names (no extension), the icon carries the file type. Right click opens the menu.",
+     f"""<div class=row style="gap:280px">
+ <div class="win panel" style="position:relative;overflow:visible;min-height:520px">{ptb("car/", extra='<span class="badge">strict</span>')}<div class=out>{nodes}</div>{menu}</div>
+ <div class="win panel tree" style="min-height:520px">{ptb("car/", "Dependencies", '<span class="badge">strict</span>')}<div class=out>{deps}</div>
+  <div class=foot><span>top: nodes nothing depends on</span></div></div>
  </div>
- <div class="win tree" style="width:610px">{toolbar("Dependencies", "scenes/car/", '<span class="badge">tree · dag · strict</span>')}
-  <div class=out style="min-height:300px">{deps}</div>
-  <div class=foot><span>top level: nodes nothing depends on</span><span>a node appears under each parent</span><span>↻ cycles shown once</span></div>
- </div></div>
- <p class=note>The Dependencies view is optional and read-mostly: rows open and rename as in the outline; structural edits stay in the outline. The default view is the outline in file order.</p>""")
+ <p class=note>Menu items that do not apply are disabled with the reason as a tooltip (View before evaluation, Export when the type declares no other format). Export lists the formats of the value's type; Save as writes the value to a file on this computer, not to the store.</p>""")
 
-# 03 — YAML view
+# 03 — YAML window beside the panel
 lines = [
     ('<span class=k>tree</span><span class=pu>:</span>', ""),
     ('  <span class=k>result</span><span class=pu>:</span> <span class=st2>car.glb</span>', ""),
@@ -182,9 +215,11 @@ lines = [
     ('    <span class=k>title</span> <span class=squig>Car</span>', "errl"),
 ]
 yaml = "".join(f'<div class="ln {c}"><span class=no>{i+1}</span><span>{t}</span></div>' for i, (t, c) in enumerate(lines))
-page("03-yaml-view", "YAML view: the whole file, highlighted",
-     "The same document as text. Queries inside <span class=mono>query:</span> use the query highlighter; typed text applies only when it parses as a recipe list.",
-     f"""<div class=win style="width:900px">{toolbar("YAML", "scenes/car/", '<span class="badge">tree · dag · strict</span>')}
+page("03-yaml-view", "YAML window: the whole file, highlighted",
+     "Opened from the panel's { } button as its own window. Queries inside <span class=mono>query:</span> use the query highlighter; typed text applies only when it parses as a recipe list.",
+     f"""<div class=row>
+ <div class="win panel">{ptb("car/", extra='<span class="badge">strict</span>')}<div class=out>{nodes}</div></div>
+ <div class=win style="width:760px"><div class=tb><span class=dim>{{ }}</span><b>recipes.yaml</b><span class="dim mono">scenes/car/</span><span class=sp></span><span class="btn pri">✓</span><span class="btn ghost">↶</span><span class="btn ghost">✕</span></div>
   <div class=yaml>{yaml}</div>
   <div class=foot style="color:var(--danger)"><span>✕ line 12: expected ':' after a mapping key — nothing applied</span><span class=sp></span><span class=dim>Enter or ✓ applies · Esc reverts</span></div>
- </div>""")
+ </div></div>""")
