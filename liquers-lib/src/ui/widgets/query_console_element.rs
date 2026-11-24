@@ -2413,7 +2413,7 @@ mod tests {
         {
             let html = c.render_web(&DirectAppState::new());
             for needle in [
-                "data-lq-event=\"qc:mode::on-demand\"",
+                "data-lq-event=\"qc:mode::on_demand\"",
                 "data-lq-event=\"qc:mode::immediate\"",
                 "data-lq-event=\"qc:undo\"",
                 "lq-status-bar",

@@ -619,7 +619,7 @@ fn update_mode_names_round_trip() {
     }
     assert_eq!(UpdateMode::default(), UpdateMode::LivePreview);
     let error = UpdateMode::from_name("sometimes").expect_err("unknown");
-    assert!(error.to_string().contains("on-demand, preview or immediate"), "{error}");
+    assert!(error.to_string().contains("on_demand, preview or immediate"), "{error}");
 }
 
 /// query-pipeline-editor AC-26
@@ -1229,10 +1229,10 @@ fn legacy_continuous_loads_as_a_mode() {
     assert_eq!(load(&saved("Query", r#","continuous":false"#)), UpdateMode::OnDemand);
     assert_eq!(load(&saved("Query", "")), UpdateMode::LivePreview);
     assert_eq!(load(&saved("Action", "")), UpdateMode::ApplyImmediately);
-    assert_eq!(load(&saved("Query", r#","update_mode":"on-demand""#)), UpdateMode::OnDemand);
+    assert_eq!(load(&saved("Query", r#","update_mode":"on_demand""#)), UpdateMode::OnDemand);
     let element = EditorElement::new("E", EditorKind::Action, EditorBinding::Memory(String::new()))
         .with_update_mode(UpdateMode::LivePreview);
     assert_eq!(element.update_mode(), UpdateMode::OnDemand, "an action editor has no Live preview");
     let json = serde_json::to_string(&(Box::new(element) as Box<dyn UIElement>)).expect("json");
-    assert!(json.contains(r#""update_mode":"on-demand""#) && !json.contains("continuous"), "{json}");
+    assert!(json.contains(r#""update_mode":"on_demand""#) && !json.contains("continuous"), "{json}");
 }

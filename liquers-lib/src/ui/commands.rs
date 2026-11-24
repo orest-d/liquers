@@ -31,7 +31,7 @@
 //! use liquers_lib::ui::UIElement;
 //! use liquers_lib::value::{ExtValueInterface, Value};
 //!
-//! let value = liquers_lib::ui::commands::query_editor(&State::<Value>::new())?;
+//! let value = liquers_lib::ui::commands::query_editor(&State::<Value>::new(), "on_demand".into())?;
 //! assert_eq!(value.as_ui_element()?.type_name(), "EditorElement");
 //! # Ok::<(), liquers_core::error::Error>(())
 //! ```
@@ -46,7 +46,7 @@ use liquers_core::value::ValueInterface;
 use crate::value::Value;
 
 use super::app_state::AppState;
-use super::editor::{EditorBinding, EditorElement, EditorKind};
+use super::editor::{EditorBinding, EditorElement, EditorKind, UpdateMode};
 use super::handle::UIHandle;
 use super::message::AppMessage;
 use super::payload::UIPayload;
@@ -368,7 +368,8 @@ pub fn markdown(state: &State<Value>) -> Result<Value, Error> {
 /// Command: lui/query_console
 /// Creates a QueryConsoleElement from the input state (query text string).
 #[liquers_macro::command_version]
-pub fn query_console(state: &State<Value>) -> Result<Value, Error> {
+pub fn query_console(state: &State<Value>, mode: String) -> Result<Value, Error> {
+    let mode = UpdateMode::from_name(&mode)?;
     let query_string = if state.is_none() {
         String::new()
     } else if let Ok(q) = state.data_unchecked().try_into_query() {
@@ -376,7 +377,8 @@ pub fn query_console(state: &State<Value>) -> Result<Value, Error> {
     } else {
         state.try_into_string()?
     };
-    let element = QueryConsoleElement::new("Query Console".to_string(), query_string);
+    let mut element = QueryConsoleElement::new("Query Console".to_string(), query_string);
+    element.set_update_mode(mode);
     Ok(Value::from(crate::value::ExtValue::UIElement {
         value: Arc::new(element),
     }))
@@ -384,7 +386,8 @@ pub fn query_console(state: &State<Value>) -> Result<Value, Error> {
 
 /// The editor element of `kind` over the state: an accessor value is bound by its address, any
 /// other value (a query, a pipeline, a key or text) is kept in memory for the session.
-fn editor_element(state: &State<Value>, kind: EditorKind, title: &str) -> Result<Value, Error> {
+fn editor_element(state: &State<Value>, kind: EditorKind, title: &str, mode: &str) -> Result<Value, Error> {
+    let mode = UpdateMode::from_name(mode)?;
     let element = if state.is_none() {
         EditorElement::new(title, kind, EditorBinding::Memory(String::new()))
     } else {
@@ -411,6 +414,7 @@ fn editor_element(state: &State<Value>, kind: EditorKind, title: &str) -> Result
             }
         }
     };
+    let element = element.with_update_mode(mode);
     Ok(Value::from(crate::value::ExtValue::UIElement {
         value: Arc::new(element),
     }))
@@ -419,29 +423,29 @@ fn editor_element(state: &State<Value>, kind: EditorKind, title: &str) -> Result
 /// Command: lui/query_editor
 /// An editor of a query or pipeline: a tree of its steps beside the highlighted text.
 #[liquers_macro::command_version]
-pub fn query_editor(state: &State<Value>) -> Result<Value, Error> {
-    editor_element(state, EditorKind::Query, "Query editor")
+pub fn query_editor(state: &State<Value>, mode: String) -> Result<Value, Error> {
+    editor_element(state, EditorKind::Query, "Query editor", &mode)
 }
 
 /// Command: lui/action_editor
 /// An editor of one action's arguments (the one-element pipeline of an action accessor).
 #[liquers_macro::command_version]
-pub fn action_editor(state: &State<Value>) -> Result<Value, Error> {
-    editor_element(state, EditorKind::Action, "Action editor")
+pub fn action_editor(state: &State<Value>, mode: String) -> Result<Value, Error> {
+    editor_element(state, EditorKind::Action, "Action editor", &mode)
 }
 
 /// Command: lui/resource_editor
 /// An editor of a query's resource: its header and its key, with a store file selector.
 #[liquers_macro::command_version]
-pub fn resource_editor(state: &State<Value>) -> Result<Value, Error> {
-    editor_element(state, EditorKind::Resource, "Resource editor")
+pub fn resource_editor(state: &State<Value>, mode: String) -> Result<Value, Error> {
+    editor_element(state, EditorKind::Resource, "Resource editor", &mode)
 }
 
 /// Command: lui/key_editor
 /// An editor of a key, with a store file selector.
 #[liquers_macro::command_version]
-pub fn key_editor(state: &State<Value>) -> Result<Value, Error> {
-    editor_element(state, EditorKind::Key, "Key editor")
+pub fn key_editor(state: &State<Value>, mode: String) -> Result<Value, Error> {
+    editor_element(state, EditorKind::Key, "Key editor", &mode)
 }
 
 /// Command: lui/submit
@@ -599,7 +603,11 @@ macro_rules! register_lui_commands {
         version: auto
         )?;
         register_command!($cr,
-            fn query_console(state) -> result
+            fn query_console(state, mode: String = "immediate" (
+                label: "Update mode",
+                description: "When an edit is evaluated: immediate (after each edit) or on_demand (on ✓ or Enter)",
+                enum: ["immediate", "on_demand"]
+            )) -> result
             namespace: "lui"
             label: "Query Console"
             doc: "Create an interactive query console element"
@@ -607,28 +615,44 @@ macro_rules! register_lui_commands {
         version: auto
         )?;
         register_command!($cr,
-            fn query_editor(state) -> result
+            fn query_editor(state, mode: String = "preview" (
+                label: "Update mode",
+                description: "When an edit takes effect: preview (shown in place until ✓), immediate (written at once) or on_demand (written on ✓)",
+                enum: ["preview", "immediate", "on_demand"]
+            )) -> result
             namespace: "lui"
             label: "Query editor"
             doc: "An editor of a query or pipeline: a tree of its steps beside the highlighted text"
         version: auto
         )?;
         register_command!($cr,
-            fn action_editor(state) -> result
+            fn action_editor(state, mode: String = "immediate" (
+                label: "Update mode",
+                description: "When an edit is written: immediate (at once) or on_demand (on ✓)",
+                enum: ["immediate", "on_demand"]
+            )) -> result
             namespace: "lui"
             label: "Action editor"
             doc: "An editor of one action's arguments, from the command's argument metadata"
         version: auto
         )?;
         register_command!($cr,
-            fn resource_editor(state) -> result
+            fn resource_editor(state, mode: String = "immediate" (
+                label: "Update mode",
+                description: "When an edit is written: immediate (at once) or on_demand (on ✓)",
+                enum: ["immediate", "on_demand"]
+            )) -> result
             namespace: "lui"
             label: "Resource editor"
             doc: "An editor of a resource query: its header and its key, with a store file selector"
         version: auto
         )?;
         register_command!($cr,
-            fn key_editor(state) -> result
+            fn key_editor(state, mode: String = "immediate" (
+                label: "Update mode",
+                description: "When an edit is written: immediate (at once) or on_demand (on ✓)",
+                enum: ["immediate", "on_demand"]
+            )) -> result
             namespace: "lui"
             label: "Key editor"
             doc: "An editor of a key, with a store file selector"
@@ -658,6 +682,29 @@ mod tests {
         let value = handles_to_value(&handles)?;
         let json = value.try_into_json_value()?;
         assert_eq!(json, serde_json::json!([1, 2, 42]));
+        Ok(())
+    }
+
+    /// query-update-modes AC-20: each element starts in the mode its `mode` argument names; an
+    /// unknown name is refused.
+    #[test]
+    fn mode_argument_sets_the_element_mode() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::value::ExtValueInterface;
+        let state = State::<Value>::new();
+        let console = query_console(&State::new().with_data(Value::from("-R/a.csv")), "on_demand".into())?;
+        let console = console.as_ui_element()?;
+        let console = console.as_any().and_then(|a| a.downcast_ref::<QueryConsoleElement>()).ok_or("console")?;
+        assert_eq!(console.update_mode(), UpdateMode::OnDemand);
+        assert_eq!(console.query_text, "-R/a.csv");
+        let editor_mode = |value: Value| -> Result<UpdateMode, Box<dyn std::error::Error>> {
+            let element = value.as_ui_element()?;
+            let editor = element.as_any().and_then(|a| a.downcast_ref::<EditorElement>()).ok_or("editor")?;
+            Ok(editor.update_mode())
+        };
+        assert_eq!(editor_mode(query_editor(&state, "preview".into())?)?, UpdateMode::LivePreview);
+        assert_eq!(editor_mode(query_editor(&state, "immediate".into())?)?, UpdateMode::ApplyImmediately);
+        assert_eq!(editor_mode(key_editor(&state, "on_demand".into())?)?, UpdateMode::OnDemand);
+        assert!(query_console(&state, "sometimes".into()).is_err());
         Ok(())
     }
 

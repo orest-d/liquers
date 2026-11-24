@@ -50,11 +50,11 @@ pub enum EditorKind {
 ///   nothing is written until Update.
 /// - `ApplyImmediately`: the edit is written at once ([`EditorEffect::Write`]).
 ///
-/// Its names (`on-demand`, `preview`, `immediate`) are those of the `mode` argument of the `lui`
+/// Its names (`on_demand`, `preview`, `immediate`) are those of the `mode` argument of the `lui`
 /// editor and console commands, and of its serialized form.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum UpdateMode {
-    #[serde(rename = "on-demand")]
+    #[serde(rename = "on_demand")]
     OnDemand,
     #[default]
     #[serde(rename = "preview")]
@@ -67,14 +67,14 @@ impl UpdateMode {
     /// Every mode, in the order the mode control shows them.
     pub const ALL: [UpdateMode; 3] = [UpdateMode::OnDemand, UpdateMode::LivePreview, UpdateMode::ApplyImmediately];
 
-    /// The mode named `name`: `on-demand`, `preview` or `immediate`.
+    /// The mode named `name`: `on_demand`, `preview` or `immediate`.
     pub fn from_name(name: &str) -> Result<UpdateMode, Error> {
         match name {
-            "on-demand" => Ok(UpdateMode::OnDemand),
+            "on_demand" => Ok(UpdateMode::OnDemand),
             "preview" => Ok(UpdateMode::LivePreview),
             "immediate" => Ok(UpdateMode::ApplyImmediately),
             other => Err(Error::general_error(format!(
-                "unknown update mode '{other}'; use on-demand, preview or immediate"
+                "unknown update mode '{other}'; use on_demand, preview or immediate"
             ))),
         }
     }
@@ -82,7 +82,7 @@ impl UpdateMode {
     /// The mode's name, as [`UpdateMode::from_name`] reads it.
     pub fn name(self) -> &'static str {
         match self {
-            UpdateMode::OnDemand => "on-demand",
+            UpdateMode::OnDemand => "on_demand",
             UpdateMode::LivePreview => "preview",
             UpdateMode::ApplyImmediately => "immediate",
         }

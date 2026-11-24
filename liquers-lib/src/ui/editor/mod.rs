@@ -10,8 +10,11 @@
 //! # Main components
 //!
 //! - [`EditorElement`]: the `UIElement`, with an [`EditorKind`] (`Query`, `Action`, `Resource`,
-//!   `Key`) and an [`EditorBinding`] (an accessor's query, or the value in memory). "Update
-//!   immediately" sets each committed edit into the accessor; otherwise edits wait for Update.
+//!   `Key`) and an [`EditorBinding`] (an accessor's query, or the value in memory). Its
+//!   [`UpdateMode`] decides when an edit takes effect: Apply immediately sets each committed edit
+//!   into the accessor; On demand waits for ✓ (Update); Live preview (query editors) evaluates the
+//!   edit in place, in the view it follows, in the recipe's folder, without writing
+//!   (`AppMessage::Preview`), until ✓ writes it. Undo and Redo step through the edits.
 //! - [`EditorState`]: the backend-free core. It applies every [`EditorCommand`] as a validated
 //!   edit (a refused edit changes nothing and is shown at its node), keeps at most one write in
 //!   flight, turns a change elsewhere into a reload or a conflict, and builds the [`EditorTree`].

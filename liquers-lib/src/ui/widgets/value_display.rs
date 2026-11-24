@@ -401,7 +401,7 @@ impl StatusLine {
             parts.push(log.clone());
         }
         if self.preview {
-            parts.push("Preview of unapplied edits — ✓ applies, Esc discards".to_string());
+            parts.push("Preview of unapplied edits — ✓ applies, Revert or Undo discards".to_string());
         }
         if self.changed_upstream {
             parts.push("Changed upstream — ✓ recalculates".to_string());
@@ -550,7 +550,7 @@ mod tests {
         display.on_snapshot(&preview);
         assert!(display.is_preview() && !display.is_dimmed());
         let line = display.status_line().expect("a preview always says so");
-        assert!(line.preview && line.text().contains("✓ applies, Esc discards"), "{}", line.text());
+        assert!(line.preview && line.text().contains("✓ applies, Revert or Undo discards"), "{}", line.text());
         // Changed upstream: dimmed, with its note.
         let mut display = settled("a", "applied");
         display.mark_changed_upstream();

@@ -15,9 +15,9 @@ Each step compiles and its tests pass before the next. No prerequisite issue mus
 - [x] Step 3: the console on `ValueDisplay`: panel effects, debounce, ✓, Enter, expiry by mode
 - [x] Step 4: renderers: egui and web toolbars, keys, the theme's preview colour
 - [x] Step 5: Part A checks, docs, PR
-- [ ] Step 6: `EditorElement` modes, legacy `continuous`, preview effects
-- [ ] Step 7: the runner's `AppMessage::Preview` and the binding tests
-- [ ] Step 8: the `mode` arguments, the registry, Part B checks, docs, PR
+- [x] Step 6: `EditorElement` modes, legacy `continuous`, preview effects
+- [x] Step 7: the runner's `AppMessage::Preview` and the binding tests
+- [x] Step 8: the `mode` arguments, the registry, Part B checks, docs, PR
 
 ## Implementation Notes (Part A)
 
@@ -34,6 +34,23 @@ Deviations from Phase 2, to be reviewed in Phase 5:
 - Steps 3 and 4 landed as one commit (the console's renderers changed with its fields).
 - Phase 3's parse-error example `-R/a/-/head-` plans (an empty argument takes the default); the
   test uses `-R/a.csv/-/head-~`, which does not parse.
+
+## Implementation Notes (Part B)
+
+- AC-18 held: `preview_in_the_recipe_folder_resolves_like_the_recipe` shows a preview with the
+  recipe's folder as `cwd` reading `./data.txt` as the recipe does; no fallback was needed.
+- The mode name `on-demand` became `on_demand`: a dash separates query arguments, so
+  `query_console-on-demand` read as two (found by `liquers-validate`).
+- Live preview is offered by query editors only; action, resource and key editors (which edit
+  part of a query and could not evaluate it alone) offer On demand and Apply immediately, and their
+  `mode` argument defaults to `immediate`, as their old "Update immediately" did.
+- `ValueDisplay` adopts a snapshot of a query it did not ask for (a followed view re-pointed by an
+  editor) and ignores only late snapshots of its own earlier requests; Part A ignored any other
+  query, which would have dropped an editor's re-point.
+- Ending a preview in a recipe's view sends `lq:preview-end` (the view evaluates its own query,
+  expired by the write) instead of re-pointing it at the recipe's text, whose relative keys would
+  not resolve outside the recipe's folder.
+- `Esc` as Discard (Phase 2's `EditorKey::Discard`) is not added: Revert and Undo drop a preview.
 
 ## Implementation Steps
 
@@ -117,7 +134,7 @@ Deviations from Phase 2, to be reviewed in Phase 5:
   `action_editor`, `resource_editor`, `key_editor` and their `register_command!` lines;
   `specs/command_registry.yaml` (`export-command-registry`, a CHANGELOG line).
 - Proof: `mode_argument_sets_the_element_mode`; `cargo test -p liquers-lib --test registry_export`;
-  the Step 5 checks again; `liquers-validate` on `-R/data/sales.csv/-/ns-pl/head-3/ns-lui/query_console-on-demand`.
+  the Step 5 checks again; `liquers-validate` on `-R/data/sales.csv/-/ns-pl/head-3/ns-lui/query_console-on_demand`.
 - Rollback: revert; the registry file reverts with it.
 
 ## Testing Plan
