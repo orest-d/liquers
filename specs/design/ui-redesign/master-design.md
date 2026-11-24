@@ -1184,9 +1184,24 @@ protocol messages → view store copy → frontend.
   optional crates, so SSO needs no change to the core. D4 defines the trait.
 - The principal is attached to the session and to every evaluation it starts. What it may do is
   decided by `access-policy-at-entry-points`, not by the UI.
-- Several connections may attach to one session (a second window, another user watching). All
-  get the same frames. Per-viewer state such as focus is M6's subject; until then the last
-  attached frontend's capabilities and focus win, and this is stated as a limit.
+- **Several frontends may attach to one session, but an element instance is connected at most
+  once** (Orest, 2026-11-24). Each frontend is attached to its own subtree, like a window: the
+  desktop shows one, a phone shows a control surface. There is never "the same" editor in two
+  clients; two editors on two frontends are two element instances over shared data, exactly as
+  two editors inside one frontend. Consequences:
+  - the client form is known per subtree, so the server knows which parts to run for a node
+    (this answers S1-a);
+  - elements on different frontends interact through the session: messages between elements
+    routed by the server runner, and shared data (assets, value accessors);
+  - when a connection drops, its subtree is detached and may be attached again by the same or
+    another frontend; the elements get new client parts, and state that lived only in the old
+    client part is lost unless it was sent to the server (§20);
+  - focus, scroll and layout are per frontend by construction, so no per-viewer state problem
+    arises.
+- **Observers are not part of the design.** Showing an instance that another frontend already
+  shows could only be a read-only copy of its output. That is cheap for a portable view computed
+  on the server, needs a relay for one computed in a client part, and is impossible for a native
+  client view (that is screen sharing). The first case may be added later.
 - In monolithic mode there is one local session and a fixed local principal. No authenticator
   code runs.
 
@@ -1455,6 +1470,7 @@ Master-level scenarios. D1's AC-1 to AC-11 remain, with AC-4 and AC-5 reworded (
 | 40 | Parts of a split implementation get `PeerConnected` / `PeerGone`; the runner queues messages for a part that does not exist yet | proposed (S1) |
 | 41 | The server declares client profiles: a thin client has a fixed value type, a thick client a configurable serializable one known to the server (§15.1) | agreed in principle by Orest, 2026-11-23 |
 | 42 | One creation mechanism: a UI is created from a spec, and saved state is a checked overlay per named node; only server-side state is saved by default (§20) | proposed; the limit accepted by Orest, 2026-11-23 |
+| 43 | Several frontends per session, each attached to its own subtree; an element instance is connected at most once; no observers (§17) | agreed in principle by Orest, 2026-11-24 |
 
 ## 28. Open questions
 
@@ -1473,9 +1489,9 @@ Still for Orest:
 
 Raised by spike S1 (findings §8), to be decided before D1's architecture:
 
-- **S1-a. The server must know the client form before it creates parts.** Answered in part by
-  client profiles (§15.1): the form is known at connect. Still open: can two clients of
-  different forms share one server tree, or is a tree per client form?
+- **S1-a. The server must know the client form before it creates parts.** Answered: the form is
+  a profile known at connect (§15.1), and each frontend attaches to its own subtree, so the form
+  is known per subtree (§17). Still open: is the subtree the only unit of attachment?
 - **S1-b. State held only in a client part is invisible to the server.** Answered: not saved by
   default; an optional "saved state" message lets a client part opt in (§20).
 - **S1-c. A native immediate-mode view must report that it changed state.** Require an explicit
