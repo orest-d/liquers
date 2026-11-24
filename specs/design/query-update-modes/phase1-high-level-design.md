@@ -183,11 +183,11 @@ in advance (`QUERY-COST-IS-UNKNOWN-TO-THE-UI`).
 Discussed with Orest on 2026-11-24; answers he agreed to are marked.
 
 1. **Three modes** (agreed): On demand, Live preview, Apply immediately; typed text only on Enter.
-2. **Where a preview shows** (Orest: never twice): in place, in the followed view, framed; the
+2. **Where a preview shows** (agreed: never twice): in place, in the followed view, framed; the
    editor's own value area only when it follows no view. Visual cues (AC-22): frame and status
    line in a preview colour, dimming for stale, a three-icon mode control, and a ✓ that follows the
    mode; a tinted query field for pending text was considered and left out (the ✓ already shows it).
-   Proposed to Orest 2026-11-24.
+   Orest agreed to frame, ✓ by mode, mode control and status line on 2026-11-24.
 3. **Defaults** (proposed): a `mode` argument with a default (AC-20); no automatic switch, only a
    suggestion on a slow evaluation (AC-21). Default for an editor bound to an accessor: Live
    preview (recommended) or Apply immediately?
