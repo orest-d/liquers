@@ -110,5 +110,5 @@ menu and YAML in a window. All are implemented. Remaining: the three issues abov
   `tests/ui_recipes_editor.rs`, 4 tests through the runner).
 - `cargo run -p liquers-lib --example ui_spec_editor -- --check`: the panel follows an edit made by
   another editor.
-- `bash scripts/check-build-matrix.sh`: see the PR.
+- `bash scripts/check-build-matrix.sh` (after merging main): all 49 configurations OK.
 - `python3 scripts/docs_index.py --check`: 0 errors. `cargo run -p liquers-docs -- check`: 0 errors.
