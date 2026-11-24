@@ -3,8 +3,8 @@ id: QUERY-UPDATE-MODES
 kind: design
 title: Update modes for the query editors and console - on demand, live preview and apply immediately, with undo and a value display that does not flicker
 workflow: liquers-project
-status: in_review
-phase: architecture
+status: approved
+phase: implementation
 priority: P2
 complexity: L
 area: [lib/ui, lib/egui]
@@ -28,7 +28,8 @@ related issues (`query-apply-immediately`); then, so an edit's impact on one rec
 before it cascades, all three modes (`query-update-modes`), with a mode argument per element; then the preview in place rather than in a second pane, with
 visual cues for preview, stale and mode (agreed). Phase 1 approved (`proceed`) on 2026-11-24, with
 Live preview as an accessor-bound editor's default and the work split into two parts. Phase 2
-written the same day.
+written the same day. Pre-approved after Phase 2 on 2026-11-24 (`proceed all`); Phases 3 and
+4 written the same day.
 
 ## Phases
 

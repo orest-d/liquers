@@ -200,6 +200,20 @@ Discussed with Orest on 2026-11-24; answers he agreed to are marked.
    Phase 2 into the console part (AC-1 to AC-6, AC-13 to AC-16, AC-19) and the editor part
    (AC-9, AC-17, AC-18, AC-20, AC-21).
 
+## Design Readiness
+
+Decision log under pre-approval (`proceed all`, 2026-11-24); none blocks implementation.
+
+- **Assumption — namespaces:** only `lui` changes (Phase 2 asked for confirmation; no objection).
+- **Assumption — typing then a GUI edit:** text typed in the query field but not entered is
+  replaced when a GUI edit rewrites the query (AC-14 applies typed text only on Enter).
+- **Assumption — renames in the console:** the console's panel still drops `RenameData`; it has no
+  folder context. Recorded in `UI_INTERFACE_FSD.md` at Phase 5.
+- **Assumption — Part A alone:** until Part B lands, an editor's Live preview is not offered; it
+  keeps Apply immediately and On demand.
+- **Risk — AC-18:** if a preview with the recipe's `cwd` does not resolve as the recipe's own
+  evaluation, Step 7 stops and returns to the Phase 2 gate (pre-approval void).
+
 ## References
 
 - `specs/design/query-pipeline-editor/` (AC-26), `specs/design/query-editor-ergonomics/`,
