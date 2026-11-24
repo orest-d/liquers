@@ -143,9 +143,9 @@ pub struct QueryConsoleElement {
     #[serde(skip)]
     debounced_query: Option<String>,
 
-    /// A volatile refresh is scheduled.
+    /// The generation whose volatile refresh is scheduled.
     #[serde(skip)]
-    volatile_pending: bool,
+    volatile_pending: Option<u64>,
 
     /// Cached next-command presets for the current query's last action.
     #[serde(skip)]
@@ -231,7 +231,7 @@ impl QueryConsoleElement {
             typed_error: None,
             debounce: 0,
             debounced_query: None,
-            volatile_pending: false,
+            volatile_pending: None,
             next_presets: Vec::new(),
             show_parameters: false,
             mode: EditorMode::Simple,
@@ -475,6 +475,8 @@ impl QueryConsoleElement {
     /// Enter or ✓: applies the query text when it parses and plans; otherwise records why and
     /// evaluates nothing (AC-14). Returns whether it was applied.
     fn apply_typed(&mut self, ctx: &UIContext) -> bool {
+        // An explicit Enter or ✓ supersedes a debounced panel edit, applied or not.
+        self.debounced_query = None;
         if let Err(error) = validate_query(&self.query_text, ctx) {
             self.typed_error = Some(error);
             return false;
@@ -550,7 +552,9 @@ impl QueryConsoleElement {
                 UpdateMode::OnDemand | UpdateMode::LivePreview => UpdateResponse::Unchanged,
             }
         } else if timer == "volatile" {
-            self.volatile_pending = false;
+            if self.volatile_pending == Some(generation) {
+                self.volatile_pending = None;
+            }
             if generation != self.display.generation() {
                 return UpdateResponse::Unchanged;
             }
@@ -560,8 +564,15 @@ impl QueryConsoleElement {
             }
             UpdateResponse::Unchanged
         } else if let Some(timer) = DisplayTimer::from_name(&timer) {
+            // Repaint only when the display changed: a re-render in the browser replaces the
+            // whole console, so a no-op timer must not cause one.
+            let before = (self.display.phase(), self.display.status_line());
             self.display.on_timer(generation, timer);
-            UpdateResponse::NeedsRepaint
+            if (self.display.phase(), self.display.status_line()) == before {
+                UpdateResponse::Unchanged
+            } else {
+                UpdateResponse::NeedsRepaint
+            }
         } else {
             UpdateResponse::Unchanged
         }
@@ -668,18 +679,20 @@ impl QueryConsoleElement {
 
     /// For volatile assets, schedule a delayed refresh to get a new version.
     fn schedule_volatile_refresh(&mut self, ctx: &UIContext) {
-        if self.volatile_pending {
+        // One refresh per request: a new request (a new generation) schedules its own.
+        let generation = self.display.generation();
+        if self.volatile_pending == Some(generation) {
             return;
         }
         let Some(handle) = self.handle else {
             return;
         };
-        self.volatile_pending = true;
+        self.volatile_pending = Some(generation);
         crate::ui::schedule_event(
             ctx,
             handle,
             Duration::from_millis(VOLATILE_REFRESH_MS),
-            timer_event("volatile", self.display.generation()),
+            timer_event("volatile", generation),
         );
     }
 
@@ -2247,6 +2260,28 @@ mod tests {
         // The panel follows the applied text.
         let tree = c.parameters_tree(&ctx).expect("tree");
         assert_eq!(tree.text, "-R/a.csv/-/head-4");
+    }
+
+    /// Review of PR #285: a rejected Enter cancels a pending debounced panel edit; a no-op
+    /// display timer repaints nothing; a volatile refresh of a new request is not blocked by
+    /// one scheduled for the previous request.
+    #[test]
+    fn typed_enter_cancels_the_debounce_and_noop_timers_do_not_repaint() {
+        let (mut c, ctx, mut rx) = settled_console(UpdateMode::ApplyImmediately);
+        assert!(set_n(&mut c, &ctx, "7"));
+        c.update(&UpdateMessage::UI(submit_event("-R/a.csv/-/nosuch")), &ctx);
+        c.update(&debounce_timer(c.debounce), &ctx);
+        assert_eq!(requested_query(&mut rx), None);
+        assert_eq!(c.query_text, "-R/a.csv/-/nosuch", "the rejected text stays");
+        assert!(c.typed_error().is_some());
+
+        let generation = c.display.generation();
+        let quiet = UpdateMessage::UI(timer_event("quiet", generation));
+        assert_eq!(c.update(&quiet, &ctx), UpdateResponse::Unchanged, "settled: nothing to dim");
+
+        c.volatile_pending = Some(generation);
+        c.update(&UpdateMessage::UI(submit_event("-R/a.csv/-/head-4")), &ctx);
+        assert_ne!(c.volatile_pending, Some(c.display.generation()));
     }
 
     /// AC-15: the probe of QUERY-CONSOLE-EDITOR-LOSES-EDITS-WHEN-UPDATE-IMMEDIATELY-IS-OFF: an
