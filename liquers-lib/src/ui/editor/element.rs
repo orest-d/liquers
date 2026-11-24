@@ -9,7 +9,7 @@ use liquers_core::error::Error;
 use liquers_core::value::ValueInterface;
 
 use super::command::{EditorCommand, EditorEffect};
-use super::state::{EditorKind, EditorState};
+use super::state::{EditorKind, EditorState, UpdateMode};
 use super::layout::EditorMode;
 use super::tree::{EditorTree, NodePath};
 use super::view::EditorView;
@@ -206,7 +206,14 @@ impl EditorElement {
         self.theme = Some(ctx.theme());
         if self.state.is_none() {
             if let Some(registry) = ctx.command_registry() {
-                self.state = Some(EditorState::new(self.kind, registry.clone()).with_continuous(self.continuous));
+                // Live preview comes with the preview path (query-update-modes Part B); until then
+                // an editor offers Apply immediately and On demand.
+                let mode = if self.continuous { UpdateMode::ApplyImmediately } else { UpdateMode::OnDemand };
+                self.state = Some(
+                    EditorState::new(self.kind, registry.clone())
+                        .with_update_modes(&[UpdateMode::OnDemand, UpdateMode::ApplyImmediately])
+                        .with_update_mode(mode),
+                );
             }
         }
         if !self.bound && self.state.is_some() {
@@ -242,7 +249,7 @@ impl EditorElement {
                     effects.push(effect);
                 }
             }
-            self.continuous = state.continuous();
+            self.continuous = state.update_mode() == UpdateMode::ApplyImmediately;
         }
         for effect in effects {
             self.run_effect(effect, ctx);
@@ -272,6 +279,8 @@ impl EditorElement {
             EditorEffect::RenameData { folder, editor } => {
                 ctx.send_message(AppMessage::RenameData { handle, folder, editor })
             }
+            // Not produced while Live preview is not offered (query-update-modes Part B).
+            EditorEffect::Preview(_) | EditorEffect::ClearPreview => {}
         }
     }
 

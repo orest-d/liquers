@@ -1,4 +1,4 @@
-EDITOR: shared fragment (the query editor: modes, cards, keys, themes and icons, the same in every guide), included by chapter 11 of all three guides. Keep it language-neutral: queries and YAML only, no host-language code. Written from reference/UI_INTERFACE_FSD.md §Editors and §Hosts and guides/COMMAND_REGISTRATION_GUIDE.md §5. Queries checked with liquers-validate.
+EDITOR: shared fragment (the query editor: modes, cards, keys, themes and icons, the same in every guide), included by chapter 11 of all three guides. Keep it language-neutral: queries and YAML only, no host-language code. Written from reference/UI_INTERFACE_FSD.md §Editors (with the console update modes) and §Hosts and guides/COMMAND_REGISTRATION_GUIDE.md §5. Queries checked with liquers-validate.
 
 The query console and the editor elements (`ns-lui/query_editor`, `action_editor`,
 `resource_editor`, `key_editor`) show a query as a form next to its text. Each step of the query
@@ -30,6 +30,30 @@ arguments at once:
 -R/data/sales.csv/-/ns-pl/head-10
 ```
 
+### When edits take effect
+
+Each edit made in a form rewrites the query text at once. When the value is then recalculated
+depends on the *update mode*, chosen with the mode control in the toolbar:
+
+- **Apply immediately** (a lightning icon) recalculates the value after each edit. The query
+  console waits until you have paused for a moment (300 ms), so a quick run of edits is evaluated
+  once.
+- **On demand** (a hand icon) keeps the edits until you press ✓, the button beside the query
+  text, or Enter in it. ✓ is highlighted while there is something to apply.
+
+Text you type into the query field itself is taken only when you press Enter or ✓, and only when
+the query parses and every command in it exists; otherwise the error is shown and the value stays
+as it was. Undo and Redo (the arrow buttons, Ctrl+Z and Ctrl+Shift+Z) step back and forth through
+the edits, in either mode.
+
+While a new value is evaluated, the console keeps showing the old one. A value that arrives
+quickly simply replaces it. When the evaluation takes longer than a quarter of a second, the old
+value is dimmed and a status line under the toolbar shows the progress and the latest message;
+after three seconds it also offers to switch to On demand, which suits a query that is expensive
+to evaluate. When a value the console shows becomes out of date because something it depends on
+changed, Apply immediately recalculates it; On demand dims it and says "changed upstream" until
+you press ✓.
+
 ### Keyboard
 
 On the desktop every action of the editor has a key. The ones used most:
@@ -46,6 +70,7 @@ On the desktop every action of the editor has a key. The ones used most:
 | Alt+Shift+N | add a following step |
 | Ctrl+K | add an action |
 | Ctrl+Enter | update the query |
+| Ctrl+Z, Ctrl+Shift+Z | undo, redo an edit |
 
 **Ctrl+J** is the quickest way between the two views. With the cursor in the text, on an
 argument of a step, Ctrl+J opens that card and puts you in that field; Ctrl+J again goes back to

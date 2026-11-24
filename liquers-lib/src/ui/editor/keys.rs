@@ -42,6 +42,10 @@ pub enum EditorKey {
     ToggleLink,
     Complete,
     Update,
+    /// Take back the last edit (AC-10).
+    Undo,
+    /// Re-apply an edit taken back.
+    Redo,
 }
 
 /// Where a key applies.
@@ -95,6 +99,10 @@ const TABLE: &[(&str, EditorKey, KeyScope)] = &[
     ("Alt+L", EditorKey::ToggleLink, KeyScope::Field),
     ("Ctrl+Space", EditorKey::Complete, KeyScope::Field),
     ("Ctrl+Enter", EditorKey::Update, KeyScope::Anywhere),
+    // In a header only: inside a text field Ctrl+Z is the field's own undo.
+    ("Ctrl+Z", EditorKey::Undo, KeyScope::Header),
+    ("Ctrl+Shift+Z", EditorKey::Redo, KeyScope::Header),
+    ("Ctrl+Y", EditorKey::Redo, KeyScope::Header),
 ];
 
 /// The keymap: each parsed shortcut, what it does and where. An entry that does not parse is

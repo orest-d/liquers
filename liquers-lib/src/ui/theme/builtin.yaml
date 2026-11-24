@@ -24,6 +24,7 @@ dark:
     warning: '#e0a23a'
     success: '#3fb27f'
     modified: '#e0a23a'
+    preview: '#e8b04a'
   syntax:
     header: '#6f9fe8'
     resource: '#8ec5ff'
@@ -61,6 +62,7 @@ light:
     warning: '#b97a14'
     success: '#2a8a5f'
     modified: '#b97a14'
+    preview: '#b7791f'
   syntax:
     header: '#3b6fb8'
     resource: '#1f63c6'

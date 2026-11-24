@@ -511,7 +511,7 @@ fn namespace_change_awaits_confirmation() {
 /// query-pipeline-editor AC-26
 #[test]
 fn continuous_and_on_demand_writes() {
-    let mut state = EditorState::new(EditorKind::Query, Arc::new(registry())).with_continuous(false);
+    let mut state = EditorState::new(EditorKind::Query, Arc::new(registry())).with_update_mode(UpdateMode::OnDemand);
     state
         .on_snapshot(&Value::from_query(&parse_query(PROBLEM).expect("query")), Some(fp(1)))
         .expect("snapshot");
@@ -524,8 +524,101 @@ fn continuous_and_on_demand_writes() {
     state.apply(set(3, "n", "5")).expect("edit");
     assert!(matches!(state.apply(EditorCommand::Revert).expect("revert"), EditorEffect::Reload));
     state.apply(set(3, "n", "6")).expect("edit");
-    assert!(is_write(&state.apply(EditorCommand::SetContinuous(true)).expect("continuous")));
-    assert!(state.continuous());
+    assert!(is_write(&state.apply(EditorCommand::SetUpdateMode(UpdateMode::ApplyImmediately)).expect("immediate")));
+    assert_eq!(state.update_mode(), UpdateMode::ApplyImmediately);
+}
+
+/// query-update-modes AC-8, AC-9 (and AC-17 at the core): what a committed edit does in each
+/// mode, and Update writing the pending copy.
+#[test]
+fn commit_follows_the_update_mode() {
+    let query = Value::from_query(&parse_query(PROBLEM).expect("query"));
+    let start = |mode| {
+        let mut state = EditorState::new(EditorKind::Query, Arc::new(registry())).with_update_mode(mode);
+        state.on_snapshot(&query, Some(fp(1))).expect("snapshot");
+        state
+    };
+
+    let mut immediate = start(UpdateMode::ApplyImmediately);
+    assert!(is_write(&immediate.apply(set(3, "n", "4")).expect("edit")));
+
+    let mut on_demand = start(UpdateMode::OnDemand);
+    assert!(matches!(on_demand.apply(set(3, "n", "4")).expect("edit"), EditorEffect::None));
+    assert!(on_demand.tree().pending);
+    let EditorEffect::Write { value, .. } = on_demand.apply(EditorCommand::Update).expect("update") else {
+        panic!("Update writes the pending copy")
+    };
+    assert!(value.try_into_query().expect("query").encode().contains("head-4"));
+
+    let mut preview = start(UpdateMode::LivePreview);
+    let EditorEffect::Preview(value) = preview.apply(set(3, "n", "4")).expect("edit") else {
+        panic!("a Live preview edit is previewed")
+    };
+    assert!(value.try_into_query().expect("query").encode().contains("head-4"));
+    assert!(preview.tree().pending, "nothing is written yet");
+    assert!(is_write(&preview.apply(EditorCommand::Update).expect("update")));
+    assert!(matches!(preview.on_written(fp(2)), EditorEffect::ClearPreview));
+    preview.apply(set(3, "n", "5")).expect("edit");
+    assert!(matches!(preview.apply(EditorCommand::Revert).expect("revert"), EditorEffect::ClearPreview));
+}
+
+/// query-update-modes AC-10
+#[test]
+fn undo_and_redo_restore_the_working_copy() {
+    let mut state = editor(EditorKind::Query, PROBLEM);
+    assert!(!state.can_undo() && !state.tree().can_undo);
+    for n in ["1", "2", "3"] {
+        state.apply(set(3, "n", n)).expect("edit");
+        state.on_written(fp(2));
+    }
+    let text = |s: &EditorState| s.tree().text.clone();
+    assert!(text(&state).contains("head-3"));
+    assert!(is_write(&state.apply(EditorCommand::Undo).expect("undo")), "Apply immediately writes the restored copy");
+    state.on_written(fp(3));
+    state.apply(EditorCommand::Undo).expect("undo");
+    state.on_written(fp(4));
+    assert!(text(&state).contains("head-1"), "{}", text(&state));
+    assert!(state.tree().can_redo);
+    state.apply(EditorCommand::Redo).expect("redo");
+    state.on_written(fp(5));
+    assert!(text(&state).contains("head-2"), "{}", text(&state));
+    // A new edit clears what could be redone.
+    state.apply(set(3, "n", "9")).expect("edit");
+    state.on_written(fp(6));
+    assert!(!state.can_redo());
+    // With nothing left, Undo is not an error.
+    while state.can_undo() {
+        state.apply(EditorCommand::Undo).expect("undo");
+        state.on_written(fp(7));
+    }
+    assert!(matches!(state.apply(EditorCommand::Undo).expect("empty undo"), EditorEffect::None));
+    assert_eq!(text(&state), parse_query(PROBLEM).expect("query").encode());
+    // The history keeps the last 100 edits.
+    for i in 0..120 {
+        state.apply(set(3, "n", &i.to_string())).expect("edit");
+        state.on_written(fp(8));
+    }
+    let mut undone = 0;
+    while state.can_undo() {
+        state.apply(EditorCommand::Undo).expect("undo");
+        state.on_written(fp(9));
+        undone += 1;
+    }
+    assert_eq!(undone, 100);
+}
+
+/// query-update-modes AC-20
+#[test]
+fn update_mode_names_round_trip() {
+    for mode in UpdateMode::ALL {
+        assert_eq!(UpdateMode::from_name(mode.name()).expect("name"), mode);
+        let json = serde_json::to_string(&mode).expect("serialize");
+        assert_eq!(json, format!("\"{}\"", mode.name()));
+        assert_eq!(serde_json::from_str::<UpdateMode>(&json).expect("deserialize"), mode);
+    }
+    assert_eq!(UpdateMode::default(), UpdateMode::LivePreview);
+    let error = UpdateMode::from_name("sometimes").expect_err("unknown");
+    assert!(error.to_string().contains("on-demand, preview or immediate"), "{error}");
 }
 
 /// query-pipeline-editor AC-26

@@ -8,10 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 266
+Total rows: 268
 - P1: 1
-- P2: 68
-- P3: 197
+- P2: 69
+- P3: 198
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -74,6 +74,7 @@ Total rows: 266
 | [`EXTENDED-FAST-TRACK`](issues/EXTENDED-FAST-TRACK.md) | feature | A cheap query waits behind long-running jobs, because commands cannot be classified for scheduling | accepted | phase2-blocked | not-eligible | P2 | L | core/assets | [phase1](design/command-execution-class/phase1-high-level-design.md)  [phase2](design/command-execution-class/phase2-architecture.md)  | 2026-08-08 |
 | [`CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS`](issues/CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS.md) | issue | Every queued command shares one job queue, so commands cannot be placed by their cost | draft |  |  | P2 | L | core/assets |  | 2026-10-26 |
 | [`PIPELINE-RESULTS-ARE-NEVER-CACHED`](issues/PIPELINE-RESULTS-ARE-NEVER-CACHED.md) | feature | A pipeline's result is never cached, even when the pipeline has a query form | draft |  |  | P2 | L | core/assets;core/context |  | 2026-11-14 |
+| [`QUERY-EDITOR-HAS-NO-LIVE-PREVIEW`](issues/QUERY-EDITOR-HAS-NO-LIVE-PREVIEW.md) | feature | A query editor cannot show an edit's result without writing it upstream | draft |  |  | P2 | L | lib/ui;lib/egui | [phase1](design/query-update-modes/phase1-high-level-design.md)  [phase2](design/query-update-modes/phase2-architecture.md)  [phase3](design/query-update-modes/phase3-examples.md)  [phase4](design/query-update-modes/phase4-implementation.md)  [phase5](design/query-update-modes/phase5-documentation.md)  | 2026-11-24 |
 | [`RING-NEEDS-CLANG-ON-WINDOWS-ARM64`](issues/RING-NEEDS-CLANG-ON-WINDOWS-ARM64.md) | issue | Default builds and cargo doc fail on Windows ARM64 without clang, because Polars and OpenDAL pull in ring | draft |  |  | P2 | L | build;store/backends;lib/polars |  | 2026-11-04 |
 | [`SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED`](issues/SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED.md) | issue | No guideline or user documentation says which Liquers settings are security-sensitive | draft |  |  | P2 | L | docs;axum;py;web |  | 2026-11-06 |
 | [`WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS`](issues/WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS.md) | feature | The web API cannot run a pipeline or recipe document, nor serve recipes as typed endpoints | draft |  |  | P2 | L | axum;core/assets;core/context;mcp |  | 2026-11-01 |
@@ -133,7 +134,6 @@ Total rows: 266
 | [`PY-LIVE-HANDLE-COUNT-FALLS-DURING-A-TEST`](issues/PY-LIVE-HANDLE-COUNT-FALLS-DURING-A-TEST.md) | issue | A live handle count can fall during a liquers-py test that compares it to its baseline | draft |  |  | P3 | S | py |  | 2026-11-03 |
 | [`PY-STORE-SET-OF-BYTES-IGNORES-THE-KEY-EXTENSION`](issues/PY-STORE-SET-OF-BYTES-IGNORES-THE-KEY-EXTENSION.md) | issue | Environment.store_set of bytes records the format b whatever the key's extension | draft |  |  | P3 | S | py |  | 2026-11-09 |
 | [`PY-UI-CHANGE-DOES-NOT-WAKE-AN-OPEN-WINDOW`](issues/PY-UI-CHANGE-DOES-NOT-WAKE-AN-OPEN-WINDOW.md) | issue | A change made from Python while a window shows waits for the window's next poll | draft |  |  | P3 | S | py;lib/egui |  | 2026-11-11 |
-| [`QUERY-CONSOLE-EDITOR-CANNOT-BROWSE-THE-STORE`](issues/QUERY-CONSOLE-EDITOR-CANNOT-BROWSE-THE-STORE.md) | issue | The query console's editor panel opens a store browser that never lists anything | draft |  |  | P3 | S | lib/ui |  | 2026-11-24 |
 | [`QUERY-SYNTAX-HAS-NO-INCLUDABLE-SECTION`](issues/QUERY-SYNTAX-HAS-NO-INCLUDABLE-SECTION.md) | issue | Query Language section of PROJECT_OVERVIEW cannot be included in the user guides | draft |  |  | P3 | S | docs |  | 2026-11-01 |
 | [`REC-ROWID-REFUSES-A-MANIFEST-STORED-AS-TEXT`](issues/REC-ROWID-REFUSES-A-MANIFEST-STORED-AS-TEXT.md) | issue | ns-rec/rowid on a manifest key fails with unknown data format 'txt' where the other record commands read it | draft |  |  | P3 | S | records |  | 2026-11-14 |
 | [`RECIPE-MISSING-RECIPE-IS-A-GENERAL-ERROR`](issues/RECIPE-MISSING-RECIPE-IS-A-GENERAL-ERROR.md) | issue | Asking a recipe provider for a recipe it does not have raises a General error, not KeyNotFound | draft |  |  | P3 | S | core/assets;core/error |  | 2026-11-01 |
@@ -217,6 +217,7 @@ Total rows: 266
 | [`PLAN-BUILDER-DUPLICATES-PIPELINE-PLANNING`](issues/PLAN-BUILDER-DUPLICATES-PIPELINE-PLANNING.md) | issue | Two plan builders plan the same queries once pipelines land | draft |  |  | P3 | M | core/plan | [notation](design/composite-command-definition/notation-and-integration.md)  [phase1](design/composite-command-definition/phase1-high-level-design.md)  [phase2](design/composite-command-definition/phase2-architecture.md)  [phase3](design/composite-command-definition/phase3-examples.md)  [phase4](design/composite-command-definition/phase4-implementation.md)  [phase5](design/composite-command-definition/phase5-documentation.md)  [pipeline](design/composite-command-definition/pipeline-and-plan.md)  [pipeline](design/composite-command-definition/pipeline-structure-and-sources.md)  [recipe](design/composite-command-definition/recipe-and-pipeline-structures.md)  | 2026-11-03 |
 | [`PY-CANNOT-INSPECT-THE-DEPENDENCY-MANAGER`](issues/PY-CANNOT-INSPECT-THE-DEPENDENCY-MANAGER.md) | feature | Python cannot inspect the dependency manager | draft |  |  | P3 | M | py |  | 2026-11-14 |
 | [`PY-EXIT-WITH-UNCANCELLABLE-COMMAND-CRASHES-BEFORE-3-14`](issues/PY-EXIT-WITH-UNCANCELLABLE-COMMAND-CRASHES-BEFORE-3-14.md) | issue | Exiting Python while a command ignores cancellation can still abort the process before CPython 3.14 | draft |  |  | P3 | M | py |  | 2026-10-31 |
+| [`QUERY-COST-IS-UNKNOWN-TO-THE-UI`](issues/QUERY-COST-IS-UNKNOWN-TO-THE-UI.md) | feature | The UI cannot tell an expensive query from a cheap one, so an element's update mode cannot follow it | draft |  |  | P3 | M | lib/ui;core/commands |  | 2026-11-24 |
 | [`RECIPE-TREES-NOT-IN-LANGUAGE-BINDINGS`](issues/RECIPE-TREES-NOT-IN-LANGUAGE-BINDINGS.md) | feature | Python and JavaScript cannot validate or edit a recipe tree | draft |  |  | P3 | M | py;web |  | 2026-11-22 |
 | [`TEMPLATE-ERROR-AT-QUERY-LEVEL-LOSES-THE-TEMPLATE-POSITION`](issues/TEMPLATE-ERROR-AT-QUERY-LEVEL-LOSES-THE-TEMPLATE-POSITION.md) | issue | A template error raised through a query reports the position in the query, not in the template | draft |  |  | P3 | M | lib/commands |  | 2026-11-10 |
 | [`TEMPLATE-HAS-NO-MDBOOK-INCLUDE-SYNTAX`](issues/TEMPLATE-HAS-NO-MDBOOK-INCLUDE-SYNTAX.md) | feature | Liquers templates cannot read mdBook's {{#include}} syntax | draft |  |  | P3 | M | lib/commands;docs |  | 2026-11-01 |
@@ -267,6 +268,7 @@ Total rows: 266
 | [`COMMAND-REGISTRY-NOT-ORGANIZED-BY-REALM`](issues/COMMAND-REGISTRY-NOT-ORGANIZED-BY-REALM.md) | issue | The command metadata registry is a flat list, so a realm cannot have its own default namespaces | draft |  |  | P3 | L | core/commands;core/plan |  | 2026-11-01 |
 | [`INDEX-PAGE-IS-A-FIXED-REDIRECT`](issues/INDEX-PAGE-IS-A-FIXED-REDIRECT.md) | feature | A Liquers server's index page can only redirect to the web folder | draft |  |  | P3 | L | axum;core/value;core/commands |  | 2026-11-06 |
 | [`MODULE-DOCS-DO-NOT-FOLLOW-THE-API-DOC-RULES`](issues/MODULE-DOCS-DO-NOT-FOLLOW-THE-API-DOC-RULES.md) | issue | Existing module docs lack purpose, usage, related concepts and examples | draft |  |  | P3 | L | docs;core/commands;core/value;lib/commands;axum;py |  | 2026-11-01 |
+| [`NO-RECIPE-OR-RECIPES-EDITOR-UI`](issues/NO-RECIPE-OR-RECIPES-EDITOR-UI.md) | feature | There is no UI element that edits a whole recipe or a folder's recipes.yaml | draft |  |  | P3 | L | lib/ui;lib/egui |  | 2026-11-24 |
 | [`NO-RENDERER-NEUTRAL-STYLESHEET`](issues/NO-RENDERER-NEUTRAL-STYLESHEET.md) | feature | Styles cannot be written once as selector rules and resolved for egui, the browser and a terminal UI | draft |  |  | P3 | L | lib/ui |  | 2026-11-21 |
 | [`NO-SOURCE-CODE-AND-API-DOC-NAVIGATION`](issues/NO-SOURCE-CODE-AND-API-DOC-NAVIGATION.md) | feature | Source code and API documentation cannot be navigated or extracted | draft |  |  | P3 | L | lib/commands |  | 2026-10-11 |
 | [`NO-SQL-ENGINE-IN-WASM-BUILDS`](issues/NO-SQL-ENGINE-IN-WASM-BUILDS.md) | feature | SQL over records is unavailable in wasm builds, where polars does not build | draft |  |  | P3 | L | records;lib/commands;web |  | 2026-10-21 |

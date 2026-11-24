@@ -51,7 +51,7 @@ use liquers_core::command_metadata::ArgumentGUIInfo;
 use super::html::{escape_html, event_attr, field_attr};
 use crate::ui::editor::{
     editor_layout, event_name, field_id, form_rows, header_parts, toolbar_items, CardGroupKind, EditorField,
-    EditorMode, EditorNode, EditorTree, FieldValue, HeaderPart, NodePath, StepChip, ToolItem, RESOURCE_HEADERS,
+    EditorMode, EditorNode, EditorTree, FieldValue, HeaderPart, NodePath, StepChip, ToolItem, UpdateMode, RESOURCE_HEADERS,
 };
 use crate::ui::event::UIEventKind;
 use crate::ui::theme::{Density, IconSource, IconVariant, ResolvedIcon, Theme, PHOSPHOR};
@@ -93,7 +93,19 @@ pub const EDITOR_CSS: &str = r#"
 .lq-link-tree{border-left:1px dashed var(--lq-line-strong);padding-left:8px;margin-top:4px}
 .lq-qc-body{display:flex;gap:8px;align-items:flex-start}
 .lq-qc-content{flex:1;min-width:0}
+.lq-ed-textrow{display:flex;gap:4px;align-items:center}
+.lq-ed-textrow .lq-ed-text{flex:1;min-width:0}
+.lq-ed-btn i::before,.lq-ed-auto i::before{content:attr(data-fallback);font-style:normal}
+.lq-ed-preview{color:var(--lq-preview)}
+.lq-ed-pending-check{color:var(--lq-accent)}
+.lq-ed-auto{color:var(--lq-ink-faint)}
+.lq-ed-auto.lq-ed-busy{color:var(--lq-accent)}
 .lq-qc-editor{flex:0 0 340px;max-width:45%;overflow:auto;border-left:1px solid var(--lq-line)}
+.lq-qc-toolbar i::before{content:attr(data-fallback);font-style:normal}
+.lq-qc-check.lq-ed-pending-check{color:var(--lq-accent)}
+.lq-status-bar{display:flex;gap:8px;align-items:center;color:var(--lq-ink-muted);font-size:var(--lq-size-small);padding:2px 4px}
+.lq-value-stale{opacity:.45;filter:blur(.5px)}
+.lq-value-preview{outline:2px solid var(--lq-preview);outline-offset:2px}
 "#;
 
 fn button(label: &str, verb: &str, path: &NodePath, rest: &str, title: &str) -> String {
@@ -108,6 +120,72 @@ fn button_class(label: &str, verb: &str, path: &NodePath, rest: &str, title: &st
         event_attr(&UIEventKind::Named(event_name(verb, path, rest))),
         escape_html(label)
     )
+}
+
+/// A Phosphor icon in the browser: the web font's `<i>`, with `fallback` shown without it.
+pub(crate) fn ph_html(name: &str, fallback: &str) -> String {
+    format!(
+        "<i class=\"ph ph-{}\" aria-hidden=\"true\" data-fallback=\"{}\"></i>",
+        escape_html(name),
+        escape_html(fallback)
+    )
+}
+
+/// An icon button sending `ed:<verb>`.
+fn icon_button_html(icon: &str, fallback: &str, verb: &str, rest: &str, title: &str, class: &str, enabled: bool) -> String {
+    format!(
+        "<button type=\"button\" class=\"{}\" title=\"{}\"{}{}>{}</button>",
+        escape_html(class),
+        escape_html(title),
+        if enabled { "" } else { " disabled" },
+        event_attr(&UIEventKind::Named(event_name(verb, &NodePath::default(), rest))),
+        ph_html(icon, fallback)
+    )
+}
+
+/// The update mode control, Undo, Redo and Revert of an editor's toolbar (AC-10, AC-13, AC-22).
+fn update_controls_html(tree: &EditorTree) -> String {
+    let mut h = String::from("<span class=\"lq-ed-modes\">");
+    for mode in &tree.update_modes {
+        let on = *mode == tree.update_mode;
+        let class = match (on, *mode) {
+            (true, UpdateMode::LivePreview) => "lq-ed-btn lq-mode-on lq-ed-preview",
+            (true, UpdateMode::OnDemand) | (true, UpdateMode::ApplyImmediately) => "lq-ed-btn lq-mode-on",
+            (false, _) => "lq-ed-btn",
+        };
+        h.push_str(&icon_button_html(mode.icon(), mode.label(), "updatemode", mode.name(), mode.label(), class, true));
+    }
+    h.push_str("</span>");
+    h.push_str(&icon_button_html("arrow-u-up-left", "↶", "undo", "", "Undo", "lq-ed-btn", tree.can_undo));
+    h.push_str(&icon_button_html("arrow-u-up-right", "↷", "redo", "", "Redo", "lq-ed-btn", tree.can_redo));
+    if !tree.text_editable {
+        h.push_str(&check_mark_html(tree));
+    }
+    if tree.pending && tree.update_mode != UpdateMode::ApplyImmediately {
+        h.push_str(&button("Revert", "revert", &NodePath::default(), "", "Drop the edits and reload"));
+        h.push_str("<em class=\"lq-ed-pending\">pending</em>");
+    }
+    h
+}
+
+/// The ✓ beside the query field (AC-13, AC-22); a lightning mark in Apply immediately.
+fn check_mark_html(tree: &EditorTree) -> String {
+    match tree.update_mode {
+        UpdateMode::ApplyImmediately => format!(
+            "<span class=\"lq-ed-auto{}\" title=\"Each edit is applied at once\">{}</span>",
+            if tree.pending { " lq-ed-busy" } else { "" },
+            ph_html("lightning", "⚡")
+        ),
+        UpdateMode::LivePreview | UpdateMode::OnDemand => {
+            let class = match (tree.update_mode, tree.pending) {
+                (UpdateMode::LivePreview, _) => "lq-ed-btn lq-ed-check lq-ed-preview",
+                (UpdateMode::OnDemand, true) => "lq-ed-btn lq-ed-check lq-ed-pending-check",
+                (UpdateMode::OnDemand, false) | (UpdateMode::ApplyImmediately, _) => "lq-ed-btn lq-ed-check",
+            };
+            let icon = if tree.pending { "check-circle" } else { "check" };
+            icon_button_html(icon, "✓", "update", "", "Apply the edits (Ctrl+Enter, or Enter in the query)", class, tree.pending)
+        }
+    }
 }
 
 fn change(field: &str) -> String {
@@ -311,15 +389,8 @@ pub fn editor_html_open(
         };
         h.push_str(&button_class(label, "mode", &root, mode_name(m), "Simple shows the last step; Advanced every step (Ctrl+B)", class));
     }
-    h.push_str(&format!(
-        "<label><input type=\"checkbox\"{}{}{}> Update immediately</label>",
-        field_attr("continuous"),
-        change("continuous"),
-        if tree.continuous { " checked" } else { "" }
-    ));
-    if !tree.continuous {
-        h.push_str(&button("Update", "update", &root, "", "Set the edits into where the value lives"));
-        h.push_str(&button("Revert", "revert", &root, "", "Drop the edits and reload"));
+    if !tree.host_controls {
+        h.push_str(&update_controls_html(tree));
     }
     if tree.pending {
         h.push_str("<em class=\"lq-ed-pending\">pending</em>");
@@ -328,10 +399,11 @@ pub fn editor_html_open(
     // Text (AC-4, AC-10, AC-15).
     if tree.text_editable {
         h.push_str(&format!(
-            "<input type=\"text\" class=\"lq-ed-text\" value=\"{}\"{}{}>",
+            "<div class=\"lq-ed-textrow\"><input type=\"text\" class=\"lq-ed-text\" value=\"{}\"{}{}>{}</div>",
             escape_html(&tree.text),
             field_attr("text"),
-            event_attr(&UIEventKind::Submit)
+            event_attr(&UIEventKind::Submit),
+            if tree.host_controls { String::new() } else { check_mark_html(tree) }
         ));
     }
     if !tree.hide_text {
