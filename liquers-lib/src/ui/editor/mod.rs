@@ -83,7 +83,7 @@ mod view;
 
 pub use catalog::command_catalog;
 pub use command::{EditorCommand, EditorEffect, NewElement};
-pub use element::{recipe_folder, EditorBinding, EditorElement};
+pub use element::{recipe_folder, EditorBinding, EditorElement, PREVIEW_END_EVENT};
 pub use keys::{editor_keymap, keymap_table, shortcut_text, EditorKey, KeyScope};
 pub use layout::{
     card_marks, command_id, editor_layout, form_rows, header_parts, node_label, offers_key, simple_card, toolbar_items, Card,

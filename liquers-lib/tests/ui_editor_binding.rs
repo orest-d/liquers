@@ -18,7 +18,7 @@ use liquers_core::value::ValueInterface;
 use liquers_macro::register_command;
 
 use liquers_lib::environment::{CommandRegistryAccess, DefaultEnvironment};
-use liquers_lib::ui::editor::{EditorBinding, EditorCommand, EditorElement, EditorKind, EditorTree, NodePath};
+use liquers_lib::ui::editor::{EditorBinding, EditorCommand, EditorElement, EditorKind, EditorTree, NodePath, UpdateMode};
 use liquers_lib::ui::payload::SimpleUIPayload;
 use liquers_lib::ui::{
     app_message_channel, AppMessageSender, AppRunner, AppState, DirectAppState, ElementSource, UIContext,
@@ -183,6 +183,30 @@ impl Harness {
             .expect("tree")
     }
 
+    /// Adds and initialises one more element.
+    async fn add(&self, element: Box<dyn UIElement>) -> UIHandle {
+        let ctx = |handle| self.context(handle);
+        let mut state = self.app_state.lock().await;
+        let n = state.roots().len();
+        let handle = state.add_node(None, n, ElementSource::None).expect("node");
+        let mut element = element;
+        element.init(handle, &ctx(handle)).expect("init");
+        state.set_element(handle, element).expect("element");
+        handle
+    }
+
+    /// Whether a console shows a preview.
+    async fn console_previews(&self, handle: UIHandle) -> bool {
+        let state = self.app_state.lock().await;
+        let element = state.get_element(handle).expect("get").expect("element");
+        element
+            .as_any()
+            .and_then(|a| a.downcast_ref::<liquers_lib::ui::QueryConsoleElement>())
+            .expect("a console")
+            .display()
+            .is_preview()
+    }
+
     /// The value an element shows, as text.
     async fn shown(&self, handle: UIHandle) -> Option<String> {
         let state = self.app_state.lock().await;
@@ -196,8 +220,11 @@ impl Harness {
     }
 }
 
+/// An editor of a recipe in Apply immediately (the tests of writing); Live preview is tested on
+/// its own.
 fn recipe_editor(kind: EditorKind, query: &str) -> EditorElement {
     EditorElement::new("Editor", kind, EditorBinding::Accessor(query.to_string()))
+        .with_update_mode(UpdateMode::ApplyImmediately)
 }
 
 fn append_apac() -> EditorCommand {
@@ -222,11 +249,11 @@ async fn two_editors_share_a_recipe_query() {
     assert!(h.tree(handles[0]).await.message.is_none());
 }
 
-/// query-pipeline-editor AC-26
+/// query-pipeline-editor AC-26, query-update-modes AC-8
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn on_demand_update_writes_only_on_update() {
+async fn on_demand_editor_writes_only_on_update() {
     let (mut h, handles) = Harness::new(vec![
-        recipe_editor(EditorKind::Query, RECIPE_QUERY).with_continuous(false),
+        recipe_editor(EditorKind::Query, RECIPE_QUERY).with_update_mode(UpdateMode::OnDemand),
         recipe_editor(EditorKind::Query, RECIPE_QUERY),
     ])
     .await;
@@ -324,4 +351,51 @@ async fn preview_in_the_recipe_folder_resolves_like_the_recipe() {
     h.settle().await;
     assert_eq!(h.shown(handles[0]).await.as_deref(), Some("hello"));
     assert_eq!(h.recipes().await, before, "a preview writes nothing");
+}
+
+/// query-update-modes AC-17, AC-18, AC-19: a Live preview of a recipe is shown in the followed
+/// console, framed, with `recipes.yaml` byte-identical; ✓ writes it, the preview ends and the
+/// console shows its own query, recalculated from the new recipe.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn live_preview_of_a_recipe_leaves_recipes_yaml_unchanged() {
+    use liquers_lib::ui::QueryConsoleElement;
+    let console = QueryConsoleElement::new("C".into(), "-R/reports/loud.txt".into());
+    let (mut h, handles) = Harness::of(vec![Box::new(console)]).await;
+    let (console, editor_handle) = (handles[0], {
+        let editor = EditorElement::new("E", EditorKind::Query, EditorBinding::Accessor(LOUD_RECIPE.into()))
+            .with_follow(handles[0]);
+        assert_eq!(editor.update_mode(), UpdateMode::LivePreview);
+        h.add(Box::new(editor)).await
+    });
+    h.settle().await;
+    assert_eq!(h.shown(console).await.as_deref(), Some("HELLO"));
+    let before = h.recipes().await;
+
+    h.apply(editor_handle, EditorCommand::SetText("-R/./data.txt/-/shout/quiet/loud.txt".into())).await;
+    h.settle().await;
+    assert_eq!(h.shown(console).await.as_deref(), Some("hello"), "the preview, in place");
+    assert!(h.console_previews(console).await);
+    assert_eq!(h.recipes().await, before, "nothing written");
+
+    h.apply(editor_handle, EditorCommand::Update).await;
+    h.settle().await;
+    assert!(h.recipes().await.contains("shout/quiet"), "{}", h.recipes().await);
+    assert!(!h.console_previews(console).await, "the preview ended");
+    assert_eq!(h.shown(console).await.as_deref(), Some("hello"), "the recipe's own value, recalculated");
+}
+
+/// query-update-modes AC-9, AC-19: an editor in Apply immediately writes the recipe; a console
+/// showing it gets `Expired` and recalculates.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn apply_expires_a_dependent_view() {
+    use liquers_lib::ui::QueryConsoleElement;
+    let console = QueryConsoleElement::new("C".into(), "-R/reports/loud.txt".into());
+    let (mut h, handles) = Harness::of(vec![Box::new(console)]).await;
+    let editor = h.add(Box::new(recipe_editor(EditorKind::Query, LOUD_RECIPE))).await;
+    h.settle().await;
+    assert_eq!(h.shown(handles[0]).await.as_deref(), Some("HELLO"));
+    h.apply(editor, EditorCommand::SetText("-R/./data.txt/-/shout/quiet/loud.txt".into())).await;
+    h.settle().await;
+    assert!(h.recipes().await.contains("shout/quiet"));
+    assert_eq!(h.shown(handles[0]).await.as_deref(), Some("hello"));
 }

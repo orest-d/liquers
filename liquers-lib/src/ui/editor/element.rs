@@ -18,7 +18,12 @@ use crate::ui::handle::UIHandle;
 use crate::ui::theme::{Density, ThemeState};
 use crate::ui::message::{AccessorOp, AccessorUpdate, AppMessage};
 use crate::ui::ui_context::UIContext;
+use crate::ui::widgets::value_display::ValueDisplay;
 use crate::value::Value;
+
+/// The event an editor sends the view it follows when its preview ends and the view should show
+/// its own query again (a recipe's view: its own query reads the recipe, which a write expires).
+pub const PREVIEW_END_EVENT: &str = "lq:preview-end";
 
 /// Where the edited value lives.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -46,10 +51,6 @@ pub fn recipe_folder(address: &str) -> Option<String> {
     Some(folder.to_owned())
 }
 
-fn yes() -> bool {
-    true
-}
-
 /// An editor of a query or pipeline (a tree of its steps beside the highlighted text), of one
 /// action, of a resource or of a key, bound to where its value lives. See the module docs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,10 +59,13 @@ pub struct EditorElement {
     title: String,
     kind: EditorKind,
     binding: EditorBinding,
-    /// "Update immediately" (AC-26): each committed edit is set into the accessor at once;
-    /// otherwise edits wait for Update.
-    #[serde(default = "yes")]
-    continuous: bool,
+    /// When an edit takes effect (query-update-modes AC-20); `None` until set or resolved.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    update_mode: Option<UpdateMode>,
+    /// "Update immediately" of an element saved before update modes: `true` loads as Apply
+    /// immediately, `false` as On demand (AC-15). Read, never written.
+    #[serde(default, skip_serializing)]
+    continuous: Option<bool>,
     /// An element re-pointed at the edited query after each write (a memory binding has no
     /// dependents to expire, AC-13).
     #[serde(default)]
@@ -82,6 +86,9 @@ pub struct EditorElement {
     view: EditorView,
     #[serde(skip)]
     bound: bool,
+    /// The preview of an editor that follows no view, shown in its own area (AC-17).
+    #[serde(skip)]
+    display: ValueDisplay,
     /// An accessor made in code (empty `address()`), bound as it is for the session.
     #[serde(skip)]
     live: Option<Arc<dyn ValueAccessor<Value>>>,
@@ -99,7 +106,8 @@ impl EditorElement {
             title: title.into(),
             kind,
             binding,
-            continuous: true,
+            update_mode: None,
+            continuous: None,
             follow: None,
             mode: EditorMode::Simple,
             density: None,
@@ -107,6 +115,7 @@ impl EditorElement {
             state: None,
             view: EditorView::default(),
             bound: false,
+            display: ValueDisplay::default(),
             live: None,
             open_card: None,
         }
@@ -129,10 +138,51 @@ impl EditorElement {
         }
     }
 
-    /// Sets "Update immediately" (builder style).
-    pub fn with_continuous(mut self, continuous: bool) -> Self {
-        self.continuous = continuous;
+    /// Starts in `mode` (builder style); see [`update_mode`](Self::update_mode).
+    pub fn with_update_mode(mut self, mode: UpdateMode) -> Self {
+        self.update_mode = Some(self.offered(mode));
         self
+    }
+
+    /// The modes this editor offers: Live preview needs a whole query to evaluate, so an action,
+    /// resource or key editor offers On demand and Apply immediately.
+    pub fn update_modes(&self) -> &'static [UpdateMode] {
+        match self.kind {
+            EditorKind::Query => &UpdateMode::ALL,
+            EditorKind::Action | EditorKind::Resource | EditorKind::Key => {
+                &[UpdateMode::OnDemand, UpdateMode::ApplyImmediately]
+            }
+        }
+    }
+
+    /// `mode`, or On demand where Live preview is not offered.
+    fn offered(&self, mode: UpdateMode) -> UpdateMode {
+        if self.update_modes().contains(&mode) {
+            mode
+        } else {
+            UpdateMode::OnDemand
+        }
+    }
+
+    /// When an edit takes effect: the mode set, else the legacy "Update immediately" of an old
+    /// saved element, else Live preview (Apply immediately where Live preview is not offered).
+    pub fn update_mode(&self) -> UpdateMode {
+        if let Some(mode) = self.update_mode {
+            return mode;
+        }
+        match self.continuous {
+            Some(true) => UpdateMode::ApplyImmediately,
+            Some(false) => UpdateMode::OnDemand,
+            None => match self.kind {
+                EditorKind::Query => UpdateMode::LivePreview,
+                EditorKind::Action | EditorKind::Resource | EditorKind::Key => UpdateMode::ApplyImmediately,
+            },
+        }
+    }
+
+    /// The preview shown in the editor's own area, when it follows no view.
+    pub fn display(&self) -> &ValueDisplay {
+        &self.display
     }
 
     /// Re-points `handle` at the edited query after each write (builder style).
@@ -189,9 +239,6 @@ impl EditorElement {
     pub fn binding(&self) -> &EditorBinding {
         &self.binding
     }
-    pub fn continuous(&self) -> bool {
-        self.continuous
-    }
     /// The core, once the element has a registry.
     pub fn state(&self) -> Option<&EditorState> {
         self.state.as_ref()
@@ -206,12 +253,12 @@ impl EditorElement {
         self.theme = Some(ctx.theme());
         if self.state.is_none() {
             if let Some(registry) = ctx.command_registry() {
-                // Live preview comes with the preview path (query-update-modes Part B); until then
-                // an editor offers Apply immediately and On demand.
-                let mode = if self.continuous { UpdateMode::ApplyImmediately } else { UpdateMode::OnDemand };
+                let mode = self.update_mode();
+                self.update_mode = Some(mode);
+                self.continuous = None;
                 self.state = Some(
                     EditorState::new(self.kind, registry.clone())
-                        .with_update_modes(&[UpdateMode::OnDemand, UpdateMode::ApplyImmediately])
+                        .with_update_modes(self.update_modes())
                         .with_update_mode(mode),
                 );
             }
@@ -249,7 +296,7 @@ impl EditorElement {
                     effects.push(effect);
                 }
             }
-            self.continuous = state.update_mode() == UpdateMode::ApplyImmediately;
+            self.update_mode = Some(state.update_mode());
         }
         for effect in effects {
             self.run_effect(effect, ctx);
@@ -279,8 +326,46 @@ impl EditorElement {
             EditorEffect::RenameData { folder, editor } => {
                 ctx.send_message(AppMessage::RenameData { handle, folder, editor })
             }
-            // Not produced while Live preview is not offered (query-update-modes Part B).
-            EditorEffect::Preview(_) | EditorEffect::ClearPreview => {}
+            EditorEffect::Preview(value) => {
+                // In place, in the followed view, else in the editor's own area (AC-17); a
+                // recipe's preview runs in the recipe's folder (AC-18).
+                let target = self.follow.unwrap_or(handle);
+                let cwd = self.preview_cwd();
+                ctx.send_message(AppMessage::Preview { handle: target, query: value_text(&value), cwd });
+            }
+            EditorEffect::ClearPreview => self.end_preview(ctx),
+        }
+    }
+
+    /// The preview is dropped (Revert, Undo to the applied value) or applied (a write): the
+    /// view shows the applied value again (AC-17).
+    fn end_preview(&mut self, ctx: &UIContext) {
+        let Some(follow) = self.follow else {
+            self.display.clear();
+            return;
+        };
+        match self.preview_cwd() {
+            // A recipe's view asks for its own query again: the recipe's text alone would not
+            // resolve its folder's keys.
+            Some(_) => ctx.send_message(AppMessage::UIEvent {
+                handle: follow,
+                event: crate::ui::event::UIEvent::new(crate::ui::event::UIEventKind::Named(
+                    PREVIEW_END_EVENT.to_string(),
+                )),
+            }),
+            None => {
+                if let (Some(value), EditorKind::Query) = (self.state.as_ref().and_then(EditorState::value), self.kind) {
+                    ctx.send_message(AppMessage::RequestAssetUpdates { handle: follow, query: value_text(&value) });
+                }
+            }
+        }
+    }
+
+    /// The folder of the recipe this editor is bound to, if it is.
+    fn preview_cwd(&self) -> Option<String> {
+        match &self.binding {
+            EditorBinding::Accessor(address) => recipe_folder(address),
+            EditorBinding::Memory(_) => None,
         }
     }
 
@@ -293,9 +378,9 @@ impl EditorElement {
         if let EditorBinding::Memory(_) = &self.binding {
             self.binding = EditorBinding::Memory(text.clone());
         }
-        if let (Some(follow), EditorKind::Query) = (self.follow, self.kind) {
-            ctx.send_message(AppMessage::RequestAssetUpdates { handle: follow, query: text });
-        }
+        // The followed view shows the applied query: a recipe's view by expiry (the write
+        // expires what depends on the recipe) after leaving a preview; any other is re-pointed.
+        self.end_preview(ctx);
     }
 
     fn on_accessor(&mut self, update: &AccessorUpdate, ctx: &UIContext) {
@@ -340,6 +425,10 @@ impl EditorElement {
         }
         if written {
             self.after_write(ctx);
+            // `after_write` has re-pointed the view: a `ClearPreview` of the write is done.
+            if let EditorEffect::ClearPreview = effect {
+                return;
+            }
         }
         self.run_effect(effect, ctx);
     }
@@ -435,10 +524,17 @@ impl UIElement for EditorElement {
                     UpdateResponse::Unchanged
                 }
             }
-            UpdateMessage::AssetNotification(_)
-            | UpdateMessage::Timer { .. }
-            | UpdateMessage::Custom(_)
-            | UpdateMessage::AssetUpdate(_) => UpdateResponse::Unchanged,
+            UpdateMessage::AssetUpdate(snapshot) => {
+                // The preview of an editor that follows no view (AC-17).
+                match self.display.on_snapshot(snapshot) {
+                    crate::ui::widgets::SnapshotOutcome::Ignored => UpdateResponse::Unchanged,
+                    crate::ui::widgets::SnapshotOutcome::Progress
+                    | crate::ui::widgets::SnapshotOutcome::Settled => UpdateResponse::NeedsRepaint,
+                }
+            }
+            UpdateMessage::AssetNotification(_) | UpdateMessage::Timer { .. } | UpdateMessage::Custom(_) => {
+                UpdateResponse::Unchanged
+            }
         }
     }
 
@@ -470,15 +566,38 @@ impl UIElement for EditorElement {
             self.mode = mode;
         }
         self.apply_commands(inner.inner.commands, ctx);
+        // The preview of an editor that follows no view, framed in the preview colour (AC-22).
+        if let Some(value) = self.display.value().filter(|_| self.display.is_preview()).cloned() {
+            let colour = crate::egui::theme::color(theme.theme.palette(theme.mode).state.preview);
+            egui::Frame::new()
+                .stroke(egui::Stroke::new(2.0, colour))
+                .inner_margin(egui::Margin::same(4))
+                .show(ui, |ui| {
+                    if self.display.is_dimmed() {
+                        ui.multiply_opacity(0.45);
+                    }
+                    use crate::egui::UIValueExtension;
+                    value.as_ref().show(ui);
+                });
+        }
         inner.response
     }
 
     #[cfg(feature = "webui")]
-    fn render_web(&self, _app_state: &dyn crate::ui::app_state::AppState) -> String {
+    fn render_web(&self, app_state: &dyn crate::ui::app_state::AppState) -> String {
         let dom_id = crate::ui::web::element_dom_id(self.handle);
+        // The preview of an editor that follows no view (AC-17, AC-22).
+        let preview = match self.display.value().filter(|_| self.display.is_preview()) {
+            Some(value) => format!(
+                "<div class=\"lq-ed-own-preview lq-value-preview{}\">{}</div>",
+                if self.display.is_dimmed() { " lq-value-stale" } else { "" },
+                crate::ui::web::html::value_to_html(value.as_ref(), app_state)
+            ),
+            None => String::new(),
+        };
         match self.tree() {
             Some(tree) => format!(
-                "<div id=\"{dom_id}\" class=\"lq-element lq-EditorElement\">{}</div>",
+                "<div id=\"{dom_id}\" class=\"lq-element lq-EditorElement\">{}{preview}</div>",
                 {
                     let theme = self.theme_state();
                     let density = self.effective_density(&theme);

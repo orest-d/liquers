@@ -589,6 +589,16 @@ impl QueryConsoleElement {
             UIEventKind::Submit => self.on_apply_event(event, ctx),
             UIEventKind::Named(name) if name == UPDATE_EVENT => self.on_apply_event(event, ctx),
             UIEventKind::Named(name) if name == crate::ui::TIMER_EVENT => self.on_timer_event(event, ctx),
+            UIEventKind::Named(name) if name == crate::ui::editor::PREVIEW_END_EVENT => {
+                // The editor this console follows dropped or applied its preview: show the
+                // console's own query again (AC-17).
+                if self.display.requested_preview() && !self.query_text.is_empty() {
+                    self.evaluate(ctx);
+                    UpdateResponse::NeedsRepaint
+                } else {
+                    UpdateResponse::Unchanged
+                }
+            }
             UIEventKind::Named(name) if name.starts_with(MODE_EVENT) => {
                 match UpdateMode::from_name(&name[MODE_EVENT.len()..]) {
                     Ok(mode) => {
@@ -1123,6 +1133,10 @@ impl UIElement for QueryConsoleElement {
         Box::new(self.clone())
     }
 
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        Some(self)
+    }
+
     fn init(&mut self, handle: UIHandle, ctx: &UIContext) -> Result<(), Error> {
         self.set_handle(handle);
         // If query_text is non-empty (e.g. from deserialization or creation), submit it
@@ -1371,7 +1385,6 @@ mod tests {
             | Ok(AppMessage::NodeContext { .. })
             | Ok(AppMessage::RenameData { .. })
             | Ok(AppMessage::LoadIcon { .. })
-            | Ok(AppMessage::Preview { .. })
             | Ok(AppMessage::Preview { .. })
             | Err(_) => None,
         }
