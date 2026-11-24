@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 266
+Total rows: 268
 - P1: 1
-- P2: 68
+- P2: 70
 - P3: 197
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
@@ -46,6 +46,7 @@ Total rows: 266
 | [`EXPRESSION-DEPENDENCY-RECORD-IS-LOST-ON-RELOAD`](issues/EXPRESSION-DEPENDENCY-RECORD-IS-LOST-ON-RELOAD.md) | issue | A keyed asset that read a key only through a non-keyed expression is not expired by that key after a reload | draft |  |  | P2 | M | core/assets |  | 2026-10-20 |
 | [`MANIFEST-TEMPLATE-BATCH-ONLY-AT-THE-END-OF-THE-QUERY`](issues/MANIFEST-TEMPLATE-BATCH-ONLY-AT-THE-END-OF-THE-QUERY.md) | feature | A records manifest template can put the batch offset and size only at the end of its query | draft |  |  | P2 | M | records;core/plan |  | 2026-11-02 |
 | [`PY-SHUTDOWN-AFTER-EVALUATE-LOSES-THE-STORE-WRITE`](issues/PY-SHUTDOWN-AFTER-EVALUATE-LOSES-THE-STORE-WRITE.md) | issue | shutdown right after an evaluation loses the store write of a keyed result | draft |  |  | P2 | M | py |  | 2026-11-09 |
+| [`QUERY-CONSOLE-EDITOR-LOSES-EDITS-WHEN-UPDATE-IMMEDIATELY-IS-OFF`](issues/QUERY-CONSOLE-EDITOR-LOSES-EDITS-WHEN-UPDATE-IMMEDIATELY-IS-OFF.md) | issue | The query console's editor panel drops an edit made with "Update immediately" off, and never re-evaluates | draft |  |  | P2 | M | lib/ui | [phase1](design/query-live-preview/phase1-high-level-design.md)  [phase2](design/query-live-preview/phase2-architecture.md)  [phase3](design/query-live-preview/phase3-examples.md)  [phase4](design/query-live-preview/phase4-implementation.md)  [phase5](design/query-live-preview/phase5-documentation.md)  | 2026-11-24 |
 | [`STORE-OPENDAL-FS-CONCURRENT-WRITES-TO-ONE-KEY-FAIL`](issues/STORE-OPENDAL-FS-CONCURRENT-WRITES-TO-ONE-KEY-FAIL.md) | issue | Concurrent writes to one key of an OpenDAL fs store can fail with a write error | draft |  |  | P2 | M | store/backends |  | 2026-11-01 |
 | [`UI-INTERFACE-FSD-DESCRIBES-UNBUILT-API`](issues/UI-INTERFACE-FSD-DESCRIBES-UNBUILT-API.md) | issue | UI_INTERFACE_FSD describes a UI API that was never built | draft |  |  | P2 | M | docs;lib/ui |  | 2026-10-27 |
 | [`USER-GUIDE-EXAMPLES-ARE-NOT-EXECUTED`](issues/USER-GUIDE-EXAMPLES-ARE-NOT-EXECUTED.md) | issue | User guide chapter examples are not executed | draft |  |  | P2 | M | docs;build |  | 2026-11-01 |
@@ -74,6 +75,7 @@ Total rows: 266
 | [`EXTENDED-FAST-TRACK`](issues/EXTENDED-FAST-TRACK.md) | feature | A cheap query waits behind long-running jobs, because commands cannot be classified for scheduling | accepted | phase2-blocked | not-eligible | P2 | L | core/assets | [phase1](design/command-execution-class/phase1-high-level-design.md)  [phase2](design/command-execution-class/phase2-architecture.md)  | 2026-08-08 |
 | [`CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS`](issues/CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS.md) | issue | Every queued command shares one job queue, so commands cannot be placed by their cost | draft |  |  | P2 | L | core/assets |  | 2026-10-26 |
 | [`PIPELINE-RESULTS-ARE-NEVER-CACHED`](issues/PIPELINE-RESULTS-ARE-NEVER-CACHED.md) | feature | A pipeline's result is never cached, even when the pipeline has a query form | draft |  |  | P2 | L | core/assets;core/context |  | 2026-11-14 |
+| [`QUERY-EDITOR-HAS-NO-LIVE-PREVIEW`](issues/QUERY-EDITOR-HAS-NO-LIVE-PREVIEW.md) | feature | A query editor can write each edit upstream or hold it, but cannot preview an edit's result without writing it | draft |  |  | P2 | L | lib/ui;lib/egui | [phase1](design/query-live-preview/phase1-high-level-design.md)  [phase2](design/query-live-preview/phase2-architecture.md)  [phase3](design/query-live-preview/phase3-examples.md)  [phase4](design/query-live-preview/phase4-implementation.md)  [phase5](design/query-live-preview/phase5-documentation.md)  | 2026-11-24 |
 | [`RING-NEEDS-CLANG-ON-WINDOWS-ARM64`](issues/RING-NEEDS-CLANG-ON-WINDOWS-ARM64.md) | issue | Default builds and cargo doc fail on Windows ARM64 without clang, because Polars and OpenDAL pull in ring | draft |  |  | P2 | L | build;store/backends;lib/polars |  | 2026-11-04 |
 | [`SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED`](issues/SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED.md) | issue | No guideline or user documentation says which Liquers settings are security-sensitive | draft |  |  | P2 | L | docs;axum;py;web |  | 2026-11-06 |
 | [`WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS`](issues/WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS.md) | feature | The web API cannot run a pipeline or recipe document, nor serve recipes as typed endpoints | draft |  |  | P2 | L | axum;core/assets;core/context;mcp |  | 2026-11-01 |
