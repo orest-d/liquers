@@ -144,6 +144,12 @@ fn card<'t>(tree: &EditorTree, node: &'t EditorNode) -> Card<'t> {
     Card { node, marks: card_marks(tree, node) }
 }
 
+/// Whether the editor offers "Add key…": a query editor whose query has no resource (key) yet,
+/// such as an empty query. The command it sends is a resource with an empty key inserted first.
+pub fn offers_key(tree: &EditorTree) -> bool {
+    tree.has_filename && !tree.nodes.iter().any(|n| matches!(n, EditorNode::Resource { .. }))
+}
+
 /// The top-level node Simple mode shows as its card: the last action, else the first resource,
 /// else the last node.
 pub fn simple_card(tree: &EditorTree) -> Option<usize> {
