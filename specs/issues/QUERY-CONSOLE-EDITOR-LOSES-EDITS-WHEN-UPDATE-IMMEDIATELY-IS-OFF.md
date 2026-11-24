@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [lib/ui]
-design: query-live-preview
+design: query-apply-immediately
 created: 2026-11-24
 github:
 ---
@@ -34,6 +34,8 @@ that applied `SetContinuous(false)`, `SetField n=7` and `Update` through
 
 ## Expected behaviour
 
-The console's query is its own value, so its panel should not offer the switch at all, and an
-accepted edit should re-evaluate the console's value (debounced), without losing it.
-Design: `specs/design/query-live-preview/`.
+Every accepted panel edit rewrites the console's query text, whatever the setting. With "Apply
+immediately" on, the console then re-evaluates (debounced); with it off, it re-evaluates on the
+✓ button beside the query field or Enter. The setting is the console's own, shown once in the
+console's toolbar; the panel shows no second switch or Update button.
+Design: `specs/design/query-apply-immediately/`.

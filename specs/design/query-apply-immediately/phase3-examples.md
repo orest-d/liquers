@@ -1,4 +1,4 @@
-# Phase 3: Examples & Use-cases — query-live-preview
+# Phase 3: Examples & Use-cases — query-apply-immediately
 
 ## Overview Table
 | # | Kind | Name | Shows / checks | Scenarios |

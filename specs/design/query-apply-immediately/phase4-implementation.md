@@ -1,4 +1,4 @@
-# Phase 4: Implementation Plan — query-live-preview
+# Phase 4: Implementation Plan — query-apply-immediately
 
 ## Overview
 <What gets built, in what order, and why that order. Prerequisites: issues to fix first.>

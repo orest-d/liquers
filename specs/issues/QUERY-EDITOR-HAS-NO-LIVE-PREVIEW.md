@@ -1,32 +1,36 @@
 ---
 id: QUERY-EDITOR-HAS-NO-LIVE-PREVIEW
 kind: feature
-title: A query editor can write each edit upstream or hold it, but cannot preview an edit's result without writing it
+title: A query editor cannot show an edit's result without writing it upstream
 status: draft
-priority: P2
+priority: P3
 complexity: L
 area: [lib/ui, lib/egui]
-design: query-live-preview
 created: 2026-11-24
 github:
 ---
 ## Problem
 
-The editors of `query-pipeline-editor` (`EditorElement`, `liquers-lib/src/ui/editor/`) have two
-update models (AC-26): "Update immediately" writes each committed edit into the accessor, and
-otherwise edits wait, pending, for Update. There is no third model in which an edit is evaluated
-and shown, but not written, until the user confirms it, and there is no undo.
+The editors of `query-pipeline-editor` (`EditorElement`, `liquers-lib/src/ui/editor/`) either write
+each committed edit into their accessor ("Update immediately", AC-26; "Apply immediately" after
+`query-apply-immediately`) or hold it until Update. There is no **live preview**: a mode in which
+the edited query is evaluated and its value shown while the accessor stays unchanged until the user
+confirms.
 
-Writing every edit of a recipe's query rewrites `recipes.yaml`, expires everything that depends on
-the recipe and recomputes every open view of it, for intermediate states the user never meant to
-keep. Holding the edits instead leaves the user editing blind.
+For an editor bound to a recipe of a `recipes.yaml`, "Apply immediately" rewrites the file on each
+edit, which expires the recipe's dependents and recomputes every open view of it, for intermediate
+states nobody meant to keep. Turning it off avoids that, but then the user sees no result until
+Update.
 
-The query console shows a value but re-evaluates it only on Submit, and swaps the value for an
-empty view the moment it submits (`submit_query` clears `value`), so a fast result flickers and a
-slow one leaves the user with nothing but a status word.
+## Problem Example
+
+`lui/query_editor` bound to `-R-key/reports/recipes.yaml/-/ns-acc/accessor/recipe-0/query`, beside a
+view of the recipe's result. Dragging a slider of the recipe's last action with "Apply immediately"
+on writes `recipes.yaml` once per accepted value; with it off, the view stays on the old result.
 
 ## Expected behaviour
 
-An editor can preview the edited query's result without writing it, apply or revert it, and undo
-an edit; the console shows a new value without flicker when it is quick, and a status bar with
-progress, plus the old value dimmed, when it is not. Design: `specs/design/query-live-preview/`.
+A third choice for editors whose accessor is expensive to write: the edited query is evaluated in
+the recipe's folder (its cwd) and shown in the followed view or a preview pane, marked as a
+preview, while the accessor is written only on ✓ / Enter. Considered and deferred by
+`specs/design/query-apply-immediately/` (Orest, 2026-11-24: Apply immediately on/off is the model).

@@ -264,7 +264,7 @@ on wasm.
 - **Native UI driver and egui window (`NativeDriver`, `spawn_headless`, `run_window`)** — built → [`design/egui-native-app/`](design/egui-native-app/)
 - **Query, pipeline, action and resource editors (tree view, `gui_info` widgets, presets, store file selector, accessor binding; supersedes `command-parameter-editor`)** — complete → [`design/query-pipeline-editor/`](design/query-pipeline-editor/)
 - **Query editor ergonomics (action cards, Simple and Advanced modes, icons, shortcuts, jump from text to field, theme proof of concept)** — complete → [`design/query-editor-ergonomics/`](design/query-editor-ergonomics/)
-- **Query live preview (preview, apply and undo editor edits; console re-evaluates on a panel edit; a value display with a status bar instead of flicker)** — designing → [`design/query-live-preview/`](design/query-live-preview/)
+- **Apply immediately and Update for the query editors and console (GUI edits always rewrite the query; the value recalculates at once or on ✓/Enter; undo; a value display with a status bar instead of flicker)** — designing → [`design/query-apply-immediately/`](design/query-apply-immediately/)
 - **Liquers UI from Python (the model, and an egui window)** — built → [`design/liquers-py-ui/`](design/liquers-py-ui/), [`design/liquers-py-ui-window/`](design/liquers-py-ui-window/)
 - **UI redesign: UI crate(s), egui, web and ratatui frontends, monolithic and split client-server, Tauri, sessions, themes, tools, charts, MIDI** — planned → [`design/ui-redesign/`](design/ui-redesign/) *(idea map and plan of designs D1–D21; investigation: [`design/ui-split-elements/`](design/ui-split-elements/); issue: [`issues/UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE.md`](issues/UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE.md))*
 

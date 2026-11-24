@@ -1,4 +1,4 @@
-# Phase 5: Documentation - query-live-preview
+# Phase 5: Documentation - query-apply-immediately
 
 ## Completion Preconditions
 
