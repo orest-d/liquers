@@ -297,6 +297,8 @@ impl QueryConsoleElement {
                 | Ok(EditorEffect::Reload)
                 | Ok(EditorEffect::ListDirectory(_))
                 | Ok(EditorEffect::RenameData { .. })
+                | Ok(EditorEffect::Preview(_))
+                | Ok(EditorEffect::ClearPreview)
                 | Err(_) => {}
             }
         }

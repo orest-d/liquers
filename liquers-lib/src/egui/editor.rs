@@ -60,7 +60,7 @@ use crate::egui::theme::{color, draw_icon, spacing_style};
 use crate::ui::editor::{
     editor_keymap, editor_layout, field_id, form_rows, header_parts, shortcut_text, toolbar_items,
     CardMenu, EditorCommand, EditorField, EditorKey, EditorMode, EditorNode, EditorTree, EditorView, FieldValue,
-    FocusTarget, HeaderPart, KeyScope, NewElement, NodePath, StepChip, ToolItem, RESOURCE_HEADERS,
+    FocusTarget, HeaderPart, KeyScope, NewElement, NodePath, StepChip, ToolItem, UpdateMode, RESOURCE_HEADERS,
 };
 use crate::ui::theme::{Density, Palette, Spacing, ThemeState};
 use crate::ui::ui_context::UIContext;
@@ -120,6 +120,9 @@ impl Cx<'_> {
     }
     fn accent(&self) -> Color32 {
         color(self.palette.state.accent)
+    }
+    fn preview(&self) -> Color32 {
+        color(self.palette.state.preview)
     }
 }
 
@@ -209,27 +212,86 @@ fn toolbar(ui: &mut egui::Ui, cx: &mut Cx) {
                 cx.mode_change = Some(mode);
             }
         }
-        ui.separator();
-        let mut continuous = tree.continuous;
-        if ui
-            .checkbox(&mut continuous, "Update immediately")
-            .on_hover_text("Set each edit into where the value lives at once")
-            .changed()
-        {
-            cx.out.push(EditorCommand::SetContinuous(continuous));
+        if tree.host_controls {
+            return; // the host draws the update controls (AC-13)
         }
-        if !tree.continuous {
-            if ui.add_enabled(tree.pending, egui::Button::new("Update")).clicked() {
+        ui.separator();
+        update_controls(ui, cx);
+    });
+}
+
+/// An icon button with a hover text; the label is the icon's glyph, or `fallback`.
+fn icon_button(ui: &mut egui::Ui, icon: &str, fallback: &str, tip: &str, enabled: bool, colour: Option<Color32>) -> bool {
+    crate::egui::theme::ensure_icon_font(ui.ctx());
+    let glyph = crate::egui::theme::phosphor_glyph(icon).unwrap_or(fallback);
+    let mut text = RichText::new(glyph);
+    if let Some(colour) = colour {
+        text = text.color(colour);
+    }
+    ui.add_enabled(enabled, egui::Button::new(text).frame(false)).on_hover_text(tip).clicked()
+}
+
+/// The update mode control, Undo and Redo, and Revert (AC-10, AC-13, AC-22).
+fn update_controls(ui: &mut egui::Ui, cx: &mut Cx) {
+    let tree = cx.tree;
+    let preview = cx.preview();
+    for mode in &tree.update_modes {
+        crate::egui::theme::ensure_icon_font(ui.ctx());
+        let glyph = crate::egui::theme::phosphor_glyph(mode.icon()).unwrap_or(mode.label());
+        let on = tree.update_mode == *mode;
+        let mut text = RichText::new(glyph);
+        if on && *mode == UpdateMode::LivePreview {
+            text = text.color(preview);
+        }
+        if ui.selectable_label(on, text).on_hover_text(mode.label()).clicked() && !on {
+            cx.out.push(EditorCommand::SetUpdateMode(*mode));
+        }
+    }
+    ui.separator();
+    let undo = format!("Undo ({})", shortcut_text(EditorKey::Undo).unwrap_or(""));
+    if icon_button(ui, "arrow-u-up-left", "↶", &undo, tree.can_undo, None) {
+        cx.out.push(EditorCommand::Undo);
+    }
+    let redo = format!("Redo ({})", shortcut_text(EditorKey::Redo).unwrap_or(""));
+    if icon_button(ui, "arrow-u-up-right", "↷", &redo, tree.can_redo, None) {
+        cx.out.push(EditorCommand::Redo);
+    }
+    if !tree.text_editable {
+        // No query field to stand beside: the ✓ is in the toolbar.
+        check_mark(ui, cx);
+    }
+    if tree.pending && tree.update_mode != UpdateMode::ApplyImmediately && ui.button("Revert").on_hover_text("Drop the edits and reload").clicked() {
+        cx.out.push(EditorCommand::Revert);
+    }
+}
+
+/// The ✓ beside the query field (AC-13, AC-22): an outline that fills when edits are pending, in
+/// the preview colour in Live preview; in Apply immediately a lightning mark instead.
+fn check_mark(ui: &mut egui::Ui, cx: &mut Cx) {
+    let tree = cx.tree;
+    if tree.host_controls {
+        return;
+    }
+    match tree.update_mode {
+        UpdateMode::ApplyImmediately => {
+            crate::egui::theme::ensure_icon_font(ui.ctx());
+            let glyph = crate::egui::theme::phosphor_glyph("lightning").unwrap_or("⚡");
+            let colour = if tree.pending { cx.accent() } else { cx.faint() };
+            ui.label(RichText::new(glyph).color(colour)).on_hover_text("Each edit is applied at once");
+        }
+        UpdateMode::LivePreview | UpdateMode::OnDemand => {
+            let colour = match (tree.update_mode, tree.pending) {
+                (UpdateMode::LivePreview, _) => Some(cx.preview()),
+                (UpdateMode::OnDemand, true) => Some(cx.accent()),
+                (UpdateMode::OnDemand, false) | (UpdateMode::ApplyImmediately, _) => None,
+            };
+            let icon = if tree.pending { "check-circle" } else { "check" };
+            let tip = format!("Apply the edits ({}, or Enter in the query)", shortcut_text(EditorKey::Update).unwrap_or(""));
+            if icon_button(ui, icon, "✓", &tip, tree.pending, colour) {
                 cx.out.push(EditorCommand::Update);
             }
-            if ui.button("Revert").clicked() {
-                cx.out.push(EditorCommand::Revert);
-            }
         }
-        if tree.pending {
-            ui.label(RichText::new("pending").italics());
-        }
-    });
+    }
 }
 
 /// The byte offset of character `index` of `text`.
@@ -256,13 +318,19 @@ fn query_text(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView) {
             let job = crate::egui::widgets::query_to_layout_job_themed(buf.as_str(), None, &theme);
             ui.fonts_mut(|f| f.layout_job(job))
         };
-        let response = ui.add(
-            egui::TextEdit::singleline(&mut typed)
-                .id(text_id)
-                .desired_width(ui.available_width())
-                .layouter(&mut layouter)
-                .hint_text("Enter query here…"),
-        );
+        let response = ui
+            .horizontal(|ui| {
+                let response = ui.add(
+                    egui::TextEdit::singleline(&mut typed)
+                        .id(text_id)
+                        .desired_width(ui.available_width() - 28.0)
+                        .layouter(&mut layouter)
+                        .hint_text("Enter query here…"),
+                );
+                check_mark(ui, cx);
+                response
+            })
+            .inner;
         cx.ours.push(text_id);
         if typed != buffer {
             *view.text_buffer(&tree.text) = typed.clone();
@@ -1391,8 +1459,18 @@ fn run_key(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, focus: &FocusT
             }
         }
         EditorKey::Update => {
-            if !cx.tree.continuous {
+            if cx.tree.update_mode != UpdateMode::ApplyImmediately && !cx.tree.host_controls {
                 cx.out.push(EditorCommand::Update);
+            }
+        }
+        EditorKey::Undo => {
+            if !cx.tree.host_controls {
+                cx.out.push(EditorCommand::Undo);
+            }
+        }
+        EditorKey::Redo => {
+            if !cx.tree.host_controls {
+                cx.out.push(EditorCommand::Redo);
             }
         }
     }

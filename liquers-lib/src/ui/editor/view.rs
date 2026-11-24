@@ -403,6 +403,9 @@ fn decode_named(name: &str, field_text: &dyn Fn(&str) -> Option<String>) -> Opti
         },
         "update" => EditorCommand::Update,
         "revert" => EditorCommand::Revert,
+        "undo" => EditorCommand::Undo,
+        "redo" => EditorCommand::Redo,
+        "updatemode" => EditorCommand::SetUpdateMode(super::UpdateMode::from_name(extra).ok()?),
         "rename" => {
             let (arg, from) = two();
             let to = field_text(&format!("nrename:{}:{arg}", path.id()))?;
@@ -423,9 +426,9 @@ fn decode_field(name: &str, value: &str, tree: &EditorTree) -> Option<EditorComm
     if name == "filename" {
         return (value != tree.filename).then(|| EditorCommand::SetFilename(value.to_string()));
     }
-    if name == "continuous" {
-        let on = value == "true";
-        return (on != tree.continuous).then_some(EditorCommand::SetContinuous(on));
+    if name == "update_mode" {
+        let mode = super::UpdateMode::from_name(value).ok()?;
+        return (mode != tree.update_mode).then_some(EditorCommand::SetUpdateMode(mode));
     }
     if let Some(rest) = name.strip_prefix("key:") {
         let path = NodePath::from_id(rest).ok()?;

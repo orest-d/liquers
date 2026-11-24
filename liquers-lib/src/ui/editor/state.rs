@@ -43,6 +43,73 @@ pub enum EditorKind {
     Key,
 }
 
+/// What a committed edit does (design `query-update-modes`).
+///
+/// - `OnDemand`: the edit is kept, pending, until Update (✓ or Enter).
+/// - `LivePreview`: the edit is shown as a preview ([`EditorEffect::Preview`]) and kept pending;
+///   nothing is written until Update.
+/// - `ApplyImmediately`: the edit is written at once ([`EditorEffect::Write`]).
+///
+/// Its names (`on-demand`, `preview`, `immediate`) are those of the `mode` argument of the `lui`
+/// editor and console commands, and of its serialized form.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub enum UpdateMode {
+    #[serde(rename = "on-demand")]
+    OnDemand,
+    #[default]
+    #[serde(rename = "preview")]
+    LivePreview,
+    #[serde(rename = "immediate")]
+    ApplyImmediately,
+}
+
+impl UpdateMode {
+    /// Every mode, in the order the mode control shows them.
+    pub const ALL: [UpdateMode; 3] = [UpdateMode::OnDemand, UpdateMode::LivePreview, UpdateMode::ApplyImmediately];
+
+    /// The mode named `name`: `on-demand`, `preview` or `immediate`.
+    pub fn from_name(name: &str) -> Result<UpdateMode, Error> {
+        match name {
+            "on-demand" => Ok(UpdateMode::OnDemand),
+            "preview" => Ok(UpdateMode::LivePreview),
+            "immediate" => Ok(UpdateMode::ApplyImmediately),
+            other => Err(Error::general_error(format!(
+                "unknown update mode '{other}'; use on-demand, preview or immediate"
+            ))),
+        }
+    }
+
+    /// The mode's name, as [`UpdateMode::from_name`] reads it.
+    pub fn name(self) -> &'static str {
+        match self {
+            UpdateMode::OnDemand => "on-demand",
+            UpdateMode::LivePreview => "preview",
+            UpdateMode::ApplyImmediately => "immediate",
+        }
+    }
+
+    /// A short label for the mode control.
+    pub fn label(self) -> &'static str {
+        match self {
+            UpdateMode::OnDemand => "On demand",
+            UpdateMode::LivePreview => "Live preview",
+            UpdateMode::ApplyImmediately => "Apply immediately",
+        }
+    }
+
+    /// The Phosphor icon of the mode control (AC-22).
+    pub fn icon(self) -> &'static str {
+        match self {
+            UpdateMode::OnDemand => "hand-tap",
+            UpdateMode::LivePreview => "eye",
+            UpdateMode::ApplyImmediately => "lightning",
+        }
+    }
+}
+
+/// The most edits [`EditorCommand::Undo`] can take back.
+const UNDO_LIMIT: usize = 100;
+
 /// The working copy.
 #[derive(Debug, Clone)]
 enum Edited {
@@ -294,8 +361,18 @@ pub struct EditorState {
     root: Option<Edited>,
     /// The fingerprint of the accessor value the copy was loaded from or last written as.
     fingerprint: Option<Fingerprint>,
-    continuous: bool,
+    update_mode: UpdateMode,
     pending: bool,
+    /// Working copies before each edit, newest last (AC-10).
+    undo: Vec<Edited>,
+    /// Working copies an Undo took back, newest last.
+    redo: Vec<Edited>,
+    /// Set by `commit`, so `apply` knows the command edited the copy.
+    committed: bool,
+    /// The host draws the mode, ✓ and undo controls (the query console).
+    host_controls: bool,
+    /// The modes the mode control offers.
+    update_modes: Vec<UpdateMode>,
     write_in_flight: bool,
     /// The value changed elsewhere while edits were pending: the next write is a conflict.
     remote_changed: bool,
@@ -318,8 +395,13 @@ impl EditorState {
             registry,
             root: None,
             fingerprint: None,
-            continuous: true,
+            update_mode: UpdateMode::ApplyImmediately,
             pending: false,
+            undo: Vec::new(),
+            redo: Vec::new(),
+            committed: false,
+            host_controls: false,
+            update_modes: UpdateMode::ALL.to_vec(),
             write_in_flight: false,
             remote_changed: false,
             read_only: false,
@@ -347,9 +429,23 @@ impl EditorState {
         self.node_context.as_ref()
     }
 
-    /// Sets "Update immediately" (AC-26) without writing.
-    pub fn with_continuous(mut self, continuous: bool) -> Self {
-        self.continuous = continuous;
+    /// Sets the update mode without writing. A new state is in `ApplyImmediately`.
+    pub fn with_update_mode(mut self, mode: UpdateMode) -> Self {
+        self.update_mode = mode;
+        self.rebuild();
+        self
+    }
+
+    /// Limits the modes the mode control offers; the current mode stays as it is.
+    pub fn with_update_modes(mut self, modes: &[UpdateMode]) -> Self {
+        self.update_modes = modes.to_vec();
+        self.rebuild();
+        self
+    }
+
+    /// Marks the state as hosted: the host draws the mode, ✓ and undo controls (AC-13).
+    pub fn with_host_controls(mut self, on: bool) -> Self {
+        self.host_controls = on;
         self.rebuild();
         self
     }
@@ -357,8 +453,16 @@ impl EditorState {
     pub fn kind(&self) -> EditorKind {
         self.kind
     }
-    pub fn continuous(&self) -> bool {
-        self.continuous
+    pub fn update_mode(&self) -> UpdateMode {
+        self.update_mode
+    }
+    /// An edit can be taken back.
+    pub fn can_undo(&self) -> bool {
+        !self.undo.is_empty()
+    }
+    /// An edit taken back can be re-applied.
+    pub fn can_redo(&self) -> bool {
+        !self.redo.is_empty()
     }
     pub fn is_pending(&self) -> bool {
         self.pending
@@ -441,7 +545,15 @@ impl EditorState {
     pub fn on_written(&mut self, fingerprint: Fingerprint) -> EditorEffect {
         self.write_in_flight = false;
         self.fingerprint = Some(fingerprint);
-        let effect = if self.pending && self.continuous { self.write() } else { EditorEffect::None };
+        let effect = match self.update_mode {
+            UpdateMode::ApplyImmediately if self.pending => self.write(),
+            // The applied value is shown again; edits made meanwhile are previewed.
+            UpdateMode::LivePreview => match (&self.root, self.pending) {
+                (Some(root), true) => EditorEffect::Preview(root.value()),
+                (Some(_), false) | (None, _) => EditorEffect::ClearPreview,
+            },
+            UpdateMode::ApplyImmediately | UpdateMode::OnDemand => EditorEffect::None,
+        };
         self.rebuild();
         effect
     }
@@ -488,13 +600,18 @@ impl EditorState {
         }
     }
 
-    /// An edit of the copy was made: write it now (continuous) or mark it pending.
+    /// An edit of the copy was made: write it (Apply immediately), preview it (Live preview) or
+    /// keep it pending (On demand).
     fn commit(&mut self) -> EditorEffect {
         self.pending = true;
-        if self.continuous {
-            self.write()
-        } else {
-            EditorEffect::None
+        self.committed = true;
+        match self.update_mode {
+            UpdateMode::ApplyImmediately => self.write(),
+            UpdateMode::LivePreview => match &self.root {
+                Some(root) => EditorEffect::Preview(root.value()),
+                None => EditorEffect::None,
+            },
+            UpdateMode::OnDemand => EditorEffect::None,
         }
     }
 
@@ -503,9 +620,20 @@ impl EditorState {
     pub fn apply(&mut self, command: EditorCommand) -> Result<EditorEffect, Error> {
         let backup = self.root.clone();
         let path = command_path(&command);
+        let history = !matches!(command, EditorCommand::Undo | EditorCommand::Redo);
+        self.committed = false;
         let result = self.apply_inner(command);
         match &result {
             Ok(_) => {
+                if self.committed && history {
+                    if let Some(before) = backup {
+                        self.undo.push(before);
+                        if self.undo.len() > UNDO_LIMIT {
+                            self.undo.remove(0);
+                        }
+                        self.redo.clear();
+                    }
+                }
                 if !matches!(self.message, Some((_, ref m)) if m.starts_with("Conflict") || m.contains("changed elsewhere")) {
                     self.message = None;
                 }
@@ -812,6 +940,15 @@ impl EditorState {
                 }
             }
             EditorCommand::Revert => {
+                if self.update_mode == UpdateMode::LivePreview && self.pending {
+                    // The runner reloads the accessor; the host drops the preview first.
+                    self.pending = false;
+                    self.remote_changed = false;
+                    self.typed_text = None;
+                    self.fingerprint = None;
+                    self.message = None;
+                    return Ok(EditorEffect::ClearPreview);
+                }
                 self.pending = false;
                 self.remote_changed = false;
                 self.typed_text = None;
@@ -819,12 +956,42 @@ impl EditorState {
                 self.message = None;
                 Ok(EditorEffect::Reload)
             }
-            EditorCommand::SetContinuous(on) => {
-                self.continuous = on;
-                if on && self.pending {
-                    Ok(self.write())
-                } else {
-                    Ok(EditorEffect::None)
+            EditorCommand::SetUpdateMode(mode) => {
+                let was = self.update_mode;
+                self.update_mode = mode;
+                match (mode, self.pending) {
+                    (UpdateMode::ApplyImmediately, true) => Ok(self.write()),
+                    (UpdateMode::LivePreview, true) => Ok(self.root.as_ref().map(|r| EditorEffect::Preview(r.value())).unwrap_or(EditorEffect::None)),
+                    (UpdateMode::OnDemand, _) | (UpdateMode::LivePreview, false) | (UpdateMode::ApplyImmediately, false) => {
+                        Ok(if was == UpdateMode::LivePreview { EditorEffect::ClearPreview } else { EditorEffect::None })
+                    }
+                }
+            }
+            // With nothing to take back these are not errors: a key may still arrive.
+            EditorCommand::Undo => {
+                self.root_mut()?;
+                match self.undo.pop() {
+                    Some(previous) => {
+                        if let Some(current) = self.root.replace(previous) {
+                            self.redo.push(current);
+                        }
+                        self.typed_text = None;
+                        Ok(self.commit())
+                    }
+                    None => Ok(EditorEffect::None),
+                }
+            }
+            EditorCommand::Redo => {
+                self.root_mut()?;
+                match self.redo.pop() {
+                    Some(next) => {
+                        if let Some(current) = self.root.replace(next) {
+                            self.undo.push(current);
+                        }
+                        self.typed_text = None;
+                        Ok(self.commit())
+                    }
+                    None => Ok(EditorEffect::None),
                 }
             }
             EditorCommand::RenameNode { from, to } => {
@@ -936,7 +1103,11 @@ impl EditorState {
 
     fn rebuild(&mut self) {
         let mut tree = EditorTree {
-            continuous: self.continuous,
+            update_mode: self.update_mode,
+            update_modes: self.update_modes.clone(),
+            can_undo: !self.undo.is_empty(),
+            can_redo: !self.redo.is_empty(),
+            host_controls: self.host_controls,
             pending: self.pending,
             read_only: self.read_only,
             message: self.message.clone(),
@@ -1072,7 +1243,9 @@ fn command_path(command: &EditorCommand) -> NodePath {
         | EditorCommand::SetNumeric { .. }
         | EditorCommand::Update
         | EditorCommand::Revert
-        | EditorCommand::SetContinuous(_)
+        | EditorCommand::SetUpdateMode(_)
+        | EditorCommand::Undo
+        | EditorCommand::Redo
         | EditorCommand::RenameNode { .. } => NodePath::default(),
     }
 }

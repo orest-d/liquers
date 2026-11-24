@@ -121,6 +121,9 @@ pub struct StateRoles {
     pub warning: Rgba,
     pub success: Rgba,
     pub modified: Rgba,
+    /// The frame, mode icon and ✓ of a value shown as a preview, not yet applied
+    /// (design `query-update-modes`, AC-22).
+    pub preview: Rgba,
 }
 
 /// The colours of a highlighted query, one per [`SyntaxRole`] (AC-15).
