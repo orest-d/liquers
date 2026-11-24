@@ -150,7 +150,6 @@ serves both. Solve them together.
 - **Query-aware templates (`liquers-template`: Mustache with query tags, parametrized queries, template commands)** — built → [`reference/TEMPLATE_LANGUAGE.md`](reference/TEMPLATE_LANGUAGE.md) *(how to: [`guides/TEMPLATE_GUIDE.md`](guides/TEMPLATE_GUIDE.md); design in [`design/liquers-mustache/`](design/liquers-mustache/))*
 - **Command aliases** — documented → [`reference/COMMAND_ALIASES.md`](reference/COMMAND_ALIASES.md) *(when to use one: [`guides/COMMAND_DESIGN_GUIDE.md`](guides/COMMAND_DESIGN_GUIDE.md) §Aliases; design in [`design/command-alias-contract/`](design/command-alias-contract/))*
 - **Pipelines (sequences of commands as one command; structured pipelines in recipes; the pipeline as query builder and editor)** — documented → [`reference/PIPELINES.md`](reference/PIPELINES.md) *(how to: [`guides/PIPELINE_GUIDE.md`](guides/PIPELINE_GUIDE.md); design in [`design/composite-command-definition/`](design/composite-command-definition/))*
-- **Self-contained recipe trees (a recipes folder as one checked, editable tree of assets: roots, shape, containment, `TreeEditor`)** — designing → [`design/recipe-tree/`](design/recipe-tree/)
 - **Language-neutral command declaration** — documented → [`reference/COMMAND_DECLARATION.md`](reference/COMMAND_DECLARATION.md)
 - **Command metadata enhancements** — planned → [`issues/COMMAND-METADATA-ENHANCEMENTS.md`](issues/COMMAND-METADATA-ENHANCEMENTS.md)
 - **Macro query validation and hints** — planned → [`issues/MACRO-QUERY-VALIDATION-AND-HINTS.md`](issues/MACRO-QUERY-VALIDATION-AND-HINTS.md)
@@ -702,7 +701,6 @@ deliberately folded behind a broader line.
 - feature `QUERY-CANNOT-MARK-CACHED-INTERMEDIATES`
 - feature `RECIPE-TREE-CANNOT-BE-EXPORTED-AS-AN-ARCHIVE`
 - feature `RECIPE-TREES-NOT-IN-LANGUAGE-BINDINGS`
-- feature `RECIPES-CANNOT-DESCRIBE-A-SELF-CONTAINED-ASSET-TREE`
 - feature `RECORD-FIELD-TYPE-HAS-NO-DECIMAL`
 - feature `RECORD-FIELD-TYPE-HAS-NO-UUID-TIME-OR-INTERVAL`
 - feature `RECORD-SOURCE-ROWS-CANNOT-BE-STREAMED`

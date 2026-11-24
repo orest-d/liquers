@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 266
+Total rows: 265
 - P1: 1
-- P2: 69
+- P2: 68
 - P3: 196
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
@@ -78,7 +78,6 @@ Total rows: 266
 | [`SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED`](issues/SECURITY-SENSITIVE-SETTINGS-ARE-NOT-DOCUMENTED.md) | issue | No guideline or user documentation says which Liquers settings are security-sensitive | draft |  |  | P2 | L | docs;axum;py;web |  | 2026-11-06 |
 | [`WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS`](issues/WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS.md) | feature | The web API cannot run a pipeline or recipe document, nor serve recipes as typed endpoints | draft |  |  | P2 | L | axum;core/assets;core/context;mcp |  | 2026-11-01 |
 | [`WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS`](issues/WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS.md) | issue | A Liquers UI stops updating while any of its queries awaits | draft |  |  | P2 | L | lib/ui;lib/egui;core/assets;web;py |  | 2026-10-30 |
-| [`RECIPES-CANNOT-DESCRIBE-A-SELF-CONTAINED-ASSET-TREE`](issues/RECIPES-CANNOT-DESCRIBE-A-SELF-CONTAINED-ASSET-TREE.md) | feature | A recipes folder cannot be used as a self-contained, editable tree of assets | draft | ready | not-eligible | P2 | XL | core/assets;core/store;core/validate | [phase1](design/recipe-tree/phase1-high-level-design.md)  [phase2](design/recipe-tree/phase2-architecture.md)  [phase3](design/recipe-tree/phase3-examples.md)  [phase4](design/recipe-tree/phase4-implementation.md)  [phase5](design/recipe-tree/phase5-documentation.md)  | 2026-11-02 |
 | [`EXTERNAL-INDEX-HAS-NO-RECONCILIATION-CONTRACT`](issues/EXTERNAL-INDEX-HAS-NO-RECONCILIATION-CONTRACT.md) | feature | An external index, vector store or SQL mirror cannot be kept in sync with a record source | draft | needs-decision | not-eligible | P2 | XL | records;core/assets;lib/commands | [phase1](design/external-index-reconciliation/phase1-high-level-design.md)  [phase2](design/external-index-reconciliation/phase2-architecture.md)  [phase3](design/external-index-reconciliation/phase3-examples.md)  [phase4](design/external-index-reconciliation/phase4-implementation.md)  | 2026-10-21 |
 | [`NO-REMOTE-STORE-OR-ASSET-MANAGER`](issues/NO-REMOTE-STORE-OR-ASSET-MANAGER.md) | feature | A client environment cannot use a server's store or asset manager as its own | draft | needs-decision | not-eligible | P2 | XL | axum;web;core/assets;core/store | [phase1](design/remote-store-and-asset-manager/phase1-high-level-design.md)  [phase2](design/remote-store-and-asset-manager/phase2-architecture.md)  [phase3](design/remote-store-and-asset-manager/phase3-examples.md)  [phase4](design/remote-store-and-asset-manager/phase4-implementation.md)  | 2026-09-27 |
 | [`VALUE-TYPE-DEFINITION-MACRO`](issues/VALUE-TYPE-DEFINITION-MACRO.md) | feature | Value types and their registry entries are hand-written instead of generated | draft | needs-decision | not-eligible | P2 | XL | macro;lib/value;core/value | [phase1](design/value-type-definition-macro/phase1-high-level-design.md)  [phase2](design/value-type-definition-macro/phase2-architecture.md)  [phase3](design/value-type-definition-macro/phase3-examples.md)  [phase4](design/value-type-definition-macro/phase4-implementation.md)  | 2026-08-18 |

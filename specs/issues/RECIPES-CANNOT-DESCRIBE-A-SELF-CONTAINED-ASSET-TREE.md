@@ -2,7 +2,7 @@
 id: RECIPES-CANNOT-DESCRIBE-A-SELF-CONTAINED-ASSET-TREE
 kind: feature
 title: A recipes folder cannot be used as a self-contained, editable tree of assets
-status: draft
+status: closed
 priority: P2
 complexity: XL
 area: [core/assets, core/store, core/validate]
@@ -81,3 +81,11 @@ maintainer asked on 2026-11-02.
 
 The maintainer's review of `composite-command-definition` on 2026-11-02 ("Recipes as a data format …
 investigate what would be required").
+
+## Resolution
+
+Closed 2026-11-24 by design `recipe-tree` (PR #281): the `tree:` section, source recipes, Node
+arguments, strict mode, `check_tree` and `TreeEditor` — see `specs/reference/RECIPE_TREES.md`;
+tests in `liquers-core/tests/recipe_tree.rs` and `liquers-core/tests/node_argument.rs`. The
+archive is `RECIPE-TREE-CANNOT-BE-EXPORTED-AS-AN-ARCHIVE`; the bindings are
+`RECIPE-TREES-NOT-IN-LANGUAGE-BINDINGS`.

@@ -3,7 +3,7 @@
 ## Completion Preconditions
 
 - [x] Implementation is finished and validated
-- [ ] All user comments are answered or incorporated (awaiting the maintainer's review of PR #281)
+- [x] All user comments are answered or incorporated (approved by the maintainer, 2026-11-24)
 - [x] All review comments are answered or incorporated (no review comments yet)
 - [x] Documentation is consistent with the implemented and tested behavior
 - [x] Documentation is included in the implementation PR when practical (PR #281)

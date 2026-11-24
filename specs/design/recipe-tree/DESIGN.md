@@ -3,8 +3,8 @@ id: RECIPE-TREE
 kind: design
 title: Self-contained recipe trees - a recipes folder as one checked, editable tree of assets
 workflow: liquers-project
-status: approved
-phase: documentation
+status: complete
+gh_pr: [281]
 readiness: ready
 autofix: not-eligible
 priority: P2
@@ -41,6 +41,7 @@ portable archive is a separate design built on this one
 - **2026-11-23, night** Phase 4 Steps 1-11 implemented and tested; Phase 5 written. A node that
   something references is never deleted (Phase 3 Example 2 corrected). Awaiting the maintainer's
   review before `status: complete`.
+- **2026-11-24** Maintainer approved; complete, merged in PR #281.
 - **2026-11-23, later** Command default links and pipelines and enum-alias links are trusted command
   logic, allowed in strict recipes and not checked; only links the recipe writes are refused.
   AC-7, AC-20, AC-23 clarified.
