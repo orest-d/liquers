@@ -140,7 +140,7 @@ the arity (checked at registration for a custom type, whose arity the macro cann
   rejections above.
 - `liquers-mcp/src/schema.rs` `type_schema`: a tuple element is an array with `prefixItems`; a
   map is `{"type": "object", "additionalProperties": …}`; a scalar is
-  `{"type": ["string", "number", "boolean"]}`. `server.rs` converts an object argument to pairs.
+  `{"type": ["string", "number", "boolean"]}`. `argument_property` wraps every `multiple` argument in an array today; it must leave a `Map` unwrapped and keep the wrapper for scalar and tuple lists. `server.rs` converts an object argument to pairs.
 - `liquers-lib/src/commands.rs`, `search/command_catalog.rs`, `egui/widgets.rs`,
   `liquers-py/src/command_metadata.rs`, `liquers-web/src/typescript.rs`: display arms.
 
