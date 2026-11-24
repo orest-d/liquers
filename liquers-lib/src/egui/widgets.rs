@@ -781,7 +781,12 @@ pub fn display_command_metadata(
                     ui.horizontal_wrapped(|ui| {
                         ui.label(format!("default={:?}", arg.default));
                         if arg.multiple {
-                            ui.colored_label(Color32::LIGHT_BLUE, "multiple");
+                            let text = if arg.shape.is_list() {
+                                "multiple".to_string()
+                            } else {
+                                format!("multiple: {}", arg.shape.name())
+                            };
+                            ui.colored_label(Color32::LIGHT_BLUE, text);
                         }
                         if arg.injected {
                             ui.colored_label(Color32::LIGHT_GREEN, "injected");

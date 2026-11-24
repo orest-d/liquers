@@ -568,6 +568,47 @@ pub fn json_scalar(text: &str) -> serde_json::Value {
     }
 }
 
+/// The JSON value that a list of parameter texts stands for, by the rules of
+/// [`CommandArguments::get_multiple_json`]: none is `null`, one is a number or a string, a
+/// leading empty text makes the rest a list, anything else is key and value pairs.
+///
+/// For a caller that has the parameters as text and no plan, such as a URL query string.
+///
+/// ```
+/// use liquers_core::commands::json_value_from_texts;
+/// # fn main() -> Result<(), liquers_core::error::Error> {
+/// assert_eq!(json_value_from_texts(&["", "1", "a"])?, serde_json::json!([1, "a"]));
+/// assert_eq!(json_value_from_texts(&["row", "0"])?, serde_json::json!({"row": 0}));
+/// # Ok(())
+/// # }
+/// ```
+pub fn json_value_from_texts<S: AsRef<str>>(texts: &[S]) -> Result<serde_json::Value, Error> {
+    match texts {
+        [] => Ok(serde_json::Value::Null),
+        [first, rest @ ..] if first.as_ref().is_empty() => Ok(serde_json::Value::Array(
+            rest.iter().map(|text| json_scalar(text.as_ref())).collect(),
+        )),
+        [single] => Ok(json_scalar(single.as_ref())),
+        pairs => {
+            if pairs.len() % 2 != 0 {
+                return Err(Error::general_error(format!(
+                    "Key and value pairs expected; the last key '{}' has no value",
+                    pairs.last().map(|text| text.as_ref()).unwrap_or_default()
+                )));
+            }
+            let mut object = serde_json::Map::new();
+            for pair in pairs.chunks(2) {
+                let key = pair[0].as_ref();
+                if object.contains_key(key) {
+                    return Err(Error::general_error(format!("Key '{key}' is given twice")));
+                }
+                object.insert(key.to_string(), json_scalar(pair[1].as_ref()));
+            }
+            Ok(serde_json::Value::Object(object))
+        }
+    }
+}
+
 /// A JSON value from one parameter: text is read with [`json_scalar`], anything that already
 /// is a JSON value (an override, a materialised link) is kept.
 impl FromParameterValue<serde_json::Value> for serde_json::Value {
