@@ -478,6 +478,9 @@ where
                     self.handle_request_asset_updates(handle, query, app_state)
                         .await;
                 }
+                AppMessage::Preview { handle, query, cwd } => {
+                    self.handle_preview(handle, query, cwd, app_state).await;
+                }
                 AppMessage::ApplyToInput {
                     handle,
                     input,
@@ -1008,14 +1011,46 @@ where
         query: String,
         app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
     ) {
-        // 1. Evaluate the query (async, returns AssetRef)
-        match self.envref.evaluate(&query).await {
+        let evaluated = self.envref.evaluate(&query).await;
+        self.monitor_evaluation(handle, query, false, evaluated, app_state).await;
+    }
+
+    /// `AppMessage::Preview`: `query` as an ad-hoc asset with `cwd`, monitored like any request.
+    async fn handle_preview(
+        &mut self,
+        handle: UIHandle,
+        query: String,
+        cwd: Option<String>,
+        app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
+    ) {
+        let evaluated = match parse_query(&query) {
+            Ok(parsed) => {
+                let mut recipe = Recipe::from(parsed);
+                recipe.cwd = cwd;
+                self.envref.get_asset_manager().apply_queued(recipe, State::new()).await
+            }
+            Err(e) => Err(e),
+        };
+        self.monitor_evaluation(handle, query, true, evaluated, app_state).await;
+    }
+
+    /// Delivers the first snapshot of an evaluation to `handle` and monitors the asset (replacing
+    /// what the handle monitored), or delivers its error.
+    async fn monitor_evaluation(
+        &mut self,
+        handle: UIHandle,
+        query: String,
+        preview: bool,
+        evaluated: Result<AssetRef<E>, Error>,
+        app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
+    ) {
+        match evaluated {
             Ok(asset_ref) => {
                 // 2. Subscribe to notifications
                 let notification_rx = asset_ref.subscribe_to_notifications().await;
 
                 // 3. Build initial snapshot
-                let snapshot = Self::build_snapshot(&asset_ref, &query, false).await;
+                let snapshot = Self::build_snapshot(&asset_ref, &query, preview).await;
 
                 // 4. Deliver snapshot to element
                 let status = snapshot.status;
@@ -1042,7 +1077,7 @@ where
                                 asset_ref,
                                 notification_rx,
                                 query,
-                                preview: false,
+                                preview,
                             },
                         );
                     }
@@ -1057,7 +1092,7 @@ where
                     error: Some(e),
                     status: Status::Error,
                     query: Some(query.clone()),
-                    preview: false,
+                    preview,
                 };
                 let error = error_snapshot.error.clone();
                 let outcome = Self::deliver_update(

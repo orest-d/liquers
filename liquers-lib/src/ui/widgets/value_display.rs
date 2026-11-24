@@ -14,7 +14,9 @@
 //!
 //! - [`ValueDisplay`]: the state machine. [`ValueDisplay::request`] starts waiting for a query
 //!   and returns the generation its timers carry; [`ValueDisplay::on_snapshot`] takes the
-//!   runner's [`AssetSnapshot`]s, ignoring those of a query it no longer waits for;
+//!   runner's [`AssetSnapshot`]s, ignoring a late one of a query the element itself asked for
+//!   earlier, and taking one of any other query as the element being re-pointed from outside
+//!   (an editor showing its preview, or its applied query, in the view it follows);
 //!   [`ValueDisplay::on_timer`] takes the element's own timer events ([`DisplayTimer`]).
 //! - [`DisplayPhase`] and [`SnapshotOutcome`]: where the display is, and what a snapshot did.
 //! - [`StatusLine`]: what the status bar says, for both renderers.
@@ -173,11 +175,23 @@ pub struct ValueDisplay {
     changed_upstream: bool,
     suggest_on_demand: bool,
     generation: u64,
+    /// The element's own earlier requests, most recent last: a late snapshot of one is stale.
+    superseded: Vec<(String, bool)>,
 }
+
+/// How many earlier requests a display remembers as stale.
+const SUPERSEDED_LIMIT: usize = 8;
 
 impl ValueDisplay {
     /// A new query is awaited; the shown value stays. Returns the generation its timers carry.
     pub fn request(&mut self, query: &str, preview: bool) -> u64 {
+        if let Some(previous) = self.requested.take() {
+            self.superseded.push((previous, self.requested_preview));
+            if self.superseded.len() > SUPERSEDED_LIMIT {
+                self.superseded.remove(0);
+            }
+        }
+        self.superseded.retain(|(q, p)| !(q == query && *p == preview));
         self.generation += 1;
         self.requested = Some(query.to_string());
         self.requested_preview = preview;
@@ -197,12 +211,33 @@ impl ValueDisplay {
         self.requested.as_deref()
     }
 
-    /// Takes a snapshot pushed by the runner. A snapshot of another query is ignored (AC-6); one
-    /// without a query (from an older sender) is taken.
+    /// Whether the query awaited or last settled is a preview.
+    pub fn requested_preview(&self) -> bool {
+        self.requested_preview
+    }
+
+    /// Takes a snapshot pushed by the runner. A late snapshot of one of the element's own
+    /// earlier requests is ignored (AC-6). A snapshot of any other query means the element was
+    /// re-pointed from outside (the runner monitors one query per element, the latest asked
+    /// for): the display adopts it as the query it now waits for. One without a query (from an
+    /// older sender) is taken.
     pub fn on_snapshot(&mut self, snapshot: &AssetSnapshot) -> SnapshotOutcome {
-        if let (Some(theirs), Some(ours)) = (&snapshot.query, &self.requested) {
-            if theirs != ours || snapshot.preview != self.requested_preview {
-                return SnapshotOutcome::Ignored;
+        if let Some(theirs) = &snapshot.query {
+            let ours = self.requested.as_deref() == Some(theirs.as_str())
+                && snapshot.preview == self.requested_preview;
+            if !ours {
+                if self.superseded.iter().any(|(q, p)| q == theirs && *p == snapshot.preview) {
+                    return SnapshotOutcome::Ignored;
+                }
+                // Re-pointed from outside: its timers are not ours, and our earlier requests
+                // are no longer the ones that could arrive late.
+                self.superseded.clear();
+                self.requested = Some(theirs.clone());
+                self.requested_preview = snapshot.preview;
+                self.generation += 1;
+                self.phase = DisplayPhase::Waiting;
+                self.changed_upstream = false;
+                self.suggest_on_demand = false;
             }
         }
         self.metadata = Some(snapshot.metadata.clone());
@@ -469,10 +504,20 @@ mod tests {
         assert_eq!(display.on_snapshot(&snapshot("a", Some("late a"), Status::Ready)), SnapshotOutcome::Ignored);
         assert_eq!(shown(&display), "old");
         assert_eq!(display.status(), Status::Ready, "the status of `a` did not leak either");
-        // A preview snapshot is not taken for the applied query, nor the other way round.
-        let mut preview = snapshot("b", Some("preview"), Status::Ready);
+        // A preview of an earlier own request is stale too; a snapshot of a query never asked
+        // for is the element re-pointed from outside, and is taken.
+        let mut stale = snapshot("a", Some("preview a"), Status::Ready);
+        stale.preview = true;
+        display.request("a", true);
+        display.request("b", false);
+        assert_eq!(display.on_snapshot(&stale), SnapshotOutcome::Ignored);
+        let mut preview = snapshot("b/-/edit", Some("preview"), Status::Ready);
         preview.preview = true;
-        assert_eq!(display.on_snapshot(&preview), SnapshotOutcome::Ignored);
+        assert_eq!(display.on_snapshot(&preview), SnapshotOutcome::Settled);
+        assert!(display.is_preview() && display.requested() == Some("b/-/edit"));
+        // Asking again for a query once superseded makes it current, not stale.
+        display.request("a", false);
+        assert_eq!(display.on_snapshot(&snapshot("a", Some("again"), Status::Ready)), SnapshotOutcome::Settled);
         // A timer of the older request does nothing.
         display.request("c", false);
         display.on_timer(display.generation() - 1, DisplayTimer::Quiet);

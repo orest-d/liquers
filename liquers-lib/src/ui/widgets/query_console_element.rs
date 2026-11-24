@@ -1057,10 +1057,22 @@ impl QueryConsoleElement {
 
     /// A snapshot pushed by the runner.
     fn on_asset_update(&mut self, snapshot: &crate::ui::message::AssetSnapshot, ctx: &UIContext) -> UpdateResponse {
+        let before = self.display.requested().map(str::to_string);
         let outcome = self.display.on_snapshot(snapshot);
         match outcome {
             SnapshotOutcome::Ignored => return UpdateResponse::Unchanged,
             SnapshotOutcome::Progress | SnapshotOutcome::Settled => {}
+        }
+        // Re-pointed from outside (an editor this console follows): an applied query becomes the
+        // console's text; a preview leaves the text, so ✓ or Enter returns to it (AC-17).
+        let now = self.display.requested().map(str::to_string);
+        if now != before && !self.display.requested_preview() {
+            if let Some(query) = now {
+                self.query_text = query;
+                self.typed_error = None;
+                self.debounced_query = None;
+                self.sync_editor(ctx);
+            }
         }
         if snapshot.value.is_some() {
             self.data_view = true;
@@ -1359,6 +1371,8 @@ mod tests {
             | Ok(AppMessage::NodeContext { .. })
             | Ok(AppMessage::RenameData { .. })
             | Ok(AppMessage::LoadIcon { .. })
+            | Ok(AppMessage::Preview { .. })
+            | Ok(AppMessage::Preview { .. })
             | Err(_) => None,
         }
     }
@@ -2065,7 +2079,8 @@ mod tests {
                 | AppMessage::ListDirectory { .. }
                 | AppMessage::NodeContext { .. }
                 | AppMessage::RenameData { .. }
-                | AppMessage::LoadIcon { .. } => panic!("Expected RequestAssetUpdates"),
+                | AppMessage::LoadIcon { .. }
+                | AppMessage::Preview { .. } => panic!("Expected RequestAssetUpdates"),
             }
         }
     }

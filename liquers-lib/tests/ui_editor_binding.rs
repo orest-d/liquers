@@ -14,6 +14,7 @@ use liquers_core::parse::parse_key;
 use liquers_core::query::Key;
 use liquers_core::state::State;
 use liquers_core::store::AsyncMemoryStore;
+use liquers_core::value::ValueInterface;
 use liquers_macro::register_command;
 
 use liquers_lib::environment::{CommandRegistryAccess, DefaultEnvironment};
@@ -43,9 +44,18 @@ fn is_in(_state: &State<Value>, _column: String, _values: Vec<String>) -> Result
 fn head(_state: &State<Value>, n: i64) -> Result<Value, Error> {
     Ok(Value::from(format!("head {n}")))
 }
+fn shout(state: &State<Value>) -> Result<Value, Error> {
+    Ok(Value::from(state.try_into_string()?.to_uppercase()))
+}
+fn quiet(state: &State<Value>) -> Result<Value, Error> {
+    Ok(Value::from(state.try_into_string()?.to_lowercase()))
+}
 
 const QUERY: &str = "-R/data/sales.csv/-/ns-pl/from_csv/is_in-region-EU-US/head-10/top.csv";
 const RECIPE_QUERY: &str = "-R-key/reports/recipes.yaml/-/ns-acc/accessor/recipe-0/query";
+/// Recipe 1 reads a file of its own folder: `./data.txt` is `reports/data.txt`.
+const LOUD: &str = "-R/./data.txt/-/shout/loud.txt";
+const LOUD_RECIPE: &str = "-R-key/reports/recipes.yaml/-/ns-acc/accessor/recipe-1/query";
 
 fn key(text: &str) -> Key {
     parse_key(text).expect("key")
@@ -66,6 +76,8 @@ fn register(env: &mut CommandEnvironment) -> Result<(), Error> {
     register_command!(cr, fn from_csv(state) -> result namespace: "pl")?;
     register_command!(cr, fn is_in(state, column: String, values: Vec<String> multiple) -> result namespace: "pl")?;
     register_command!(cr, fn head(state, n: i64 = 10 (gui: IntegerField)) -> result namespace: "pl")?;
+    register_command!(cr, fn shout(state) -> result)?;
+    register_command!(cr, fn quiet(state) -> result)?;
     Ok(())
 }
 
@@ -74,12 +86,19 @@ async fn environment() -> EnvRef<CommandEnvironment> {
     register(&mut env).expect("register");
     env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
     let envref = env.to_ref();
-    let recipes = format!("title: Reports\nrecipes:\n- query: {QUERY}\n  title: Top\n");
+    let recipes = format!(
+        "title: Reports\nrecipes:\n- query: {QUERY}\n  title: Top\n- query: {LOUD}\n  title: Loud\n"
+    );
     envref
         .get_asset_manager()
         .set_binary(&key("reports/recipes.yaml"), recipes.as_bytes(), text_record())
         .await
         .expect("recipes.yaml");
+    envref
+        .get_asset_manager()
+        .set_binary(&key("reports/data.txt"), b"Hello", text_record())
+        .await
+        .expect("data.txt");
     envref
 }
 
@@ -92,12 +111,17 @@ struct Harness {
 
 impl Harness {
     async fn new(elements: Vec<EditorElement>) -> (Harness, Vec<UIHandle>) {
+        Harness::of(elements.into_iter().map(|e| Box::new(e) as Box<dyn UIElement>).collect()).await
+    }
+
+    /// A harness over any elements; `with_element` and `tree` work on its editors only.
+    async fn of(elements: Vec<Box<dyn UIElement>>) -> (Harness, Vec<UIHandle>) {
         let envref = environment().await;
         let mut direct = DirectAppState::new();
         let mut handles = Vec::new();
         for (i, element) in elements.into_iter().enumerate() {
             let handle = direct.add_node(None, i, ElementSource::None).expect("node");
-            direct.set_element(handle, Box::new(element)).expect("element");
+            direct.set_element(handle, element).expect("element");
             handles.push(handle);
         }
         let app_state: Arc<tokio::sync::Mutex<dyn AppState>> = Arc::new(tokio::sync::Mutex::new(direct));
@@ -105,7 +129,11 @@ impl Harness {
         let runner = AppRunner::new(envref.clone(), rx, tx.clone());
         let harness = Harness { envref, app_state, runner, sender: tx };
         for handle in handles.iter() {
-            harness.with_element(*handle, |e, ctx| e.init(*handle, ctx).expect("init")).await;
+            let ctx = harness.context(*handle);
+            let mut state = harness.app_state.lock().await;
+            let mut element = state.take_element(*handle).expect("take");
+            element.init(*handle, &ctx).expect("init");
+            state.put_element(*handle, element).expect("put");
         }
         (harness, handles)
     }
@@ -153,6 +181,13 @@ impl Harness {
             .and_then(EditorElement::tree)
             .cloned()
             .expect("tree")
+    }
+
+    /// The value an element shows, as text.
+    async fn shown(&self, handle: UIHandle) -> Option<String> {
+        let state = self.app_state.lock().await;
+        let element = state.get_element(handle).expect("get").expect("element");
+        element.get_value().and_then(|v| v.try_into_string().ok())
     }
 
     async fn recipes(&self) -> String {
@@ -265,4 +300,28 @@ async fn browser_mode_switch_keeps_typed_field_text() {
     assert_eq!(mode, EditorMode::Advanced);
     h.settle().await;
     assert!(h.tree(handles[0]).await.text.contains("head-25"), "{}", h.tree(handles[0]).await.text);
+}
+
+/// query-update-modes AC-18, checked first in Part B: a preview with the recipe's folder as its
+/// working directory reads the recipe's relative keys as the recipe's own evaluation does, and
+/// writes nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn preview_in_the_recipe_folder_resolves_like_the_recipe() {
+    use liquers_lib::ui::{AppMessage, QueryConsoleElement};
+    let console = QueryConsoleElement::new("C".into(), String::new());
+    let (mut h, handles) = Harness::of(vec![Box::new(console)]).await;
+    let own = h.envref.evaluate(&liquers_core::parse::parse_query("-R/reports/loud.txt").expect("q")).await;
+    let own = own.expect("the recipe").get().await.expect("value");
+    assert_eq!(own.try_into_string().expect("text"), "HELLO");
+    let before = h.recipes().await;
+    h.sender
+        .send(AppMessage::Preview {
+            handle: handles[0],
+            query: "-R/./data.txt/-/shout/quiet".into(),
+            cwd: Some("reports".into()),
+        })
+        .expect("send");
+    h.settle().await;
+    assert_eq!(h.shown(handles[0]).await.as_deref(), Some("hello"));
+    assert_eq!(h.recipes().await, before, "a preview writes nothing");
 }
