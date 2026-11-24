@@ -793,6 +793,40 @@ grid:
   and gets none chooses a default (the next free cell, the body role).
 - Saved state (§20) needs nothing new: the layout data is part of the parent's state.
 
+**Format and notation (proposed).** Layout data is one flat map from a key to a scalar
+(number, boolean or string). It is the same in a UISpec (`layout: {row: 0, col: 8}`), in a
+message and in a command. In a command it is a trailing list of key and value pairs, so it needs
+no syntax of its own: a value that reads as a number or as `true` / `false` is one, anything else
+is a string.
+
+```
+ns-lui/add-child-current-row-0-col-8-colspan-4      a cell in a free grid
+ns-lui/add-child-root-role-sidebar-size-240         a role in a window, with a fixed size
+ns-lui/add-right-current-weight-2                   dock: a new pane right of the current one
+ns-lui/layout-current-colspan-12                    change the layout data of an existing child
+```
+
+Keys are a shared vocabulary, so that a key means the same thing under every parent:
+
+| Case | Parents | Keys |
+|---|---|---|
+| Order only | panel, toolbar, menu, uniform grid | none; the position words `first`, `last`, `before`, `after`, `instead` |
+| Share of space | row, column, splitter | `size` (fixed), `weight` (share of the rest), `min`, `max` |
+| Alignment in the given space | any | `align`, `valign`: `start`, `center`, `end`, `stretch` |
+| Free grid | grid, dashboard, form | `row`, `col`, `rowspan`, `colspan` |
+| Role | window, page, border layout, card | `role`: `header`, `footer`, `left`, `right`, `body`, `sidebar`, `toolbar`, `status` |
+| Label of the child in its parent | tabs, accordion, menu, form row | `title`, `icon`, `closable` |
+| Free position | canvas, floating windows, overlay | `x`, `y`, `w`, `h`, `z`, `anchor` |
+| Dock | dock layout | new position words `left`, `right`, `above`, `below`, `tab` relative to a reference; `weight` |
+
+- Docking is a position relative to a reference, so it extends the position words and needs no
+  layout data of its own.
+- A parent ignores a key that does not apply to it and reports a key it does not know.
+- Not covered on purpose: rules that depend on the size of the screen. They belong to the
+  parent's properties, not to a child.
+- The exact command signatures (a variadic argument for the pairs) are D2's, checked with
+  `liquers-validate`.
+
 Not tested. A free grid in the spike workspace would check it.
 
 ## 11. Frontends: three patterns over one store
