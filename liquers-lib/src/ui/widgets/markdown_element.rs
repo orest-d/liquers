@@ -312,6 +312,8 @@ mod tests {
             metadata: liquers_core::metadata::Metadata::new(),
             error: None,
             status: Status::Ready,
+            query: None,
+            preview: false,
         };
         let response = elem.update(&UpdateMessage::AssetUpdate(snapshot), &ctx);
         assert_eq!(response, UpdateResponse::NeedsRepaint);
@@ -327,6 +329,8 @@ mod tests {
             metadata: liquers_core::metadata::Metadata::new(),
             error: None,
             status: Status::Submitted,
+            query: None,
+            preview: false,
         };
         let response = elem.update(&UpdateMessage::AssetUpdate(snapshot), &ctx);
         assert_eq!(response, UpdateResponse::Unchanged);

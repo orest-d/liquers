@@ -1007,6 +1007,8 @@ mod tests {
             metadata: Metadata::new(),
             error: None,
             status: Status::Expired,
+            query: None,
+            preview: false,
         };
         c.update(&UpdateMessage::AssetUpdate(snapshot), &ctx);
         assert_eq!(requested_query(&mut rx).as_deref(), Some("about"));
@@ -1191,6 +1193,8 @@ mod tests {
             metadata: Metadata::new(),
             error: None,
             status: Status::Ready,
+            query: None,
+            preview: false,
         };
         let response = c.update(&UpdateMessage::AssetUpdate(snapshot), &ctx);
         assert_eq!(response, UpdateResponse::NeedsRepaint);
@@ -1208,6 +1212,8 @@ mod tests {
             metadata: Metadata::new(),
             error: Some(Error::general_error("fail".to_string())),
             status: Status::Error,
+            query: None,
+            preview: false,
         };
         c.update(&UpdateMessage::AssetUpdate(snapshot), &ctx);
         assert!(c.error.is_some());
@@ -1224,6 +1230,8 @@ mod tests {
             metadata: Metadata::new(),
             error: Some(Error::general_error("fail".to_string()).with_position(&position)),
             status: Status::Error,
+            query: None,
+            preview: false,
         };
 
         c.update(&UpdateMessage::AssetUpdate(snapshot), &ctx);
@@ -1241,6 +1249,8 @@ mod tests {
             metadata: Metadata::new(),
             error: None,
             status: Status::Ready,
+            query: None,
+            preview: false,
         };
         c.update(&UpdateMessage::AssetUpdate(snapshot), &ctx);
         assert!(c.data_view);
@@ -1256,6 +1266,8 @@ mod tests {
             metadata: Metadata::new(),
             error: None,
             status: Status::Submitted,
+            query: None,
+            preview: false,
         };
         c.update(&UpdateMessage::AssetUpdate(snapshot), &ctx);
         assert!(c.data_view); // unchanged
@@ -1272,6 +1284,8 @@ mod tests {
             metadata: Metadata::new(),
             error: None,
             status: Status::Expired,
+            query: None,
+            preview: false,
         };
         c.update(&UpdateMessage::AssetUpdate(snapshot), &ctx);
         assert!(c.value.is_some());
@@ -1296,6 +1310,8 @@ mod tests {
             metadata: Metadata::new(),
             error: None,
             status: Status::Volatile,
+            query: None,
+            preview: false,
         };
         c.update(&UpdateMessage::AssetUpdate(snapshot), &ctx);
 
