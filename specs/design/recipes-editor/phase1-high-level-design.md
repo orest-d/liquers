@@ -233,6 +233,28 @@ and elements (`ui/editor/` or a sibling `ui/recipes/`), the `lui` commands, the 
 10. **Click action.** A click opens Edit (the recipe window), double-click opens View.
     *Recommended: yes, as asked; configurable later.*
 
+## Design Readiness
+
+Pre-approved after Phase 1 on 2026-11-24 (`proceed all`): the recommended answers to Q1-Q10 are the
+design's assumptions.
+
+| Item | Decision | Tier |
+|---|---|---|
+| Q1 Value or document | document text; no `Value::RecipeList` | assumption (recommended) |
+| Q2 writes | the panel owns the working copy and its recipe windows, keyed by filename | assumption |
+| Q3 elements | `lui/recipes_editor` (Outline, Dependencies, YAML window) + `lui/recipe_editor` | assumption |
+| Q4 windows | floating windows | assumption |
+| Q5 YAML highlighting | built-in highlighter; query highlighter for `query:` values | assumption |
+| Q6 dependencies view | for plain lists too | assumption |
+| Q7 icons | metadata `unicode_icon`, else extension | assumption |
+| Q8 Save as | `rfd` dialog on native; the browser gets no Save as or Export yet (`WEB-RECIPES-EDITOR-CANNOT-DOWNLOAD`) | assumption |
+| Q9 Export | only the formats the value's type declares | assumption |
+| Q10 click | click = Edit, double-click = View | assumption |
+| AC-13 modes | mapped onto the editors' existing `continuous` flag until `query-update-modes` is built | implementation detail |
+| Browser menu | a per-row `⋯` menu instead of a right click | implementation detail |
+
+Needs decision: none.
+
 ## References
 
 - Source issue `NO-RECIPE-OR-RECIPES-EDITOR-UI` (filed in PR #285, folded in here).

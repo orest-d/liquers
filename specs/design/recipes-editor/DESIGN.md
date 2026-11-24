@@ -3,8 +3,8 @@ id: RECIPES-EDITOR
 kind: design
 title: Recipe and recipes editors - a recipe form, a folder outline (list or tree), a dependencies view and a YAML view
 workflow: liquers-project
-status: draft
-phase: high-level
+status: approved
+phase: implementation
 priority: P3
 complexity: L
 area: [lib/ui, lib/egui, core/value, core/assets]
@@ -31,6 +31,9 @@ new `Value` variant.
   title and description, a right-click menu (View, Metadata, Edit, Evaluate, Rename, Duplicate,
   Delete, Save as, Export), and YAML in its own window. AC-1, AC-3, AC-12 revised; AC-16 to AC-19
   added; questions 8-10 opened.
+- **2026-11-24, evening** Pre-approved after Phase 1 on 2026-11-24 (`proceed all`): recommended
+  answers to Q1-Q10 taken as assumptions (Phase 1 Design Readiness). Phases 2-4 written; no item
+  needs a decision, so implementation starts.
 
 ## Phases
 
