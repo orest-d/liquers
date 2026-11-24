@@ -1,4 +1,4 @@
-EDITOR: shared fragment (the query editor: modes, cards, keys, themes and icons, the same in every guide), included by chapter 11 of all three guides. Keep it language-neutral: queries and YAML only, no host-language code. Written from reference/UI_INTERFACE_FSD.md §Editors and §Hosts and guides/COMMAND_REGISTRATION_GUIDE.md §5. Queries checked with liquers-validate.
+EDITOR: shared fragment (the query editor: modes, cards, keys, themes and icons, the same in every guide), included by chapter 11 of all three guides. Keep it language-neutral: queries and YAML only, no host-language code. Written from reference/UI_INTERFACE_FSD.md §Editors (with §Recipe editors) and §Hosts and guides/COMMAND_REGISTRATION_GUIDE.md §5. Queries checked with liquers-validate.
 
 The query console and the editor elements (`ns-lui/query_editor`, `action_editor`,
 `resource_editor`, `key_editor`) show a query as a form next to its text. Each step of the query
@@ -54,6 +54,31 @@ mode with only that step expanded. In the query console the editor opens from th
 beside the query, as a narrow column next to the value, and Ctrl+J in the console's query field
 opens it at the cursor. In the browser the editor follows the page's own focus
 order and has no keys of its own yet.
+
+### Recipe editors
+
+Two more editors work on recipes. `ns-lui/recipes_editor`, given the accessor of a folder's
+`recipes.yaml`, is a narrow side panel listing the folder's recipes; `ns-lui/recipe_editor`
+edits one recipe as a form: its title, description, filename and options, with the query editor
+inside. `ns-acc/recipe_file` finds a recipe by the file it produces, so the form follows its
+recipe when the list is reordered:
+
+```text
+-R-key/reports/recipes.yaml/-/ns-acc/accessor/ns-lui/recipes_editor
+-R-key/reports/recipes.yaml/-/ns-acc/accessor/recipe_file-result.txt/ns-lui/recipe_editor
+```
+
+Each row of the panel shows the file's type icon, its filename (or, in a recipe tree, its node
+name), and a coloured dot for the status of its value, which becomes a small percentage while the
+value is being made. The settings button chooses whether rows show the filename, the title or
+both; hovering over the name gives the title and description, and over the dot the status or the
+error. Click a row to open its recipe in a window. Right-click it (in the browser, its `⋯`
+button) for View, Metadata, Evaluate, Rename, Duplicate, Delete, Save as and Export as a format
+the value's type can be written in; a tree adds Add child and Set as result. A rename rewrites
+every reference to the node, and moves its stored data with it. Delete is refused while another
+recipe uses the node. The `⑂` button shows the dependencies instead: the recipes nothing depends
+on at the top, each one's direct dependencies under it, so a shared recipe appears more than once.
+The `{}` button opens the file as highlighted YAML, which is applied only when it parses.
 
 ### Icons
 

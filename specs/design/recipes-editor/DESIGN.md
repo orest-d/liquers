@@ -3,8 +3,7 @@ id: RECIPES-EDITOR
 kind: design
 title: Recipe and recipes editors - a recipe form, a folder outline (list or tree), a dependencies view and a YAML view
 workflow: liquers-project
-status: approved
-phase: implementation
+status: complete
 priority: P3
 complexity: L
 area: [lib/ui, lib/egui, core/value, core/assets]
@@ -34,6 +33,10 @@ new `Value` variant.
 - **2026-11-24, evening** Pre-approved after Phase 1 on 2026-11-24 (`proceed all`): recommended
   answers to Q1-Q10 taken as assumptions (Phase 1 Design Readiness). Phases 2-4 written; no item
   needs a decision, so implementation starts.
+- **2026-11-24, night** Implemented (Steps 1-8) and documented (Phase 5). Deviations in Phase 4:
+  Save as takes a typed path (no `rfd`), a new unstored source is allowed by `add` / `add_child`,
+  `Recipe` skips three default fields when serialized, the browser shows one form at a time.
+  Three issues filed.
 
 ## Phases
 

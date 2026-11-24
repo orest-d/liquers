@@ -501,6 +501,46 @@ console's query field opens the panel on the step under the cursor, in Advanced 
 not the last action, and `Ctrl+J` in a panel field selects that field's text in the console's
 query field (`EditorOutput::select_text`).
 
+### Recipe editors
+
+`liquers-lib/src/ui/recipes/` (design `design/recipes-editor/`) edits recipes with two elements.
+The recipe list is **not a value type**: the panel reads and writes `recipes.yaml` as document
+text through an accessor, so the file stays the source of truth and a file that does not parse
+can still be repaired.
+
+| Element | Edits | Created by |
+|---|---|---|
+| `RecipesElement` | a folder's `recipes.yaml`: a narrow side panel with an outline (or the tree of dependencies), a window per open recipe and a YAML window | `lui/recipes_editor` |
+| `RecipeElement` | one recipe as a form, with the query editor inside | `lui/recipe_editor` (over `acc/recipe_file-<filename>`, which finds the recipe by filename, not position) |
+
+**Panel.** `RecipesState` (backend-free) holds the working copy as a `TreeEditor`, so a rename
+rewrites every reference to the node and an edit that would add a check error (a cycle, a used
+name) is refused and changes nothing. Rows show the type icon (the asset's `unicode_icon`, else the
+extension's), the filename or, in a tree, the node name; `RecipeLabel` chooses name, title or both.
+A coloured circle shows the asset's status, replaced by a small percentage while it reports
+progress; hover gives the status, the error, the check's findings, and over the name the title and
+description. Right-click (egui) or the row's `⋯` menu (browser) offers View, Metadata, Edit,
+Evaluate, Rename, Duplicate, Add child and Set as result (trees), Save as, Export as `<format>` (the
+type's `supported_data_formats`, known once evaluated) and Delete (refused while referenced). New
+and Add child append a recipe whose filename the editor suggests; it is a source declaration until
+its query is written. The `continuous` flag writes each edit at once; otherwise edits wait for
+Update, and Revert reloads.
+
+**Protocol.** Besides `AppMessage::Accessor` and `NodeContext` (whose `UpdateMessage::NodeContext`
+now carries the folder's `AssetInfo` by filename, the formats and a `notice`), the panel sends:
+`RenameData` when a rename moves stored data; `SubmitQuery` with `-R/<key>/-/ns-lui/add-child` (View)
+or `-R-meta/<key>/-/ns-lui/add-child` (Metadata), whose results are the panel's children, drawn as
+windows; `AppMessage::Evaluate { query }`, which starts the asset without waiting (the status
+follows from the folder's context, refreshed every half second while an asset is busy); and
+`AppMessage::SaveAs { handle, query, format, path }`, which evaluates, serializes (in `format`, or
+the value's own data format) and writes a local file, then reports the outcome as the context's
+`notice`. Save as is native only; a browser refuses it.
+
+**Renderers.** `egui::recipes::show_recipes` and `show_form`; `ui::web::recipes::recipes_html` and
+`form_html` (the browser shows one recipe form at a time, below the rows). The YAML window
+highlights keys, punctuation, scalars and each `query:` value as a query (`yaml_spans`), and applies
+only text that parses, naming the line of a parse error.
+
 ## Hosts
 
 A *host* owns an `AppState`, its message channel and an `AppRunner`, and decides when the runner
@@ -906,3 +946,4 @@ Candidate universal operations identified across use cases:
 | 2026-11-22 | Editors: links the new theme reference. | `design/query-editor-ergonomics/` |
 | 2026-11-23 | Editors: no outline or part titles in Advanced mode, one card open on entering it, argument help and defaults in hovers only, Ctrl+J opens Advanced mode on another step; the query console's editor panel is a side column behind a pencil button and does not repeat the query. Those parts reviewed against the implementation. | — |
 | 2026-11-24 | Editors: "Add key…" on a query with no key; the console's panel keeps "Add action…". `UIElement::scrolls_itself` lets the console draw a self-scrolling element (Markdown) without a second scroll area. Those parts reviewed against the implementation. | — |
+| 2026-11-24 | Editors: recipe editors — `RecipesElement` / `RecipeElement`, `lui/recipes_editor` / `lui/recipe_editor`, `AppMessage::Evaluate` / `SaveAs`, the `NodeContext` asset information, formats and notice. That subsection reviewed against the implementation. | `design/recipes-editor/` |

@@ -2,7 +2,7 @@
 id: NO-RECIPE-OR-RECIPES-EDITOR-UI
 kind: feature
 title: There is no UI element that edits a whole recipe or a folder's recipes.yaml
-status: in_progress
+status: closed
 priority: P3
 complexity: L
 area: [lib/ui, lib/egui]

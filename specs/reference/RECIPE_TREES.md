@@ -3,7 +3,7 @@ title: Recipe Trees
 kind: reference
 audience: internal
 area: [core/assets, core/plan, core/commands, core/validate]
-reviewed: 2026-11-23
+reviewed: 2026-11-24
 ---
 # Recipe Trees
 
@@ -152,6 +152,9 @@ reports no error the recipes did not already have; a refused edit changes nothin
 | `delete(node, cascade)` | removes the node's recipe; a node something references is refused naming its parents; `cascade` also removes what only it reaches. Stored data is never deleted |
 | `move_reference(node, from, to, action, arg)` | moves a Node-argument reference; `from`'s argument takes its default |
 | `declare_source(filename, title, description)` | adds a source recipe |
+| `add(recipe)`, `duplicate(node, to)` | appends a recipe (a used filename is refused); appends a copy under a new name whose references are the original's. A new recipe that is a source declaration not yet stored is allowed by `add` and `add_child`, and reported by the check |
+| `set_recipe(filename, recipe)`, `set_result(node)`, `replace(list)` | replaces one recipe (keeping its filename); declares or clears the tree's `result`; replaces the whole list (the YAML window) |
+| `child_slots(parent)` | the Node arguments of the parent's actions a new child can be named in (`ChildSlot`: action index, command, argument, extension) |
 | `node_choices(ext)`, `result_key(folder)`, `suggest_filename(title, ext)`, `report()`, `recipes()` | reading |
 | `pending_data_renames()` | the stored-file renames, for a client without an environment |
 | `save(folder, envref)` (async) | moves each renamed file with its stored record, then writes `recipes.yaml`, both through the asset manager |
@@ -167,6 +170,15 @@ runner for the folder's recipes and listing (`AppMessage::NodeContext` →
 returns `EditorEffect::RenameData`, which the runner saves (`AppMessage::RenameData`). A link to a
 node of the folder is shown as its name. Without a folder the field is a text box. The egui and
 browser editors draw it as a selector with a rename box.
+
+The recipes panel (`ui::recipes`, design `design/recipes-editor/`) is a `TreeEditor` over the
+whole file: its outline shows node names when the file has a `tree:` section, marks the result
+and sources, and attaches the check's findings to the rows they name. Its optional
+**dependencies view** puts the roots on top (the declared result or roots, else the nodes nothing
+depends on, then any node only a cycle leaves unreached) and each node's direct dependencies under
+it: a node with several parents appears under each (marked repeated), and a node closing a cycle is
+marked and not expanded. Rename, Delete, Duplicate, Add child and Set as result are the methods
+above; see [`UI_INTERFACE_FSD.md`](UI_INTERFACE_FSD.md) §Recipe editors.
 
 ## Known limitations
 
@@ -189,3 +201,4 @@ browser editors draw it as a selector with a rename box.
 | Date | Change | Source |
 |---|---|---|
 | 2026-11-23 | Created: declaration, nodes and names, source recipes, Node arguments, strict mode and its enforcement, the check, `TreeEditor`, the editors. | `design/recipe-tree/` |
+| 2026-11-24 | `TreeEditor::add`, `duplicate`, `set_recipe`, `set_result`, `replace`, `child_slots`; a new unstored source is allowed by `add` / `add_child`; the recipes panel and its dependencies view. Reviewed against the implementation. | `design/recipes-editor/` |
