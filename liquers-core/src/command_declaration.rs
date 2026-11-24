@@ -1117,6 +1117,33 @@ mod tests {
         assert!(message.contains('y'), "{message}");
     }
 
+    /// A declaration states a variadic argument's shape and column names as the registry
+    /// serializes them, and the same rules apply as for a macro registration.
+    #[test]
+    fn val03_shape_and_columns_are_declared_and_checked() {
+        use crate::command_metadata::{ArgumentType, VariadicShape};
+        let metadata = try_build(json!({"name":"f","arguments":[
+            {"name":"weights","multiple":true,
+             "shape":{"tuples":["string","float"]},"columns":["name","weight"]}]}))
+        .unwrap();
+        let argument = &metadata.arguments[0];
+        assert_eq!(
+            argument.shape,
+            VariadicShape::Tuples(vec![ArgumentType::String, ArgumentType::Float])
+        );
+        assert_eq!(argument.columns, vec!["name", "weight"]);
+
+        let map = try_build(json!({"name":"f","arguments":[
+            {"name":"layout","multiple":true,"shape":"map"}]}))
+        .unwrap();
+        assert_eq!(map.arguments[0].shape, VariadicShape::Map);
+
+        // A shape needs `multiple`.
+        let error = try_build(json!({"name":"f","arguments":[{"name":"layout","shape":"map"}]}))
+            .unwrap_err();
+        assert!(format!("{error}").contains("layout"), "{error}");
+    }
+
     #[test]
     fn val04_unknown_argument_type_names_the_command() {
         let error =

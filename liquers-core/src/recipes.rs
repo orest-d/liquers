@@ -68,6 +68,7 @@ use crate::{
     cache_strategy::CacheStrategy,
     command_metadata::{
         ArgumentInfo, ArgumentType, CommandMetadata, CommandMetadataRegistry, CommandParameterValue,
+        VariadicShape,
     },
     context::{EnvRef, Environment},
     error::{Error, ErrorType},
@@ -2129,21 +2130,131 @@ fn argument_type_name(argument_type: &ArgumentType) -> String {
 
 /// Converts an override to its argument's type (`design/axum-query-named-arguments/`, Phase 2
 /// table). A variadic argument converts element-wise; a scalar stays a scalar (one element).
-fn convert_override(arg: &ArgumentInfo, value: &Value) -> Result<ConvertedOverride, Error> {
+///
+/// A shaped variadic argument ([`VariadicShape`]) always converts to the flat array of its
+/// parameters, which is what the plan stores:
+///
+/// | Shape | Accepted | Becomes |
+/// |---|---|---|
+/// | `tuples` | a flat array, or an array of arrays of the tuple's size | the flat array, each position converted to its component type |
+/// | `map` | an object, or a flat array of key and value pairs | `[key, value, …]`, values converted to the argument type; a key given twice is refused |
+/// | `json` | any JSON value without a container inside a container | one element holding the value |
+pub(crate) fn convert_override(arg: &ArgumentInfo, value: &Value) -> Result<ConvertedOverride, Error> {
     if arg.multiple {
-        if let Value::Array(elements) = value {
-            let mut converted = Vec::with_capacity(elements.len());
-            let mut notes = Vec::new();
-            for element in elements {
-                let (v, note) = convert_scalar(arg, element)?.into_value(arg)?;
-                converted.push(v);
-                notes.extend(note);
+        let refuse = |expected: &str, reason: &str| {
+            Error::conversion_error_with_message(
+                value,
+                expected,
+                &format!("argument '{}': {}", arg.name, reason),
+            )
+        };
+        match &arg.shape {
+            VariadicShape::List => {
+                if let Value::Array(elements) = value {
+                    return convert_elements(arg, elements, std::slice::from_ref(&arg.argument_type));
+                }
             }
-            let note = (!notes.is_empty()).then(|| notes.join("; "));
-            return Ok(ConvertedOverride::Value(Value::Array(converted), note));
+            VariadicShape::Tuples(components) => {
+                let arity = components.len().max(1);
+                let expected = format!("tuples of {arity}");
+                let Value::Array(entries) = value else {
+                    return Err(refuse(&expected, &format!("an array expected ({} given)", json_kind(value))));
+                };
+                let nested = entries.iter().filter(|e| e.is_array()).count();
+                let flat: Vec<Value> = if nested == 0 {
+                    entries.clone()
+                } else if nested == entries.len() {
+                    let mut flat = Vec::with_capacity(entries.len() * arity);
+                    for entry in entries {
+                        let group = entry.as_array().map(Vec::as_slice).unwrap_or(&[]);
+                        if group.len() != arity {
+                            return Err(refuse(
+                                &expected,
+                                &format!("the element {entry} has {} values", group.len()),
+                            ));
+                        }
+                        flat.extend(group.iter().cloned());
+                    }
+                    flat
+                } else {
+                    return Err(refuse(&expected, "either every entry is an array or none is"));
+                };
+                if flat.len() % arity != 0 {
+                    return Err(refuse(
+                        &expected,
+                        &format!("{} values do not make elements of {arity}", flat.len()),
+                    ));
+                }
+                return convert_elements(arg, &flat, components);
+            }
+            VariadicShape::Map => {
+                let flat: Vec<Value> = match value {
+                    Value::Object(entries) => entries
+                        .iter()
+                        .flat_map(|(key, entry)| [Value::String(key.clone()), entry.clone()])
+                        .collect(),
+                    Value::Array(entries) if entries.len() % 2 == 0 => entries.clone(),
+                    Value::Array(_) => {
+                        return Err(refuse("key and value pairs", "the last key has no value"))
+                    }
+                    Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {
+                        return Err(refuse(
+                            "key and value pairs",
+                            &format!("an object or an array of pairs expected ({} given)", json_kind(value)),
+                        ))
+                    }
+                };
+                let converted =
+                    convert_elements(arg, &flat, &[ArgumentType::String, arg.argument_type.clone()])?;
+                if let ConvertedOverride::Value(Value::Array(elements), _) = &converted {
+                    let mut seen: Vec<&Value> = Vec::new();
+                    for key in elements.iter().step_by(2) {
+                        if seen.contains(&key) {
+                            return Err(refuse("key and value pairs", &format!("the key {key} is given twice")));
+                        }
+                        seen.push(key);
+                    }
+                }
+                return Ok(converted);
+            }
+            VariadicShape::Json => {
+                let is_container = |v: &Value| v.is_array() || v.is_object();
+                let nested = match value {
+                    Value::Array(entries) => entries.iter().any(is_container),
+                    Value::Object(entries) => entries.values().any(is_container),
+                    Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => false,
+                };
+                if nested {
+                    return Err(refuse("a JSON value", "a list or an object inside another is not supported"));
+                }
+                return Ok(ConvertedOverride::Value(Value::Array(vec![value.clone()]), None));
+            }
         }
     }
     convert_scalar(arg, value)
+}
+
+/// Converts the flat parameters of a variadic override, position `j` to `types[j % types.len()]`.
+fn convert_elements(
+    arg: &ArgumentInfo,
+    elements: &[Value],
+    types: &[ArgumentType],
+) -> Result<ConvertedOverride, Error> {
+    let mut element_arg = arg.clone();
+    element_arg.multiple = false;
+    element_arg.shape = VariadicShape::List;
+    let mut converted = Vec::with_capacity(elements.len());
+    let mut notes = Vec::new();
+    for (j, element) in elements.iter().enumerate() {
+        if let Some(argument_type) = types.get(j % types.len().max(1)) {
+            element_arg.argument_type = argument_type.clone();
+        }
+        let (v, note) = convert_scalar(&element_arg, element)?.into_value(&element_arg)?;
+        converted.push(v);
+        notes.extend(note);
+    }
+    let note = (!notes.is_empty()).then(|| notes.join("; "));
+    Ok(ConvertedOverride::Value(Value::Array(converted), note))
 }
 
 impl ConvertedOverride {
@@ -2432,6 +2543,56 @@ mod test {
         assert_eq!(elements.len(), 2, "one element per array entry");
         assert_eq!(elements[0].value(), Some(serde_json::json!("a")));
         assert_eq!(elements[1].value(), Some(serde_json::json!("b")));
+    }
+
+    fn shaped_override(shape: crate::command_metadata::VariadicShape, argument_type: crate::command_metadata::ArgumentType, value: serde_json::Value) -> Result<Vec<serde_json::Value>, crate::error::Error> {
+        let mut cr = CommandMetadataRegistry::new();
+        let mut arg = ArgumentInfo::any_argument("xs").set_multiple().with_shape(shape);
+        arg.argument_type = argument_type;
+        cr.add_command(CommandMetadata::new("shaped").with_argument(arg));
+        let recipe = super::Recipe::new("shaped".to_string(), String::new(), String::new())?
+            .with_argument("xs".to_string(), value);
+        let plan = recipe.to_plan(&cr)?;
+        let Some(Step::Action { parameters, .. }) = plan.steps.last() else {
+            panic!("expected an action step");
+        };
+        let elements = parameters.0[0].multiple().expect("a parameter list");
+        Ok(elements.iter().filter_map(|e| e.value()).collect())
+    }
+
+    /// AC-7 - an override of a shaped variadic argument becomes its flat parameter list.
+    #[test]
+    fn shaped_variadic_override_accepts_flat_nested_and_object() -> Result<(), crate::error::Error> {
+        use crate::command_metadata::{ArgumentType, VariadicShape};
+        use serde_json::json;
+        let pairs = || VariadicShape::Tuples(vec![ArgumentType::String, ArgumentType::Integer]);
+        let flat = vec![json!("a"), json!(1), json!("b"), json!(2)];
+        assert_eq!(shaped_override(pairs(), ArgumentType::Any, json!([["a", 1], ["b", 2]]))?, flat);
+        assert_eq!(shaped_override(pairs(), ArgumentType::Any, json!(["a", 1, "b", "2"]))?, flat);
+        assert!(shaped_override(pairs(), ArgumentType::Any, json!(["a", 1, "b"])).is_err());
+        assert!(shaped_override(pairs(), ArgumentType::Any, json!([["a", 1], "b", 2])).is_err());
+        assert!(shaped_override(pairs(), ArgumentType::Any, json!([["a", 1, 2]])).is_err());
+        assert!(shaped_override(pairs(), ArgumentType::Any, json!(["a", "x"])).is_err());
+
+        assert_eq!(
+            shaped_override(VariadicShape::Map, ArgumentType::Integer, json!({"row": 0, "col": "8"}))?,
+            vec![json!("col"), json!(8), json!("row"), json!(0)]
+        );
+        assert_eq!(
+            shaped_override(VariadicShape::Map, ArgumentType::Any, json!(["row", 0, 1, "a"]))?,
+            vec![json!("row"), json!(0), json!("1"), json!("a")]
+        );
+        assert!(shaped_override(VariadicShape::Map, ArgumentType::Any, json!(["row", 0, "row", 1])).is_err());
+        assert!(shaped_override(VariadicShape::Map, ArgumentType::Any, json!(["row"])).is_err());
+        assert!(shaped_override(VariadicShape::Map, ArgumentType::Any, json!(3)).is_err());
+
+        // A JSON value stays one element, so a list is not mistaken for pairs.
+        for value in [json!(null), json!(8), json!("a"), json!([1, "a"]), json!({"row": 0}), json!([])] {
+            assert_eq!(shaped_override(VariadicShape::Json, ArgumentType::Any, value.clone())?, vec![value]);
+        }
+        assert!(shaped_override(VariadicShape::Json, ArgumentType::Any, json!({"a": [1]})).is_err());
+        assert!(shaped_override(VariadicShape::Json, ArgumentType::Any, json!([[1]])).is_err());
+        Ok(())
     }
 
     /// The same, for a link override.
