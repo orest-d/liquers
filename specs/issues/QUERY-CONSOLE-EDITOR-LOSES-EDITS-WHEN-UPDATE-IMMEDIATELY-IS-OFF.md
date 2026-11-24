@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [lib/ui]
-design: query-apply-immediately
+design: query-update-modes
 created: 2026-11-24
 github:
 ---
@@ -34,8 +34,8 @@ that applied `SetContinuous(false)`, `SetField n=7` and `Update` through
 
 ## Expected behaviour
 
-Every accepted panel edit rewrites the console's query text, whatever the setting. With "Apply
-immediately" on, the console then re-evaluates (debounced); with it off, it re-evaluates on the
-✓ button beside the query field or Enter. The setting is the console's own, shown once in the
-console's toolbar; the panel shows no second switch or Update button.
-Design: `specs/design/query-apply-immediately/`.
+Every accepted panel edit rewrites the console's query text, whatever the setting. In Apply
+immediately, the console then re-evaluates (debounced); On demand, it re-evaluates on the ✓
+button beside the query field or Enter. The mode is the console's own, shown once in the console's
+toolbar; the panel shows no second switch or Update button.
+Design: `specs/design/query-update-modes/`.

@@ -1,4 +1,4 @@
-# Phase 2: Solution & Architecture — query-apply-immediately
+# Phase 2: Solution & Architecture — query-update-modes
 
 ## Overview
 <The chosen solution in 2-4 sentences. Rejected alternatives, one line each with the reason.>

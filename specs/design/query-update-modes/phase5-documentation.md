@@ -1,4 +1,4 @@
-# Phase 5: Documentation - query-apply-immediately
+# Phase 5: Documentation - query-update-modes
 
 ## Completion Preconditions
 

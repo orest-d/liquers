@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [lib/ui]
-design: query-apply-immediately
+design: query-update-modes
 created: 2026-11-24
 github:
 ---

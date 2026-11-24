@@ -1,4 +1,4 @@
-# Phase 3: Examples & Use-cases — query-apply-immediately
+# Phase 3: Examples & Use-cases — query-update-modes
 
 ## Overview Table
 | # | Kind | Name | Shows / checks | Scenarios |
