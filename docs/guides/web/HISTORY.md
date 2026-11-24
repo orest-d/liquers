@@ -47,4 +47,5 @@ have a row here (`specs/guides/USER_DOCS_EDITING_GUIDE.md`, maintenance).
 | 2026-11-21 | 05-commands.md | reviewed against `design/query-editor-ergonomics/`: still true, no change |
 | 2026-11-22 | 11-ui.md | reviewed: a bare icon name means the theme's icon set, Phosphor unless the theme changes it; `ph:` is always Phosphor |
 | 2026-11-24 | 11-ui.md | reviewed against `design/query-update-modes/` Part A: the editors section gains "When edits take effect" (Apply immediately, On demand, ✓, Enter on valid text, Undo / Redo, the console's status line and dimming) |
+| 2026-11-24 | 11-ui.md | reviewed against `design/query-update-modes/` Part B: "When edits take effect" gains Live preview and the `mode` argument (`query_console-on_demand`) |
 | 2026-11-15 | 08-environment.md | reviewed for `py-command-line-config` (`ConfigDocument::overlay`, a missing file is a `ConfigurationError`): still right; no edit |

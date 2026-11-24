@@ -10,8 +10,11 @@
 //! # Main components
 //!
 //! - [`EditorElement`]: the `UIElement`, with an [`EditorKind`] (`Query`, `Action`, `Resource`,
-//!   `Key`) and an [`EditorBinding`] (an accessor's query, or the value in memory). "Update
-//!   immediately" sets each committed edit into the accessor; otherwise edits wait for Update.
+//!   `Key`) and an [`EditorBinding`] (an accessor's query, or the value in memory). Its
+//!   [`UpdateMode`] decides when an edit takes effect: Apply immediately sets each committed edit
+//!   into the accessor; On demand waits for ✓ (Update); Live preview (query editors) evaluates the
+//!   edit in place, in the view it follows, in the recipe's folder, without writing
+//!   (`AppMessage::Preview`), until ✓ writes it. Undo and Redo step through the edits.
 //! - [`EditorState`]: the backend-free core. It applies every [`EditorCommand`] as a validated
 //!   edit (a refused edit changes nothing and is shown at its node), keeps at most one write in
 //!   flight, turns a change elsewhere into a reload or a conflict, and builds the [`EditorTree`].
@@ -83,7 +86,7 @@ mod view;
 
 pub use catalog::command_catalog;
 pub use command::{EditorCommand, EditorEffect, NewElement};
-pub use element::{recipe_folder, EditorBinding, EditorElement};
+pub use element::{recipe_folder, EditorBinding, EditorElement, PREVIEW_END_EVENT};
 pub use keys::{editor_keymap, keymap_table, shortcut_text, EditorKey, KeyScope};
 pub use layout::{
     card_marks, command_id, editor_layout, form_rows, header_parts, node_label, offers_key, simple_card, toolbar_items, Card,
