@@ -74,16 +74,3 @@ hand today. The origin design `design/variadic-arguments-declaration/` is comple
 now designed in `design/composite-variadic-arguments/` (needs-decision: a flat query, a
 `Tuple` argument type, grouping at retrieval; the first question is whether to build it before a
 command needs it).
-
-## Note 2026-11-24: a use from the UI redesign, and the older Python mechanism
-
-- The UI redesign's master design (`specs/design/ui-redesign/master-design.md` §10.9) passes
-  per-child layout data as trailing key and value pairs, for example
-  `ns-lui/add-child-current-row-0-col-8-colspan-4`. This is a `Vec<(String, String)>` built into a
-  map, with one addition the design does not have: the value is a scalar whose type is read from
-  its text (number, boolean, otherwise string).
-- Orest pointed to the argument parsers of the Python `liquer` (`liquer/commands.py`), where a
-  parser could consume several dash-separated parameters and build one complex value, such as a
-  2D vector, also as an element of a variadic argument. It was never used widely. He sees the
-  pairs as one example of a general pattern, a complex type represented as a variadic argument,
-  that deserves support in the command metadata and the registration macro.
