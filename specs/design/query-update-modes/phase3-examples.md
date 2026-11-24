@@ -61,7 +61,7 @@ default), follows a console on the recipe's result.
 - **Out of order** (AC-6): a snapshot whose `query` is not `requested` → `Ignored`; covered for the
   console and for a preview followed by an apply.
 - **Enter on bad text** (AC-14): `-R/data/sales.csv/-/ns-pl/nosuch` → `PlanBuilder` error; nothing
-  sent, `typed_error` set, value unchanged. Also a parse error (`-R/a/-/head-`).
+  sent, `typed_error` set, value unchanged. Also a parse error (`-R/a/-/head-~`).
 - **Typing then a GUI edit:** unentered typed text is replaced by the edited applied query; the
   typed text is not applied (documented in `UI_INTERFACE_FSD.md`).
 - **Undo past the start:** `Undo` with an empty history → `EditorEffect::None`, buttons disabled.

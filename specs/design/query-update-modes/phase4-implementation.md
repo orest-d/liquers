@@ -10,10 +10,10 @@ Each step compiles and its tests pass before the next. No prerequisite issue mus
 
 ## Progress
 
-- [ ] Step 1: `UpdateMode`, undo history and the new commands and effects in the editor core
-- [ ] Step 2: `ValueDisplay`, `AssetSnapshot.query`/`preview`, and `schedule_event`
-- [ ] Step 3: the console on `ValueDisplay`: panel effects, debounce, ✓, Enter, expiry by mode
-- [ ] Step 4: renderers: egui and web toolbars, keys, the theme's preview colour
+- [x] Step 1: `UpdateMode`, undo history and the new commands and effects in the editor core
+- [x] Step 2: `ValueDisplay`, `AssetSnapshot.query`/`preview`, and `schedule_event`
+- [x] Step 3: the console on `ValueDisplay`: panel effects, debounce, ✓, Enter, expiry by mode
+- [x] Step 4: renderers: egui and web toolbars, keys, the theme's preview colour
 - [ ] Step 5: Part A checks, docs, PR
 - [ ] Step 6: `EditorElement` modes, legacy `continuous`, preview effects
 - [ ] Step 7: the runner's `AppMessage::Preview` and the binding tests

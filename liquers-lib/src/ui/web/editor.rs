@@ -101,6 +101,11 @@ pub const EDITOR_CSS: &str = r#"
 .lq-ed-auto{color:var(--lq-ink-faint)}
 .lq-ed-auto.lq-ed-busy{color:var(--lq-accent)}
 .lq-qc-editor{flex:0 0 340px;max-width:45%;overflow:auto;border-left:1px solid var(--lq-line)}
+.lq-qc-toolbar i::before{content:attr(data-fallback);font-style:normal}
+.lq-qc-check.lq-ed-pending-check{color:var(--lq-accent)}
+.lq-status-bar{display:flex;gap:8px;align-items:center;color:var(--lq-ink-muted);font-size:var(--lq-size-small);padding:2px 4px}
+.lq-value-stale{opacity:.45;filter:blur(.5px)}
+.lq-value-preview{outline:2px solid var(--lq-preview);outline-offset:2px}
 "#;
 
 fn button(label: &str, verb: &str, path: &NodePath, rest: &str, title: &str) -> String {
@@ -118,7 +123,7 @@ fn button_class(label: &str, verb: &str, path: &NodePath, rest: &str, title: &st
 }
 
 /// A Phosphor icon in the browser: the web font's `<i>`, with `fallback` shown without it.
-fn ph_html(name: &str, fallback: &str) -> String {
+pub(crate) fn ph_html(name: &str, fallback: &str) -> String {
     format!(
         "<i class=\"ph ph-{}\" aria-hidden=\"true\" data-fallback=\"{}\"></i>",
         escape_html(name),

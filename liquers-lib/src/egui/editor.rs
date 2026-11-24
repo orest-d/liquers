@@ -1678,6 +1678,62 @@ mod tests {
         tree.nodes[tree.last_action().expect("head")].path().clone()
     }
 
+    /// The text of every shape drawn for `tree` in one headless frame.
+    fn drawn_text(tree: &EditorTree) -> String {
+        fn collect(shape: &egui::Shape, out: &mut String) {
+            match shape {
+                egui::Shape::Text(t) => out.push_str(t.galley.text()),
+                egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| collect(s, out)),
+                _ => {}
+            }
+        }
+        let ctx = egui::Context::default();
+        let theme = ThemeState::default();
+        let mut view = EditorView::default();
+        // Two frames: the first loads the icon font.
+        let mut text = String::new();
+        for _ in 0..2 {
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                show_editor(ui, tree, &mut view, EditorMode::Simple, Density::Comfortable, &theme, None);
+            });
+            output.textures_delta.clear();
+            text.clear();
+            output.shapes.iter().for_each(|c| collect(&c.shape, &mut text));
+        }
+        text
+    }
+
+    /// query-update-modes AC-13, AC-22: the mode control shows the three icons; ✓ follows the
+    /// mode (a filled ✓ for pending edits, none in Apply immediately); a host's editor shows none.
+    #[test]
+    fn toolbar_controls_follow_the_mode() {
+        use crate::ui::editor::UpdateMode;
+        let glyph = |name| crate::egui::theme::phosphor_glyph(name).expect(name);
+        let state_in = |mode: UpdateMode, edit: bool| {
+            let mut state = EditorState::new(EditorKind::Query, Arc::new(registry())).with_update_mode(mode);
+            state.on_snapshot(&Value::from_query(&liquers_core::parse::parse_query(P).expect("query")), None).expect("snapshot");
+            if edit {
+                let path = head_path(state.tree());
+                state.apply(EditorCommand::SetField { path, arg: "n".into(), text: "7".into() }).expect("edit");
+            }
+            state.tree().clone()
+        };
+        let on_demand = drawn_text(&state_in(UpdateMode::OnDemand, true));
+        for icon in ["hand-tap", "eye", "lightning", "arrow-u-up-left", "arrow-u-up-right", "check-circle"] {
+            assert!(on_demand.contains(glyph(icon)), "{icon}");
+        }
+        let idle = drawn_text(&state_in(UpdateMode::OnDemand, false));
+        assert!(idle.contains(glyph("check")) && !idle.contains(glyph("check-circle")));
+        let immediate = drawn_text(&state_in(UpdateMode::ApplyImmediately, true));
+        assert!(!immediate.contains(glyph("check")) && !immediate.contains(glyph("check-circle")), "no ✓");
+        let mut hosted = state_in(UpdateMode::OnDemand, true);
+        hosted.host_controls = true;
+        let hosted = drawn_text(&hosted);
+        for icon in ["hand-tap", "eye", "check", "check-circle"] {
+            assert!(!hosted.contains(glyph(icon)), "{icon} in a hosted editor");
+        }
+    }
+
     /// query-pipeline-editor AC-11, AC-3: every node kind draws headless in both modes and
     /// produces no command without input.
     #[test]

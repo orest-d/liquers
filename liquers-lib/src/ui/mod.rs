@@ -132,15 +132,19 @@ pub const TIMER_EVENT: &str = "lq:timer";
 /// threshold of `ValueDisplay` — instead of reading a clock, which `std::time::Instant` cannot
 /// do on wasm32 (design `query-update-modes`).
 ///
-/// Natively it sleeps on the tokio timer; on wasm32 with `webui` on a browser timer; otherwise
+/// Natively it sleeps on the tokio timer (and is dropped outside a tokio runtime); on wasm32 with `webui` on a browser timer; otherwise
 /// (wasm32 without a timer) the event is sent at once.
 pub fn schedule_event(ctx: &UIContext, handle: UIHandle, after: std::time::Duration, event: UIEvent) {
     let ctx = ctx.clone();
+    // Outside a tokio runtime (a plain `#[test]`) there is no timer: the event is dropped, and
+    // a test delivers it itself.
     #[cfg(not(target_arch = "wasm32"))]
-    spawn_ui_task(async move {
-        tokio::time::sleep(after).await;
-        ctx.send_message(AppMessage::UIEvent { handle, event });
-    });
+    if tokio::runtime::Handle::try_current().is_ok() {
+        spawn_ui_task(async move {
+            tokio::time::sleep(after).await;
+            ctx.send_message(AppMessage::UIEvent { handle, event });
+        });
+    }
     #[cfg(all(target_arch = "wasm32", feature = "webui"))]
     spawn_ui_task(async move {
         gloo_timers::future::sleep(after).await;
