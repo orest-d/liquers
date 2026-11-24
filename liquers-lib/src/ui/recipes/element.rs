@@ -233,6 +233,7 @@ impl RecipesElement {
             RecipesEffect::SaveAs { query, format, path } => {
                 ctx.send_message(AppMessage::SaveAs { handle, query, format, path })
             }
+            RecipesEffect::ListDirectory(folder) => ctx.send_message(AppMessage::ListDirectory { handle, folder }),
         }
     }
 
@@ -463,8 +464,13 @@ impl UIElement for RecipesElement {
                     UpdateResponse::Unchanged
                 }
             }
-            UpdateMessage::Directory(_)
-            | UpdateMessage::AssetNotification(_)
+            UpdateMessage::Directory(listing) => {
+                if let Some(state) = &mut self.state {
+                    state.on_directory(listing.clone());
+                }
+                UpdateResponse::NeedsRepaint
+            }
+            UpdateMessage::AssetNotification(_)
             | UpdateMessage::Timer { .. }
             | UpdateMessage::Custom(_)
             | UpdateMessage::AssetUpdate(_) => UpdateResponse::Unchanged,
@@ -630,6 +636,11 @@ impl RecipeElement {
                             "Rename the recipe in the recipes editor, which rewrites the folder's references.".to_owned(),
                         );
                     }
+                    Ok(FormChange::ListDirectory(folder)) => {
+                        if let Some(handle) = self.handle {
+                            ctx.send_message(AppMessage::ListDirectory { handle, folder });
+                        }
+                    }
                     Ok(FormChange::None) | Err(_) => {}
                 }
             }
@@ -744,8 +755,13 @@ impl UIElement for RecipeElement {
                     UpdateResponse::Unchanged
                 }
             }
+            UpdateMessage::Directory(listing) => {
+                if let Some(form) = &mut self.form {
+                    form.on_directory(listing.clone());
+                }
+                UpdateResponse::NeedsRepaint
+            }
             UpdateMessage::NodeContext(_)
-            | UpdateMessage::Directory(_)
             | UpdateMessage::AssetNotification(_)
             | UpdateMessage::Timer { .. }
             | UpdateMessage::Custom(_)

@@ -48,6 +48,9 @@ pub enum FormChange {
     Rename(String),
     /// Rename another node of the folder (a Node argument's Rename).
     RenameNode { from: String, to: String },
+    /// The query editor's file selector asks for a listing of the store folder; the answer goes
+    /// back with [`RecipeForm::on_directory`].
+    ListDirectory(String),
 }
 
 /// One recipe being edited: its fields, and an embedded query editor whose committed edits are
@@ -187,9 +190,9 @@ impl RecipeForm {
                         }
                     }
                 }
+                EditorEffect::ListDirectory(folder) => return Ok(FormChange::ListDirectory(folder)),
                 EditorEffect::None
                 | EditorEffect::Reload
-                | EditorEffect::ListDirectory(_)
                 | EditorEffect::RenameData { .. }
                 // A form writes its recipe; it has no live preview of the query.
                 | EditorEffect::Preview(_)

@@ -495,3 +495,35 @@ fn browser_events_decode_to_commands() {
     assert_eq!(recipes_folder("-R-key/scenes/car/recipes.yaml/-/ns-acc/accessor"), Some("scenes/car".into()));
     assert_eq!(recipes_folder("-R/recipes.yaml/-/ns-acc/accessor"), Some(String::new()));
 }
+
+/// Review fix: a stored-file rename pending while the file changed elsewhere is not saved over it.
+#[test]
+fn pending_rename_with_stored_data_conflicts_after_a_remote_change() {
+    let mut state = car().with_continuous(false);
+    let effect = state.apply(RecipesCommand::Rename { from: "tyre".into(), to: "tire".into() }).expect("rename");
+    assert!(matches!(effect, RecipesEffect::None));
+    let changed = format!("{CAR}  - {{query: extra.glb, title: Extra}}\n");
+    state.on_snapshot(&Value::from(changed.as_str()), Some(fp(7))).expect("snapshot");
+    assert!(matches!(state.apply(RecipesCommand::Update).expect("update"), RecipesEffect::Reload));
+    assert!(state.message().expect("message").starts_with("Conflict"));
+}
+
+/// Review fix: a recipe window's file selector asks the runner for a listing and gets it back.
+#[test]
+fn recipe_window_browse_lists_the_store() {
+    use crate::ui::editor::{DirectoryEntry, DirectoryListing, NodePath};
+    let mut state = panel(FLAT);
+    state.apply(RecipesCommand::Open("a.csv".into())).expect("open");
+    let effect = state
+        .apply(RecipesCommand::Form {
+            id: "a.csv".into(),
+            command: FormCommand::Editor(EditorCommand::Browse { path: NodePath::element(0), folder: "data".into() }),
+        })
+        .expect("browse");
+    assert!(matches!(effect, RecipesEffect::ListDirectory(ref f) if f == "data"), "{effect:?}");
+    state.on_directory(DirectoryListing {
+        folder: "data".into(),
+        entries: vec![DirectoryEntry { name: "x.csv".into(), is_dir: false }],
+        error: None,
+    });
+}

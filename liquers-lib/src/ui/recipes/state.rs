@@ -84,6 +84,9 @@ pub enum RecipesEffect {
     Evaluate(String),
     /// Write a query's value to a file.
     SaveAs { query: String, format: Option<String>, path: String },
+    /// List a store folder for the file selector of a recipe window; the answer goes to
+    /// [`RecipesState::on_directory`].
+    ListDirectory(String),
 }
 
 /// The YAML window's buffer (AC-12).
@@ -119,6 +122,8 @@ pub struct RecipesState {
     collapsed: BTreeSet<String>,
     forms: Vec<RecipeForm>,
     yaml: Option<YamlBuffer>,
+    /// The recipe window whose file selector waits for a listing.
+    browsing: Option<String>,
     rows: Vec<RecipeRow>,
     report: TreeReport,
     message: Option<String>,
@@ -163,6 +168,7 @@ impl RecipesState {
             collapsed: BTreeSet::new(),
             forms: Vec::new(),
             yaml: None,
+            browsing: None,
             rows: Vec::new(),
             report: TreeReport::default(),
             message: None,
@@ -369,6 +375,15 @@ impl RecipesState {
         self.message = Some(error.to_string());
     }
 
+    /// A store listing for the recipe window that asked for one.
+    pub fn on_directory(&mut self, listing: crate::ui::editor::DirectoryListing) {
+        if let Some(id) = self.browsing.take() {
+            if let Some(form) = self.forms.iter_mut().find(|f| f.id == id) {
+                form.on_directory(listing);
+            }
+        }
+    }
+
     /// The accessor cannot be written.
     pub fn set_read_only(&mut self, reason: Option<String>) {
         self.read_only = reason;
@@ -465,6 +480,18 @@ impl RecipesState {
             return RecipesEffect::None;
         };
         if !editor.pending_data_renames().is_empty() {
+            if self.remote_changed {
+                // `TreeEditor::save` writes the whole list with no fingerprint check: refuse
+                // rather than overwrite the edits made elsewhere.
+                self.pending = false;
+                self.remote_changed = false;
+                self.loaded = false;
+                self.message = Some(
+                    "Conflict: the recipes were changed elsewhere and have been reloaded; the rename was not saved."
+                        .to_owned(),
+                );
+                return RecipesEffect::Reload;
+            }
             let Some(folder) = self.folder.clone() else {
                 self.message = Some("The folder of the recipes is not known; stored files cannot be renamed.".to_owned());
                 return RecipesEffect::None;
@@ -479,6 +506,8 @@ impl RecipesState {
             return RecipesEffect::SaveTree { folder, editor: saved };
         }
         self.pending = false;
+        // The fingerprint check of the write reports a change made elsewhere as a conflict.
+        self.remote_changed = false;
         self.write_in_flight = true;
         RecipesEffect::Write { value: self.document_value(), expected: self.fingerprint }
     }
@@ -584,6 +613,10 @@ impl RecipesState {
     fn form_change(&mut self, id: &str, change: FormChange) -> Result<RecipesEffect, Error> {
         match change {
             FormChange::None => Ok(RecipesEffect::None),
+            FormChange::ListDirectory(folder) => {
+                self.browsing = Some(id.to_owned());
+                Ok(RecipesEffect::ListDirectory(folder))
+            }
             FormChange::Rename(to) => self.rename(id, &to),
             FormChange::RenameNode { from, to } => self.rename(&from, &to),
             FormChange::Recipe(recipe) => {
@@ -777,13 +810,7 @@ impl RecipesState {
                 self.yaml = Some(YamlBuffer { text: self.document_text(), error: None, dirty: false });
                 Ok(effect)
             }
-            RecipesCommand::Update => {
-                if self.remote_changed {
-                    // Writing now reports the conflict against the live file.
-                    self.remote_changed = false;
-                }
-                Ok(self.write())
-            }
+            RecipesCommand::Update => Ok(self.write()),
             RecipesCommand::Revert => {
                 self.pending = false;
                 self.remote_changed = false;
