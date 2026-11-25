@@ -53,6 +53,9 @@ Recorded 2026-11-25. None changes a decision of Phase 1 or 2.
   `shape_components` and `columns` read-only.
 - **Rows of a JSON value (Step 10).** `InsertRow` and `RemoveRow` also apply to a JSON value, as
   pairs, so its dictionary form is edited like a dictionary.
+- **Command registry.** `specs/command_registry.yaml` was regenerated after all: `commands_doc`
+  has `version: auto` and its body changed (the shape in its Multiplicity column), so its
+  `impl_version` moved. No signature changed.
 - **Module docs.** `plan.rs` and `liquers-mcp/src/schema.rs` still lack an example section
   (`MODULE-DOCS-DO-NOT-FOLLOW-THE-API-DOC-RULES`); the three modules Phase 1 names pass
   `check_api_docs.py`.
