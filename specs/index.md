@@ -8,10 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 274
+Total rows: 273
 - P1: 1
 - P2: 69
-- P3: 204
+- P3: 203
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -127,7 +127,6 @@ Total rows: 274
 | [`LANGUAGE-GUIDE-PIPELINE-COVERAGE-INCOMPLETE`](issues/LANGUAGE-GUIDE-PIPELINE-COVERAGE-INCOMPLETE.md) | issue | The Language Integration Guide's PIPELINE feature is missing from the profiles, the value bridge and the reference tests | draft |  |  | P3 | S | docs |  | 2026-11-04 |
 | [`LIQUERS-DOCS-DUPLICATES-MARKDOWN-PARSING`](issues/LIQUERS-DOCS-DUPLICATES-MARKDOWN-PARSING.md) | issue | liquers-docs parses Markdown with its own helpers instead of liquers-markdown | draft |  |  | P3 | S | docs |  | 2026-11-01 |
 | [`MEMORY-STORE-RAW-WRITE-IS-NOT-SEARCHED`](issues/MEMORY-STORE-RAW-WRITE-IS-NOT-SEARCHED.md) | issue | A file written with Store.set into a memory store is listed but its content is not searched | draft |  |  | P3 | S | core/store |  | 2026-11-09 |
-| [`NODE-ARGUMENT-CANNOT-PASS-A-RECIPE`](issues/NODE-ARGUMENT-CANNOT-PASS-A-RECIPE.md) | feature | A Node argument cannot pass a node's recipe | draft |  |  | P3 | S | core/commands;macro;core/assets | [design](design/node-argument-recipe-form/DESIGN.md) | 2026-11-25 |
 | [`PIPELINE-COMMAND-OPERAND-TYPES-UNCHECKED`](issues/PIPELINE-COMMAND-OPERAND-TYPES-UNCHECKED.md) | issue | A pipeline command's placeholder operand types and GUI info are not checked or inferred | draft |  |  | P3 | S | core/commands | [notation](design/composite-command-definition/notation-and-integration.md)  [phase1](design/composite-command-definition/phase1-high-level-design.md)  [phase2](design/composite-command-definition/phase2-architecture.md)  [phase3](design/composite-command-definition/phase3-examples.md)  [phase4](design/composite-command-definition/phase4-implementation.md)  [phase5](design/composite-command-definition/phase5-documentation.md)  [pipeline](design/composite-command-definition/pipeline-and-plan.md)  [pipeline](design/composite-command-definition/pipeline-structure-and-sources.md)  [recipe](design/composite-command-definition/recipe-and-pipeline-structures.md)  | 2026-11-04 |
 | [`PLAN-DEFAULT-LINK-PROMOTION-USES-THE-QUERYS-LAST-NS`](issues/PLAN-DEFAULT-LINK-PROMOTION-USES-THE-QUERYS-LAST-NS.md) | issue | Relative default links are promoted using the query's last ns, not each action's own | draft |  |  | P3 | S | core/plan |  | 2026-11-01 |
 | [`PY-ABI3T-WHEEL-NOT-USED`](issues/PY-ABI3T-WHEEL-NOT-USED.md) | issue | liquers-py builds a cp315t wheel because the abi3t wheel does not import | draft |  |  | P3 | S | py;build |  | 2026-11-01 |

@@ -249,11 +249,13 @@ with `node:` and the file's extension:
 // Sketch: `attach` receives the value of `<name>.glb` in the working folder.
 register_command!(cr, fn attach(state, part: Value (node: local, ext: "glb")) -> result)?;
 register_command!(cr, fn locate(dir: Key (node: local, ext: "glb", form: key)) -> result)?;
+register_command!(cr, fn describe(part: Value (node: local, ext: "glb", form: recipe)) -> result)?;
 ```
 
 A query then names the node by its file name without the extension: `attach-wheel` means
 `attach-~X~-R/./wheel.glb~E`, and the result of `wheel.glb` becomes a dependency, as with any
-link. With `form: key` the command receives the key instead of the value. A bare name needs a
+link. With `form: key` the command receives the key instead of the value, and with `form: recipe` the
+node's recipe (`-R-recipe/./wheel.glb`), or nothing when the node has no recipe. A bare name needs a
 working directory, which a recipe has (its folder) and an ad-hoc query sets with `-R-cwd/…`
 (section 5.5); without one the query fails, naming the argument and the node. A link can always be
 given instead of a name. User interfaces show such an argument as a list of the folder's nodes.

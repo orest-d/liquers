@@ -15,7 +15,8 @@
 //!   caching and payload settings ([`PayloadRequirement`]).
 //! - [`ArgumentInfo`] and [`ArgumentType`]: one argument and how its text is converted; an
 //!   [`EnumArgument`] restricts it to named alternatives, and a [`NodeArgument`]
-//!   (`ArgumentType::Node`) makes it name a file of the working folder, a recipe-tree node.
+//!   (`ArgumentType::Node`) makes it name a file of the working folder, a recipe-tree node; its
+//!   [`NodeLinkForm`] passes the node's value (`-R/`), key (`-R-key/`) or recipe (`-R-recipe/`).
 //! - [`VariadicShape`] (`ArgumentInfo::shape`): how the parameters of a variadic (`multiple`)
 //!   argument form its value — a plain list, tuples, a dictionary or a JSON value — with
 //!   `ArgumentInfo::columns` naming a tuple's components.
@@ -352,7 +353,7 @@ pub enum NodeKind {
     Local,
 }
 
-/// How a node name becomes a link: the node's value, or its key.
+/// How a node name becomes a link: the node's value, its key, or its recipe.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum NodeLinkForm {
@@ -361,6 +362,9 @@ pub enum NodeLinkForm {
     Resource,
     /// `-R-key/./<name>.<ext>`: the command receives the node's key.
     Key,
+    /// `-R-recipe/./<name>.<ext>`: the command receives the node's recipe (`Value::Recipe`), or
+    /// the none value when the node has no recipe.
+    Recipe,
 }
 
 /// The declaration of a Node argument: its kind, the extension of the files it names and the
@@ -396,7 +400,8 @@ impl NodeArgument {
         format!("{}.{}", name, self.extension)
     }
 
-    /// The link `name` becomes: `-R/./<name>.<ext>` or `-R-key/./<name>.<ext>`.
+    /// The link `name` becomes: `-R/./<name>.<ext>`, `-R-key/./<name>.<ext>` or
+    /// `-R-recipe/./<name>.<ext>`.
     ///
     /// Refuses a name that is not a single resource name (a `/`, an empty name, …).
     pub fn link(&self, name: &str) -> Result<crate::query::Query, Error> {
@@ -407,6 +412,7 @@ impl NodeArgument {
         let text = match self.form {
             NodeLinkForm::Resource => format!("-R/./{filename}"),
             NodeLinkForm::Key => format!("-R-key/./{filename}"),
+            NodeLinkForm::Recipe => format!("-R-recipe/./{filename}"),
         };
         crate::parse::parse_query(&text)
     }
@@ -417,6 +423,7 @@ impl NodeArgument {
         let prefix = match self.form {
             NodeLinkForm::Resource => "-R/./",
             NodeLinkForm::Key => "-R-key/./",
+            NodeLinkForm::Recipe => "-R-recipe/./",
         };
         let filename = text.strip_prefix(prefix)?;
         let name = filename.strip_suffix(&format!(".{}", self.extension))?;
@@ -3034,6 +3041,36 @@ mod tests {
         assert_eq!(r.name_of(&k.link("w").expect("link")), None);
         let other = crate::parse::parse_query("-R/data/w.glb").expect("parse");
         assert_eq!(r.name_of(&other), None);
+    }
+
+    /// node-argument-recipe-form AC-2: the recipe form round-trips through serde.
+    #[test]
+    fn node_argument_serde_round_trip_recipe() {
+        let t = ArgumentType::Node(NodeArgument::new("glb").with_form(NodeLinkForm::Recipe));
+        let json = serde_json::to_value(&t).expect("serialize");
+        assert_eq!(
+            json,
+            serde_json::json!({"node": {"kind": "local", "extension": "glb", "form": "recipe"}})
+        );
+        let back: ArgumentType = serde_json::from_value(json).expect("deserialize");
+        assert_eq!(back, t);
+        let yaml = serde_yaml::to_string(&t).expect("serialize yaml");
+        let back: ArgumentType = serde_yaml::from_str(&yaml).expect("deserialize yaml");
+        assert_eq!(back, t);
+    }
+
+    /// node-argument-recipe-form AC-1, AC-4: the recipe link, and `name_of` inverts only it.
+    #[test]
+    fn node_link_builds_recipe_form() {
+        let c = NodeArgument::new("glb").with_form(NodeLinkForm::Recipe);
+        let r = NodeArgument::new("glb");
+        let k = NodeArgument::new("glb").with_form(NodeLinkForm::Key);
+        assert_eq!(c.link("w").expect("link").encode(), "-R-recipe/./w.glb");
+        assert_eq!(c.name_of(&c.link("w").expect("link")).as_deref(), Some("w"));
+        assert_eq!(c.name_of(&r.link("w").expect("link")), None);
+        assert_eq!(c.name_of(&k.link("w").expect("link")), None);
+        assert_eq!(r.name_of(&c.link("w").expect("link")), None);
+        assert!(c.link("a/b").is_err());
     }
 
     /// recipe-tree AC-17: a node name is one resource name.

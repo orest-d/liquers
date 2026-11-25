@@ -4,8 +4,8 @@ kind: design
 title: A Node argument can pass a node's recipe (form recipe)
 form: compact
 workflow: liquers-project
-status: approved
-phase: implementation
+gh_pr: [290]
+phase: documentation
 readiness: ready
 autofix: not-eligible
 area: [core/commands, macro, core/assets]
@@ -205,11 +205,11 @@ cargo test -p liquers-macro --lib node_argument
 
 ### Steps
 
-- [ ] 1. `command_metadata.rs` `NodeLinkForm::Recipe`, `link`, `name_of`, module doc, two unit tests — `cargo test -p liquers-core --lib node_`
-- [ ] 2. `registration.rs` `NodeFormSpec::Recipe`, parse and type check, tests — `cargo test -p liquers-macro --lib node_argument`
-- [ ] 3. `recipe_tree.rs` `walk_parameter` `header_key()`, module doc, two unit tests — `cargo test -p liquers-core --lib recipe_tree`
-- [ ] 4. `tests/node_argument.rs` recipe-form evaluation and expiry tests — `cargo test -p liquers-core --test node_argument --test recipe_tree`
-- [ ] 5. Reference, guide and user-guide updates (History rows, `reviewed:`) — `cargo run -p liquers-docs -- check`, `python3 scripts/docs_index.py --check`
+- [x] 1. `command_metadata.rs` `NodeLinkForm::Recipe`, `link`, `name_of`, module doc, two unit tests — `cargo test -p liquers-core --lib node_`
+- [x] 2. `registration.rs` `NodeFormSpec::Recipe`, parse and type check, tests — `cargo test -p liquers-macro --lib node_argument`
+- [x] 3. `recipe_tree.rs` `walk_parameter` `header_key()`, module doc, two unit tests — `cargo test -p liquers-core --lib recipe_tree`
+- [x] 4. `tests/node_argument.rs` recipe-form evaluation and expiry tests — `cargo test -p liquers-core --test node_argument --test recipe_tree`
+- [x] 5. Reference, guide and user-guide updates (History rows, `reviewed:`) — `cargo run -p liquers-docs -- check`, `python3 scripts/docs_index.py --check`
 
 ### Validation
 
@@ -218,5 +218,32 @@ on `command_metadata.rs` and `recipe_tree.rs`, and `cargo test -p liquers-lib --
 (the editors use `name_of`). No `#[cfg]` changes, so the build matrix is not needed.
 
 ## Phase 5: Documentation
-<Added after implementation, only for `workflow: liquers-project`: what was built versus approved,
-documents and module docs reviewed, issues closed and filed.>
+
+**Built versus approved.** As approved, in PR #290. One test-only deviation: the AC-7 test builds
+one environment per manager kind with a small `macro_rules!`, because `register_command!` names
+the `CommandEnvironment` type of its scope and cannot take a generic manager parameter.
+
+**Code and module docs.** `command_metadata.rs` (`NodeLinkForm::Recipe`, `link`, `name_of`; the
+module doc names the three forms), `liquers-macro/src/registration.rs` (`form: recipe`, `Value`
+only), `recipe_tree.rs` (`walk_parameter` uses `header_key`; the module doc says a Node name of
+every form is an edge). `check_api_docs.py` on both core modules: 0 warnings.
+
+**Tests.** `node_argument_serde_round_trip_recipe`, `node_link_builds_recipe_form`,
+`test_parse_node_argument`, `test_node_argument_errors`, `key_and_recipe_node_names_are_edges`,
+`rename_rewrites_recipe_form_node_name`, `recipe_form_name_gives_the_recipe` and
+`recipe_form_result_expires_when_the_recipe_changes_{queued,inline}` cover AC-1 to AC-8.
+`cargo test -p liquers-core -p liquers-macro` and `cargo test -p liquers-lib --lib --tests` pass.
+
+**Documents reviewed and updated.** `specs/reference/RECIPE_TREES.md` §Node arguments,
+`specs/reference/REGISTER_COMMAND_FSD.md` §Parameter Metadata, `specs/guides/COMMAND_REGISTRATION_GUIDE.md`
+§1 (History rows added) and `docs/guides/rust/05-commands.md` (Nodes). `specs/command_registry.yaml`
+is unchanged: no registered command has a Node argument.
+
+**Language integration.** Held as decided: Python and JavaScript not needed; the serialized
+argument type carries `"form": "recipe"` with no binding change.
+
+**Issues.** `NODE-ARGUMENT-CANNOT-PASS-A-RECIPE` closed. The key-form edge gap found in Phase 1
+was fixed here (scope change), so nothing was filed.
+
+**Learning.** `Query::key()` is `None` for any non-trivial header; code that wants the key a
+resource query names, whatever it does with it, needs `header_key()`.

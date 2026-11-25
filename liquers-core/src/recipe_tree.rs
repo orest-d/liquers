@@ -24,7 +24,8 @@
 //!   delete, move a reference, declare a source — and saves them through the asset manager.
 //!
 //! A node's name is its filename without the extension (`wheel` for `wheel.glb`): the name a
-//! Node argument (`ArgumentType::Node`) is given in a query, `attach-wheel`.
+//! Node argument (`ArgumentType::Node`) is given in a query, `attach-wheel`. A Node name is an
+//! edge whatever its link form passes — the node's value, key or recipe.
 //!
 //! # Where it is used
 //!
@@ -542,7 +543,9 @@ fn walk_parameter(
 ) {
     match parameter {
         ParameterValue::NodeLink(arg, _, query, _) => {
-            if let Some(key) = query.key() {
+            // `header_key`, not `key`: a key- or recipe-form link (`-R-key/./x`,
+            // `-R-recipe/./x`) has a non-trivial header and still names the node.
+            if let Some(key) = query.header_key() {
                 walk.refs.push(PlanRef {
                     to: key,
                     kind: RefKind::NodeArg {
@@ -1938,6 +1941,17 @@ mod tests {
         );
         with_dir.with_argument(dir);
         cmr.add_command(&with_dir);
+        for (name, form) in [
+            ("locate", crate::command_metadata::NodeLinkForm::Key),
+            ("describe", crate::command_metadata::NodeLinkForm::Recipe),
+        ] {
+            let mut command =
+                crate::command_metadata::CommandMetadata::from_key(CommandKey::new_name(name));
+            let mut part = ArgumentInfo::any_argument("part");
+            part.argument_type = ArgumentType::Node(NodeArgument::new("glb").with_form(form));
+            command.with_argument(part);
+            cmr.add_command(&command);
+        }
         let mut any = crate::command_metadata::CommandMetadata::from_key(CommandKey::new_name("any"));
         any.with_argument(ArgumentInfo::any_argument("x"));
         cmr.add_command(&any);
@@ -1970,6 +1984,59 @@ recipes:
 
     fn has<F: Fn(&TreeFinding) -> bool>(findings: &[TreeFinding], f: F) -> bool {
         findings.iter().any(f)
+    }
+
+    /// node-argument-recipe-form AC-5: key- and recipe-form Node names are edges, so a name of a
+    /// missing file is dangling and an existing one is a `NodeArg` edge.
+    #[test]
+    fn key_and_recipe_node_names_are_edges() {
+        let cmr = cmr();
+        let strict = list(
+            "tree: {dependencies: strict}\nrecipes:\n  - {query: body.glb}\n  - {query: \"-R/./body.glb/-/locate-gone/x.glb\"}\n  - {query: \"-R/./body.glb/-/describe-lost/y.glb\"}\n",
+        );
+        let report = check_tree(&strict, Some(&listing()), &cmr);
+        for (node, key) in [("x.glb", "./gone.glb"), ("y.glb", "./lost.glb")] {
+            assert!(
+                has(&report.errors, |f| matches!(f,
+                    TreeFinding::Dangling { node: n, key: k } if n == node && k == key)),
+                "{node}: {:?}",
+                report.errors
+            );
+        }
+        let graph = TreeGraph::build(
+            &list("recipes:\n  - {query: body.glb}\n  - {query: \"-R/./body.glb/-/locate-body/describe-body/x.glb\"}\n"),
+            Some(&listing()),
+            &cmr,
+        )
+        .expect("graph");
+        let node_args: Vec<&TreeEdge> = graph
+            .edges
+            .iter()
+            .filter(|e| e.from == "x.glb" && matches!(e.kind, RefKind::NodeArg { .. }))
+            .collect();
+        assert_eq!(node_args.len(), 2, "{:?}", graph.edges);
+        assert!(node_args.iter().all(|e| e.to == "./body.glb"));
+    }
+
+    /// node-argument-recipe-form AC-6: a rename rewrites a recipe-form Node name.
+    #[test]
+    fn rename_rewrites_recipe_form_node_name() {
+        let recipes = list(
+            "recipes:\n  - {query: wheel.glb}\n  - {query: \"-R/./wheel.glb/-/describe-wheel/d.glb\"}\n",
+        );
+        let listing = vec!["wheel.glb".to_owned(), "recipes.yaml".to_owned()];
+        let mut editor =
+            TreeEditor::new(recipes, Some(listing), std::sync::Arc::new(cmr())).expect("editor");
+        editor.rename("wheel", "rim").expect("rename");
+        assert!(
+            editor
+                .recipes()
+                .recipes
+                .iter()
+                .any(|r| r.query == "-R/./rim.glb/-/describe-rim/d.glb"),
+            "{:?}",
+            editor.recipes().recipes
+        );
     }
 
     /// AC-1, AC-27: resource segments and Node names are edges; sources are nodes with titles.
