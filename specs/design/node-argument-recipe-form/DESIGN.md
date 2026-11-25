@@ -4,13 +4,18 @@ kind: design
 title: A Node argument can pass a node's recipe (form recipe)
 form: compact
 workflow: liquers-project
-status: in_review
-phase: high-level
+status: approved
+phase: implementation
+readiness: ready
+autofix: not-eligible
 area: [core/commands, macro, core/assets]
 issues: [NODE-ARGUMENT-CANNOT-PASS-A-RECIPE]
 created: 2026-11-25
 ---
 # A Node argument can pass a node's recipe (form recipe)
+
+Pre-approved after Phase 1 on 2026-11-25 (`proceed all`); the three open questions take their
+recommended answers (decisions 1–3 below).
 
 ## Phase 1: High-Level Design
 
@@ -102,7 +107,10 @@ recipe trees as a whole are absent from both bindings (`RECIPE-TREES-NOT-IN-LANG
 - requires: `recipe-tree` (complete), `recipe-dependency-versions` (complete, gives AC-7).
 - overlaps: `RECIPE-TREES-NOT-IN-LANGUAGE-BINDINGS` (weak: same area, independent change).
 
-### Open Questions
+### Design Readiness
+
+Ready. Decisions, accepted with the pre-approval on 2026-11-25:
+
 
 1. **Argument type.** Recommended: `form: recipe` accepts only `Value` (it receives
    `Value::Recipe` or none). A typed `recipe: Recipe` argument would need a `FromParameterValue`
@@ -114,26 +122,100 @@ recipe trees as a whole are absent from both bindings (`RECIPE-TREES-NOT-IN-LANG
 3. **Default widget.** Recommended: keep `NodeSelector` for all three forms.
 
 ## Phase 2: Architecture
+
 ### Solution
-<Chosen approach; rejected alternatives in one line each; known issues that block or must go first.>
+
+Add a variant `NodeLinkForm::Recipe` and let every place that matches on the form handle it. The
+link is the existing `-R-recipe/` header, so planning (`ParameterValue::NodeLink`), evaluation
+(`Step::GetAssetRecipe`, cwd-resolved), dependency recording (`-R-recipe/<key>`, versioned) and the
+editors (`name_of`) need no new mechanism. In `recipe_tree.rs` `walk_parameter`, a `NodeLink`
+takes its target from `Query::header_key()` instead of `Query::key()`, which gives key- and
+recipe-form names an edge (AC-5); all edges count for cycles (decision 2).
+
+Rejected: a separate `ArgumentType` for recipe arguments (duplicates the Node machinery); a typed
+`Recipe` argument (decision 1, needs `FromParameterValue` for `Recipe`); excluding non-resource
+edges from the cycle check (decision 2).
+
+Known-issue preflight: `RECIPE-OVERRIDES-MISS-A-FINAL-PIPELINE-COMMAND` and
+`RECIPE-TREES-NOT-IN-LANGUAGE-BINDINGS` touch the same area and neither blocks. No open issue
+names `NodeLinkForm`. Command namespaces involved: none (no command is registered by this design).
+
 ### Changes
-<Files and symbols; new or changed signatures only; errors; sync/async; commands; documents and
-the module docs that change.>
+
+- `liquers-core/src/command_metadata.rs`: `NodeLinkForm::Recipe` (serde `recipe`, doc
+  `-R-recipe/./<name>.<ext>`); `NodeArgument::link` and `name_of` gain the `-R-recipe/./` arm.
+  Module doc: names the three forms.
+- `liquers-macro/src/registration.rs`: `NodeFormSpec::Recipe`; `form: recipe` parses, emits
+  `NodeLinkForm::Recipe`, and requires the argument type `Value` (error: "a Node argument with
+  `form: recipe` must be a `Value`"); the unknown-form error lists the three forms.
+- `liquers-core/src/recipe_tree.rs` `walk_parameter`: `NodeLink` uses `header_key()`. Module doc:
+  Node names of every form are edges.
+- No change to `plan.rs`, `interpreter.rs`, the editors, `liquers-py` or `liquers-web`; no error
+  type is added. Everything stays sync except the existing async evaluation.
+- Docs: `specs/reference/RECIPE_TREES.md` §Node arguments, `specs/reference/REGISTER_COMMAND_FSD.md`
+  (the `form:` row), `specs/guides/COMMAND_REGISTRATION_GUIDE.md` §1, `docs/guides/rust/05-commands.md`
+  (Nodes). `specs/command_registry.yaml` is unchanged: no registered command uses a Node argument.
+
 ### Risks
-<Files, tests likely to change, compatibility, recovery, certainty, in a few lines.>
+
+Small. A serialized `ArgumentType` with `form: recipe` cannot be read by an older build (no
+compatibility is required). A folder with a key-form Node name to a missing file now fails the
+check (AC-5); that was the bug. Recovery: revert the commit.
 
 ## Phase 3: Examples and Tests
+
 ### Examples
+
+```rust
+fn describe(part: Value) -> Result<Value, Error> {
+    match part {
+        Value::Recipe(r) => Ok(Value::from(r.title.clone())),
+        other if other.is_none() => Ok(Value::from("none")),
+        _ => Err(Error::general_error("not a recipe".to_owned())),
+    }
+}
+register_command!(cr, fn describe(part: Value (node: local, ext: "glb", form: recipe)) -> result)?;
+```
+
+With `scenes/car/recipes.yaml` declaring `{query: make_part/wheel.glb, title: Wheel}`,
+`-R-cwd/scenes/car/-/describe-wheel` gives `Wheel`, the same as
+`-R-cwd/scenes/car/-/describe-~X~-R-recipe/./wheel.glb~E`; for the stored-only `body.glb` it gives
+`none`. Edge case: `describe-a/b` fails as today (`invalid_token`, not one resource name).
+
 ### Tests
-<Exact test names, each citing the scenarios it proves (AC-1, …); the command to run them.>
+
+- `liquers-core/src/command_metadata.rs`: `node_argument_serde_round_trip_recipe` (AC-2);
+  `node_link_builds_recipe_form` — `-R-recipe/./w.glb`, `name_of` inverts it and refuses the other
+  forms' links (AC-1, AC-4).
+- `liquers-macro/src/registration.rs`: `test_parse_node_argument` gains the recipe form;
+  `test_node_argument_errors` gains `part: Key (… form: recipe)` and `form: other` (AC-3).
+- `liquers-core/src/recipe_tree.rs`: `key_and_recipe_node_names_are_edges` — a strict folder with
+  `locate-gone` and `describe-gone` reports two `Dangling` findings, and existing names give
+  `NodeArg` edges (AC-5); `rename_rewrites_recipe_form_node_name` (AC-6).
+- `liquers-core/tests/node_argument.rs`: `recipe_form_name_gives_the_recipe` (AC-1, AC-8);
+  `recipe_form_result_expires_when_the_recipe_changes`, on both managers (AC-7).
+
+```bash
+cargo test -p liquers-core --lib node_ recipe_form key_and_recipe
+cargo test -p liquers-core --test node_argument
+cargo test -p liquers-macro --lib node_argument
+```
 
 ## Phase 4: Implementation Plan
+
 ### Steps
-<A checklist, one item per step: `- [ ] 1. <file and symbol> — <change> — <proof command>`.
-Tick each step when its proof passes and append the commit.>
+
+- [ ] 1. `command_metadata.rs` `NodeLinkForm::Recipe`, `link`, `name_of`, module doc, two unit tests — `cargo test -p liquers-core --lib node_`
+- [ ] 2. `registration.rs` `NodeFormSpec::Recipe`, parse and type check, tests — `cargo test -p liquers-macro --lib node_argument`
+- [ ] 3. `recipe_tree.rs` `walk_parameter` `header_key()`, module doc, two unit tests — `cargo test -p liquers-core --lib recipe_tree`
+- [ ] 4. `tests/node_argument.rs` recipe-form evaluation and expiry tests — `cargo test -p liquers-core --test node_argument --test recipe_tree`
+- [ ] 5. Reference, guide and user-guide updates (History rows, `reviewed:`) — `cargo run -p liquers-docs -- check`, `python3 scripts/docs_index.py --check`
+
 ### Validation
-<Final checks, `check_api_docs.py` on the touched files among them; documents and generated files
-to update.>
+
+`cargo test -p liquers-core`, `cargo test -p liquers-macro`, `python3 scripts/check_api_docs.py`
+on `command_metadata.rs` and `recipe_tree.rs`, and `cargo test -p liquers-lib --lib --tests`
+(the editors use `name_of`). No `#[cfg]` changes, so the build matrix is not needed.
 
 ## Phase 5: Documentation
 <Added after implementation, only for `workflow: liquers-project`: what was built versus approved,
