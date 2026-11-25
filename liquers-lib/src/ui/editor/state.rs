@@ -294,12 +294,14 @@ fn item_literal(info: &ArgumentInfo, at: usize, text: &str) -> Json {
     literal(&item, text)
 }
 
-/// The number of items in one row of a shaped argument; only tuples and dictionaries have rows.
+/// The number of items in one row of a shaped argument. Tuples and dictionaries have rows; a
+/// JSON value has them in its dictionary form, which is what a row command on it means.
 fn row_arity(info: &ArgumentInfo) -> Result<usize, Error> {
     match &info.shape {
         VariadicShape::Tuples(_) | VariadicShape::Map => Ok(info.shape.arity()),
-        VariadicShape::List | VariadicShape::Json => Err(Error::general_error(format!(
-            "Argument '{}' has no rows: it is not a list of tuples or a dictionary",
+        VariadicShape::Json => Ok(2),
+        VariadicShape::List => Err(Error::general_error(format!(
+            "Argument '{}' has no rows: it is a plain list",
             info.name
         ))),
     }
@@ -793,7 +795,7 @@ impl EditorState {
                             texts.len()
                         )));
                     }
-                    if info.shape == VariadicShape::Map {
+                    if info.shape == VariadicShape::Map || info.shape == VariadicShape::Json {
                         let key = texts.first().map(String::as_str).unwrap_or_default();
                         if key.is_empty() {
                             return Err(Error::general_error(format!(

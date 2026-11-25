@@ -54,12 +54,12 @@
 
 use egui::text::{CCursor, CCursorRange};
 use egui::{Color32, Id, RichText, Sense, Stroke};
-use liquers_core::command_metadata::ArgumentGUIInfo;
+use liquers_core::command_metadata::{ArgumentGUIInfo, VariadicShape};
 
 use crate::egui::theme::{color, draw_icon, spacing_style};
 use crate::ui::editor::{
     editor_keymap, editor_layout, field_id, form_rows, header_parts, shortcut_text, toolbar_items,
-    CardMenu, EditorCommand, EditorField, EditorKey, EditorMode, EditorNode, EditorTree, EditorView, FieldValue,
+    CardMenu, EditorCommand, EditorField, EditorKey, EditorMode, EditorNode, EditorTree, EditorView, FieldValue, JsonForm,
     FocusTarget, HeaderPart, KeyScope, NewElement, NodePath, StepChip, ToolItem, UpdateMode, RESOURCE_HEADERS,
 };
 use crate::ui::theme::{Density, Palette, Spacing, ThemeState};
@@ -1059,6 +1059,17 @@ fn node_menu(ui: &mut egui::Ui, path: &NodePath, out: &mut Vec<EditorCommand>) {
 }
 
 fn items_ui(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, path: &NodePath, field: &EditorField, items: &[FieldValue]) {
+    // A shaped argument draws its elements: rows of tuples, the pairs of a dictionary, a JSON
+    // value. Items that are not all literals (a link among them) fall back to the flat list,
+    // which still edits them correctly one by one.
+    let literal = items.iter().all(|item| matches!(item, FieldValue::Text(_)));
+    match &field.shape {
+        VariadicShape::Tuples(_) | VariadicShape::Map if literal && items.len() % field.components.len().max(1) == 0 => {
+            return rows_ui(ui, cx, view, path, field, items);
+        }
+        VariadicShape::Json if literal => return json_value_ui(ui, cx, view, path, field),
+        VariadicShape::List | VariadicShape::Tuples(_) | VariadicShape::Map | VariadicShape::Json => {}
+    }
     ui.horizontal_wrapped(|ui| {
         let mut moved: Option<(usize, usize)> = None;
         for (k, item) in items.iter().enumerate() {
@@ -1114,6 +1125,189 @@ fn items_ui(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, path: &NodePa
                 at: items.len(),
                 text: std::mem::take(buffer),
             });
+        }
+    });
+}
+
+/// One cell of a shaped argument: item `k`, drawn with the widget of `component`.
+fn cell_ui(
+    ui: &mut egui::Ui,
+    cx: &mut Cx,
+    view: &mut EditorView,
+    path: &NodePath,
+    field: &EditorField,
+    component: Option<usize>,
+    k: usize,
+    text: &str,
+) {
+    let mut cell = field.clone();
+    cell.default_text = None;
+    cell.widget = component
+        .and_then(|c| field.components.get(c))
+        .map(|c| c.widget.clone())
+        .unwrap_or_else(|| liquers_core::command_metadata::DEFAULT_GUI.clone());
+    let target = FocusTarget::Field { path: path.clone(), arg: field.name.clone(), item: Some(k) };
+    let (response, command) = widget(ui, cx.base, path, &cell, text, Some(k), view);
+    if let Some(command) = command {
+        cx.out.push(command);
+        view.last_field = Some(field_id(path, &field.name, Some(k)));
+    }
+    if let Some(r) = response {
+        cx.ours.push(r.id);
+        if r.gained_focus() {
+            view.focus = Some(target.clone());
+        }
+        if view.focus.as_ref() == Some(&target) && view.focus_pending {
+            r.request_focus();
+            view.focus_pending = false;
+        }
+    }
+}
+
+/// A text box of the "add" form of a shaped argument; returns its current text.
+fn new_cell_ui(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, id: &str, hint: &str) -> String {
+    let buffer = view.buffer(id, "");
+    let response = ui.add(egui::TextEdit::singleline(buffer).desired_width(70.0).hint_text(hint));
+    let text = buffer.clone();
+    cx.ours.push(response.id);
+    text
+}
+
+/// The elements of a list of tuples or of a dictionary, one per row (design
+/// `composite-variadic-arguments`, AC-13): every edit of the structure is a whole row. A
+/// dictionary's key is fixed once written; a pair is added with key and value together.
+fn rows_ui(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, path: &NodePath, field: &EditorField, items: &[FieldValue]) {
+    let arity = field.components.len().max(1);
+    let is_map = field.shape == VariadicShape::Map;
+    let texts: Vec<String> = field.item_texts().into_iter().flatten().collect();
+    let rows = items.len() / arity;
+    let base = field_id(path, &field.name, None);
+    ui.vertical(|ui| {
+        egui::Grid::new(cx.base.with(("rows", path.id(), &field.name))).num_columns(arity + 1).show(ui, |ui| {
+            for component in &field.components {
+                ui.label(RichText::new(&component.label).small()).on_hover_text(&component.type_name);
+            }
+            ui.end_row();
+            for r in 0..rows {
+                for c in 0..arity {
+                    let k = r * arity + c;
+                    let text = texts.get(k).map(String::as_str).unwrap_or_default();
+                    if is_map && c == 0 {
+                        ui.label(RichText::new(text).monospace());
+                    } else {
+                        cell_ui(ui, cx, view, path, field, Some(c), k, text);
+                    }
+                }
+                ui.horizontal(|ui| {
+                    if !is_map && r > 0 && ui.small_button(ph("arrow-up", "^")).clicked() {
+                        cx.out.push(EditorCommand::MoveRow { path: path.clone(), arg: field.name.clone(), from: r, to: r - 1 });
+                    }
+                    if !is_map && r + 1 < rows && ui.small_button(ph("arrow-down", "v")).clicked() {
+                        cx.out.push(EditorCommand::MoveRow { path: path.clone(), arg: field.name.clone(), from: r, to: r + 1 });
+                    }
+                    if ui.small_button(ph("x", "x")).clicked() {
+                        cx.out.push(EditorCommand::RemoveRow { path: path.clone(), arg: field.name.clone(), at: r });
+                    }
+                });
+                ui.end_row();
+            }
+            // The add form: every component of the new element, then one button.
+            let mut new_texts = Vec::with_capacity(arity);
+            for (c, component) in field.components.iter().enumerate() {
+                new_texts.push(new_cell_ui(ui, cx, view, &format!("{base}:new:{c}"), &component.label));
+            }
+            let key = new_texts.first().cloned().unwrap_or_default();
+            let duplicate = is_map && texts.iter().step_by(2).any(|k| *k == key);
+            let ready = if is_map { !key.is_empty() && !duplicate } else { new_texts.iter().any(|t| !t.is_empty()) };
+            let add = ui.add_enabled(ready, egui::Button::new(ph("plus", "+")).small());
+            if duplicate {
+                add.clone().on_disabled_hover_text(format!("The key '{key}' is already there"));
+            }
+            if add.clicked() {
+                for c in 0..arity {
+                    view.buffer(&format!("{base}:new:{c}"), "").clear();
+                }
+                cx.out.push(EditorCommand::InsertRow { path: path.clone(), arg: field.name.clone(), at: rows, texts: new_texts });
+            }
+            ui.end_row();
+        });
+    });
+}
+
+/// A JSON value argument: a choice of its form (none, value, list, dictionary), then the editor
+/// of that form. The form is read from the items, and changing it rewrites them at once; the
+/// leading empty item that marks a list is written here, never shown.
+fn json_value_ui(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, path: &NodePath, field: &EditorField) {
+    let texts: Vec<String> = field.item_texts().into_iter().flatten().collect();
+    let form = JsonForm::of(&texts);
+    let base = field_id(path, &field.name, None);
+    let set = |texts: Vec<String>| EditorCommand::SetItems { path: path.clone(), arg: field.name.clone(), texts };
+    ui.vertical(|ui| {
+        let mut chosen = form;
+        egui::ComboBox::from_id_salt(cx.base.with(("json-form", path.id(), &field.name)))
+            .selected_text(form.label())
+            .show_ui(ui, |ui| {
+                for option in JsonForm::ALL {
+                    ui.selectable_value(&mut chosen, option, option.label());
+                }
+            });
+        if chosen != form {
+            cx.out.push(set(chosen.convert(&texts)));
+            return;
+        }
+        match form {
+            JsonForm::Null => {}
+            JsonForm::Scalar => {
+                cell_ui(ui, cx, view, path, field, None, 0, texts.first().map(String::as_str).unwrap_or_default());
+            }
+            JsonForm::List => {
+                ui.horizontal_wrapped(|ui| {
+                    for k in 1..texts.len() {
+                        cell_ui(ui, cx, view, path, field, None, k, &texts[k]);
+                        if ui.small_button(ph("x", "x")).clicked() {
+                            let mut rest = texts.clone();
+                            rest.remove(k);
+                            cx.out.push(set(rest));
+                        }
+                    }
+                    let id = format!("{base}:new");
+                    let text = new_cell_ui(ui, cx, view, &id, "+");
+                    if !text.is_empty() && ui.small_button(ph("plus", "+")).clicked() {
+                        view.buffer(&id, "").clear();
+                        let mut more = texts.clone();
+                        more.push(text);
+                        cx.out.push(set(more));
+                    }
+                });
+            }
+            JsonForm::Dictionary => {
+                egui::Grid::new(cx.base.with(("json-pairs", path.id(), &field.name))).num_columns(3).show(ui, |ui| {
+                    for r in 0..texts.len() / 2 {
+                        ui.label(RichText::new(&texts[2 * r]).monospace());
+                        cell_ui(ui, cx, view, path, field, None, 2 * r + 1, &texts[2 * r + 1]);
+                        if ui.small_button(ph("x", "x")).clicked() {
+                            let mut rest = texts.clone();
+                            rest.drain(2 * r..2 * r + 2);
+                            // Removing the last pair leaves no items: the value is none.
+                            cx.out.push(set(rest));
+                        }
+                        ui.end_row();
+                    }
+                    let key = new_cell_ui(ui, cx, view, &format!("{base}:new:0"), "key");
+                    let value = new_cell_ui(ui, cx, view, &format!("{base}:new:1"), "value");
+                    let duplicate = texts.iter().step_by(2).any(|k| *k == key);
+                    let add = ui.add_enabled(!key.is_empty() && !duplicate, egui::Button::new(ph("plus", "+")).small());
+                    if add.clicked() {
+                        view.buffer(&format!("{base}:new:0"), "").clear();
+                        view.buffer(&format!("{base}:new:1"), "").clear();
+                        let mut more = texts.clone();
+                        more.push(key);
+                        more.push(value);
+                        cx.out.push(set(more));
+                    }
+                    ui.end_row();
+                });
+            }
         }
     });
 }
