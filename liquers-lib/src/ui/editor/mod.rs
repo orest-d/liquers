@@ -94,10 +94,10 @@ pub use layout::{
 };
 pub use state::{EditorKind, EditorState, UpdateMode};
 pub use tree::{
-    default_text, effective_gui, is_numeric, json_text, scale_numeric, Browser, CatalogCommand,
-    CatalogNamespace, Confirmation, DirectoryEntry, DirectoryListing, EditorField, EditorNode,
-    EditorTree, FieldValue, NodeContext, NodePath, PathStep, Picker, PresetEntry, SpanTarget, TextSpan,
-    RESOURCE_HEADERS,
+    default_text, effective_gui, is_numeric, item_type, json_text, scale_numeric, shape_components,
+    Browser, CatalogCommand, CatalogNamespace, ComponentField, Confirmation, DirectoryEntry,
+    DirectoryListing, EditorField, EditorNode, EditorTree, FieldValue, JsonForm, NodeContext,
+    NodePath, PathStep, Picker, PresetEntry, SpanTarget, TextSpan, RESOURCE_HEADERS,
 };
 pub use view::{event_name, field_id, find_node, open_card, CardMenu, EditorView, FocusTarget};
 
