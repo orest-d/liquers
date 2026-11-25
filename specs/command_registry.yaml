@@ -66,6 +66,8 @@
 #             action/resource/key editors immediate|on_demand, query_editor preview default).
 # 2026-11-24  recipes-editor: acc/recipe_file (the recipe of a list by filename), lui/recipes_editor
 #             and lui/recipe_editor (recipe editor elements).
+# 2026-11-25  composite-variadic-arguments: impl_version of commands_doc only (its Multiplicity
+#             column names the shape of a variadic argument). No signature changed.
 # CHANGELOG-END
 commands:
 - realm: store_config
@@ -456,7 +458,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 86d440cffc3753f77b38bcf9c51f6182
+  impl_version: e52bb48b2832bfeabd2e532556883766
 - namespace: dep
   name: command_metadata
   label: Command Metadata

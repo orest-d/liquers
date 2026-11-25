@@ -42,6 +42,16 @@ pub enum EditorCommand {
     InsertItem { path: NodePath, arg: String, at: usize, text: String },
     RemoveItem { path: NodePath, arg: String, at: usize },
     MoveItem { path: NodePath, arg: String, from: usize, to: usize },
+    /// A whole element of a shaped variadic argument (a tuple, or a key and value pair) before
+    /// row `at`: one text per component. A dictionary refuses a key it already has, so the
+    /// query never holds part of an element (design `composite-variadic-arguments`, AC-13).
+    InsertRow { path: NodePath, arg: String, at: usize, texts: Vec<String> },
+    /// Removes row `at`: every component of the element.
+    RemoveRow { path: NodePath, arg: String, at: usize },
+    /// Moves row `from` to position `to`.
+    MoveRow { path: NodePath, arg: String, from: usize, to: usize },
+    /// Replaces every item of a variadic argument: a JSON value changing its form.
+    SetItems { path: NodePath, arg: String, texts: Vec<String> },
     /// A new element before `path` (AC-6).
     Insert { path: NodePath, element: NewElement },
     /// A new element at the end of the top level (AC-6).

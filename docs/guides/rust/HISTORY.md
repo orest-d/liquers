@@ -59,3 +59,4 @@ have a row here (`specs/guides/USER_DOCS_EDITING_GUIDE.md`, maintenance).
 | 2026-11-24 | e-web-api.md | reviewed against `design/recipes-editor/`: still true, no change |
 | 2026-11-24 | 11-ui.md | reviewed against `design/query-update-modes/` Part A: the editors section gains "When edits take effect" (Apply immediately, On demand, ✓, Enter on valid text, Undo / Redo, the console's status line and dimming) |
 | 2026-11-24 | 11-ui.md | reviewed against `design/query-update-modes/` Part B: "When edits take effect" gains Live preview and the `mode` argument (`query_console-on_demand`) |
+| 2026-11-25 | 05-commands.md | §arguments: a `multiple` argument as tuples, a dictionary or a JSON value (`design/composite-variadic-arguments/`); prose and the types table, no new example |

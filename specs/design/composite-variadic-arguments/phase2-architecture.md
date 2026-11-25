@@ -1,117 +1,227 @@
 # Phase 2: Solution & Architecture — composite-variadic-arguments
 
+Rewritten on 2026-11-24 for the wider scope of Phase 1 and revised on 2026-11-25 after Orest's
+review. Written under the recommended answers to Phase 1's open questions.
+
 ## Overview
 
-Written under the recommended answers to Phase 1 questions 2-4. A variadic argument whose
-`argument_type` is `Tuple([T1, …, Tn])` consumes parameters exactly like a scalar variadic. The
-difference is that parameter *k* is parsed as `T(k mod n)`. The plan keeps a flat
-`MultipleParameters`. Retrieval groups the flat elements into `n`-tuples. The macro maps
-`Vec<(A, B, …)> multiple` to that type and to grouped retrieval.
+A variadic argument declares a **shape**: how its dash-separated parameters form one value. The
+shape is a field of the argument, valid only with `multiple`; it is not an argument type
+(Orest, 2026-11-25).
 
-Rejected: a query delimiter for elements (language change); nested `MultipleParameters` (illegal
-in three places today, and it would make every consumer handle depth); an `element_types` field
-(question 3); grouping only inside the command (today's workaround).
+| Shape | Declared as | The command receives |
+|---|---|---|
+| `list` (today, the default) | `Vec<T> multiple` | `Vec<T>` |
+| `tuples` | `Vec<(A, B)> multiple`, or `Vec<P> multiple` with `P: FromParameterGroup` | `Vec<(A, B)>`, `Vec<P>` |
+| `map` | `BTreeMap<String, V> multiple`, `serde_json::Map<String, Value> multiple` | a map with unique keys |
+| `json` | `serde_json::Value multiple` | null, a scalar, a list or an object |
+
+`argument_type` keeps its meaning: the type of one element (`list`) or of one value (`map`). A
+value of type `any` is a **JSON scalar**: a number when the text reads as one, otherwise a string.
+There are no booleans.
+
+The `json` shape is decided by the data (Orest's rules):
+
+| Parameters | Value |
+|---|---|
+| none | `null` |
+| one, not empty | a number or a string |
+| a sequence starting with an empty string | the rest, as a list; one empty string alone is the empty list |
+| any other sequence | key and value pairs: an object; keys are text, so `1-a` is `{"1": "a"}` |
+
+The query and the plan stay flat: the plan holds one `MultipleParameters` list, as today. The
+plan builder types the parameters and checks counts and duplicate literal keys, retrieval builds
+the value, and the argument editor draws the shape.
+
+Rejected: a delimiter between elements in the query (a language change); nested
+`MultipleParameters` (illegal in three places today); new `ArgumentType` variants for shapes (a
+shape is only valid on a variadic argument); a separate `Scalar` type (the JSON scalar covers it);
+a `key=value` string convention (untyped, nothing for a GUI); and parser combinators as in the
+Python `liquer` (`ArgumentParser`, `+`, `is_argv`), which allow a composite at any position but
+keep the shape in code, where the plan, the registry and a GUI cannot see it.
 
 ## Known-Issue Preflight
 
 | Issue | Status | Priority | Impact on this design | Fix first? | Blocking? | Action |
 |---|---|---|---|---|---|---|
 | `LINK-IN-VARIADIC-DOES-NOT-EXPAND` | draft | P3 | element count with links (AC-7) | Preferably | No | designed in `variadic-link-array-expansion` |
-| `UI-VARIADIC-ARGUMENT-LIST-EDITOR` | draft | P3 | consumer of the shape | No | No | none |
-| `REGISTRY-QUERY-DEFAULT-NOT-WRITABLE-AS-TEXT` | draft | P3 | same serialized registry, different field | No | No | none |
+| `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA` | draft | P3 | Python cannot declare a shape | No | No | the "later" decision of Phase 1 joins it |
+
+Namespaces involved: none changed here. The first adopter is `lui` (`add`, a new `layout`), in
+the UI redesign.
 
 ## Interfaces
 
 ```rust
 // liquers-core/src/command_metadata.rs
-pub enum ArgumentType {
-    /* existing variants */
-    /// Element type of a `multiple` argument: consecutive parameters form one element.
-    /// Components are scalar types (not Enum, GlobalEnum, Tuple, Any, None); 2..=4 of them.
-    /// Serialized like `Enum`: `{"Tuple": ["string", "int"]}`.
-    Tuple(Vec<ArgumentType>),
+/// How the parameters of a `multiple` argument form its value.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum VariadicShape {
+    /// One element per parameter, of `argument_type`.
+    #[default]
+    List,
+    /// Consecutive parameters form one element; 2..=4 scalar component types.
+    Tuples(Vec<ArgumentType>),
+    /// Key and value pairs with unique string keys; values are of `argument_type`.
+    Map,
+    /// A JSON value, its form decided by the parameters.
+    Json,
 }
-impl ArgumentType {
-    pub fn arity(&self) -> usize;          // Tuple(v) => v.len(), everything else => 1
+impl VariadicShape {
+    pub fn is_list(&self) -> bool;
+    /// Parameters per element: Tuples(v) => v.len(), Map => 2, List and Json => 1.
+    pub fn arity(&self) -> usize;
+}
+pub struct ArgumentInfo {
+    /* existing fields */
+    /// Only with `multiple`. Omitted when `List`, so existing registries are unchanged.
+    #[serde(default, skip_serializing_if = "VariadicShape::is_list")]
+    pub shape: VariadicShape,
+    /// Names of a tuple's components, for column headers. Empty or of length `shape.arity()`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub columns: Vec<String>,
 }
 
 // liquers-core/src/commands.rs
-/// A fixed-size group of consecutive parameters, converted component-wise.
+/// A fixed-size group of consecutive parameters, converted component-wise. Implemented for
+/// tuples of 2 to 4 components; a command author implements it for an own type (AC-12).
 pub trait FromParameterGroup: Sized {
     const ARITY: usize;
+    fn component_types() -> Vec<ArgumentType>;
     fn from_parameter_group(group: &[ParameterValue]) -> Result<Self, Error>;
 }
-// impls for (A, B), (A, B, C), (A, B, C, D) where each component: FromParameterValue<Self>
+/// A number when the text reads as one (integer, then float), otherwise a string.
+pub fn json_scalar(text: &str) -> serde_json::Value;
 
 impl<E: Environment> CommandArguments<E> {
-    /// Like `get_multiple`, grouping the elements by `T::ARITY`. A remainder is an error
-    /// naming the argument (the run-time arity check of AC-7).
     pub fn get_multiple_grouped<T: FromParameterGroup>(&self, i: usize, name: &str)
         -> Result<Vec<T>, Error>;
+    pub fn get_multiple_map<V: FromParameterValue<V>>(&self, i: usize, name: &str)
+        -> Result<BTreeMap<String, V>, Error>;
+    /// The five rules of the `json` shape.
+    pub fn get_multiple_json(&self, i: usize, name: &str) -> Result<serde_json::Value, Error>;
 }
+impl FromParameterValue<serde_json::Value> for serde_json::Value { /* json_scalar of a string */ }
 ```
 
-Macro DSL: no new statement. `pairs: Vec<(String, String)> multiple` is recognised by extending
-`variadic_element_type`'s caller. A `syn::Type::Tuple` element yields
-`ArgumentType::Tuple(vec![…component types…])` and the extractor
-`arguments.get_multiple_grouped(i, "pairs")?`. All sync.
+All synchronous. No new error type. A remainder or a duplicate key is an error naming the
+argument.
+
+**Registration macro.** No new statement; the argument's Rust type selects the shape, and one
+new per-argument key names a tuple's components:
+
+```rust
+register_command!(cr, fn rename_pairs(state,
+    pairs: Vec<(String, String)> multiple (label: "Renames", columns: ["Old name", "New name"])
+) -> result)?;
+register_command!(cr, fn add(state, position_word: String, reference_word: String,
+    layout: BTreeMap<String, serde_json::Value> multiple) -> result)?;
+register_command!(cr, fn set_data(state, data: serde_json::Value multiple) -> result)?;
+```
+
+| Declared type | `shape` | `argument_type` | Extractor |
+|---|---|---|---|
+| `Vec<(A, B, …)>` | `tuples` of the component types | `any` | `get_multiple_grouped` |
+| `Vec<P>`, `P` not a known scalar | `tuples` of `P::component_types()`, at registration | `any` | `get_multiple_grouped::<P>` |
+| `BTreeMap<String, V>` | `map` | from `V` (`String` → `string`, `serde_json::Value` → `any`) | `get_multiple_map` |
+| `serde_json::Map<String, serde_json::Value>` | `map` | `any` | `get_multiple_map`, collected |
+| `serde_json::Value` | `json` | `any` | `get_multiple_json` |
+
+Compile-time rejections: a tuple of fewer than 2 or more than 4 components; a `Vec`, `Option`
+or tuple as a component; a tuple, map, JSON or `FromParameterGroup` type without `multiple` (so
+no composite in a non-variadic position); a map whose key is not `String`; a default on a shaped
+argument; `columns:` on a shape other than tuples, or of the wrong length (checked at
+registration for a custom type, whose arity the macro cannot see).
 
 ## Integration Points
 
-- `liquers-core/src/plan.rs` `ParameterValue::pop_value`, multiple branch: build one element
-  `ArgumentInfo` per component (`argument_type = T_k`) and parse parameter *j* with component
-  `j % n`. After the loop, when every parameter was a string and `count % n != 0`, return
-  `Error::conversion_error_at_position`-style positioned error at the first parameter of the
-  incomplete group. `from_string` gets an explicit `Tuple` arm that errors (a tuple on a scalar
-  position cannot happen after `check`).
-- `liquers-core/src/command_metadata.rs` `ArgumentInfo::check`: `Tuple` requires `multiple` and
-  2-4 scalar components, else `Error`. `ArgumentType::is_option` gets an explicit `Tuple` arm.
-- `liquers-core/src/recipes.rs` override conversion: for a `Tuple` variadic, accept a flat array or
-  an array of arrays (each inner of length `n`), flatten one level, and convert entry *j* with
-  component `j % n`. `argument_type_name` gets a `tuple(string, int)` arm.
-- `liquers-core/src/command_declaration.rs`: the declared-type match accepts `{"Tuple": […]}`
-  (serde already does) and names it in messages.
-- `liquers-core/src/interpreter.rs`: no change. Expansion (other design) happens before grouping.
-- `liquers-macro/src/registration.rs`: the element-type to `ArgumentType` mapping, the extractor
-  choice, and four compile-time rejections (arity, non-scalar component, `Option` component, tuple
-  without `multiple`).
-- `liquers-mcp/src/schema.rs` `type_schema`: `Tuple(v)` → `{"type":"array","prefixItems":[…],
-  "minItems":n,"maxItems":n}` for one element. The tool's list wraps it as today. `server.rs`
-  display arm.
-- `liquers-lib/src/commands.rs`, `search/command_catalog.rs`, `egui/widgets.rs`: display arms
-  (`(String, String)`, `tuple(string,string)`).
+- `liquers-core/src/plan.rs` `ParameterValue::pop_value`, multiple branch: for `tuples`, parse
+  parameter *j* with component `j % n`; for `map`, even positions are keys and odd positions are
+  parsed with `argument_type`. When every parameter is a literal: an incomplete element is a
+  positioned error at its first parameter (AC-3), and a repeated key a positioned error at the
+  second one (AC-10). For `json`, the same two checks apply when there are two or more
+  parameters and the first is a non-empty literal (AC-16); a link in first place defers them to
+  run time.
+- `liquers-core/src/command_metadata.rs` `ArgumentInfo::check`: a shape other than `list`
+  requires `multiple`; `tuples` requires 2 to 4 scalar components; `columns` is empty or of the
+  shape's arity (AC-6). `ArgumentType` is not changed.
+- `liquers-core/src/recipes.rs` override conversion: `tuples` accepts a flat array or an array of
+  arrays; `map` accepts a JSON object or a flat array of pairs; `json` accepts any JSON value
+  without nested containers.
+- `liquers-core/src/command_declaration.rs`: a declared `shape` and `columns`.
+- `liquers-macro/src/registration.rs`: `variadic_element_type` also recognises `BTreeMap<K, V>`,
+  `serde_json::Map` and `serde_json::Value`; the table above; `columns:` beside `label:` and
+  `gui:`; the rejections.
+- `liquers-mcp/src/schema.rs`: `argument_property` wraps every `multiple` argument in an array
+  today. It keeps doing so for `list`; `tuples` is an array of `prefixItems` arrays; `map` is
+  `{"type": "object", "additionalProperties": …}`, not wrapped; `json` is unconstrained, not
+  wrapped. `server.rs` turns an object into pairs and a list into parameters, adding the
+  empty-string marker in front of every list.
+- Display of an argument (`liquers-lib/src/commands.rs`, `search/command_catalog.rs`,
+  `egui/widgets.rs`, `liquers-py/src/command_metadata.rs`, `liquers-web/src/typescript.rs`): show
+  the shape beside "multiple". No exhaustive `ArgumentType` match changes.
+
+**GUI: the argument editor.** The editor core (`liquers-lib/src/ui/editor/`) keeps the flat item
+list it has for variadics (`FieldValue::Items`); a shape is a view of it.
+
+```rust
+// liquers-lib/src/ui/editor/tree.rs
+pub struct EditorField {
+    /* existing fields */
+    pub shape: VariadicShape,
+    /// One entry per component of an element (tuples: the components; map: key and value).
+    pub components: Vec<ComponentField>,
+}
+pub struct ComponentField { pub label: String, pub type_name: String, pub widget: ArgumentGUIInfo }
+// liquers-lib/src/ui/editor/command.rs — EditorCommand gains
+InsertRow { path: NodePath, arg: String, at: usize, texts: Vec<String> },
+RemoveRow { path: NodePath, arg: String, at: usize },
+MoveRow { path: NodePath, arg: String, from: usize, to: usize },
+SetItems { path: NodePath, arg: String, texts: Vec<String> },   // replace the whole value
+```
+
+- Row *r*, component *c* is item `r * n + c`, so `SetItem` edits a cell unchanged. The row
+  commands change `n` items at once, so the query never holds a partial element.
+- **Dictionary**: existing pairs are listed with their key fixed and their value editable. A
+  pair is added through one form that takes key and value together and sends one `InsertRow`; a
+  duplicate key is refused there. An incomplete pair cannot be written (Orest, 2026-11-25).
+- **JSON value**: a choice of none, scalar, list or dictionary, then the matching editor. The
+  editor writes the empty-string marker of a list itself. Changing the form sends one `SetItems`.
+- Views: `liquers-lib/src/egui/editor.rs` `items_ui` and `liquers-lib/src/ui/web/editor.rs`.
 
 ## Error Handling
 
 - Component conversion at plan time: the existing `from_string` errors, positioned (AC-2).
-- Incomplete group at plan time: `Error::conversion_error_with_message(…).with_position(pos)`
-  naming the argument and arity (AC-3).
-- Remainder at run time (links): `Error::general_error(format!("Argument #{i} '{name}' takes
-  elements of {n} parameters; {m} given"))` with the action position (AC-7).
-- Bad metadata: `Issue::command_registry(Error, …)` from `ArgumentInfo::check` (AC-6).
+- Incomplete element at plan time: `Error::conversion_error_with_message(…).with_position(pos)`
+  naming the argument and the arity (AC-3).
+- Duplicate literal key at plan time: the same constructor, positioned at the second key (AC-10).
+- Remainder or duplicate key at run time (links, overrides): `Error::general_error(…)` with the
+  action position, naming the argument (AC-7).
+- Bad metadata: an issue from `ArgumentInfo::check` (AC-6).
 
 ## Relevant Commands
 
-None added or changed. Namespaces untouched. An adopter later (for example a `ns-pl/rename`) would
-regenerate `specs/command_registry.yaml`.
+None added or changed by this design. Namespaces untouched. The first adopter (`ns-lui/add` with
+layout data) regenerates `specs/command_registry.yaml` in its own design.
 
 ## Documentation Architecture
 
-`reference/REGISTER_COMMAND_FSD.md` (§Supported Types, §Variadic Parameters, rejection table),
-`guides/COMMAND_REGISTRATION_GUIDE.md` (§Accepting a variable number of parameters: "Elements made
-of several parameters"), `reference/COMMAND_DECLARATION.md` (declared types),
-`reference/RECIPES_AND_PLANS.md` (override shapes). `affects_docs` lists these four. No
-`specs/README.md` change.
+`reference/REGISTER_COMMAND_FSD.md` (§Supported Types, §Variadic Parameters, the `columns:` key,
+the rejection table), `guides/COMMAND_REGISTRATION_GUIDE.md` (§Accepting a variable number of
+parameters: "Elements made of several parameters", "A dictionary", "Your own element type"),
+`reference/COMMAND_DECLARATION.md`, `reference/RECIPES_AND_PLANS.md`. Module docs:
+`liquers-core/src/commands.rs`, `liquers-core/src/command_metadata.rs`,
+`liquers-lib/src/ui/editor/mod.rs`. User guide: the commands chapter of `docs/guides/rust/`.
 
 ## Risks
 
 | Assessment | Finding |
 |---|---|
-| Files likely to change | ≈12 across core, macro, mcp, lib (Integration Points) |
-| Crates and workflows affected | command authors (opt-in), MCP tool listing, UI metadata display |
+| Files likely to change | about 15 across core, macro, mcp, lib, py and web |
 | Existing tests likely to change | none; scalar variadics keep their exact plans (AC-8) |
-| New validation | Phase 3 tests; `bash scripts/check-build-matrix.sh` (egui display arm is feature-gated) |
-| Compatibility / data | new serde variant: readers built before it cannot read a registry that uses it |
-| Concurrency / performance | none; one modulo per parameter |
-| Recovery | revert; no stored data uses the variant until a command adopts it |
-| Certainty | medium-high: the mechanism fits the existing flat path. The three open decisions are about whether and how, not feasibility |
+| New validation | Phase 3 tests; `bash scripts/check-build-matrix.sh` (egui and web arms are gated) |
+| Compatibility / data | two new optional fields on an argument; `ArgumentType` is unchanged, so an older reader fails only on a registry that uses a shape |
+| JSON value ambiguity | the form depends on the count and the first parameter: a boolean, an empty string scalar and an empty key cannot be written; a link in first place defers every check to run time |
+| Recovery | revert; no stored data uses the variants until a command adopts one |
+| Certainty | medium: the tuple and map paths fit the existing flat path; the JSON rules, the custom trait and the shaped editor are new and unproven |

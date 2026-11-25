@@ -335,6 +335,32 @@ fn decode_named(name: &str, field_text: &dyn Fn(&str) -> Option<String>) -> Opti
             let to = if verb == "itemup" { at.checked_sub(1)? } else { at + 1 };
             EditorCommand::MoveItem { path, arg, from: at, to }
         }
+        // Rows of a shaped argument (tuples, a dictionary). The new row's texts are the fields
+        // `n:<path>:<arg>:<component>` of the add form.
+        "addrow" => {
+            let (arg, at) = two();
+            let mut texts = Vec::new();
+            while let Some(text) = field_text(&format!("n:{}:{arg}:{}", path.id(), texts.len())) {
+                texts.push(text);
+            }
+            EditorCommand::InsertRow { path, arg, at: index(&at)?, texts }
+        }
+        "delrow" => {
+            let (arg, at) = two();
+            EditorCommand::RemoveRow { path, arg, at: index(&at)? }
+        }
+        "rowup" | "rowdown" => {
+            let (arg, at) = two();
+            let at = index(&at)?;
+            let to = if verb == "rowup" { at.checked_sub(1)? } else { at + 1 };
+            EditorCommand::MoveRow { path, arg, from: at, to }
+        }
+        // An entry appended to the list form of a JSON value, from the field `n:<path>:<arg>:0`.
+        "addentry" => {
+            let (arg, at) = two();
+            let text = field_text(&format!("n:{}:{arg}:0", path.id())).unwrap_or_default();
+            EditorCommand::InsertItem { path, arg, at: index(&at)?, text }
+        }
         "remove" => EditorCommand::Remove { path },
         "up" => {
             let at = path.last_element()?;
@@ -457,6 +483,19 @@ fn decode_field(name: &str, value: &str, tree: &EditorTree) -> Option<EditorComm
         });
         return (current.as_deref() != Some(value))
             .then(|| EditorCommand::SetHeader { path, header: value.to_string() });
+    }
+    // The form chooser of a JSON value argument: `jf:<path>:<arg>`.
+    if let Some(rest) = name.strip_prefix("jf:") {
+        let (path, arg) = rest.split_once(':')?;
+        let path = NodePath::from_id(path).ok()?;
+        let field = find_node(&tree.nodes, &path)?.fields().iter().find(|f| f.name == arg)?;
+        let form = super::tree::JsonForm::from_label(value)?;
+        let texts: Vec<String> = field.item_texts().into_iter().flatten().collect();
+        return (form != super::tree::JsonForm::of(&texts)).then(|| EditorCommand::SetItems {
+            path,
+            arg: arg.to_string(),
+            texts: form.convert(&texts),
+        });
     }
     let rest = name.strip_prefix("f:")?;
     let parts: Vec<&str> = rest.split(':').collect();

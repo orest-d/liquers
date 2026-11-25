@@ -1243,3 +1243,180 @@ fn legacy_continuous_loads_as_a_mode() {
     let json = serde_json::to_string(&(Box::new(element) as Box<dyn UIElement>)).expect("json");
     assert!(json.contains(r#""update_mode":"on_demand""#) && !json.contains("continuous"), "{json}");
 }
+
+// --- shaped variadic arguments (design `composite-variadic-arguments`) ---------------------------
+
+fn shaped_editor(query: &str) -> EditorState {
+    use liquers_core::command_metadata::{ArgumentType, VariadicShape};
+    let mut cmr = registry();
+    let mut weights = CommandMetadata::new("weights");
+    weights.with_argument(
+        ArgumentInfo::any_argument("pairs")
+            .set_multiple()
+            .with_shape(VariadicShape::Tuples(vec![ArgumentType::String, ArgumentType::Integer]))
+            .with_columns(&["Name", "Weight"]),
+    );
+    cmr.add_command(&weights);
+    let mut place = CommandMetadata::new("place");
+    place
+        .with_argument(ArgumentInfo::string_argument("word"))
+        .with_argument(ArgumentInfo::any_argument("layout").set_multiple().with_shape(VariadicShape::Map));
+    cmr.add_command(&place);
+    let mut set_data = CommandMetadata::new("set_data");
+    set_data.with_argument(
+        ArgumentInfo::any_argument("data").set_multiple().with_shape(VariadicShape::Json),
+    );
+    cmr.add_command(&set_data);
+    let mut state = EditorState::new(EditorKind::Query, Arc::new(cmr));
+    let q = parse_query(query).expect("query");
+    state.on_snapshot(&Value::from_query(&q), Some(fp(1))).expect("snapshot");
+    state
+}
+
+/// The only action of a one-action query: its path and the named field.
+fn shaped_field(state: &EditorState, name: &str) -> (NodePath, EditorField) {
+    let node = state
+        .tree()
+        .nodes
+        .iter()
+        .find(|n| matches!(n, EditorNode::Action { .. }))
+        .expect("an action");
+    let field = node.fields().iter().find(|f| f.name == name).expect("field").clone();
+    (node.path().clone(), field)
+}
+
+fn texts(field: &EditorField) -> Vec<String> {
+    field.item_texts().into_iter().map(|t| t.expect("a literal")).collect()
+}
+
+/// composite-variadic-arguments AC-13, AC-14: tuples are rows with named columns; a row is
+/// inserted, removed and moved whole, and a cell is one item.
+#[test]
+fn shaped_tuple_rows_edit_whole_elements() {
+    use liquers_core::command_metadata::VariadicShape;
+    let mut state = shaped_editor("weights-a-1-b-2");
+    let (path, field) = shaped_field(&state, "pairs");
+    assert!(matches!(field.shape, VariadicShape::Tuples(_)));
+    assert_eq!(
+        field.components.iter().map(|c| c.label.as_str()).collect::<Vec<_>>(),
+        vec!["Name", "Weight"]
+    );
+    assert_eq!(field.components[1].widget, ArgumentGUIInfo::IntegerField);
+    assert_eq!(texts(&field), vec!["a", "1", "b", "2"]);
+
+    let row = |at, texts: &[&str]| EditorCommand::InsertRow {
+        path: path.clone(),
+        arg: "pairs".into(),
+        at,
+        texts: texts.iter().map(|t| t.to_string()).collect(),
+    };
+    state.apply(row(1, &["c", "3"])).expect("insert a row");
+    assert_eq!(state.tree().text, "weights-a-1-c-3-b-2");
+    assert!(state.apply(row(0, &["only"])).is_err(), "a partial element is refused");
+    assert_eq!(state.tree().text, "weights-a-1-c-3-b-2");
+
+    state
+        .apply(EditorCommand::MoveRow { path: path.clone(), arg: "pairs".into(), from: 0, to: 2 })
+        .expect("move forwards");
+    assert_eq!(state.tree().text, "weights-c-3-b-2-a-1");
+    state
+        .apply(EditorCommand::MoveRow { path: path.clone(), arg: "pairs".into(), from: 2, to: 0 })
+        .expect("move backwards");
+    assert_eq!(state.tree().text, "weights-a-1-c-3-b-2");
+
+    // Row 1, component 1 is item 3.
+    state
+        .apply(EditorCommand::SetItem { path: path.clone(), arg: "pairs".into(), at: 3, text: "30".into() })
+        .expect("a cell");
+    assert_eq!(state.tree().text, "weights-a-1-c-30-b-2");
+    state
+        .apply(EditorCommand::RemoveRow { path: path.clone(), arg: "pairs".into(), at: 0 })
+        .expect("remove a row");
+    assert_eq!(state.tree().text, "weights-c-30-b-2");
+    state
+        .apply(EditorCommand::RemoveRow { path: path.clone(), arg: "pairs".into(), at: 0 })
+        .expect("remove a row");
+    state
+        .apply(EditorCommand::RemoveRow { path, arg: "pairs".into(), at: 0 })
+        .expect("remove the last row");
+    assert_eq!(state.tree().text, "weights");
+
+    // A row into an argument that is not given yet.
+    let mut state = shaped_editor("weights");
+    let (path, _) = shaped_field(&state, "pairs");
+    state
+        .apply(EditorCommand::InsertRow { path, arg: "pairs".into(), at: 0, texts: vec!["a".into(), "1".into()] })
+        .expect("the first row");
+    assert_eq!(state.tree().text, "weights-a-1");
+}
+
+/// composite-variadic-arguments AC-13: a dictionary pair is added whole, key and value
+/// together, and a key it already has is refused.
+#[test]
+fn shaped_map_pair_is_added_whole() {
+    use liquers_core::command_metadata::VariadicShape;
+    let mut state = shaped_editor("place-current-row-0");
+    let (path, field) = shaped_field(&state, "layout");
+    assert_eq!(field.shape, VariadicShape::Map);
+    assert_eq!(
+        field.components.iter().map(|c| c.label.as_str()).collect::<Vec<_>>(),
+        vec!["key", "value"]
+    );
+    let pair = |key: &str, value: &str| EditorCommand::InsertRow {
+        path: path.clone(),
+        arg: "layout".into(),
+        at: 1,
+        texts: vec![key.to_string(), value.to_string()],
+    };
+    state.apply(pair("col", "8")).expect("a pair");
+    assert_eq!(state.tree().text, "place-current-row-0-col-8");
+    assert!(state.apply(pair("row", "1")).is_err(), "a key given twice");
+    assert!(state.apply(pair("", "1")).is_err(), "an empty key");
+    assert!(
+        state
+            .apply(EditorCommand::InsertRow { path: path.clone(), arg: "layout".into(), at: 1, texts: vec!["x".into()] })
+            .is_err(),
+        "a key without a value"
+    );
+    assert_eq!(state.tree().text, "place-current-row-0-col-8");
+
+    // The value of a pair is one item; removing a pair removes both.
+    state
+        .apply(EditorCommand::SetItem { path: path.clone(), arg: "layout".into(), at: 3, text: "4".into() })
+        .expect("a value");
+    assert_eq!(state.tree().text, "place-current-row-0-col-4");
+    state
+        .apply(EditorCommand::RemoveRow { path, arg: "layout".into(), at: 0 })
+        .expect("remove a pair");
+    assert_eq!(state.tree().text, "place-current-col-4");
+}
+
+/// composite-variadic-arguments AC-13: a JSON value changes its form with one command, and the
+/// editor writes the leading empty item of a list itself.
+#[test]
+fn shaped_json_form_change_rewrites_items() {
+    let mut state = shaped_editor("set_data-5");
+    let (path, field) = shaped_field(&state, "data");
+    assert_eq!(field.json_form(), JsonForm::Scalar);
+    let to = |state: &mut EditorState, form: JsonForm| {
+        let (_, field) = shaped_field(state, "data");
+        let texts = form.convert(&texts(&field));
+        state
+            .apply(EditorCommand::SetItems { path: path.clone(), arg: "data".into(), texts })
+            .expect("set items");
+        let (_, field) = shaped_field(state, "data");
+        assert_eq!(field.json_form(), form, "{}", state.tree().text);
+        state.tree().text.clone()
+    };
+    assert_eq!(to(&mut state, JsonForm::List), "set_data--5");
+    assert_eq!(to(&mut state, JsonForm::Dictionary), "set_data-key1-5");
+    assert_eq!(to(&mut state, JsonForm::List), "set_data--5");
+    assert_eq!(to(&mut state, JsonForm::Scalar), "set_data-5");
+    assert_eq!(to(&mut state, JsonForm::Null), "set_data");
+    assert_eq!(to(&mut state, JsonForm::List), "set_data-");
+    assert_eq!(to(&mut state, JsonForm::Scalar), "set_data-0");
+
+    assert_eq!(JsonForm::of(&["row", "0", "col", "8"]), JsonForm::Dictionary);
+    assert_eq!(JsonForm::List.convert(&["row", "0", "col", "8"]), vec!["", "0", "8"]);
+    assert_eq!(JsonForm::from_label("dictionary"), Some(JsonForm::Dictionary));
+}

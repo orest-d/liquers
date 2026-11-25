@@ -7,6 +7,7 @@ use std::sync::Arc;
 use liquers_core::accessor::Fingerprint;
 use liquers_core::command_metadata::{
     ArgumentGUIInfo, ArgumentInfo, ArgumentType, CommandMetadata, CommandMetadataRegistry,
+    VariadicShape,
 };
 use liquers_core::error::Error;
 use liquers_core::parse::{parse_key, parse_query};
@@ -22,7 +23,8 @@ use serde_json::Value as Json;
 use super::catalog::command_catalog;
 use super::command::{EditorCommand, EditorEffect, NewElement};
 use super::tree::{
-    default_text, effective_gui, enum_alternatives, is_numeric, json_text, scale_numeric,
+    default_text, effective_gui, enum_alternatives, is_numeric, item_type, json_text,
+    scale_numeric, shape_components,
     Browser, Confirmation, DirectoryListing, EditorField, EditorNode, EditorTree, FieldValue,
     NodeContext, NodePath, PathStep, Picker, PresetEntry,
 };
@@ -279,6 +281,29 @@ fn literal(info: &ArgumentInfo, text: &str) -> Json {
         | ArgumentType::Any
         | ArgumentType::None
         | ArgumentType::Node(_) => Json::String(text.to_string()),
+    }
+}
+
+/// The literal of item `at` of a variadic argument: typed by its component for a shaped one.
+fn item_literal(info: &ArgumentInfo, at: usize, text: &str) -> Json {
+    if info.shape.is_list() {
+        return literal(info, text);
+    }
+    let mut item = info.clone();
+    item.argument_type = item_type(info, at);
+    literal(&item, text)
+}
+
+/// The number of items in one row of a shaped argument. Tuples and dictionaries have rows; a
+/// JSON value has them in its dictionary form, which is what a row command on it means.
+fn row_arity(info: &ArgumentInfo) -> Result<usize, Error> {
+    match &info.shape {
+        VariadicShape::Tuples(_) | VariadicShape::Map => Ok(info.shape.arity()),
+        VariadicShape::Json => Ok(2),
+        VariadicShape::List => Err(Error::general_error(format!(
+            "Argument '{}' has no rows: it is a plain list",
+            info.name
+        ))),
     }
 }
 
@@ -677,6 +702,36 @@ impl EditorState {
         Ok(self.commit())
     }
 
+    /// The literal keys of a dictionary argument, as written now.
+    fn item_keys(&self, path: &NodePath, arg: &str) -> Result<Vec<String>, Error> {
+        let root = self.root.as_ref().ok_or_else(|| no_node(&path.0))?;
+        let mut level = root.clone();
+        let registry = self.registry.clone();
+        let source = with_level(&mut level, &path.0, &registry, |l, at| {
+            l.editor()?.argument_source(at, arg)
+        })?;
+        let items = match source {
+            Some(Source::Multiple(items)) => items,
+            Some(Source::Value(Json::Array(values))) => {
+                values.into_iter().map(Source::Value).collect()
+            }
+            Some(other) => vec![other],
+            None => Vec::new(),
+        };
+        Ok(items
+            .iter()
+            .step_by(2)
+            .filter_map(|item| match item {
+                Source::Value(value) => Some(json_text(value)),
+                Source::Link(_)
+                | Source::Pipeline(_)
+                | Source::Placeholder(_)
+                | Source::State(_)
+                | Source::Multiple(_) => None,
+            })
+            .collect())
+    }
+
     fn metadata_at(&self, path: &NodePath) -> Result<CommandMetadata, Error> {
         let root = self.root.as_ref().ok_or_else(|| no_node(&path.0))?;
         let mut level = root.clone();
@@ -695,7 +750,7 @@ impl EditorState {
             }
             EditorCommand::SetItem { path, arg, at, text } => self.edit_argument(&path, |a, info| {
                 a.remove_item(info.name.as_str(), at)?;
-                a.insert_item(info.name.as_str(), at, Source::Value(literal(info, &text)))?;
+                a.insert_item(info.name.as_str(), at, Source::Value(item_literal(info, at, &text)))?;
                 Ok(())
             }, &arg),
             EditorCommand::SetLink { path, arg, query } => {
@@ -726,7 +781,86 @@ impl EditorState {
                 Ok(())
             }, &arg),
             EditorCommand::InsertItem { path, arg, at, text } => self.edit_argument(&path, |a, info| {
-                a.insert_item(info.name.as_str(), at, Source::Value(literal(info, &text)))?;
+                a.insert_item(info.name.as_str(), at, Source::Value(item_literal(info, at, &text)))?;
+                Ok(())
+            }, &arg),
+            EditorCommand::InsertRow { path, arg, at, texts } => {
+                let keys = self.item_keys(&path, &arg)?;
+                self.edit_argument(&path, |a, info| {
+                    let arity = row_arity(info)?;
+                    if texts.len() != arity {
+                        return Err(Error::general_error(format!(
+                            "An element of '{}' has {arity} values, {} given",
+                            info.name,
+                            texts.len()
+                        )));
+                    }
+                    if info.shape == VariadicShape::Map || info.shape == VariadicShape::Json {
+                        let key = texts.first().map(String::as_str).unwrap_or_default();
+                        if key.is_empty() {
+                            return Err(Error::general_error(format!(
+                                "A key of '{}' cannot be empty",
+                                info.name
+                            )));
+                        }
+                        if keys.iter().any(|k| k == key) {
+                            return Err(Error::general_error(format!(
+                                "'{}' already has the key '{key}'",
+                                info.name
+                            )));
+                        }
+                    }
+                    for (c, text) in texts.iter().enumerate() {
+                        let item = at * arity + c;
+                        a.insert_item(
+                            info.name.as_str(),
+                            item,
+                            Source::Value(item_literal(info, item, text)),
+                        )?;
+                    }
+                    Ok(())
+                }, &arg)
+            }
+            EditorCommand::RemoveRow { path, arg, at } => self.edit_argument(&path, |a, info| {
+                let arity = row_arity(info)?;
+                for _ in 0..arity {
+                    a.remove_item(info.name.as_str(), at * arity)?;
+                }
+                Ok(())
+            }, &arg),
+            EditorCommand::MoveRow { path, arg, from, to } => self.edit_argument(&path, |a, info| {
+                let arity = row_arity(info)?;
+                for c in 0..arity {
+                    // Forwards, the row's first item goes behind the target row each time;
+                    // backwards, each item goes to its own place in front of it.
+                    if from < to {
+                        a.move_item(info.name.as_str(), from * arity, to * arity + arity - 1)?;
+                    } else {
+                        a.move_item(info.name.as_str(), from * arity + c, to * arity + c)?;
+                    }
+                }
+                Ok(())
+            }, &arg),
+            EditorCommand::SetItems { path, arg, texts } => self.edit_argument(&path, |a, info| {
+                let arity = match &info.shape {
+                    VariadicShape::Tuples(_) | VariadicShape::Map => info.shape.arity(),
+                    VariadicShape::List | VariadicShape::Json => 1,
+                };
+                if texts.len() % arity != 0 {
+                    return Err(Error::general_error(format!(
+                        "'{}' takes elements of {arity} values, {} given",
+                        info.name,
+                        texts.len()
+                    )));
+                }
+                a.reset(info.name.as_str())?;
+                for (item, text) in texts.iter().enumerate() {
+                    a.insert_item(
+                        info.name.as_str(),
+                        item,
+                        Source::Value(item_literal(info, item, text)),
+                    )?;
+                }
                 Ok(())
             }, &arg),
             EditorCommand::RemoveItem { path, arg, at } => self.edit_argument(&path, |a, info| {
@@ -1219,6 +1353,10 @@ fn command_path(command: &EditorCommand) -> NodePath {
         | EditorCommand::InsertItem { path, .. }
         | EditorCommand::RemoveItem { path, .. }
         | EditorCommand::MoveItem { path, .. }
+        | EditorCommand::InsertRow { path, .. }
+        | EditorCommand::RemoveRow { path, .. }
+        | EditorCommand::MoveRow { path, .. }
+        | EditorCommand::SetItems { path, .. }
         | EditorCommand::Insert { path, .. }
         | EditorCommand::Remove { path }
         | EditorCommand::Move { path, .. }
@@ -1422,6 +1560,8 @@ fn action_node(
             alternatives,
             others_allowed,
             multiple: info.multiple,
+            shape: info.shape.clone(),
+            components: shape_components(&info),
             value,
             presets: info
                 .presets

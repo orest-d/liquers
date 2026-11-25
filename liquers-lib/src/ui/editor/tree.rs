@@ -3,7 +3,7 @@
 
 use liquers_core::command_metadata::{
     ArgumentGUIInfo, ArgumentInfo, ArgumentType, CommandKey, CommandParameterValue, EnumArgument,
-    DEFAULT_GUI,
+    VariadicShape, DEFAULT_GUI,
 };
 use liquers_core::error::Error;
 use serde_json::Value as Json;
@@ -113,6 +113,147 @@ pub enum FieldValue {
     Other(String),
 }
 
+/// One component of an element of a shaped variadic argument: a column of a list of tuples, or
+/// the key or the value of a dictionary.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ComponentField {
+    /// The column header: the declared column name, else the type's name (`key` and `value` for
+    /// a dictionary).
+    pub label: String,
+    pub type_name: String,
+    /// The widget of one cell: [`effective_gui`] of the component's type.
+    pub widget: ArgumentGUIInfo,
+}
+
+/// The form of a JSON value argument ([`VariadicShape::Json`]), which its parameters decide.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JsonForm {
+    /// No parameters: `null`.
+    Null,
+    /// One parameter: a number or a string.
+    Scalar,
+    /// A leading empty parameter, then the entries.
+    List,
+    /// Key and value pairs.
+    Dictionary,
+}
+
+impl JsonForm {
+    /// The forms, in the order a chooser offers them.
+    pub const ALL: [JsonForm; 4] =
+        [JsonForm::Null, JsonForm::Scalar, JsonForm::List, JsonForm::Dictionary];
+
+    /// The word a chooser shows.
+    pub fn label(&self) -> &'static str {
+        match self {
+            JsonForm::Null => "none",
+            JsonForm::Scalar => "value",
+            JsonForm::List => "list",
+            JsonForm::Dictionary => "dictionary",
+        }
+    }
+
+    /// The chooser word back to the form.
+    pub fn from_label(label: &str) -> Option<JsonForm> {
+        JsonForm::ALL.into_iter().find(|form| form.label() == label)
+    }
+
+    /// The form the item texts of a JSON value argument stand for.
+    pub fn of<S: AsRef<str>>(items: &[S]) -> JsonForm {
+        match items {
+            [] => JsonForm::Null,
+            [first, ..] if first.as_ref().is_empty() => JsonForm::List,
+            [_] => JsonForm::Scalar,
+            _ => JsonForm::Dictionary,
+        }
+    }
+
+    /// The item texts of the same data in this form, for [`super::EditorCommand::SetItems`]:
+    /// the values are kept, a list gets its leading empty item, a dictionary made from values
+    /// gets the keys `key1`, `key2`, ….
+    pub fn convert<S: AsRef<str>>(&self, items: &[S]) -> Vec<String> {
+        let from = JsonForm::of(items);
+        let values: Vec<String> = match from {
+            JsonForm::Null => Vec::new(),
+            JsonForm::Scalar => items.iter().map(|s| s.as_ref().to_string()).collect(),
+            JsonForm::List => items.iter().skip(1).map(|s| s.as_ref().to_string()).collect(),
+            JsonForm::Dictionary => {
+                items.iter().skip(1).step_by(2).map(|s| s.as_ref().to_string()).collect()
+            }
+        };
+        match self {
+            JsonForm::Null => Vec::new(),
+            // One empty item alone would be the empty list, so a value is never empty.
+            JsonForm::Scalar => vec![values
+                .into_iter()
+                .find(|v| !v.is_empty())
+                .unwrap_or_else(|| "0".to_string())],
+            JsonForm::List => std::iter::once(String::new()).chain(values).collect(),
+            JsonForm::Dictionary if from == JsonForm::Dictionary => {
+                items.iter().map(|s| s.as_ref().to_string()).collect()
+            }
+            JsonForm::Dictionary => {
+                let mut values = values;
+                if values.is_empty() {
+                    values.push(String::new());
+                }
+                values
+                    .into_iter()
+                    .enumerate()
+                    .flat_map(|(k, value)| [format!("key{}", k + 1), value])
+                    .collect()
+            }
+        }
+    }
+}
+
+/// The type of item `at` of a variadic argument: its component's for tuples, text for a
+/// dictionary key, the argument's own otherwise.
+pub fn item_type(argument: &ArgumentInfo, at: usize) -> ArgumentType {
+    match &argument.shape {
+        VariadicShape::Tuples(components) if !components.is_empty() => {
+            components[at % components.len()].clone()
+        }
+        VariadicShape::Map if at % 2 == 0 => ArgumentType::String,
+        VariadicShape::Json => ArgumentType::Any,
+        VariadicShape::List | VariadicShape::Tuples(_) | VariadicShape::Map => {
+            argument.argument_type.clone()
+        }
+    }
+}
+
+/// The components of one element of a shaped variadic argument; empty for a plain list and for
+/// a JSON value, whose form decides them.
+pub fn shape_components(argument: &ArgumentInfo) -> Vec<ComponentField> {
+    let component = |label: String, argument_type: &ArgumentType| {
+        let mut one = argument.clone();
+        one.argument_type = argument_type.clone();
+        ComponentField {
+            label,
+            type_name: crate::utils::argument_type_name(argument_type),
+            widget: effective_gui(&one),
+        }
+    };
+    match &argument.shape {
+        VariadicShape::Tuples(components) => components
+            .iter()
+            .enumerate()
+            .map(|(c, argument_type)| {
+                let label = match argument.columns.get(c) {
+                    Some(name) if !name.is_empty() => name.clone(),
+                    Some(_) | None => crate::utils::argument_type_name(argument_type),
+                };
+                component(label, argument_type)
+            })
+            .collect(),
+        VariadicShape::Map => vec![
+            component("key".to_string(), &ArgumentType::String),
+            component("value".to_string(), &argument.argument_type),
+        ],
+        VariadicShape::List | VariadicShape::Json => Vec::new(),
+    }
+}
+
 /// One argument of an action, with everything its widget and its hover text need.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EditorField {
@@ -127,6 +268,12 @@ pub struct EditorField {
     pub alternatives: Vec<String>,
     pub others_allowed: bool,
     pub multiple: bool,
+    /// How the items of a variadic argument group into its value: a plain list, rows of tuples,
+    /// the pairs of a dictionary, or a JSON value. The items stay one flat list
+    /// ([`FieldValue::Items`]); row `r`, component `c` is item `r * components.len() + c`.
+    pub shape: VariadicShape,
+    /// One entry per component of an element: the columns of the tuples, or key and value.
+    pub components: Vec<ComponentField>,
     pub value: FieldValue,
     pub presets: Vec<PresetEntry>,
     /// The field's index among the action's numeric arguments (AC-13).
@@ -179,6 +326,33 @@ impl NodeContext {
 }
 
 impl EditorField {
+    /// The items of a variadic argument as text; a link or another source that is not a literal
+    /// is `None`. Empty when the argument is not given.
+    pub fn item_texts(&self) -> Vec<Option<String>> {
+        match &self.value {
+            FieldValue::Items(items) => items
+                .iter()
+                .map(|item| match item {
+                    FieldValue::Text(text) => Some(text.clone()),
+                    FieldValue::Unset
+                    | FieldValue::Link { .. }
+                    | FieldValue::Items(_)
+                    | FieldValue::Other(_) => None,
+                })
+                .collect(),
+            FieldValue::Unset | FieldValue::Text(_) | FieldValue::Link { .. } | FieldValue::Other(_) => {
+                Vec::new()
+            }
+        }
+    }
+
+    /// The form of a JSON value argument, read from its items.
+    pub fn json_form(&self) -> JsonForm {
+        let texts: Vec<String> =
+            self.item_texts().into_iter().map(|t| t.unwrap_or_else(|| "?".to_string())).collect();
+        JsonForm::of(&texts)
+    }
+
     /// The hover text (AC-3): label, description, type and default.
     pub fn hover(&self) -> String {
         let mut out = format!("{} ({})", self.label, self.type_name);
