@@ -770,7 +770,7 @@ nested splitter and tab elements. Orest (2026-11-24) asked what the list cannot 
   where it goes, removing a child shifts the indices after it, and a role moves to the wrong
   child when an optional one is absent.
 - **Proposal: a child may carry optional layout data that only its parent interprets.** The
-  parent keeps it per handle, as part of its state. This is the attached-property pattern of
+  runner keeps it with the child (see the test results below). This is the attached-property pattern of
   XAML (`Grid.Row`), CSS (`grid-area`) and Flutter. The data is structured like element
   properties, so no key syntax is needed.
 
@@ -852,7 +852,20 @@ Keys are a shared vocabulary, so that a key means the same thing under every par
   up strings itself.
 - The exact command signatures are D2's, checked with `liquers-validate`.
 
-Not tested. A free grid in the spike workspace would check it.
+**Tested 2026-11-25** in the spike workspace with a free grid in a terminal, in egui, as HTML
+and across the runner protocol, thick and thin
+([findings](../../archive/2026-11-25-ui-runner-spike-layout.md)). The proposal holds, with these
+corrections:
+
+- **The runner keeps the layout data on the child's node; the parent keeps nothing.** The parent
+  gets it with the list of its children. `ChildAdded` does not carry it. A snapshot and a
+  mirrored tree then contain it with no extra work.
+- The tree part of the runner protocol carries `layout` in `Added` and has one more message,
+  `Layout { handle, layout }`. A change redraws the parent only.
+- A free grid needs a declared or measured row height in a terminal and in egui (§10.8).
+- Open: the add command should let the parent check the map, so that a wrong key fails the
+  command and is not found only when the view is built; an empty value (`colspan-`) as the way
+  to remove a key; a client request to change layout data (drag to resize).
 
 ## 11. Frontends: three patterns over one store
 

@@ -33,6 +33,8 @@ the protocol.
 - [Spike S1 stage 2 findings](../../archive/2026-11-24-ui-runner-spike-web.md) — the same runner
   in a browser: DOM host, DOM and Leptos native views, thick, mixed and thin clients over
   WebSocket, a very thin HTML client, sizes; seven problems found.
+- [Spike S1 layout data findings](../../archive/2026-11-25-ui-runner-spike-layout.md) — a free
+  grid whose children carry their place, in a terminal, egui, HTML and across the protocol.
 - [Plan](./plan.md) — target architecture sketch, designs D1–D21 with dependencies, spikes S1–S4,
   milestones M0–M7 and Orest's decisions.
 
