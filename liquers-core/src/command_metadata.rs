@@ -16,6 +16,9 @@
 //! - [`ArgumentInfo`] and [`ArgumentType`]: one argument and how its text is converted; an
 //!   [`EnumArgument`] restricts it to named alternatives, and a [`NodeArgument`]
 //!   (`ArgumentType::Node`) makes it name a file of the working folder, a recipe-tree node.
+//! - [`VariadicShape`] (`ArgumentInfo::shape`): how the parameters of a variadic (`multiple`)
+//!   argument form its value — a plain list, tuples, a dictionary or a JSON value — with
+//!   `ArgumentInfo::columns` naming a tuple's components.
 //! - [`CommandParameterValue`]: a default — a literal, a query link or a pipeline.
 //! - [`ArgumentGUIInfo`]: the widget a user interface draws for the argument.
 //!

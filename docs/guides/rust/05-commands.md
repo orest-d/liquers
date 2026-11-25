@@ -2,7 +2,7 @@
 title: Commands
 status: ready
 sources: [guides/COMMAND_REGISTRATION_GUIDE.md, reference/RECIPE_TREES.md, guides/COMMAND_DESIGN_GUIDE.md, reference/COMMAND_DECLARATION.md, reference/REGISTER_COMMAND_FSD.md, reference/PIPELINES.md, guides/PIPELINE_GUIDE.md, guides/TEMPLATE_GUIDE.md]
-reviewed: 2026-11-23
+reviewed: 2026-11-25
 ---
 # 5. Commands
 
@@ -189,6 +189,9 @@ when the query is planned:
 | `bool` | `t`, `true`, `yes`, `y`, `1` or `f`, `false`, `no`, `n`, `0`, in any case |
 | `Option<T>` for a number or `bool` | as above; left out or empty gives the default, or `None` |
 | `Vec<T>` with `multiple` | every remaining argument of the action |
+| `Vec<(A, B)>` with `multiple` | the remaining arguments in groups: `a-1-b-2` is `[("a", 1), ("b", 2)]` |
+| `BTreeMap<String, V>` with `multiple` | the remaining arguments as key and value pairs: `row-0-col-8` |
+| `serde_json::Value` with `multiple` | the remaining arguments as one JSON value |
 | `Value` | the text as a value, or the result of a link |
 | `Key`, `Query` | a parsed key or query, or the result of a link |
 
@@ -197,8 +200,24 @@ a literal: `"text"`, `42`, `3.14`, `true`. An argument without one is required, 
 leaves it out fails when it is planned. `Option<T>` has no meaning for text; for an optional text
 use `String = ""`.
 
-**`multiple`.** One argument can take all the remaining parameters of the action. It must be a
-`Vec`, has no default, and must be the last argument that reads from the query.
+**`multiple`.** One argument can take all the remaining parameters of the action. It has no
+default and must be the last argument that reads from the query. Its type says what the
+parameters stand for:
+
+- `Vec<T>` is a list, one parameter each.
+- `Vec<(A, B)>`, with two to four parts, is a list of tuples. Each part is converted with its own
+  type, and a query that ends in the middle of a tuple is refused when it is planned. The option
+  `columns: ["Old name", "New name"]` names the parts for a user interface.
+- `BTreeMap<String, V>` is a dictionary: the parameters are keys and values in turn. A key given
+  twice is refused. With `V = serde_json::Value` a value written as a number is a number and
+  anything else is text.
+- `serde_json::Value` lets the query decide. No parameter is `null`; one parameter is a number or
+  a string; an empty first parameter starts a list, so `set_data--1-a` is `[1, "a"]` and
+  `set_data-` is the empty list; anything else is key and value pairs, an object. There are no
+  booleans, because `true` cannot be told from text.
+
+Only the `multiple` argument can have these types. A recipe that sets such an argument writes the
+value itself, for example `[["a", 1], ["b", 2]]` or `{row: 0, col: 8}`.
 
 **Descriptions.** The parentheses after an argument hold what a user interface shows for it: a
 `label`, a `description`, a `gui` hint such as `IntegerSlider(0, 100, 1)` or `TextArea 80, 10`,

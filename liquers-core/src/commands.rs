@@ -17,6 +17,12 @@
 //! - [`CommandArguments`] — the action's parameters as a command sees them;
 //!   [`FromParameterValue`] converts one parameter into a typed argument and
 //!   [`InjectedFromContext`] supplies an argument the query does not mention.
+//! - A variadic argument is read whole: [`CommandArguments::get_multiple`] as a list, and, when it
+//!   has a shape ([`VariadicShape`](crate::command_metadata::VariadicShape)),
+//!   [`CommandArguments::get_multiple_grouped`] as tuples or a type implementing
+//!   [`FromParameterGroup`], [`CommandArguments::get_multiple_map`] as a dictionary and
+//!   [`CommandArguments::get_multiple_json`] as a JSON value ([`json_scalar`] reads a value
+//!   without a declared type; [`ParameterComponent`] names the type of one component).
 //!
 //! # Where it is used
 //! - The interpreter ([`crate::interpreter`]) runs the executor for every action step of a plan.

@@ -13,18 +13,49 @@ are written against materialised elements as they are today.
 
 ## Progress
 
-- [ ] Step 1: `VariadicShape`, `ArgumentInfo::shape` and `columns`, `check` rules
-- [ ] Step 2: Plan typing and checks in `pop_value`
-- [ ] Step 3: `FromParameterGroup`, `json_scalar`, grouped, map and JSON retrieval
-- [ ] Step 4: Override conversion and declarations
-- [ ] Step 5: Registration macro support and rejections
-- [ ] Step 6: Integration tests
-- [ ] Step 7: MCP schema and input
-- [ ] Step 8: Display of a shaped argument and language bindings
-- [ ] Step 9: Editor core: shape, components, row commands
-- [ ] Step 10: Editor views (egui, web)
+- [x] Step 1: `VariadicShape`, `ArgumentInfo::shape` and `columns`, `check` rules (`c754b472`)
+- [x] Step 2: Plan typing and checks in `pop_value` (`9786df9e`)
+- [x] Step 3: `FromParameterGroup`, `json_scalar`, grouped, map and JSON retrieval (`46f50d1f`)
+- [x] Step 4: Override conversion and declarations (`103ef3c3`)
+- [x] Step 5: Registration macro support and rejections (`c2e1ceec`)
+- [x] Step 6: Integration tests (`c2e1ceec`)
+- [x] Step 7: MCP schema and input (`b8dbf7dd`)
+- [x] Step 8: Display of a shaped argument and language bindings (`92db59d9`)
+- [x] Step 9: Editor core: shape, components, row commands (`34362203`)
+- [x] Step 10: Editor views (egui, web) (`3d09b846`)
 - [ ] Step 11: Build matrix and full test loops
 - [ ] Step 12: Documents and records
+
+## Deviations during implementation
+
+Recorded 2026-11-25. None changes a decision of Phase 1 or 2.
+
+- **MCP input (Step 7).** `liquers-mcp/src/server.rs` did not need the conversion Phase 2
+  describes: tool arguments are recipe overrides, so the override conversion of Step 4 already
+  takes an object, nested arrays and a JSON value. Only the schema and the command reference
+  changed.
+- **A JSON value override is one element (Step 4).** An override such as `[1, "a"]` is kept whole
+  instead of being flattened with a leading empty string, so a list is never mistaken for pairs.
+  A string element is still read as a query parameter would be: an override `"8"` is the number 8.
+- **Pipelines and URL overrides (Steps 4, 8), not listed in Phase 2.** `liquers-core/src/pipeline/plan.rs`
+  types each position of a shaped argument and takes a whole value as an override does;
+  `liquers-axum/src/api_core/overrides.rs` reads a JSON value argument from repeated URL
+  parameters with `commands::json_value_from_texts`.
+- **`Vec<P>` with a type of the caller's (Step 5).** The macro reads `Vec<T> multiple` as a plain
+  list only when `T` is a number, `bool`, `String`, `Key`, `Query`, `Value` or `Option`; any other
+  element type must implement `FromParameterGroup`. No command in the repository is affected; a
+  command elsewhere with its own `FromParameterValue` element type would need the new trait.
+- **Registration check (Step 5).** A command with a shaped argument runs
+  `CommandMetadata::check` when it is registered, which is where `columns` are compared with a
+  custom element type.
+- **JavaScript (Step 8).** `LiquersArgument` has no variadic argument at all, so there was nothing
+  to extend: `WEB-COMMAND-CANNOT-DECLARE-VARIADIC-ARGUMENT`. Python exposes `shape`,
+  `shape_components` and `columns` read-only.
+- **Rows of a JSON value (Step 10).** `InsertRow` and `RemoveRow` also apply to a JSON value, as
+  pairs, so its dictionary form is edited like a dictionary.
+- **Module docs.** `plan.rs` and `liquers-mcp/src/schema.rs` still lack an example section
+  (`MODULE-DOCS-DO-NOT-FOLLOW-THE-API-DOC-RULES`); the three modules Phase 1 names pass
+  `check_api_docs.py`.
 
 ## Implementation Steps
 

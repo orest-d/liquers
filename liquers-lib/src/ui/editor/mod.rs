@@ -21,6 +21,11 @@
 //! - [`EditorTree`] and [`EditorNode`]: what the renderers draw — the query text, resource,
 //!   `ns`, action, directive and subtree nodes, each action's [`EditorField`]s with the widget
 //!   [`effective_gui`] picks, the command picker ([`command_catalog`]) and the file selector.
+//!   A variadic argument with a shape (`VariadicShape`: tuples, a dictionary, a JSON value) keeps
+//!   its flat item list and adds [`EditorField::shape`] and [`ComponentField`]s; its structure
+//!   is edited with whole rows ([`EditorCommand::InsertRow`], `RemoveRow`, `MoveRow`) or replaced
+//!   at once ([`EditorCommand::SetItems`], a JSON value changing its [`JsonForm`]), so the query
+//!   never holds part of an element.
 //! - [`EditorView`]: what is being typed between frames, and the decoding of browser events.
 //! - [`NodeContext`] and [`recipe_folder`]: an editor bound to a recipe of a `recipes.yaml` asks
 //!   the runner for the folder's recipes and listing (`AppMessage::NodeContext`); its Node

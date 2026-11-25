@@ -8,10 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 271
+Total rows: 272
 - P1: 1
 - P2: 68
-- P3: 202
+- P3: 203
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -225,6 +225,7 @@ Total rows: 271
 | [`TEMPLATE-ERROR-AT-QUERY-LEVEL-LOSES-THE-TEMPLATE-POSITION`](issues/TEMPLATE-ERROR-AT-QUERY-LEVEL-LOSES-THE-TEMPLATE-POSITION.md) | issue | A template error raised through a query reports the position in the query, not in the template | draft |  |  | P3 | M | lib/commands |  | 2026-11-10 |
 | [`TEMPLATE-HAS-NO-MDBOOK-INCLUDE-SYNTAX`](issues/TEMPLATE-HAS-NO-MDBOOK-INCLUDE-SYNTAX.md) | feature | Liquers templates cannot read mdBook's {{#include}} syntax | draft |  |  | P3 | M | lib/commands;docs |  | 2026-11-01 |
 | [`WEB-API-REFERENCE-NOT-GENERATED`](issues/WEB-API-REFERENCE-NOT-GENERATED.md) | feature | liquers-web has no generated API reference and no check that every export is documented | draft |  |  | P3 | M | web;docs |  | 2026-10-26 |
+| [`WEB-COMMAND-CANNOT-DECLARE-VARIADIC-ARGUMENT`](issues/WEB-COMMAND-CANNOT-DECLARE-VARIADIC-ARGUMENT.md) | feature | A JavaScript command cannot declare a variadic argument or its shape | draft |  |  | P3 | M | web |  | 2026-11-25 |
 | [`WEB-EDITOR-HAS-NO-KEYBOARD-MODEL`](issues/WEB-EDITOR-HAS-NO-KEYBOARD-MODEL.md) | feature | The browser query editor has no keyboard shortcuts and cannot load icon images by key | draft |  |  | P3 | M | lib/ui;web | [phase1](design/query-editor-ergonomics/phase1-high-level-design.md)  [phase2](design/query-editor-ergonomics/phase2-architecture.md)  [phase3](design/query-editor-ergonomics/phase3-examples.md)  [phase4](design/query-editor-ergonomics/phase4-implementation.md)  [phase5](design/query-editor-ergonomics/phase5-documentation.md)  [reference](design/query-editor-ergonomics/reference-design.md)  [theme](design/query-editor-ergonomics/theme-formats.md)  | 2026-11-21 |
 | [`WEB-EVALUATE-CANNOT-RETURN-THE-SERIALIZED-RESULT`](issues/WEB-EVALUATE-CANNOT-RETURN-THE-SERIALIZED-RESULT.md) | feature | A page cannot get the bytes of a result in the format its file name asks for | draft |  |  | P3 | M | web |  | 2026-11-10 |
 | [`WEB-FOLDER-SERVES-STORED-FILES-ONLY`](issues/WEB-FOLDER-SERVES-STORED-FILES-ONLY.md) | feature | The web folder serves stored files only; a page that a recipe would compute is 404 | draft |  |  | P3 | M | axum |  | 2026-11-06 |
