@@ -372,6 +372,9 @@ compose elements, bind them to data through accessors, override the theme.
   showing a query of another field).
 - Layout: existing horizontal/vertical/grid/tabs/windows plus docking (`egui_dock` or `craft-ui`'s
   docking, per the craft survey) and responsive rules for the web and mobile.
+  Docking and resizable horizontal and vertical layouts were found missing in the DPL project
+  (Orest, 2026-11-25) and are requirement R17 of the master design, which also covers custom
+  layouts (§10.10).
 - Theme overrides per document and per element (style queries, G8).
 - Reuse: components (a `UISpec` fragment with parameters), includes by key.
 - Validation of a `UISpec` (like `liquers-validate` for queries), and a `UISpec` editor element.

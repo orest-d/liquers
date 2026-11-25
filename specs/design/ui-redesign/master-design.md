@@ -61,6 +61,7 @@ walkthrough
 | R14 | The old UI keeps working until M7 | plan §6 |
 | R15 | An author may pick one frontend and write an element in that frontend's idiom: immediate-mode egui code, DOM and events in the page. Liquers handles how elements interact and combine | Orest 2026-11-23 |
 | R16 | The architecture supports thin and thick clients and lets an application choose per data type and use case. The standard web client is "reasonably thick" and under 5 MB: records yes, polars no | Orest 2026-11-23 |
+| R17 | Resizable horizontal and vertical layouts and a docking layout are part of the standard set, in every frontend, with the sizes and the arrangement saved and restored. A custom layout can be defined without changing the core (§10.10) | Orest 2026-11-25, from the DPL project |
 
 ## 2. Answer in short
 
@@ -895,6 +896,69 @@ it does not know.
   none is named. An empty value stays a value (`title-` is an empty title), and the command
   editor shows two plain commands: a dictionary to set, a list of keys to remove.
 
+### 10.10 Resizable layouts, docking and custom layouts (proposed 2026-11-25)
+
+Requirement R17. The DPL project found that the UI has no docking layout and no resizable
+horizontal or vertical layout. Orest (2026-11-25) also asked whether a UISpec should be able to
+define a custom layout, since a layout is only an element that interprets its children and their
+layout data in a certain way. That is the model of §10.9, and the answer is yes, at three levels.
+
+**Resizable split.** `Split` is a level 1 node and its divider can be dragged. The sizes are the
+`size` and `weight` layout data of the children (§10.9), so they are saved, restored and set by
+a command with no new mechanism. While the user drags, the frontend owns the position, as it
+owns the draft of a text field (§10.4); when the drag ends it reports the new sizes. In split
+mode this is the client request to change layout data that §10.9 left open, so the runner
+protocol needs it (`RequestLayout`, beside `RequestAdd` and `RequestRemove`). In a terminal the
+divider moves with the keyboard.
+
+**Docking.** A dock arrangement is a tree of splits and tab groups, so its saved form is plain
+elements and layout data, the same in every frontend. `Dock` stays a level 2 node for drag and
+drop between panes, where each toolkit has its own way. A frontend without it shows the same
+tree as nested `Split` and `Tabs` nodes, and the position words `left`, `right`, `above`, `below`
+and `tab` still rearrange it by command. Docking is therefore usable at level 1 and comfortable
+at level 2.
+
+**Custom layouts.**
+
+1. *A layout written as an element.* Any element may be a layout: it reads its children and
+   their layout data and returns a view of portable nodes (`Row`, `Column`, `Split`, `Grid`,
+   `Tabs`, `Overlay`) with `Child` slots. It is registered like any element, in Rust, Python or
+   JavaScript, works in every frontend, and needs no change to the core. The spike grid of §10.9
+   is one in about sixty lines.
+2. *A layout defined in a UISpec, with no code.* A named layout is a template: a tree of
+   existing layouts with named places. A child chooses its place with the `role` key. This
+   covers page shapes (sidebar, toolbar, body, status), dashboards and form rows, and it is the
+   "components" part of D12.
+
+   ```yaml
+   layouts:
+     workbench:
+       split: {direction: horizontal}
+       children:
+         - place: sidebar
+           layout: {size: 30ch, min: 20ch}
+         - column:
+             children: [{place: toolbar}, {place: body, layout: {weight: 1}}, {place: status}]
+   root:
+     workbench:
+       children:
+         - tree: {query: ...}
+           layout: {role: sidebar}
+         - editor: {}
+           layout: {role: body}
+   ```
+
+   A place takes several children when its template says how (a column, tabs). A child with no
+   role goes to the place the template marks as the default. A custom layout may declare its own
+   layout keys; they are a specific grammar in the sense of §10.9 and are checked the same way.
+3. *A layout that computes positions* (flow, masonry, a timeline). This needs code, so it is an
+   element as in 1, and it needs two things the vocabulary does not have yet: a free-position
+   node (the `x`, `y`, `w`, `h` keys of §10.9 as a container) and the size it was given, as a
+   message when the size changes. Both are small, and both are open (§28).
+
+Not tested. The split, the dock tree and a template layout are candidates for the next spike
+step.
+
 ## 11. Frontends: three patterns over one store
 
 ```rust
@@ -1717,6 +1781,11 @@ Raised by spike S1 (findings §8), to be decided before D1's architecture:
   per-child layout data, interpreted by the parent, the right extension for free grids and
   roles? The slot marker for a native retained parent is still to be built. The notation in a
   command is no longer open: it is the dictionary shape of a variadic argument (PR #288).
+
+- **S1-g. Layouts** (§10.10): resizable split and docking as a tree of splits and tabs; custom
+  layouts as elements, as UISpec templates with named places, and with computed positions (which
+  needs a free-position node and a size message). Is the template form what you meant by custom
+  layouts in a UISpec?
 
 For the spikes and the sub-designs, not blocking approval:
 
