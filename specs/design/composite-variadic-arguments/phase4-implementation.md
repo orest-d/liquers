@@ -23,7 +23,7 @@ are written against materialised elements as they are today.
 - [x] Step 8: Display of a shaped argument and language bindings (`92db59d9`)
 - [x] Step 9: Editor core: shape, components, row commands (`34362203`)
 - [x] Step 10: Editor views (egui, web) (`3d09b846`)
-- [ ] Step 11: Build matrix and full test loops
+- [x] Step 11: Build matrix and full test loops (2026-11-25: all 49 configurations OK; core, macro, mcp and lib loops pass)
 - [x] Step 12: Documents and records (`step 12` commit; design and issue stay open for review)
 
 ## Deviations during implementation
