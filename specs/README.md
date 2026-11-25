@@ -483,6 +483,7 @@ deliberately folded behind a broader line.
 - design `multi-language-traceback`
 - design `multi-realm-dispatch`
 - design `next-presets-follow-planner-rules`
+- design `node-argument-recipe-form`
 - design `null-cell-string-option`
 - design `one-based-error-positions`
 - design `opendal-derived-store-arguments`
@@ -693,6 +694,7 @@ deliberately folded behind a broader line.
 - feature `NO-SQL-ENGINE-IN-WASM-BUILDS`
 - feature `NO-TEMPLATE-EDITOR-UI`
 - feature `NO-WRITE-PATH-FROM-RECORDS-INTO-A-RELATIONAL-DATABASE`
+- feature `NODE-ARGUMENT-CANNOT-PASS-A-RECIPE`
 - feature `PIPELINE-RESULTS-ARE-NEVER-CACHED`
 - feature `PREVIEW-IS-FRAMED-ONLY-IN-THE-QUERY-CONSOLE`
 - feature `PY-CANNOT-INSPECT-THE-DEPENDENCY-MANAGER`
