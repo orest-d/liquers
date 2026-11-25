@@ -871,12 +871,24 @@ than the shared vocabulary above, for example a size in characters as well as in
 each frontend takes the one it can use. This replaces the rule above that a parent reports a key
 it does not know.
 
-- **Checks.** A central check is useful where it is possible, but cannot be complete, because
-  what a key means depends on the parent and on the frontend. What can be central: one registry
-  of known keys with the type of each value (a number, or one of a set of words), checked when
-  the command runs. It catches a misspelt key and `row-top`; it says nothing about whether a
-  frontend uses the key. The precise shapes, the units and the registry are to be discussed with
-  the layout elements (D2 and the layout part of D12).
+- **A universal layout grammar (Orest, 2026-11-25).** There is one codified grammar for layout
+  data that is checked centrally and understood by several frontends, if not by all. Beside it
+  there may be specific grammars for certain elements or frontends. This is the model of CSS: a
+  standard that every engine reads, where an engine may ignore a property it does not implement,
+  plus properties that belong to one engine.
+  - *Universal*: the keys of the table above, each with a codified value type (a number, a
+    number with a unit, or one of a set of words) and codified units (characters, pixels, a
+    share of the rest). It lives in the core crate as data, so the check, the command editor,
+    the MCP schema and the documentation read the same definition. A value that breaks it is an
+    error when the command runs, whatever the frontend.
+  - *Specific*: a grammar owned by an element type or by a frontend, with keys that are told
+    apart from the universal ones by a prefix (as `-webkit-` in CSS). Its owner checks it; the
+    others pass it on untouched and ignore it.
+  - *Hints*: a frontend that does not implement a valid universal key ignores it. Each frontend
+    publishes which keys it implements, so a conformance table can be generated.
+  - To be designed with the layout elements (D2 and the layout part of D12): the exact keys and
+    value types, how a unit is written in a query (`size-20ch`, `size-240px`), the spelling of
+    the prefix, and whether the same grammar also describes the properties of a parent.
 - **Removing a key (proposed, not decided).** Separate commands, not an empty value:
   `ns-lui/layout-current-colspan-12` sets or replaces the keys given and keeps the others;
   `ns-lui/remove_layout-current-colspan-rowspan` removes the keys named, and all of them when
