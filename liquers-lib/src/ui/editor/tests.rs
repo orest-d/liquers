@@ -278,20 +278,21 @@ fn pipeline_text_is_read_only() {
 #[test]
 fn element_round_trips_and_old_console_state_loads() {
     let element = EditorElement::new("E", EditorKind::Action, EditorBinding::Memory("ns-pl/head".into()))
-        .with_continuous(false);
+        .with_update_mode(UpdateMode::OnDemand);
     let boxed: Box<dyn UIElement> = Box::new(element);
     let json = serde_json::to_string(&boxed).expect("serialize");
     let back: Box<dyn UIElement> = serde_json::from_str(&json).expect("deserialize");
     let back = back.as_any().and_then(|a| a.downcast_ref::<EditorElement>()).expect("editor");
     assert_eq!(back.kind(), EditorKind::Action);
-    assert!(!back.continuous());
+    assert_eq!(back.update_mode(), UpdateMode::OnDemand);
     assert_eq!(back.binding(), &EditorBinding::Memory("ns-pl/head".into()));
 
-    // An element saved without the optional fields loads with "Update immediately" on.
+    // An element saved without the optional fields loads in Live preview (query-update-modes
+    // AC-15); see `legacy_continuous_loads_as_a_mode` for "Update immediately".
     let old = r#"{"EditorElement":{"handle":null,"title":"E","kind":"Query","binding":{"Accessor":"-R/x"}}}"#;
     let old: Box<dyn UIElement> = serde_json::from_str(old).expect("old");
     let old = old.as_any().and_then(|a| a.downcast_ref::<EditorElement>()).expect("editor");
-    assert!(old.continuous());
+    assert_eq!(old.update_mode(), UpdateMode::LivePreview);
 
     // A query console saved before the Parameters panel loads with it closed.
     let console = crate::ui::widgets::QueryConsoleElement::new("C".to_string(), "-R/x".to_string());
@@ -511,7 +512,7 @@ fn namespace_change_awaits_confirmation() {
 /// query-pipeline-editor AC-26
 #[test]
 fn continuous_and_on_demand_writes() {
-    let mut state = EditorState::new(EditorKind::Query, Arc::new(registry())).with_continuous(false);
+    let mut state = EditorState::new(EditorKind::Query, Arc::new(registry())).with_update_mode(UpdateMode::OnDemand);
     state
         .on_snapshot(&Value::from_query(&parse_query(PROBLEM).expect("query")), Some(fp(1)))
         .expect("snapshot");
@@ -524,8 +525,101 @@ fn continuous_and_on_demand_writes() {
     state.apply(set(3, "n", "5")).expect("edit");
     assert!(matches!(state.apply(EditorCommand::Revert).expect("revert"), EditorEffect::Reload));
     state.apply(set(3, "n", "6")).expect("edit");
-    assert!(is_write(&state.apply(EditorCommand::SetContinuous(true)).expect("continuous")));
-    assert!(state.continuous());
+    assert!(is_write(&state.apply(EditorCommand::SetUpdateMode(UpdateMode::ApplyImmediately)).expect("immediate")));
+    assert_eq!(state.update_mode(), UpdateMode::ApplyImmediately);
+}
+
+/// query-update-modes AC-8, AC-9 (and AC-17 at the core): what a committed edit does in each
+/// mode, and Update writing the pending copy.
+#[test]
+fn commit_follows_the_update_mode() {
+    let query = Value::from_query(&parse_query(PROBLEM).expect("query"));
+    let start = |mode| {
+        let mut state = EditorState::new(EditorKind::Query, Arc::new(registry())).with_update_mode(mode);
+        state.on_snapshot(&query, Some(fp(1))).expect("snapshot");
+        state
+    };
+
+    let mut immediate = start(UpdateMode::ApplyImmediately);
+    assert!(is_write(&immediate.apply(set(3, "n", "4")).expect("edit")));
+
+    let mut on_demand = start(UpdateMode::OnDemand);
+    assert!(matches!(on_demand.apply(set(3, "n", "4")).expect("edit"), EditorEffect::None));
+    assert!(on_demand.tree().pending);
+    let EditorEffect::Write { value, .. } = on_demand.apply(EditorCommand::Update).expect("update") else {
+        panic!("Update writes the pending copy")
+    };
+    assert!(value.try_into_query().expect("query").encode().contains("head-4"));
+
+    let mut preview = start(UpdateMode::LivePreview);
+    let EditorEffect::Preview(value) = preview.apply(set(3, "n", "4")).expect("edit") else {
+        panic!("a Live preview edit is previewed")
+    };
+    assert!(value.try_into_query().expect("query").encode().contains("head-4"));
+    assert!(preview.tree().pending, "nothing is written yet");
+    assert!(is_write(&preview.apply(EditorCommand::Update).expect("update")));
+    assert!(matches!(preview.on_written(fp(2)), EditorEffect::ClearPreview));
+    preview.apply(set(3, "n", "5")).expect("edit");
+    assert!(matches!(preview.apply(EditorCommand::Revert).expect("revert"), EditorEffect::ClearPreview));
+}
+
+/// query-update-modes AC-10
+#[test]
+fn undo_and_redo_restore_the_working_copy() {
+    let mut state = editor(EditorKind::Query, PROBLEM);
+    assert!(!state.can_undo() && !state.tree().can_undo);
+    for n in ["1", "2", "3"] {
+        state.apply(set(3, "n", n)).expect("edit");
+        state.on_written(fp(2));
+    }
+    let text = |s: &EditorState| s.tree().text.clone();
+    assert!(text(&state).contains("head-3"));
+    assert!(is_write(&state.apply(EditorCommand::Undo).expect("undo")), "Apply immediately writes the restored copy");
+    state.on_written(fp(3));
+    state.apply(EditorCommand::Undo).expect("undo");
+    state.on_written(fp(4));
+    assert!(text(&state).contains("head-1"), "{}", text(&state));
+    assert!(state.tree().can_redo);
+    state.apply(EditorCommand::Redo).expect("redo");
+    state.on_written(fp(5));
+    assert!(text(&state).contains("head-2"), "{}", text(&state));
+    // A new edit clears what could be redone.
+    state.apply(set(3, "n", "9")).expect("edit");
+    state.on_written(fp(6));
+    assert!(!state.can_redo());
+    // With nothing left, Undo is not an error.
+    while state.can_undo() {
+        state.apply(EditorCommand::Undo).expect("undo");
+        state.on_written(fp(7));
+    }
+    assert!(matches!(state.apply(EditorCommand::Undo).expect("empty undo"), EditorEffect::None));
+    assert_eq!(text(&state), parse_query(PROBLEM).expect("query").encode());
+    // The history keeps the last 100 edits.
+    for i in 0..120 {
+        state.apply(set(3, "n", &i.to_string())).expect("edit");
+        state.on_written(fp(8));
+    }
+    let mut undone = 0;
+    while state.can_undo() {
+        state.apply(EditorCommand::Undo).expect("undo");
+        state.on_written(fp(9));
+        undone += 1;
+    }
+    assert_eq!(undone, 100);
+}
+
+/// query-update-modes AC-20
+#[test]
+fn update_mode_names_round_trip() {
+    for mode in UpdateMode::ALL {
+        assert_eq!(UpdateMode::from_name(mode.name()).expect("name"), mode);
+        let json = serde_json::to_string(&mode).expect("serialize");
+        assert_eq!(json, format!("\"{}\"", mode.name()));
+        assert_eq!(serde_json::from_str::<UpdateMode>(&json).expect("deserialize"), mode);
+    }
+    assert_eq!(UpdateMode::default(), UpdateMode::LivePreview);
+    let error = UpdateMode::from_name("sometimes").expect_err("unknown");
+    assert!(error.to_string().contains("on_demand, preview or immediate"), "{error}");
 }
 
 /// query-pipeline-editor AC-26
@@ -621,7 +715,6 @@ fn simple_layout_of_the_problem_example() {
     assert_eq!(layout.groups.len(), 1);
     assert_eq!(layout.groups[0].kind, CardGroupKind::QueryPart);
     assert!(matches!(layout.groups[0].cards[0].node, EditorNode::Action { label, .. } if label == "Get first rows"));
-    assert!(!layout.outline);
 
     // A link argument stays its field's text: `gt` is a chip, its link no card.
     let state = ergonomics_editor(L);
@@ -635,7 +728,6 @@ fn simple_layout_of_the_problem_example() {
 fn advanced_layout_groups_key_and_query_parts() {
     let state = ergonomics_editor(L);
     let layout = editor_layout(state.tree(), EditorMode::Advanced);
-    assert!(layout.outline);
     assert!(layout.before.is_empty() && layout.after.is_empty());
     let kinds: Vec<_> = layout.groups.iter().map(|g| g.kind).collect();
     assert_eq!(kinds, [CardGroupKind::KeyPart, CardGroupKind::QueryPart]);
@@ -866,7 +958,7 @@ fn spans_of_the_problem_example() {
 
 // Test 15 (AC-10).
 #[test]
-fn jump_round_trip_and_simple_offer() {
+fn jump_round_trip_and_advanced_on_other_step() {
     let mut state = ergonomics_editor(P);
     let tree = state.tree().clone();
     let at = tree.text.rfind("20").expect("20");
@@ -883,14 +975,21 @@ fn jump_round_trip_and_simple_offer() {
     assert_eq!(view.jump_to_text(&tree), Some(span.range.clone()));
     assert_eq!(view.focus, Some(FocusTarget::Text));
 
-    // `1000` is outside the Simple card: offer Advanced, keep focus.
+    // `1000` is outside the Simple card: Advanced mode opens with that step the open card.
     let at = tree.text.find("1000").expect("1000");
     view.jump_from_text(&tree, EditorMode::Simple, at);
-    assert_eq!(view.simple_offer, Some(NodePath::element(1)));
-    assert_eq!(view.focus, Some(FocusTarget::Text));
+    assert_eq!(view.mode_request, Some(EditorMode::Advanced));
+    assert!(matches!(&view.focus, Some(FocusTarget::Field { path, arg, .. }) if arg == "value" && path == &NodePath::element(1)));
+    view.shown_mode = Some(EditorMode::Simple);
+    view.enter_mode(&tree, EditorMode::Advanced);
+    assert!(view.mode_request.is_none());
+    assert!(!view.collapsed.contains(&NodePath::element(1).id()), "the jumped-to step is open");
+    let head = tree.nodes[tree.last_action().expect("head")].path().id();
+    assert!(view.collapsed.contains(&head), "every other step is collapsed");
     view.jump_from_text(&tree, EditorMode::Advanced, at);
-    assert!(view.simple_offer.is_none());
+    assert!(view.mode_request.is_none());
     assert!(matches!(&view.focus, Some(FocusTarget::Field { arg, .. }) if arg == "value"));
+    view.focus = Some(FocusTarget::Text);
 
     // Typed but not committed: commit first, jump after the rebuild.
     let typed = tree.text.replace("head-20", "head-30");
@@ -902,4 +1001,422 @@ fn jump_round_trip_and_simple_offer() {
     view.resume_jump(state.tree(), EditorMode::Simple);
     assert!(view.pending_jump.is_none());
     assert!(matches!(&view.focus, Some(FocusTarget::Field { arg, .. }) if arg == "n"));
+}
+
+// Entering Advanced mode opens one card: the last action unless focus names another.
+#[test]
+fn entering_advanced_collapses_all_but_one_card() {
+    let state = ergonomics_editor(P);
+    let tree = state.tree().clone();
+    let head = tree.nodes[tree.last_action().expect("head")].path().clone();
+    let mut view = EditorView::default();
+    view.enter_mode(&tree, EditorMode::Simple);
+    assert!(view.collapsed.is_empty(), "Simple mode collapses nothing");
+    view.enter_mode(&tree, EditorMode::Advanced);
+    let open: Vec<_> = tree.nodes.iter().map(|n| n.path().id()).filter(|id| !view.collapsed.contains(id)).collect();
+    assert_eq!(open, [head.id()]);
+
+    // Staying in Advanced mode keeps what the user expanded.
+    view.collapsed.clear();
+    view.enter_mode(&tree, EditorMode::Advanced);
+    assert!(view.collapsed.is_empty());
+
+    // A chip (focus on its step) opens that step instead.
+    view.enter_mode(&tree, EditorMode::Simple);
+    view.focus = Some(FocusTarget::Node(NodePath::element(1)));
+    view.enter_mode(&tree, EditorMode::Advanced);
+    assert!(!view.collapsed.contains(&NodePath::element(1).id()));
+    assert!(view.collapsed.contains(&head.id()));
+}
+
+// A step chip's mode event names the step Advanced mode opens; the mode switch names none.
+#[test]
+fn mode_event_names_the_chip_step() {
+    use crate::ui::event::{UIEvent, UIEventKind};
+    let chip = UIEvent::new(UIEventKind::Named("ed:mode:1:advanced".into()));
+    assert_eq!(EditorView::mode_event_path(&chip), Some(NodePath::element(1)));
+    let switch = UIEvent::new(UIEventKind::Named("ed:mode::advanced".into()));
+    assert_eq!(EditorView::mode_event_path(&switch), None);
+}
+
+// --- Node arguments (design `recipe-tree`) ---
+
+fn tree_registry() -> Arc<CommandMetadataRegistry> {
+    use liquers_core::command_metadata::{ArgumentType, NodeArgument};
+    let mut cmr = CommandMetadataRegistry::new();
+    let mut attach = CommandMetadata::new("attach");
+    let mut part = ArgumentInfo::any_argument("part");
+    part.argument_type = ArgumentType::Node(NodeArgument::new("glb"));
+    attach.with_argument(part);
+    cmr.add_command(&attach);
+    Arc::new(cmr)
+}
+
+fn car_context() -> NodeContext {
+    let recipes: liquers_core::recipes::RecipeList = serde_yaml::from_str(
+        "recipes:\n  - {query: tyre.glb, title: Tyre}\n  - {query: \"-R/./tyre.glb/-/wheel.glb\", title: Wheel}\n  - {query: \"-R/./body.glb/-/attach-wheel/car.glb\", title: Car}\n",
+    )
+    .expect("recipes");
+    NodeContext::new(
+        "scenes/car",
+        recipes,
+        Some(vec!["body.glb".into(), "tyre.glb".into(), "recipes.yaml".into()]),
+    )
+}
+
+fn node_editor(query: &str) -> EditorState {
+    let mut state = EditorState::new(EditorKind::Query, tree_registry());
+    let q = parse_query(query).expect("query");
+    state.on_snapshot(&Value::from_query(&q), Some(fp(1))).expect("snapshot");
+    state
+}
+
+/// AC-18: a Node field lists the folder's nodes of its extension, with filename and title.
+#[test]
+fn node_selector_lists_filename_and_title() {
+    let mut state = node_editor("-R/./body.glb/-/attach-wheel/car.glb");
+    assert!(field(state.tree(), 1, "part").node_choices.is_empty(), "no folder yet");
+    assert_eq!(field(state.tree(), 1, "part").widget, ArgumentGUIInfo::NodeSelector);
+    state.set_node_context(Some(car_context()));
+    let f = field(state.tree(), 1, "part");
+    let choices: Vec<(&str, &str, &str)> = f
+        .node_choices
+        .iter()
+        .map(|c| (c.name.as_str(), c.filename.as_str(), c.title.as_str()))
+        .collect();
+    assert_eq!(
+        choices,
+        vec![
+            ("body", "body.glb", ""),
+            ("car", "car.glb", "Car"),
+            ("tyre", "tyre.glb", "Tyre"),
+            ("wheel", "wheel.glb", "Wheel")
+        ]
+    );
+    assert_eq!(f.value, FieldValue::Text("wheel".into()));
+    assert_eq!(
+        recipe_folder("-R-key/scenes/car/recipes.yaml/-/ns-acc/accessor/recipe-2/query").as_deref(),
+        Some("scenes/car")
+    );
+    assert_eq!(recipe_folder("-R/data/x.csv"), None);
+}
+
+/// AC-18: a link to a node of the folder is shown as the node's name.
+#[test]
+fn node_selector_shows_link_as_name() {
+    let state = node_editor("-R/./body.glb/-/attach-~X~-R/./wheel.glb~E/car.glb");
+    assert_eq!(field(state.tree(), 1, "part").value, FieldValue::Text("wheel".into()));
+    let other = node_editor("-R/./body.glb/-/attach-~X~-R/data/wheel.glb~E/car.glb");
+    assert!(matches!(field(other.tree(), 1, "part").value, FieldValue::Link { .. }));
+}
+
+/// AC-25: Rename rewrites the whole document and asks for the stored file's rename.
+#[test]
+fn node_selector_rename_writes_document_and_data() {
+    let mut state = node_editor("-R/./body.glb/-/attach-wheel/car.glb");
+    assert!(state
+        .apply(EditorCommand::RenameNode { from: "wheel".into(), to: "w".into() })
+        .is_err(), "no folder: refused");
+    state.set_node_context(Some(car_context()));
+    match state
+        .apply(EditorCommand::RenameNode { from: "tyre".into(), to: "tire".into() })
+        .expect("rename")
+    {
+        EditorEffect::RenameData { folder, editor } => {
+            assert_eq!(folder, "scenes/car");
+            let queries: Vec<&str> =
+                editor.recipes().recipes.iter().map(|r| r.query.as_str()).collect();
+            assert_eq!(queries, vec!["tire.glb", "-R/./tire.glb/-/wheel.glb", "-R/./body.glb/-/attach-wheel/car.glb"]);
+            assert_eq!(editor.pending_data_renames().len(), 1);
+            assert_eq!(editor.pending_data_renames()[0].to, "tire.glb");
+        }
+        other => panic!("expected RenameData, got {other:?}"),
+    }
+    let names: Vec<String> = field(state.tree(), 1, "part")
+        .node_choices
+        .iter()
+        .map(|c| c.name.clone())
+        .collect();
+    assert!(names.contains(&"tire".to_string()), "{names:?}");
+    let error = state
+        .apply(EditorCommand::RenameNode { from: "wheel".into(), to: "car".into() })
+        .expect_err("car is taken");
+    assert!(error.message.contains("car.glb"), "{error}");
+}
+
+// "Insert action after": the picker inserts at the next sibling, also after the last step.
+#[test]
+fn insert_action_after_a_step() {
+    let mut state = editor(EditorKind::Query, "-R/a.csv/-/ns-pl/sort");
+    let resource = state.tree().nodes[0].path().clone();
+    assert_eq!(resource.next_sibling(), NodePath::element(1));
+    state
+        .apply(EditorCommand::SearchCommands { insert_at: Some(resource.next_sibling()), filter: String::new() })
+        .expect("picker");
+    state.apply(EditorCommand::PickCommand(CommandKey::new("", "pl", "is_in"))).expect("pick");
+    assert!(state.tree().text.starts_with("-R/a.csv/-/ns-pl/is_in"), "{}", state.tree().text);
+
+    let last = state.tree().nodes[state.tree().last_action().expect("last")].path().clone();
+    state
+        .apply(EditorCommand::SearchCommands { insert_at: Some(last.next_sibling()), filter: String::new() })
+        .expect("picker");
+    state.apply(EditorCommand::PickCommand(CommandKey::new("", "pl", "is_in"))).expect("pick after the last");
+    assert!(state.tree().text.ends_with("/sort/is_in"), "{}", state.tree().text);
+}
+
+/// query-update-modes AC-17, AC-18 (the element): a Live preview edit is sent to the followed
+/// view with the recipe's folder; a write or a Revert ends it there.
+#[test]
+fn live_preview_clears_on_write_and_revert() {
+    use crate::ui::app_state::{AppState, DirectAppState};
+    use crate::ui::element::UpdateMessage;
+    use crate::ui::handle::UIHandle;
+    use crate::ui::message::{app_message_channel, AccessorUpdate, AppMessage};
+    use crate::ui::ui_context::UIContext;
+    let (tx, mut rx) = app_message_channel();
+    let app_state: Arc<tokio::sync::Mutex<dyn AppState>> = Arc::new(tokio::sync::Mutex::new(DirectAppState::new()));
+    let ctx = UIContext::new(app_state, tx).with_command_registry(Arc::new(registry()));
+    let address = "-R-key/reports/recipes.yaml/-/ns-acc/accessor/recipe-0/query";
+    let mut element = EditorElement::new("E", EditorKind::Query, EditorBinding::Accessor(address.into()))
+        .with_follow(UIHandle(9));
+    assert_eq!(element.update_mode(), UpdateMode::LivePreview, "the default of a recipe's editor");
+    element.init(UIHandle(1), &ctx).expect("init");
+    while rx.try_recv().is_ok() {}
+    let value = Arc::new(Value::from_query(&parse_query(PROBLEM).expect("query")));
+    element.update(&UpdateMessage::Accessor(AccessorUpdate::Snapshot { value, fingerprint: Some(fp(1)) }), &ctx);
+
+    let preview_end = |rx: &mut crate::ui::message::AppMessageReceiver| loop {
+        match rx.try_recv() {
+            Ok(AppMessage::UIEvent { handle, event }) => {
+                break handle == UIHandle(9)
+                    && matches!(&event.kind, crate::ui::event::UIEventKind::Named(n) if n == PREVIEW_END_EVENT)
+            }
+            Ok(_) => continue,
+            Err(_) => break false,
+        }
+    };
+    element.apply_commands(vec![set(3, "n", "4")], &ctx);
+    match rx.try_recv() {
+        Ok(AppMessage::Preview { handle, query, cwd }) => {
+            assert_eq!(handle, UIHandle(9), "in place, in the followed view");
+            assert!(query.contains("head-4"), "{query}");
+            assert_eq!(cwd.as_deref(), Some("reports"));
+        }
+        other => panic!("expected a preview, got {other:?}"),
+    }
+    element.apply_commands(vec![EditorCommand::Revert], &ctx);
+    assert!(
+        matches!(rx.try_recv(), Ok(AppMessage::Accessor { op: crate::ui::message::AccessorOp::Get, .. })),
+        "Revert reloads the working copy"
+    );
+    assert!(!preview_end(&mut rx), "the view waits for the saved value");
+    let value = Arc::new(Value::from_query(&parse_query(PROBLEM).expect("query")));
+    element.update(&UpdateMessage::Accessor(AccessorUpdate::Snapshot { value, fingerprint: Some(fp(1)) }), &ctx);
+    assert!(preview_end(&mut rx), "then the preview in the view ends");
+
+    element.apply_commands(vec![set(3, "n", "5"), EditorCommand::Update], &ctx);
+    element.update(&UpdateMessage::Accessor(AccessorUpdate::Written { fingerprint: fp(2) }), &ctx);
+    assert!(preview_end(&mut rx), "a write ends it too");
+    assert!(!element.tree().expect("tree").pending);
+}
+
+/// query-update-modes AC-15, AC-20: an element saved with "Update immediately" loads as a mode;
+/// one saved without either loads in Live preview, or Apply immediately where Live preview is
+/// not offered; the mode round-trips.
+#[test]
+fn legacy_continuous_loads_as_a_mode() {
+    let load = |json: &str| -> UpdateMode {
+        let element: Box<dyn UIElement> = serde_json::from_str(json).expect("element");
+        element.as_any().and_then(|a| a.downcast_ref::<EditorElement>()).expect("editor").update_mode()
+    };
+    let saved = |kind: &str, extra: &str| {
+        format!(r#"{{"EditorElement":{{"handle":null,"title":"E","kind":"{kind}","binding":{{"Accessor":"-R/x"}}{extra}}}}}"#)
+    };
+    assert_eq!(load(&saved("Query", r#","continuous":true"#)), UpdateMode::ApplyImmediately);
+    assert_eq!(load(&saved("Query", r#","continuous":false"#)), UpdateMode::OnDemand);
+    assert_eq!(load(&saved("Query", "")), UpdateMode::LivePreview);
+    assert_eq!(load(&saved("Action", "")), UpdateMode::ApplyImmediately);
+    assert_eq!(load(&saved("Query", r#","update_mode":"on_demand""#)), UpdateMode::OnDemand);
+    let element = EditorElement::new("E", EditorKind::Action, EditorBinding::Memory(String::new()))
+        .with_update_mode(UpdateMode::LivePreview);
+    assert_eq!(element.update_mode(), UpdateMode::OnDemand, "an action editor has no Live preview");
+    let json = serde_json::to_string(&(Box::new(element) as Box<dyn UIElement>)).expect("json");
+    assert!(json.contains(r#""update_mode":"on_demand""#) && !json.contains("continuous"), "{json}");
+}
+
+// --- shaped variadic arguments (design `composite-variadic-arguments`) ---------------------------
+
+fn shaped_editor(query: &str) -> EditorState {
+    use liquers_core::command_metadata::{ArgumentType, VariadicShape};
+    let mut cmr = registry();
+    let mut weights = CommandMetadata::new("weights");
+    weights.with_argument(
+        ArgumentInfo::any_argument("pairs")
+            .set_multiple()
+            .with_shape(VariadicShape::Tuples(vec![ArgumentType::String, ArgumentType::Integer]))
+            .with_columns(&["Name", "Weight"]),
+    );
+    cmr.add_command(&weights);
+    let mut place = CommandMetadata::new("place");
+    place
+        .with_argument(ArgumentInfo::string_argument("word"))
+        .with_argument(ArgumentInfo::any_argument("layout").set_multiple().with_shape(VariadicShape::Map));
+    cmr.add_command(&place);
+    let mut set_data = CommandMetadata::new("set_data");
+    set_data.with_argument(
+        ArgumentInfo::any_argument("data").set_multiple().with_shape(VariadicShape::Json),
+    );
+    cmr.add_command(&set_data);
+    let mut state = EditorState::new(EditorKind::Query, Arc::new(cmr));
+    let q = parse_query(query).expect("query");
+    state.on_snapshot(&Value::from_query(&q), Some(fp(1))).expect("snapshot");
+    state
+}
+
+/// The only action of a one-action query: its path and the named field.
+fn shaped_field(state: &EditorState, name: &str) -> (NodePath, EditorField) {
+    let node = state
+        .tree()
+        .nodes
+        .iter()
+        .find(|n| matches!(n, EditorNode::Action { .. }))
+        .expect("an action");
+    let field = node.fields().iter().find(|f| f.name == name).expect("field").clone();
+    (node.path().clone(), field)
+}
+
+fn texts(field: &EditorField) -> Vec<String> {
+    field.item_texts().into_iter().map(|t| t.expect("a literal")).collect()
+}
+
+/// composite-variadic-arguments AC-13, AC-14: tuples are rows with named columns; a row is
+/// inserted, removed and moved whole, and a cell is one item.
+#[test]
+fn shaped_tuple_rows_edit_whole_elements() {
+    use liquers_core::command_metadata::VariadicShape;
+    let mut state = shaped_editor("weights-a-1-b-2");
+    let (path, field) = shaped_field(&state, "pairs");
+    assert!(matches!(field.shape, VariadicShape::Tuples(_)));
+    assert_eq!(
+        field.components.iter().map(|c| c.label.as_str()).collect::<Vec<_>>(),
+        vec!["Name", "Weight"]
+    );
+    assert_eq!(field.components[1].widget, ArgumentGUIInfo::IntegerField);
+    assert_eq!(texts(&field), vec!["a", "1", "b", "2"]);
+
+    let row = |at, texts: &[&str]| EditorCommand::InsertRow {
+        path: path.clone(),
+        arg: "pairs".into(),
+        at,
+        texts: texts.iter().map(|t| t.to_string()).collect(),
+    };
+    state.apply(row(1, &["c", "3"])).expect("insert a row");
+    assert_eq!(state.tree().text, "weights-a-1-c-3-b-2");
+    assert!(state.apply(row(0, &["only"])).is_err(), "a partial element is refused");
+    assert_eq!(state.tree().text, "weights-a-1-c-3-b-2");
+
+    state
+        .apply(EditorCommand::MoveRow { path: path.clone(), arg: "pairs".into(), from: 0, to: 2 })
+        .expect("move forwards");
+    assert_eq!(state.tree().text, "weights-c-3-b-2-a-1");
+    state
+        .apply(EditorCommand::MoveRow { path: path.clone(), arg: "pairs".into(), from: 2, to: 0 })
+        .expect("move backwards");
+    assert_eq!(state.tree().text, "weights-a-1-c-3-b-2");
+
+    // Row 1, component 1 is item 3.
+    state
+        .apply(EditorCommand::SetItem { path: path.clone(), arg: "pairs".into(), at: 3, text: "30".into() })
+        .expect("a cell");
+    assert_eq!(state.tree().text, "weights-a-1-c-30-b-2");
+    state
+        .apply(EditorCommand::RemoveRow { path: path.clone(), arg: "pairs".into(), at: 0 })
+        .expect("remove a row");
+    assert_eq!(state.tree().text, "weights-c-30-b-2");
+    state
+        .apply(EditorCommand::RemoveRow { path: path.clone(), arg: "pairs".into(), at: 0 })
+        .expect("remove a row");
+    state
+        .apply(EditorCommand::RemoveRow { path, arg: "pairs".into(), at: 0 })
+        .expect("remove the last row");
+    assert_eq!(state.tree().text, "weights");
+
+    // A row into an argument that is not given yet.
+    let mut state = shaped_editor("weights");
+    let (path, _) = shaped_field(&state, "pairs");
+    state
+        .apply(EditorCommand::InsertRow { path, arg: "pairs".into(), at: 0, texts: vec!["a".into(), "1".into()] })
+        .expect("the first row");
+    assert_eq!(state.tree().text, "weights-a-1");
+}
+
+/// composite-variadic-arguments AC-13: a dictionary pair is added whole, key and value
+/// together, and a key it already has is refused.
+#[test]
+fn shaped_map_pair_is_added_whole() {
+    use liquers_core::command_metadata::VariadicShape;
+    let mut state = shaped_editor("place-current-row-0");
+    let (path, field) = shaped_field(&state, "layout");
+    assert_eq!(field.shape, VariadicShape::Map);
+    assert_eq!(
+        field.components.iter().map(|c| c.label.as_str()).collect::<Vec<_>>(),
+        vec!["key", "value"]
+    );
+    let pair = |key: &str, value: &str| EditorCommand::InsertRow {
+        path: path.clone(),
+        arg: "layout".into(),
+        at: 1,
+        texts: vec![key.to_string(), value.to_string()],
+    };
+    state.apply(pair("col", "8")).expect("a pair");
+    assert_eq!(state.tree().text, "place-current-row-0-col-8");
+    assert!(state.apply(pair("row", "1")).is_err(), "a key given twice");
+    assert!(state.apply(pair("", "1")).is_err(), "an empty key");
+    assert!(
+        state
+            .apply(EditorCommand::InsertRow { path: path.clone(), arg: "layout".into(), at: 1, texts: vec!["x".into()] })
+            .is_err(),
+        "a key without a value"
+    );
+    assert_eq!(state.tree().text, "place-current-row-0-col-8");
+
+    // The value of a pair is one item; removing a pair removes both.
+    state
+        .apply(EditorCommand::SetItem { path: path.clone(), arg: "layout".into(), at: 3, text: "4".into() })
+        .expect("a value");
+    assert_eq!(state.tree().text, "place-current-row-0-col-4");
+    state
+        .apply(EditorCommand::RemoveRow { path, arg: "layout".into(), at: 0 })
+        .expect("remove a pair");
+    assert_eq!(state.tree().text, "place-current-col-4");
+}
+
+/// composite-variadic-arguments AC-13: a JSON value changes its form with one command, and the
+/// editor writes the leading empty item of a list itself.
+#[test]
+fn shaped_json_form_change_rewrites_items() {
+    let mut state = shaped_editor("set_data-5");
+    let (path, field) = shaped_field(&state, "data");
+    assert_eq!(field.json_form(), JsonForm::Scalar);
+    let to = |state: &mut EditorState, form: JsonForm| {
+        let (_, field) = shaped_field(state, "data");
+        let texts = form.convert(&texts(&field));
+        state
+            .apply(EditorCommand::SetItems { path: path.clone(), arg: "data".into(), texts })
+            .expect("set items");
+        let (_, field) = shaped_field(state, "data");
+        assert_eq!(field.json_form(), form, "{}", state.tree().text);
+        state.tree().text.clone()
+    };
+    assert_eq!(to(&mut state, JsonForm::List), "set_data--5");
+    assert_eq!(to(&mut state, JsonForm::Dictionary), "set_data-key1-5");
+    assert_eq!(to(&mut state, JsonForm::List), "set_data--5");
+    assert_eq!(to(&mut state, JsonForm::Scalar), "set_data-5");
+    assert_eq!(to(&mut state, JsonForm::Null), "set_data");
+    assert_eq!(to(&mut state, JsonForm::List), "set_data-");
+    assert_eq!(to(&mut state, JsonForm::Scalar), "set_data-0");
+
+    assert_eq!(JsonForm::of(&["row", "0", "col", "8"]), JsonForm::Dictionary);
+    assert_eq!(JsonForm::List.convert(&["row", "0", "col", "8"]), vec!["", "0", "8"]);
+    assert_eq!(JsonForm::from_label("dictionary"), Some(JsonForm::Dictionary));
 }

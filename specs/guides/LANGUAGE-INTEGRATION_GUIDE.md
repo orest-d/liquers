@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets, core/store, core/value, lib/commands]
-reviewed: 2026-11-16
+reviewed: 2026-11-25
 ---
 # Liquers Language Integration Guide
 
@@ -852,7 +852,10 @@ including labels derived from `snake_case` or `camelCase` names — are created.
 supplies introspection (stage 1) and the handover that keeps the callable out of the portable data;
 everything from the merge onward is shared. Facts specific to your *language*, such as how the
 *State* is passed or whether a variadic arrives spread, go in `hints`, which core carries without
-interpreting.
+interpreting. A variadic argument may declare a shape (`shape`: tuples, `map` or `json`, with
+`columns`; `REGISTER_COMMAND_FSD.md` §Variadic Parameters): the metadata carries it as it is, and
+an *integration* that lets a *language command* declare one must also say how the grouped values
+reach the callable.
 
 **Objects/API to map or implement:**
 
@@ -4226,6 +4229,7 @@ def test_DOCS04_every_public_name_is_documented():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-25 | `COMMAND`: a variadic argument may declare a shape; what an integration owes when it lets a language command declare one. | `design/composite-variadic-arguments/` |
 | 2026-11-16 | New feature `ACCESSOR`: settable value accessors from the *language*, in two directions (use an existing accessor, define a root or step), with the wrapper rules (one token per wrapper, conflicts carrying the current token, the same `Arc` back, where events run, the driver), design questions and tests `ACCESSOR01`–`07`. §4 row, soft dependency and profiles; §6 Browser JavaScript and Python entries (direction 1; direction 2 `NA`, `ACCESSOR-CANNOT-BE-IMPLEMENTED-IN-PYTHON-OR-JAVASCRIPT`); Appendix A blueprints. | `design/settable-value-accessor/` |
 | 2026-11-15 | §6 Python lessons: stubs follow the module a class reports; maturin needs the extension inside a package (`_liquers`). | `design/py-package-submodules/` |
 | 2026-11-11 | §6 Python: a Liquers UI (`UIUSE`): the UI payload, the native driver in the background and in a window, delivery on threads that ask, unreturnable waits refused, the main-thread window with Ctrl-C. | `design/liquers-py-ui/`, `design/liquers-py-ui-window/` |

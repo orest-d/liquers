@@ -13,7 +13,8 @@
 use std::collections::BTreeMap;
 
 use liquers_core::{
-    command_metadata::{ArgumentInfo, CommandMetadataRegistry},
+    command_metadata::{ArgumentInfo, CommandMetadataRegistry, VariadicShape},
+    commands::json_value_from_texts,
     error::{Error, ErrorType},
     parse::parse_query,
     plan::{ParameterValue, Plan, PlanBuilder, Step},
@@ -252,6 +253,10 @@ enum TextOverride {
 }
 
 fn text_to_override(argument: &ArgumentInfo, texts: &[String]) -> Result<TextOverride, Error> {
+    // A JSON value argument reads its form from the texts, as it does from query parameters.
+    if argument.multiple && argument.shape == VariadicShape::Json {
+        return Ok(TextOverride::Value(json_value_from_texts(texts)?));
+    }
     if argument.multiple {
         let mut values = Vec::with_capacity(texts.len());
         for text in texts {
@@ -275,7 +280,9 @@ fn text_to_override(argument: &ArgumentInfo, texts: &[String]) -> Result<TextOve
         )));
     };
     match ParameterValue::from_string(argument, text, &Position::unknown())? {
-        ParameterValue::EnumLink(_, link, _) => Ok(TextOverride::Link(link)),
+        ParameterValue::EnumLink(_, link, _) | ParameterValue::NodeLink(_, _, link, _) => {
+            Ok(TextOverride::Link(link))
+        }
         other => other.value().map(TextOverride::Value).ok_or_else(|| {
             Error::conversion_error_with_message(text, &argument.name, "no value for this text")
         }),
@@ -286,6 +293,7 @@ fn text_to_override(argument: &ArgumentInfo, texts: &[String]) -> Result<TextOve
 fn single(argument: &ArgumentInfo) -> ArgumentInfo {
     let mut element = argument.clone();
     element.multiple = false;
+    element.shape = VariadicShape::List;
     element
 }
 

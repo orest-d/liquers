@@ -422,6 +422,36 @@ impl Error {
     ///
     /// Raised by [`crate::query::Query::check_encodable`] and by the pipeline editors, before a
     /// query that would not parse back is ever encoded.
+    /// A Node argument was given by name (`node`) where no working directory is set, so the
+    /// name cannot become a link to a file of the folder.
+    pub fn node_needs_cwd(argument: &str, node: &str) -> Self {
+        Error::new(
+            ErrorType::KeyNotAbsolute,
+            format!(
+                "Argument '{argument}': node '{node}' needs a working directory; set one \
+                 (e.g. -R-cwd/<folder>/-/…) or pass a link"
+            ),
+        )
+    }
+    /// A recipe of a strict recipe tree depends on something strict mode forbids (`detail`):
+    /// a key not directly in the folder, or a link argument (`subject`), in `node`.
+    pub fn strict_dependency(node: &str, subject: &str, detail: &str) -> Self {
+        Error::new(
+            ErrorType::ParameterError,
+            format!("Strict recipe tree: node '{node}', '{subject}': {detail}"),
+        )
+    }
+    /// The references of a recipe tree form a cycle through `nodes` (in order).
+    pub fn tree_cycle(nodes: &[String]) -> Self {
+        Error::new(
+            ErrorType::DependencyCycle,
+            format!("Recipe tree cycle: {}", nodes.join(" -> ")),
+        )
+    }
+    /// A recipe tree fails its check (`detail` names the nodes).
+    pub fn tree_check(detail: &str) -> Self {
+        Error::new(ErrorType::ParameterError, format!("Recipe tree: {detail}"))
+    }
     pub fn invalid_token(value: &str, class: &str) -> Self {
         Error::new(
             ErrorType::ParameterError,

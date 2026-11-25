@@ -29,6 +29,7 @@ fn palette_vars(out: &mut String, p: &Palette, theme: &Theme, mode: ThemeMode) {
         ("warning", st.warning),
         ("success", st.success),
         ("modified", st.modified),
+        ("preview", st.preview),
     ];
     for (name, colour) in vars {
         let _ = write!(out, "--lq-{name}:{colour};");

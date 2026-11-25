@@ -9,21 +9,24 @@
 //! # Main components
 //!
 //! - [`show_editor`]: the mode switch and the toolbar ("Update immediately", Update, Revert), the
-//!   highlighted query text, then the [`editor_layout`] of the mode. Simple mode: step chips, one
-//!   card for the last action and "Continue with" chips. Advanced mode: an outline beside the key
-//!   part and query part cards, link arguments nested under their field, Collapse all / Expand
-//!   all, and the filename field.
+//!   highlighted query text (unless the host draws it: [`EditorTree::hide_text`]), then the
+//!   [`editor_layout`] of the mode. Simple mode: step chips, one card for the last action and
+//!   "Continue with" chips. Advanced mode: every card, collapsed except one (the last action, or
+//!   the step a chip or `Ctrl+J` opened), link arguments nested under their field, Collapse all /
+//!   Expand all, and the filename field.
 //! - Cards: a themed frame; a header of [`header_parts`] (chevron, icon, label, dimmed
 //!   `namespace/name`, marks, position, menu); the [`toolbar_items`] when expanded, with presets as
 //!   chips (at most three, the active one lit, the rest under "+N"); and a form grid of
-//!   [`form_rows`] (labels, editors, per-field actions, help and the refused edit's message).
+//!   [`form_rows`] (labels, editors, per-field actions and the refused edit's message; an
+//!   argument's description and default are in the hover of its label and editor).
 //! - The keyboard model of [`editor_keymap`], and `Ctrl+J` between the query text and the field
-//!   at the cursor (the jump of [`EditorView`]).
+//!   at the cursor (the jump of [`EditorView`]); a jump in Simple mode to another step switches
+//!   to Advanced mode with that step open.
 //! - Variadic items and `ns` lists reorder by drag and drop (`Ui::dnd_drag_source`).
 //!
 //! # Where it is used
 //!
-//! - `EditorElement::show_in_egui` (`crate::ui::editor`) and the query console's Parameters panel.
+//! - `EditorElement::show_in_egui` (`crate::ui::editor`) and the query console's editor panel.
 //!
 //! # Related concepts
 //!
@@ -51,13 +54,13 @@
 
 use egui::text::{CCursor, CCursorRange};
 use egui::{Color32, Id, RichText, Sense, Stroke};
-use liquers_core::command_metadata::ArgumentGUIInfo;
+use liquers_core::command_metadata::{ArgumentGUIInfo, VariadicShape};
 
 use crate::egui::theme::{color, draw_icon, spacing_style};
 use crate::ui::editor::{
-    editor_keymap, editor_layout, field_id, form_rows, header_parts, shortcut_text, toolbar_items, CardGroupKind,
-    CardMenu, EditorCommand, EditorField, EditorKey, EditorMode, EditorNode, EditorTree, EditorView, FieldValue,
-    FocusTarget, HeaderPart, KeyScope, NewElement, NodePath, StepChip, ToolItem, RESOURCE_HEADERS,
+    editor_keymap, editor_layout, field_id, form_rows, header_parts, shortcut_text, toolbar_items,
+    CardMenu, EditorCommand, EditorField, EditorKey, EditorMode, EditorNode, EditorTree, EditorView, FieldValue, JsonForm,
+    FocusTarget, HeaderPart, KeyScope, NewElement, NodePath, StepChip, ToolItem, UpdateMode, RESOURCE_HEADERS,
 };
 use crate::ui::theme::{Density, Palette, Spacing, ThemeState};
 use crate::ui::ui_context::UIContext;
@@ -72,8 +75,12 @@ fn ph(name: &str, fallback: &'static str) -> &'static str {
 pub struct EditorOutput {
     /// The edits, in order.
     pub commands: Vec<EditorCommand>,
-    /// The mode the user switched to (the mode switch, `Ctrl+B`, a step chip, "Open in Advanced").
+    /// The mode the user switched to (the mode switch, `Ctrl+B`, a step chip, a `Ctrl+J` jump to
+    /// a step Simple mode does not show).
     pub mode: Option<EditorMode>,
+    /// `Ctrl+J` in a field of an editor whose text the host draws ([`EditorTree::hide_text`]):
+    /// the byte range of [`EditorTree::text`] the host should select in its own query field.
+    pub select_text: Option<std::ops::Range<usize>>,
 }
 
 /// The most chips a card's toolbar shows before "+N" (AC-7).
@@ -89,6 +96,7 @@ struct Cx<'a> {
     ui_ctx: Option<&'a UIContext>,
     out: Vec<EditorCommand>,
     mode_change: Option<EditorMode>,
+    select_text: Option<std::ops::Range<usize>>,
     /// Widgets of this editor that can hold keyboard focus.
     ours: Vec<Id>,
     /// The id of the query text field.
@@ -112,6 +120,9 @@ impl Cx<'_> {
     }
     fn accent(&self) -> Color32 {
         color(self.palette.state.accent)
+    }
+    fn preview(&self) -> Color32 {
+        color(self.palette.state.preview)
     }
 }
 
@@ -138,19 +149,22 @@ pub fn show_editor(
             ui_ctx,
             out: Vec::new(),
             mode_change: None,
+            select_text: None,
             ours: Vec::new(),
             text_id: ui.id().with("lq-editor-text"),
             base: ui.id(),
             cards: Vec::new(),
         };
+        view.enter_mode(tree, mode);
         view.resume_jump(tree, mode);
-        let pending_at_start = view.focus_pending;
+        let pending_at_start = view.focus_pending && view.mode_request.is_none();
         body(ui, &mut cx, view);
         if pending_at_start && view.focus_pending {
             view.focus_pending = false; // its target was not drawn
         }
         handle_keys(ui, &mut cx, view);
-        EditorOutput { commands: cx.out, mode: cx.mode_change }
+        let mode = cx.mode_change.or_else(|| view.mode_request.take());
+        EditorOutput { commands: cx.out, mode, select_text: cx.select_text }
     })
     .inner
 }
@@ -158,17 +172,6 @@ pub fn show_editor(
 fn body(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView) {
     toolbar(ui, cx);
     query_text(ui, cx, view);
-    if let Some(path) = view.simple_offer.clone() {
-        ui.horizontal(|ui| {
-            let label = format!("Open in Advanced ({})", shortcut_text(EditorKey::ToggleMode).unwrap_or("Ctrl+B"));
-            if ui.button(label).on_hover_text("This step is not the card Simple mode shows").clicked() {
-                cx.mode_change = Some(EditorMode::Advanced);
-                view.simple_offer = None;
-                view.focus = Some(FocusTarget::Node(path));
-                view.focus_pending = true;
-            }
-        });
-    }
     if let Some((path, message)) = &cx.tree.message {
         if path.0.is_empty() {
             ui.colored_label(cx.danger(), message);
@@ -181,34 +184,13 @@ fn body(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView) {
         if !layout.before.is_empty() {
             chips(ui, cx, view, &layout.before);
         }
-        let cards = |ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView| {
-            let mut position = 0;
-            for group in &layout.groups {
-                if layout.outline {
-                    let title = match group.kind {
-                        CardGroupKind::KeyPart => "Key part",
-                        CardGroupKind::QueryPart => "Query part",
-                    };
-                    ui.label(RichText::new(title).small().color(cx.muted()));
-                }
-                for card_item in &group.cards {
-                    position += 1;
-                    card(ui, cx, view, card_item.node, position);
-                    ui.add_space(cx.sp.card_gap);
-                }
+        let mut position = 0;
+        for group in &layout.groups {
+            for card_item in &group.cards {
+                position += 1;
+                card(ui, cx, view, card_item.node, position);
+                ui.add_space(cx.sp.card_gap);
             }
-        };
-        if layout.outline {
-            ui.horizontal_top(|ui| {
-                ui.vertical(|ui| {
-                    ui.set_width(150.0);
-                    outline(ui, cx, view);
-                });
-                ui.separator();
-                ui.vertical(|ui| cards(ui, cx, view));
-            });
-        } else {
-            cards(ui, cx, view);
         }
         if !layout.after.is_empty() {
             chips(ui, cx, view, &layout.after);
@@ -230,27 +212,86 @@ fn toolbar(ui: &mut egui::Ui, cx: &mut Cx) {
                 cx.mode_change = Some(mode);
             }
         }
-        ui.separator();
-        let mut continuous = tree.continuous;
-        if ui
-            .checkbox(&mut continuous, "Update immediately")
-            .on_hover_text("Set each edit into where the value lives at once")
-            .changed()
-        {
-            cx.out.push(EditorCommand::SetContinuous(continuous));
+        if tree.host_controls {
+            return; // the host draws the update controls (AC-13)
         }
-        if !tree.continuous {
-            if ui.add_enabled(tree.pending, egui::Button::new("Update")).clicked() {
+        ui.separator();
+        update_controls(ui, cx);
+    });
+}
+
+/// An icon button with a hover text; the label is the icon's glyph, or `fallback`.
+fn icon_button(ui: &mut egui::Ui, icon: &str, fallback: &str, tip: &str, enabled: bool, colour: Option<Color32>) -> bool {
+    crate::egui::theme::ensure_icon_font(ui.ctx());
+    let glyph = crate::egui::theme::phosphor_glyph(icon).unwrap_or(fallback);
+    let mut text = RichText::new(glyph);
+    if let Some(colour) = colour {
+        text = text.color(colour);
+    }
+    ui.add_enabled(enabled, egui::Button::new(text).frame(false)).on_hover_text(tip).clicked()
+}
+
+/// The update mode control, Undo and Redo, and Revert (AC-10, AC-13, AC-22).
+fn update_controls(ui: &mut egui::Ui, cx: &mut Cx) {
+    let tree = cx.tree;
+    let preview = cx.preview();
+    for mode in &tree.update_modes {
+        crate::egui::theme::ensure_icon_font(ui.ctx());
+        let glyph = crate::egui::theme::phosphor_glyph(mode.icon()).unwrap_or(mode.label());
+        let on = tree.update_mode == *mode;
+        let mut text = RichText::new(glyph);
+        if on && *mode == UpdateMode::LivePreview {
+            text = text.color(preview);
+        }
+        if ui.selectable_label(on, text).on_hover_text(mode.label()).clicked() && !on {
+            cx.out.push(EditorCommand::SetUpdateMode(*mode));
+        }
+    }
+    ui.separator();
+    let undo = format!("Undo ({})", shortcut_text(EditorKey::Undo).unwrap_or(""));
+    if icon_button(ui, "arrow-u-up-left", "↶", &undo, tree.can_undo, None) {
+        cx.out.push(EditorCommand::Undo);
+    }
+    let redo = format!("Redo ({})", shortcut_text(EditorKey::Redo).unwrap_or(""));
+    if icon_button(ui, "arrow-u-up-right", "↷", &redo, tree.can_redo, None) {
+        cx.out.push(EditorCommand::Redo);
+    }
+    if !tree.text_editable {
+        // No query field to stand beside: the ✓ is in the toolbar.
+        check_mark(ui, cx);
+    }
+    if tree.pending && tree.update_mode != UpdateMode::ApplyImmediately && ui.button("Revert").on_hover_text("Drop the edits and reload").clicked() {
+        cx.out.push(EditorCommand::Revert);
+    }
+}
+
+/// The ✓ beside the query field (AC-13, AC-22): an outline that fills when edits are pending, in
+/// the preview colour in Live preview; in Apply immediately a lightning mark instead.
+fn check_mark(ui: &mut egui::Ui, cx: &mut Cx) {
+    let tree = cx.tree;
+    if tree.host_controls {
+        return;
+    }
+    match tree.update_mode {
+        UpdateMode::ApplyImmediately => {
+            crate::egui::theme::ensure_icon_font(ui.ctx());
+            let glyph = crate::egui::theme::phosphor_glyph("lightning").unwrap_or("⚡");
+            let colour = if tree.pending { cx.accent() } else { cx.faint() };
+            ui.label(RichText::new(glyph).color(colour)).on_hover_text("Each edit is applied at once");
+        }
+        UpdateMode::LivePreview | UpdateMode::OnDemand => {
+            let colour = match (tree.update_mode, tree.pending) {
+                (UpdateMode::LivePreview, _) => Some(cx.preview()),
+                (UpdateMode::OnDemand, true) => Some(cx.accent()),
+                (UpdateMode::OnDemand, false) | (UpdateMode::ApplyImmediately, _) => None,
+            };
+            let icon = if tree.pending { "check-circle" } else { "check" };
+            let tip = format!("Apply the edits ({}, or Enter in the query)", shortcut_text(EditorKey::Update).unwrap_or(""));
+            if icon_button(ui, icon, "✓", &tip, tree.pending, colour) {
                 cx.out.push(EditorCommand::Update);
             }
-            if ui.button("Revert").clicked() {
-                cx.out.push(EditorCommand::Revert);
-            }
         }
-        if tree.pending {
-            ui.label(RichText::new("pending").italics());
-        }
-    });
+    }
 }
 
 /// The byte offset of character `index` of `text`.
@@ -265,6 +306,9 @@ fn char_of_byte(text: &str, offset: usize) -> usize {
 
 fn query_text(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView) {
     let tree = cx.tree;
+    if tree.hide_text {
+        return; // the host shows the query
+    }
     if tree.text_editable {
         let theme = cx.theme.clone();
         let text_id = cx.text_id;
@@ -274,13 +318,19 @@ fn query_text(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView) {
             let job = crate::egui::widgets::query_to_layout_job_themed(buf.as_str(), None, &theme);
             ui.fonts_mut(|f| f.layout_job(job))
         };
-        let response = ui.add(
-            egui::TextEdit::singleline(&mut typed)
-                .id(text_id)
-                .desired_width(ui.available_width())
-                .layouter(&mut layouter)
-                .hint_text("Enter query here…"),
-        );
+        let response = ui
+            .horizontal(|ui| {
+                let response = ui.add(
+                    egui::TextEdit::singleline(&mut typed)
+                        .id(text_id)
+                        .desired_width(ui.available_width() - 28.0)
+                        .layouter(&mut layouter)
+                        .hint_text("Enter query here…"),
+                );
+                check_mark(ui, cx);
+                response
+            })
+            .inner;
         cx.ours.push(text_id);
         if typed != buffer {
             *view.text_buffer(&tree.text) = typed.clone();
@@ -371,20 +421,6 @@ fn chips(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, chips: &[StepChi
     });
 }
 
-fn outline(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView) {
-    ui.label(RichText::new("Outline").small().color(cx.muted()));
-    let tree = cx.tree;
-    for node in &tree.nodes {
-        let focused = view.focus.as_ref().is_some_and(|f| focus_card(f) == Some(node.path()));
-        let label = crate::ui::editor::node_label(node);
-        if ui.selectable_label(focused, label).clicked() {
-            view.focus = Some(FocusTarget::Node(node.path().clone()));
-            view.focus_pending = true;
-            view.collapsed.remove(&node.path().id());
-        }
-    }
-}
-
 /// The card a focus target is in.
 fn focus_card(focus: &FocusTarget) -> Option<&NodePath> {
     match focus {
@@ -406,6 +442,14 @@ fn footer(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, layout: &crate:
                         }
                     }
                 }
+            }
+        }
+        if crate::ui::editor::offers_key(tree) {
+            if ui.button("Add key…").on_hover_text("Start the query with a key (a resource)").clicked() {
+                cx.out.push(EditorCommand::Insert {
+                    path: NodePath::element(0),
+                    element: NewElement::Resource(String::new()),
+                });
             }
         }
         if tree.has_filename {
@@ -431,8 +475,8 @@ fn footer(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, layout: &crate:
             }
         }
     });
-    if tree.has_filename && cx.mode == EditorMode::Advanced {
-        filename(ui, tree, view, &mut cx.out);
+    if tree.has_filename && !tree.hide_text && cx.mode == EditorMode::Advanced {
+        filename(ui, tree, view, &mut cx.out); // with the text hidden, the host shows the filename
     }
 }
 
@@ -783,10 +827,8 @@ fn form_grid(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, node: &Edito
             );
             let mut row_active = false;
             ui.vertical(|ui| {
+                // The description and the default are in the hover, not under the field.
                 row_active = field_editor(ui, cx, view, &path, field);
-                if !row.help.is_empty() {
-                    ui.add(egui::Label::new(RichText::new(&row.help).small().color(cx.faint())).extend());
-                }
                 if let Some(message) = &row.message {
                     ui.colored_label(cx.danger(), message);
                 }
@@ -852,6 +894,7 @@ fn field_editor(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, path: &No
     let Some(response) = response else {
         return ui.ui_contains_pointer();
     };
+    let response = response.on_hover_text(field.hover());
     cx.ours.push(response.id);
     if response.gained_focus() {
         view.focus = Some(target.clone());
@@ -886,7 +929,11 @@ fn field_actions(ui: &mut egui::Ui, cx: &mut Cx, path: &NodePath, field: &Editor
                 EditorCommand::ToLink { path: path.clone(), arg: field.name.clone() }
             });
         }
-        if ui.add(egui::Button::new(RichText::new(ph("arrow-counter-clockwise", "R")).color(tint)).frame(false)).on_hover_text("Reset to the default").clicked() {
+        let tip = match &field.default_text {
+            Some(d) => format!("Reset to the default: {d}"),
+            None => "Reset to the default".to_string(),
+        };
+        if ui.add(egui::Button::new(RichText::new(ph("arrow-counter-clockwise", "R")).color(tint)).frame(false)).on_hover_text(tip).clicked() {
             cx.out.push(EditorCommand::Reset { path: path.clone(), arg: field.name.clone() });
         }
     });
@@ -991,6 +1038,9 @@ fn node_menu(ui: &mut egui::Ui, path: &NodePath, out: &mut Vec<EditorCommand>) {
         if ui.button("Insert action before").clicked() {
             out.push(EditorCommand::SearchCommands { insert_at: Some(path.clone()), filter: String::new() });
         }
+        if ui.button("Insert action after").clicked() {
+            out.push(EditorCommand::SearchCommands { insert_at: Some(path.next_sibling()), filter: String::new() });
+        }
         if ui.button("Insert resource before").clicked() {
             out.push(EditorCommand::Insert { path: path.clone(), element: NewElement::Resource("data".into()) });
         }
@@ -1009,6 +1059,17 @@ fn node_menu(ui: &mut egui::Ui, path: &NodePath, out: &mut Vec<EditorCommand>) {
 }
 
 fn items_ui(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, path: &NodePath, field: &EditorField, items: &[FieldValue]) {
+    // A shaped argument draws its elements: rows of tuples, the pairs of a dictionary, a JSON
+    // value. Items that are not all literals (a link among them) fall back to the flat list,
+    // which still edits them correctly one by one.
+    let literal = items.iter().all(|item| matches!(item, FieldValue::Text(_)));
+    match &field.shape {
+        VariadicShape::Tuples(_) | VariadicShape::Map if literal && items.len() % field.components.len().max(1) == 0 => {
+            return rows_ui(ui, cx, view, path, field, items);
+        }
+        VariadicShape::Json if literal => return json_value_ui(ui, cx, view, path, field),
+        VariadicShape::List | VariadicShape::Tuples(_) | VariadicShape::Map | VariadicShape::Json => {}
+    }
     ui.horizontal_wrapped(|ui| {
         let mut moved: Option<(usize, usize)> = None;
         for (k, item) in items.iter().enumerate() {
@@ -1068,6 +1129,189 @@ fn items_ui(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, path: &NodePa
     });
 }
 
+/// One cell of a shaped argument: item `k`, drawn with the widget of `component`.
+fn cell_ui(
+    ui: &mut egui::Ui,
+    cx: &mut Cx,
+    view: &mut EditorView,
+    path: &NodePath,
+    field: &EditorField,
+    component: Option<usize>,
+    k: usize,
+    text: &str,
+) {
+    let mut cell = field.clone();
+    cell.default_text = None;
+    cell.widget = component
+        .and_then(|c| field.components.get(c))
+        .map(|c| c.widget.clone())
+        .unwrap_or_else(|| liquers_core::command_metadata::DEFAULT_GUI.clone());
+    let target = FocusTarget::Field { path: path.clone(), arg: field.name.clone(), item: Some(k) };
+    let (response, command) = widget(ui, cx.base, path, &cell, text, Some(k), view);
+    if let Some(command) = command {
+        cx.out.push(command);
+        view.last_field = Some(field_id(path, &field.name, Some(k)));
+    }
+    if let Some(r) = response {
+        cx.ours.push(r.id);
+        if r.gained_focus() {
+            view.focus = Some(target.clone());
+        }
+        if view.focus.as_ref() == Some(&target) && view.focus_pending {
+            r.request_focus();
+            view.focus_pending = false;
+        }
+    }
+}
+
+/// A text box of the "add" form of a shaped argument; returns its current text.
+fn new_cell_ui(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, id: &str, hint: &str) -> String {
+    let buffer = view.buffer(id, "");
+    let response = ui.add(egui::TextEdit::singleline(buffer).desired_width(70.0).hint_text(hint));
+    let text = buffer.clone();
+    cx.ours.push(response.id);
+    text
+}
+
+/// The elements of a list of tuples or of a dictionary, one per row (design
+/// `composite-variadic-arguments`, AC-13): every edit of the structure is a whole row. A
+/// dictionary's key is fixed once written; a pair is added with key and value together.
+fn rows_ui(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, path: &NodePath, field: &EditorField, items: &[FieldValue]) {
+    let arity = field.components.len().max(1);
+    let is_map = field.shape == VariadicShape::Map;
+    let texts: Vec<String> = field.item_texts().into_iter().flatten().collect();
+    let rows = items.len() / arity;
+    let base = field_id(path, &field.name, None);
+    ui.vertical(|ui| {
+        egui::Grid::new(cx.base.with(("rows", path.id(), &field.name))).num_columns(arity + 1).show(ui, |ui| {
+            for component in &field.components {
+                ui.label(RichText::new(&component.label).small()).on_hover_text(&component.type_name);
+            }
+            ui.end_row();
+            for r in 0..rows {
+                for c in 0..arity {
+                    let k = r * arity + c;
+                    let text = texts.get(k).map(String::as_str).unwrap_or_default();
+                    if is_map && c == 0 {
+                        ui.label(RichText::new(text).monospace());
+                    } else {
+                        cell_ui(ui, cx, view, path, field, Some(c), k, text);
+                    }
+                }
+                ui.horizontal(|ui| {
+                    if !is_map && r > 0 && ui.small_button(ph("arrow-up", "^")).clicked() {
+                        cx.out.push(EditorCommand::MoveRow { path: path.clone(), arg: field.name.clone(), from: r, to: r - 1 });
+                    }
+                    if !is_map && r + 1 < rows && ui.small_button(ph("arrow-down", "v")).clicked() {
+                        cx.out.push(EditorCommand::MoveRow { path: path.clone(), arg: field.name.clone(), from: r, to: r + 1 });
+                    }
+                    if ui.small_button(ph("x", "x")).clicked() {
+                        cx.out.push(EditorCommand::RemoveRow { path: path.clone(), arg: field.name.clone(), at: r });
+                    }
+                });
+                ui.end_row();
+            }
+            // The add form: every component of the new element, then one button.
+            let mut new_texts = Vec::with_capacity(arity);
+            for (c, component) in field.components.iter().enumerate() {
+                new_texts.push(new_cell_ui(ui, cx, view, &format!("{base}:new:{c}"), &component.label));
+            }
+            let key = new_texts.first().cloned().unwrap_or_default();
+            let duplicate = is_map && texts.iter().step_by(2).any(|k| *k == key);
+            let ready = if is_map { !key.is_empty() && !duplicate } else { new_texts.iter().any(|t| !t.is_empty()) };
+            let add = ui.add_enabled(ready, egui::Button::new(ph("plus", "+")).small());
+            if duplicate {
+                add.clone().on_disabled_hover_text(format!("The key '{key}' is already there"));
+            }
+            if add.clicked() {
+                for c in 0..arity {
+                    view.buffer(&format!("{base}:new:{c}"), "").clear();
+                }
+                cx.out.push(EditorCommand::InsertRow { path: path.clone(), arg: field.name.clone(), at: rows, texts: new_texts });
+            }
+            ui.end_row();
+        });
+    });
+}
+
+/// A JSON value argument: a choice of its form (none, value, list, dictionary), then the editor
+/// of that form. The form is read from the items, and changing it rewrites them at once; the
+/// leading empty item that marks a list is written here, never shown.
+fn json_value_ui(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, path: &NodePath, field: &EditorField) {
+    let texts: Vec<String> = field.item_texts().into_iter().flatten().collect();
+    let form = JsonForm::of(&texts);
+    let base = field_id(path, &field.name, None);
+    let set = |texts: Vec<String>| EditorCommand::SetItems { path: path.clone(), arg: field.name.clone(), texts };
+    ui.vertical(|ui| {
+        let mut chosen = form;
+        egui::ComboBox::from_id_salt(cx.base.with(("json-form", path.id(), &field.name)))
+            .selected_text(form.label())
+            .show_ui(ui, |ui| {
+                for option in JsonForm::ALL {
+                    ui.selectable_value(&mut chosen, option, option.label());
+                }
+            });
+        if chosen != form {
+            cx.out.push(set(chosen.convert(&texts)));
+            return;
+        }
+        match form {
+            JsonForm::Null => {}
+            JsonForm::Scalar => {
+                cell_ui(ui, cx, view, path, field, None, 0, texts.first().map(String::as_str).unwrap_or_default());
+            }
+            JsonForm::List => {
+                ui.horizontal_wrapped(|ui| {
+                    for k in 1..texts.len() {
+                        cell_ui(ui, cx, view, path, field, None, k, &texts[k]);
+                        if ui.small_button(ph("x", "x")).clicked() {
+                            let mut rest = texts.clone();
+                            rest.remove(k);
+                            cx.out.push(set(rest));
+                        }
+                    }
+                    let id = format!("{base}:new");
+                    let text = new_cell_ui(ui, cx, view, &id, "+");
+                    if !text.is_empty() && ui.small_button(ph("plus", "+")).clicked() {
+                        view.buffer(&id, "").clear();
+                        let mut more = texts.clone();
+                        more.push(text);
+                        cx.out.push(set(more));
+                    }
+                });
+            }
+            JsonForm::Dictionary => {
+                egui::Grid::new(cx.base.with(("json-pairs", path.id(), &field.name))).num_columns(3).show(ui, |ui| {
+                    for r in 0..texts.len() / 2 {
+                        ui.label(RichText::new(&texts[2 * r]).monospace());
+                        cell_ui(ui, cx, view, path, field, None, 2 * r + 1, &texts[2 * r + 1]);
+                        if ui.small_button(ph("x", "x")).clicked() {
+                            let mut rest = texts.clone();
+                            rest.drain(2 * r..2 * r + 2);
+                            // Removing the last pair leaves no items: the value is none.
+                            cx.out.push(set(rest));
+                        }
+                        ui.end_row();
+                    }
+                    let key = new_cell_ui(ui, cx, view, &format!("{base}:new:0"), "key");
+                    let value = new_cell_ui(ui, cx, view, &format!("{base}:new:1"), "value");
+                    let duplicate = texts.iter().step_by(2).any(|k| *k == key);
+                    let add = ui.add_enabled(!key.is_empty() && !duplicate, egui::Button::new(ph("plus", "+")).small());
+                    if add.clicked() {
+                        view.buffer(&format!("{base}:new:0"), "").clear();
+                        view.buffer(&format!("{base}:new:1"), "").clear();
+                        let mut more = texts.clone();
+                        more.push(key);
+                        more.push(value);
+                        cx.out.push(set(more));
+                    }
+                    ui.end_row();
+                });
+            }
+        }
+    });
+}
+
 /// The widget of one value (AC-2): its response, and a command when the value was committed.
 fn widget(
     ui: &mut egui::Ui,
@@ -1111,6 +1355,50 @@ fn widget(
             let r = ui.add(egui::Slider::new(&mut x, *min..=*max));
             let c = r.changed().then(|| commit(x.to_string()));
             (Some(r), c)
+        }
+        // A node of the folder's recipe tree, by filename and title, with Rename (design
+        // `recipe-tree`, AC-18, AC-25).
+        ArgumentGUIInfo::NodeSelector if !field.node_choices.is_empty() => {
+            let mut chosen = shown.clone();
+            let label = |c: &liquers_core::recipe_tree::NodeChoice| {
+                if c.title.is_empty() {
+                    c.filename.clone()
+                } else {
+                    format!("{} \u{2014} {}", c.filename, c.title)
+                }
+            };
+            let selected = field
+                .node_choices
+                .iter()
+                .find(|c| c.name == shown)
+                .map(label)
+                .unwrap_or_else(|| shown.clone());
+            let mut rename: Option<EditorCommand> = None;
+            let r = ui
+                .horizontal(|ui| {
+                    egui::ComboBox::from_id_salt(("node", &id))
+                        .selected_text(selected)
+                        .show_ui(ui, |ui| {
+                            for c in &field.node_choices {
+                                ui.selectable_value(&mut chosen, c.name.clone(), label(c));
+                            }
+                        });
+                    if !shown.is_empty() {
+                        let buffer = view.buffer(&format!("{id}#rename"), &shown);
+                        let edit = ui.add(egui::TextEdit::singleline(buffer).desired_width(90.0));
+                        let to = buffer.clone();
+                        let clicked = ui.small_button("Rename").clicked();
+                        if (clicked || (edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))))
+                            && !to.is_empty()
+                            && to != shown
+                        {
+                            rename = Some(EditorCommand::RenameNode { from: shown.clone(), to });
+                        }
+                    }
+                })
+                .response;
+            let command = rename.or_else(|| (chosen != shown).then(|| commit(chosen)));
+            (Some(r), command)
         }
         ArgumentGUIInfo::EnumSelector | ArgumentGUIInfo::HorizontalRadioEnum | ArgumentGUIInfo::VerticalRadioEnum
             if !field.alternatives.is_empty() =>
@@ -1172,6 +1460,7 @@ fn widget(
         | ArgumentGUIInfo::EnumSelector
         | ArgumentGUIInfo::HorizontalRadioEnum
         | ArgumentGUIInfo::VerticalRadioEnum
+        | ArgumentGUIInfo::NodeSelector
         | ArgumentGUIInfo::None => {
             let width = match &field.widget {
                 ArgumentGUIInfo::TextField(w) | ArgumentGUIInfo::CodeField(w, _) | ArgumentGUIInfo::DateField(w) => {
@@ -1184,16 +1473,7 @@ fn widget(
             if let Some(d) = &field.default_text {
                 edit = edit.hint_text(d.as_str());
             }
-            let inner = ui.horizontal(|ui| {
-                let r = ui.add(edit);
-                if item.is_none() {
-                    if let Some(d) = &field.default_text {
-                        ui.label(RichText::new(format!("default {d}")).small().weak());
-                    }
-                }
-                r
-            });
-            let r = inner.inner;
+            let r = ui.add(edit);
             let c = (r.lost_focus() && *buffer != text).then(|| commit(buffer.clone()));
             (Some(r), c)
         }
@@ -1269,7 +1549,13 @@ fn run_key(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, focus: &FocusT
             }
             FocusTarget::Node(_) | FocusTarget::Field { .. } => {
                 if let Some(range) = view.jump_to_text(cx.tree) {
-                    select_text(ui.ctx(), cx.text_id, &cx.tree.text, range);
+                    if cx.tree.hide_text {
+                        view.focus = None; // focus leaves for the host's query field
+                        view.focus_pending = false;
+                        cx.select_text = Some(range);
+                    } else {
+                        select_text(ui.ctx(), cx.text_id, &cx.tree.text, range);
+                    }
                 }
             }
         },
@@ -1367,8 +1653,18 @@ fn run_key(ui: &mut egui::Ui, cx: &mut Cx, view: &mut EditorView, focus: &FocusT
             }
         }
         EditorKey::Update => {
-            if !cx.tree.continuous {
+            if cx.tree.update_mode != UpdateMode::ApplyImmediately && !cx.tree.host_controls {
                 cx.out.push(EditorCommand::Update);
+            }
+        }
+        EditorKey::Undo => {
+            if !cx.tree.host_controls {
+                cx.out.push(EditorCommand::Undo);
+            }
+        }
+        EditorKey::Redo => {
+            if !cx.tree.host_controls {
+                cx.out.push(EditorCommand::Redo);
             }
         }
     }
@@ -1576,6 +1872,62 @@ mod tests {
         tree.nodes[tree.last_action().expect("head")].path().clone()
     }
 
+    /// The text of every shape drawn for `tree` in one headless frame.
+    fn drawn_text(tree: &EditorTree) -> String {
+        fn collect(shape: &egui::Shape, out: &mut String) {
+            match shape {
+                egui::Shape::Text(t) => out.push_str(t.galley.text()),
+                egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| collect(s, out)),
+                _ => {}
+            }
+        }
+        let ctx = egui::Context::default();
+        let theme = ThemeState::default();
+        let mut view = EditorView::default();
+        // Two frames: the first loads the icon font.
+        let mut text = String::new();
+        for _ in 0..2 {
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                show_editor(ui, tree, &mut view, EditorMode::Simple, Density::Comfortable, &theme, None);
+            });
+            output.textures_delta.clear();
+            text.clear();
+            output.shapes.iter().for_each(|c| collect(&c.shape, &mut text));
+        }
+        text
+    }
+
+    /// query-update-modes AC-13, AC-22: the mode control shows the three icons; ✓ follows the
+    /// mode (a filled ✓ for pending edits, none in Apply immediately); a host's editor shows none.
+    #[test]
+    fn toolbar_controls_follow_the_mode() {
+        use crate::ui::editor::UpdateMode;
+        let glyph = |name| crate::egui::theme::phosphor_glyph(name).expect(name);
+        let state_in = |mode: UpdateMode, edit: bool| {
+            let mut state = EditorState::new(EditorKind::Query, Arc::new(registry())).with_update_mode(mode);
+            state.on_snapshot(&Value::from_query(&liquers_core::parse::parse_query(P).expect("query")), None).expect("snapshot");
+            if edit {
+                let path = head_path(state.tree());
+                state.apply(EditorCommand::SetField { path, arg: "n".into(), text: "7".into() }).expect("edit");
+            }
+            state.tree().clone()
+        };
+        let on_demand = drawn_text(&state_in(UpdateMode::OnDemand, true));
+        for icon in ["hand-tap", "eye", "lightning", "arrow-u-up-left", "arrow-u-up-right", "check-circle"] {
+            assert!(on_demand.contains(glyph(icon)), "{icon}");
+        }
+        let idle = drawn_text(&state_in(UpdateMode::OnDemand, false));
+        assert!(idle.contains(glyph("check")) && !idle.contains(glyph("check-circle")));
+        let immediate = drawn_text(&state_in(UpdateMode::ApplyImmediately, true));
+        assert!(!immediate.contains(glyph("check")) && !immediate.contains(glyph("check-circle")), "no ✓");
+        let mut hosted = state_in(UpdateMode::OnDemand, true);
+        hosted.host_controls = true;
+        let hosted = drawn_text(&hosted);
+        for icon in ["hand-tap", "eye", "check", "check-circle"] {
+            assert!(!hosted.contains(glyph(icon)), "{icon} in a hosted editor");
+        }
+    }
+
     /// query-pipeline-editor AC-11, AC-3: every node kind draws headless in both modes and
     /// produces no command without input.
     #[test]
@@ -1681,6 +2033,9 @@ mod tests {
         frame(&ctx, &tree, &mut view, EditorMode::Advanced, vec![key(egui::Key::CloseBracket, collapse_all)]);
         assert!(view.collapsed.is_empty());
 
+        // The cards just expanded lay out their grids for the first time: let that frame settle
+        // (egui discards a sizing pass, and a key in it would be read by the discarded pass).
+        frame(&ctx, &tree, &mut view, EditorMode::Advanced, vec![]);
         let out = frame(&ctx, &tree, &mut view, EditorMode::Advanced, vec![key(egui::Key::K, egui::Modifiers::COMMAND)]);
         assert_eq!(out.commands, [EditorCommand::SearchCommands { insert_at: None, filter: String::new() }]);
 
@@ -1733,6 +2088,24 @@ mod tests {
         let (a, b) = (range.primary.index.0.min(range.secondary.index.0), range.primary.index.0.max(range.secondary.index.0));
         let selected: String = query.chars().skip(a).take(b - a).collect();
         assert_eq!(selected, "20");
+    }
+
+    /// With the text drawn by the host, `Ctrl+J` in a field reports the range to select there.
+    #[test]
+    fn hidden_text_reports_the_jump_back() {
+        let mut tree = tree_of(P);
+        tree.hide_text = true;
+        tree.text_editable = false;
+        let head = head_path(&tree);
+        let ctx = egui::Context::default();
+        let field = FocusTarget::Field { path: head.clone(), arg: "n".into(), item: None };
+        let mut view = EditorView { focus: Some(field), focus_pending: true, ..EditorView::default() };
+        frame(&ctx, &tree, &mut view, EditorMode::Simple, vec![]);
+        frame(&ctx, &tree, &mut view, EditorMode::Simple, vec![]);
+        let out = frame(&ctx, &tree, &mut view, EditorMode::Simple, vec![key(egui::Key::J, egui::Modifiers::COMMAND)]);
+        let range = out.select_text.expect("a range for the host");
+        assert_eq!(&tree.text[range], "20");
+        assert_eq!(view.focus, None, "focus leaves the editor");
     }
 
     // Codex review of PR #278: two editors showing the same argument do not share its widget.

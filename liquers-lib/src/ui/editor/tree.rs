@@ -3,7 +3,7 @@
 
 use liquers_core::command_metadata::{
     ArgumentGUIInfo, ArgumentInfo, ArgumentType, CommandKey, CommandParameterValue, EnumArgument,
-    DEFAULT_GUI,
+    VariadicShape, DEFAULT_GUI,
 };
 use liquers_core::error::Error;
 use serde_json::Value as Json;
@@ -69,6 +69,16 @@ impl NodePath {
             .collect::<Result<Vec<_>, _>>()
             .map(NodePath)
     }
+    /// The path of the element after this one at the same level: where "Insert action after"
+    /// inserts (at the end of the level, it appends). Unchanged when the path does not end with
+    /// an element.
+    pub fn next_sibling(&self) -> Self {
+        let mut steps = self.0.clone();
+        if let Some(PathStep::Element(i)) = steps.last_mut() {
+            *i += 1;
+        }
+        NodePath(steps)
+    }
     /// The last element index of the path, if it ends with one.
     pub fn last_element(&self) -> Option<usize> {
         match self.0.last() {
@@ -103,6 +113,147 @@ pub enum FieldValue {
     Other(String),
 }
 
+/// One component of an element of a shaped variadic argument: a column of a list of tuples, or
+/// the key or the value of a dictionary.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ComponentField {
+    /// The column header: the declared column name, else the type's name (`key` and `value` for
+    /// a dictionary).
+    pub label: String,
+    pub type_name: String,
+    /// The widget of one cell: [`effective_gui`] of the component's type.
+    pub widget: ArgumentGUIInfo,
+}
+
+/// The form of a JSON value argument ([`VariadicShape::Json`]), which its parameters decide.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JsonForm {
+    /// No parameters: `null`.
+    Null,
+    /// One parameter: a number or a string.
+    Scalar,
+    /// A leading empty parameter, then the entries.
+    List,
+    /// Key and value pairs.
+    Dictionary,
+}
+
+impl JsonForm {
+    /// The forms, in the order a chooser offers them.
+    pub const ALL: [JsonForm; 4] =
+        [JsonForm::Null, JsonForm::Scalar, JsonForm::List, JsonForm::Dictionary];
+
+    /// The word a chooser shows.
+    pub fn label(&self) -> &'static str {
+        match self {
+            JsonForm::Null => "none",
+            JsonForm::Scalar => "value",
+            JsonForm::List => "list",
+            JsonForm::Dictionary => "dictionary",
+        }
+    }
+
+    /// The chooser word back to the form.
+    pub fn from_label(label: &str) -> Option<JsonForm> {
+        JsonForm::ALL.into_iter().find(|form| form.label() == label)
+    }
+
+    /// The form the item texts of a JSON value argument stand for.
+    pub fn of<S: AsRef<str>>(items: &[S]) -> JsonForm {
+        match items {
+            [] => JsonForm::Null,
+            [first, ..] if first.as_ref().is_empty() => JsonForm::List,
+            [_] => JsonForm::Scalar,
+            _ => JsonForm::Dictionary,
+        }
+    }
+
+    /// The item texts of the same data in this form, for [`super::EditorCommand::SetItems`]:
+    /// the values are kept, a list gets its leading empty item, a dictionary made from values
+    /// gets the keys `key1`, `key2`, ….
+    pub fn convert<S: AsRef<str>>(&self, items: &[S]) -> Vec<String> {
+        let from = JsonForm::of(items);
+        let values: Vec<String> = match from {
+            JsonForm::Null => Vec::new(),
+            JsonForm::Scalar => items.iter().map(|s| s.as_ref().to_string()).collect(),
+            JsonForm::List => items.iter().skip(1).map(|s| s.as_ref().to_string()).collect(),
+            JsonForm::Dictionary => {
+                items.iter().skip(1).step_by(2).map(|s| s.as_ref().to_string()).collect()
+            }
+        };
+        match self {
+            JsonForm::Null => Vec::new(),
+            // One empty item alone would be the empty list, so a value is never empty.
+            JsonForm::Scalar => vec![values
+                .into_iter()
+                .find(|v| !v.is_empty())
+                .unwrap_or_else(|| "0".to_string())],
+            JsonForm::List => std::iter::once(String::new()).chain(values).collect(),
+            JsonForm::Dictionary if from == JsonForm::Dictionary => {
+                items.iter().map(|s| s.as_ref().to_string()).collect()
+            }
+            JsonForm::Dictionary => {
+                let mut values = values;
+                if values.is_empty() {
+                    values.push(String::new());
+                }
+                values
+                    .into_iter()
+                    .enumerate()
+                    .flat_map(|(k, value)| [format!("key{}", k + 1), value])
+                    .collect()
+            }
+        }
+    }
+}
+
+/// The type of item `at` of a variadic argument: its component's for tuples, text for a
+/// dictionary key, the argument's own otherwise.
+pub fn item_type(argument: &ArgumentInfo, at: usize) -> ArgumentType {
+    match &argument.shape {
+        VariadicShape::Tuples(components) if !components.is_empty() => {
+            components[at % components.len()].clone()
+        }
+        VariadicShape::Map if at % 2 == 0 => ArgumentType::String,
+        VariadicShape::Json => ArgumentType::Any,
+        VariadicShape::List | VariadicShape::Tuples(_) | VariadicShape::Map => {
+            argument.argument_type.clone()
+        }
+    }
+}
+
+/// The components of one element of a shaped variadic argument; empty for a plain list and for
+/// a JSON value, whose form decides them.
+pub fn shape_components(argument: &ArgumentInfo) -> Vec<ComponentField> {
+    let component = |label: String, argument_type: &ArgumentType| {
+        let mut one = argument.clone();
+        one.argument_type = argument_type.clone();
+        ComponentField {
+            label,
+            type_name: crate::utils::argument_type_name(argument_type),
+            widget: effective_gui(&one),
+        }
+    };
+    match &argument.shape {
+        VariadicShape::Tuples(components) => components
+            .iter()
+            .enumerate()
+            .map(|(c, argument_type)| {
+                let label = match argument.columns.get(c) {
+                    Some(name) if !name.is_empty() => name.clone(),
+                    Some(_) | None => crate::utils::argument_type_name(argument_type),
+                };
+                component(label, argument_type)
+            })
+            .collect(),
+        VariadicShape::Map => vec![
+            component("key".to_string(), &ArgumentType::String),
+            component("value".to_string(), &argument.argument_type),
+        ],
+        VariadicShape::List | VariadicShape::Json => Vec::new(),
+    }
+}
+
 /// One argument of an action, with everything its widget and its hover text need.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EditorField {
@@ -117,13 +268,91 @@ pub struct EditorField {
     pub alternatives: Vec<String>,
     pub others_allowed: bool,
     pub multiple: bool,
+    /// How the items of a variadic argument group into its value: a plain list, rows of tuples,
+    /// the pairs of a dictionary, or a JSON value. The items stay one flat list
+    /// ([`FieldValue::Items`]); row `r`, component `c` is item `r * components.len() + c`.
+    pub shape: VariadicShape,
+    /// One entry per component of an element: the columns of the tuples, or key and value.
+    pub components: Vec<ComponentField>,
     pub value: FieldValue,
     pub presets: Vec<PresetEntry>,
     /// The field's index among the action's numeric arguments (AC-13).
     pub numeric_index: Option<usize>,
+    /// The extension of a Node argument (`glb`); `None` for any other argument.
+    pub node_extension: Option<String>,
+    /// The nodes a Node argument can name (filename and title), when the editor knows the
+    /// folder's recipes ([`NodeContext`]); empty otherwise, and the field is a text box
+    /// (design `recipe-tree`, AC-18).
+    pub node_choices: Vec<liquers_core::recipe_tree::NodeChoice>,
+}
+
+/// The folder an editor's query belongs to, for its Node arguments (design `recipe-tree`,
+/// AC-18, AC-25): the folder's recipes and, when known, its listing (the asset manager's:
+/// recipes and stored files together). The runner delivers it (`UpdateMessage::NodeContext`)
+/// to an editor bound to a recipe of a `recipes.yaml`.
+#[derive(Debug, Clone)]
+pub struct NodeContext {
+    /// The folder, as a key.
+    pub folder: String,
+    /// The folder's `recipes.yaml`.
+    pub recipes: liquers_core::recipes::RecipeList,
+    /// The folder's listing, when known.
+    pub listing: Option<Vec<String>>,
+    /// The asset manager's information of each file of the folder, by filename: status,
+    /// progress, icon and type (design `recipes-editor`, AC-2, AC-17). Empty when unknown.
+    pub assets: std::collections::BTreeMap<String, liquers_core::metadata::AssetInfo>,
+    /// The data formats each file's type can be written in, by filename (AC-19 Export).
+    pub formats: std::collections::BTreeMap<String, Vec<String>>,
+    /// The outcome of the last Save as, for the recipes editor to show.
+    pub notice: Option<String>,
+}
+
+impl NodeContext {
+    /// A context with the recipes and listing only.
+    pub fn new(
+        folder: impl Into<String>,
+        recipes: liquers_core::recipes::RecipeList,
+        listing: Option<Vec<String>>,
+    ) -> Self {
+        NodeContext {
+            folder: folder.into(),
+            recipes,
+            listing,
+            assets: Default::default(),
+            formats: Default::default(),
+            notice: None,
+        }
+    }
 }
 
 impl EditorField {
+    /// The items of a variadic argument as text; a link or another source that is not a literal
+    /// is `None`. Empty when the argument is not given.
+    pub fn item_texts(&self) -> Vec<Option<String>> {
+        match &self.value {
+            FieldValue::Items(items) => items
+                .iter()
+                .map(|item| match item {
+                    FieldValue::Text(text) => Some(text.clone()),
+                    FieldValue::Unset
+                    | FieldValue::Link { .. }
+                    | FieldValue::Items(_)
+                    | FieldValue::Other(_) => None,
+                })
+                .collect(),
+            FieldValue::Unset | FieldValue::Text(_) | FieldValue::Link { .. } | FieldValue::Other(_) => {
+                Vec::new()
+            }
+        }
+    }
+
+    /// The form of a JSON value argument, read from its items.
+    pub fn json_form(&self) -> JsonForm {
+        let texts: Vec<String> =
+            self.item_texts().into_iter().map(|t| t.unwrap_or_else(|| "?".to_string())).collect();
+        JsonForm::of(&texts)
+    }
+
     /// The hover text (AC-3): label, description, type and default.
     pub fn hover(&self) -> String {
         let mut out = format!("{} ({})", self.label, self.type_name);
@@ -275,6 +504,9 @@ pub struct EditorTree {
     /// `text_note`).
     pub text: String,
     pub text_editable: bool,
+    /// The host draws the query text itself (the query console), so the editor does not.
+    /// `Ctrl+J` from a field then reports the range in [`EditorTree::text`] to select instead.
+    pub hide_text: bool,
     /// A parse error of the typed text, or why the text is read-only (AC-4, AC-10).
     pub text_note: Option<String>,
     /// The tree no longer matches the typed text (AC-4).
@@ -287,7 +519,16 @@ pub struct EditorTree {
     pub filename_default: Option<String>,
     /// Edits not yet set into the accessor (AC-26).
     pub pending: bool,
-    pub continuous: bool,
+    /// What a committed edit does (design `query-update-modes`).
+    pub update_mode: super::UpdateMode,
+    /// The modes the mode control offers (all three in an editor, two in the console).
+    pub update_modes: Vec<super::UpdateMode>,
+    /// An edit can be undone, or redone (AC-10).
+    pub can_undo: bool,
+    pub can_redo: bool,
+    /// The host (the query console) draws the update mode, ✓ and undo controls, so the editor
+    /// draws none of its own (AC-13).
+    pub host_controls: bool,
     /// The editor cannot write (no accessor, a read-only binding, or the binding failed).
     pub read_only: bool,
     /// A refusal, a conflict or another message for the user, with the path it concerns.
@@ -356,6 +597,7 @@ pub fn effective_gui(argument: &ArgumentInfo) -> ArgumentGUIInfo {
         ArgumentType::Integer | ArgumentType::IntegerOption => ArgumentGUIInfo::IntegerField,
         ArgumentType::Float | ArgumentType::FloatOption => ArgumentGUIInfo::FloatField,
         ArgumentType::Enum(_) | ArgumentType::GlobalEnum(_) => ArgumentGUIInfo::EnumSelector,
+        ArgumentType::Node(_) => ArgumentGUIInfo::NodeSelector,
         ArgumentType::String | ArgumentType::Any | ArgumentType::None => DEFAULT_GUI.clone(),
     }
 }
@@ -373,7 +615,8 @@ pub fn is_numeric(argument: &ArgumentInfo) -> bool {
         | ArgumentType::Enum(_)
         | ArgumentType::GlobalEnum(_)
         | ArgumentType::Any
-        | ArgumentType::None => false,
+        | ArgumentType::None
+        | ArgumentType::Node(_) => false,
     }
 }
 

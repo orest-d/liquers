@@ -42,6 +42,16 @@ pub enum EditorCommand {
     InsertItem { path: NodePath, arg: String, at: usize, text: String },
     RemoveItem { path: NodePath, arg: String, at: usize },
     MoveItem { path: NodePath, arg: String, from: usize, to: usize },
+    /// A whole element of a shaped variadic argument (a tuple, or a key and value pair) before
+    /// row `at`: one text per component. A dictionary refuses a key it already has, so the
+    /// query never holds part of an element (design `composite-variadic-arguments`, AC-13).
+    InsertRow { path: NodePath, arg: String, at: usize, texts: Vec<String> },
+    /// Removes row `at`: every component of the element.
+    RemoveRow { path: NodePath, arg: String, at: usize },
+    /// Moves row `from` to position `to`.
+    MoveRow { path: NodePath, arg: String, from: usize, to: usize },
+    /// Replaces every item of a variadic argument: a JSON value changing its form.
+    SetItems { path: NodePath, arg: String, texts: Vec<String> },
     /// A new element before `path` (AC-6).
     Insert { path: NodePath, element: NewElement },
     /// A new element at the end of the top level (AC-6).
@@ -87,8 +97,16 @@ pub enum EditorCommand {
     Update,
     /// Drops the pending edits and reloads the accessor's value (AC-26).
     Revert,
-    /// Turns "Update immediately" on or off (AC-26).
-    SetContinuous(bool),
+    /// Sets the update mode: what a committed edit does (design `query-update-modes`).
+    SetUpdateMode(super::UpdateMode),
+    /// Restores the working copy before the last edit (AC-10).
+    Undo,
+    /// Re-applies the edit the last [`EditorCommand::Undo`] took back (AC-10).
+    Redo,
+    /// Renames node `from` of the folder's recipe tree to `to`, rewriting every reference in
+    /// `recipes.yaml` and renaming a stored file (design `recipe-tree`, AC-25). Needs a
+    /// [`super::NodeContext`].
+    RenameNode { from: String, to: String },
 }
 
 /// What [`super::EditorState::apply`] asks the runner to do.
@@ -101,4 +119,14 @@ pub enum EditorEffect {
     Reload,
     /// List the store directory `folder` for the file selector.
     ListDirectory(String),
+    /// Save a renamed recipe tree: rename the stored files, then write `recipes.yaml` of
+    /// `folder` (`TreeEditor::save`; design `recipe-tree`, AC-25).
+    RenameData {
+        folder: String,
+        editor: Box<liquers_core::recipe_tree::TreeEditor>,
+    },
+    /// Show `value` as a preview (Live preview); nothing is written (AC-17).
+    Preview(Value),
+    /// Drop the preview and show the applied value again (Revert, or a write in Live preview).
+    ClearPreview,
 }

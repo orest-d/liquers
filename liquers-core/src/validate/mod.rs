@@ -15,6 +15,8 @@
 //! # Main components
 //!
 //! - [`validate_query`], [`validate_recipes`] and [`validate_pipeline`] — one input each.
+//! - [`validate_tree`] — the recipe-tree check of a list with a `tree:` section
+//!   ([`crate::recipe_tree::check_tree`] without a folder listing), kept as `ValidationReport::tree`.
 //! - [`ValidationRegistryBuilder`] — the command registry to validate against, from files.
 //! - [`build_report`] and [`ValidationReport`] — the envelope `liquers-validate` prints.
 //! - [`pipeline_from_build_args`] and [`with_pipeline_form`] — `--build` and `--emit pipeline`.
@@ -305,6 +307,19 @@ pub fn validate_recipes(
         .collect()
 }
 
+/// The recipe-tree check of `recipes` when it has a `tree:` section (AC-9), with no folder
+/// listing: a reference to a file no recipe declares is a warning ("not checked: stored file?"),
+/// and an error under strict mode (AC-28).
+pub fn validate_tree(
+    recipes: &RecipeList,
+    cmr: &CommandMetadataRegistry,
+) -> Option<crate::recipe_tree::TreeReport> {
+    recipes
+        .tree
+        .as_ref()
+        .map(|_| crate::recipe_tree::check_tree(recipes, None, cmr))
+}
+
 /// Apply a CLI-supplied working directory to a recipe list.
 ///
 /// Returns the indices of recipes that already declare their own `cwd`; the caller reports those
@@ -367,6 +382,7 @@ pub fn build_report(
         registry,
         results,
         counts,
+        tree: None,
     }
 }
 

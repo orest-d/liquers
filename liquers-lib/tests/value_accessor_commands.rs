@@ -380,3 +380,21 @@ async fn record_row_column_and_cell_projections() {
     assert!(within(column.set(short, SetOptions::default())).await.is_err());
     assert_eq!(json(&value_of(&cell).await), serde_json::json!(30));
 }
+
+/// recipes-editor AC-6: `acc/recipe_file` reads and writes a recipe by its filename.
+#[tokio::test]
+async fn recipe_file_command_projects_by_filename() {
+    let envref = fixture().await;
+    let few = evaluate_accessor(&envref, "-R-key/reports/recipes.yaml/-/ns-acc/accessor/recipe_file-few.csv").await;
+    let recipe = value_of(&few).await;
+    assert_eq!(json(&recipe)["title"], serde_json::json!("Few"));
+    let mut edited: liquers_core::recipes::Recipe = serde_json::from_value(json(&recipe)).unwrap();
+    edited.title = "First few".to_owned();
+    within(few.set(Value::from_recipe(edited), SetOptions::default()))
+        .await
+        .unwrap();
+    let yaml: serde_yaml::Value =
+        serde_yaml::from_str(&stored_text(&envref, "reports/recipes.yaml").await).unwrap();
+    assert_eq!(yaml["recipes"][1]["title"], serde_yaml::Value::from("First few"));
+    assert_eq!(yaml["recipes"][0]["title"], serde_yaml::Value::from("Top"));
+}

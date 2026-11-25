@@ -57,6 +57,11 @@ pub struct AssetSnapshot {
     pub error: Option<Error>,
     /// Current asset status.
     pub status: Status,
+    /// The query the runner was asked to evaluate, so a display can ignore the snapshot of a
+    /// query it no longer waits for (design `query-update-modes`, AC-6). `None` when unknown.
+    pub query: Option<String>,
+    /// The value is a preview: evaluated from an edit that is not applied (AC-17).
+    pub preview: bool,
 }
 
 /// Messages sent from the render loop (or any synchronous context) to the
@@ -76,6 +81,11 @@ pub enum AppMessage {
     /// change, including expiration transitions. Monitoring auto-stops when the
     /// element is removed from AppState.
     RequestAssetUpdates { handle: UIHandle, query: String },
+    /// Evaluate `query` as a preview: an ad-hoc asset run with `cwd` as its working directory
+    /// (a recipe's folder), never stored, so nothing upstream is written or expires. Its
+    /// snapshots reach `handle` as `UpdateMessage::AssetUpdate` with `preview: true`, monitored
+    /// as `RequestAssetUpdates` monitors (query-update-modes AC-17, AC-18).
+    Preview { handle: UIHandle, query: String, cwd: Option<String> },
     /// Apply `query` to `input` (used as the input state), binding results to `handle`.
     /// Sent when a `UiAction::Apply` fires: the backend reads the live input value and
     /// forwards it here, where AppRunner runs `apply_immediately(query, state(input))`.
@@ -102,6 +112,30 @@ pub enum AppMessage {
     /// List the store directory `folder` for an editor's file selector; the result comes back
     /// as `UpdateMessage::Directory`.
     ListDirectory { handle: UIHandle, folder: String },
+    /// Read the recipes and the listing of `folder` for an editor's Node arguments; the result
+    /// comes back as `UpdateMessage::NodeContext` (design `recipe-tree`, AC-18).
+    NodeContext { handle: UIHandle, folder: String },
+    /// Save a renamed recipe tree of `folder` (`TreeEditor::save`: the stored-file renames, then
+    /// `recipes.yaml`), then send the folder's context again (design `recipe-tree`, AC-25).
+    RenameData {
+        handle: UIHandle,
+        folder: String,
+        editor: Box<liquers_core::recipe_tree::TreeEditor>,
+    },
+    /// Start evaluating `query` without waiting for it (a recipes editor's Evaluate, design
+    /// `recipes-editor`). Its progress shows in the asset's status, read with the folder's
+    /// context.
+    Evaluate { query: String },
+    /// Evaluate `query`, serialize it in `format` (its own data format when `None`) and write the
+    /// bytes to the local file `path`, not to the store (design `recipes-editor`, AC-19). The
+    /// outcome comes back to `handle` as the `notice` of an `UpdateMessage::NodeContext` of the
+    /// folder of `query`. Native only: in a browser it is refused with a notice.
+    SaveAs {
+        handle: UIHandle,
+        query: String,
+        format: Option<String>,
+        path: String,
+    },
     /// Load the icon image at store key or query `key` into the context's icon cache (AC-17).
     LoadIcon { key: String },
     /// Request application quit.

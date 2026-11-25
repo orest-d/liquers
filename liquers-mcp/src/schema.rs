@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use liquers_core::command_metadata::{
     ArgumentInfo, ArgumentType, CommandMetadata, CommandParameterValue, EnumArgument,
-    EnumArgumentType,
+    EnumArgumentType, VariadicShape,
 };
 use serde_json::{json, Map, Value};
 
@@ -85,7 +85,24 @@ fn is_required(argument: &ArgumentInfo) -> bool {
 fn argument_property(argument: &ArgumentInfo) -> Option<Value> {
     let mut schema = type_schema(&argument.argument_type)?;
     if argument.multiple {
-        schema = json!({"type": "array", "items": schema});
+        // The shape says what the list of parameters stands for; a client sends that value.
+        schema = match &argument.shape {
+            VariadicShape::List => json!({"type": "array", "items": schema}),
+            VariadicShape::Tuples(components) => {
+                let items: Vec<Value> = components
+                    .iter()
+                    .map(|component| type_schema(component).unwrap_or_else(|| json!({})))
+                    .collect();
+                json!({"type": "array", "items": {
+                    "type": "array",
+                    "prefixItems": items,
+                    "minItems": components.len(),
+                    "maxItems": components.len(),
+                }})
+            }
+            VariadicShape::Map => json!({"type": "object", "additionalProperties": schema}),
+            VariadicShape::Json => json!({}),
+        };
     }
     if let Value::Object(map) = &mut schema {
         if !argument.label.is_empty() && argument.label != argument.name {
@@ -117,6 +134,11 @@ fn type_schema(argument_type: &ArgumentType) -> Option<Value> {
         ArgumentType::GlobalEnum(_) => json!({}),
         ArgumentType::Any => json!({}),
         ArgumentType::None => return None,
+        // A node name (a file of the working folder without its extension) or a link.
+        ArgumentType::Node(n) => json!({
+            "type": "string",
+            "description": format!("node name (a .{} file of the working folder) or a link", n.extension),
+        }),
     })
 }
 
@@ -145,6 +167,35 @@ fn enum_value_schema(value_type: &EnumArgumentType) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A shaped variadic argument is described as the value it stands for: an array of
+    /// tuples, an object, or any JSON value. Only the plain list is an array of items.
+    #[test]
+    fn shaped_argument_schema() {
+        let property = |argument: ArgumentInfo| argument_property(&argument).expect("a schema");
+        let list = property(ArgumentInfo::string_argument("xs").set_multiple());
+        assert_eq!(list, json!({"type": "array", "items": {"type": "string"}}));
+
+        let tuples = property(
+            ArgumentInfo::any_argument("weights")
+                .set_multiple()
+                .with_shape(VariadicShape::Tuples(vec![ArgumentType::String, ArgumentType::Float])),
+        );
+        assert_eq!(tuples["type"], "array");
+        assert_eq!(
+            tuples["items"],
+            json!({"type": "array", "prefixItems": [{"type": "string"}, {"type": "number"}],
+                   "minItems": 2, "maxItems": 2})
+        );
+
+        let map = property(
+            ArgumentInfo::integer_argument("sizes", false).set_multiple().with_shape(VariadicShape::Map),
+        );
+        assert_eq!(map, json!({"type": "object", "additionalProperties": {"type": "integer"}}));
+
+        let value = property(ArgumentInfo::any_argument("data").set_multiple().with_shape(VariadicShape::Json));
+        assert_eq!(value, json!({}));
+    }
 
     #[test]
     fn schema_maps_types_defaults_and_hidden_arguments() {

@@ -17,6 +17,12 @@
 //! - [`CommandArguments`] — the action's parameters as a command sees them;
 //!   [`FromParameterValue`] converts one parameter into a typed argument and
 //!   [`InjectedFromContext`] supplies an argument the query does not mention.
+//! - A variadic argument is read whole: [`CommandArguments::get_multiple`] as a list, and, when it
+//!   has a shape ([`VariadicShape`](crate::command_metadata::VariadicShape)),
+//!   [`CommandArguments::get_multiple_grouped`] as tuples or a type implementing
+//!   [`FromParameterGroup`], [`CommandArguments::get_multiple_map`] as a dictionary and
+//!   [`CommandArguments::get_multiple_json`] as a JSON value ([`json_scalar`] reads a value
+//!   without a declared type; [`ParameterComponent`] names the type of one component).
 //!
 //! # Where it is used
 //! - The interpreter ([`crate::interpreter`]) runs the executor for every action step of a plan.
@@ -246,7 +252,7 @@ impl<E: Environment> CommandArguments<E> {
             | ParameterValue::DefaultLink(_, _)
             | ParameterValue::ParameterLink(_, _, _)
             | ParameterValue::OverrideLink(_, _)
-            | ParameterValue::EnumLink(_, _, _)
+            | ParameterValue::EnumLink(_, _, _) | ParameterValue::NodeLink(_, _, _, _)
             | ParameterValue::Placeholder(_)
             | ParameterValue::Injected(_)
             | ParameterValue::ParameterPipeline(_, _, _)
@@ -259,6 +265,201 @@ impl<E: Environment> CommandArguments<E> {
                 name
             ))
             .with_position(&self.action_position)),
+        }
+    }
+
+    /// The elements of a shaped `multiple` argument, flattened one level: an element whose value
+    /// is an array (a nested override such as `[["a", 1], ["b", 2]]`, or a link that produced a
+    /// list) contributes its entries, and with `objects` an element whose value is an object
+    /// contributes its key and value pairs. Every element must be a value by now: the
+    /// interpreter materialises links before the arguments are built.
+    fn shaped_elements(
+        &self,
+        i: usize,
+        name: &str,
+        arrays: bool,
+        objects: bool,
+    ) -> Result<Vec<ParameterValue>, Error> {
+        let p = self.get_parameter(i, name)?;
+        let Some(elements) = p.multiple() else {
+            return Err(Error::general_error(format!(
+                "Argument #{} '{}' is declared as multiple, but was not resolved as a parameter list",
+                i + 1,
+                name
+            ))
+            .with_position(&self.action_position));
+        };
+        let mut flat = Vec::with_capacity(elements.len());
+        for element in elements {
+            let Some(value) = element.value() else {
+                return Err(Error::general_error(format!(
+                    "Unresolved element in multiple argument #{} '{}'",
+                    i + 1,
+                    name
+                ))
+                .with_position(&self.element_position(&element)));
+            };
+            let position = self.element_position(&element);
+            match value {
+                serde_json::Value::Array(entries) if arrays => {
+                    for entry in entries {
+                        flat.push(ParameterValue::ParameterValue(name.to_string(), entry, position.clone()));
+                    }
+                }
+                serde_json::Value::Object(entries) if objects => {
+                    for (key, entry) in entries {
+                        flat.push(ParameterValue::ParameterValue(
+                            name.to_string(),
+                            serde_json::Value::String(key),
+                            position.clone(),
+                        ));
+                        flat.push(ParameterValue::ParameterValue(name.to_string(), entry, position.clone()));
+                    }
+                }
+                serde_json::Value::Null
+                | serde_json::Value::Bool(_)
+                | serde_json::Value::Number(_)
+                | serde_json::Value::String(_)
+                | serde_json::Value::Array(_)
+                | serde_json::Value::Object(_) => flat.push(element),
+            }
+        }
+        Ok(flat)
+    }
+
+    /// Where an element came from: its own position, or the action's when it has none (a
+    /// default, an override).
+    fn element_position(&self, element: &ParameterValue) -> Position {
+        let position = element.position();
+        if position.is_unknown() {
+            self.action_position.clone()
+        } else {
+            position
+        }
+    }
+
+    /// The text of a dictionary key: a string as it is, a number as its text.
+    fn key_text(&self, element: &ParameterValue, name: &str) -> Result<String, Error> {
+        match element.value() {
+            Some(serde_json::Value::String(text)) => Ok(text),
+            Some(serde_json::Value::Number(number)) => Ok(number.to_string()),
+            Some(serde_json::Value::Null)
+            | Some(serde_json::Value::Bool(_))
+            | Some(serde_json::Value::Array(_))
+            | Some(serde_json::Value::Object(_))
+            | None => Err(Error::conversion_error_with_message(
+                element,
+                "a key",
+                &format!("a key of argument '{}' is text", name),
+            )
+            .with_position(&self.element_position(element))),
+        }
+    }
+
+    /// Returns a `multiple` argument whose elements are groups of consecutive parameters
+    /// ([`crate::command_metadata::VariadicShape::Tuples`]): `a-1-b-2` as `[("a", 1), ("b", 2)]`.
+    ///
+    /// The plan checks the count of literal parameters; a remainder that only appears once
+    /// links are materialised is an error here, naming the argument.
+    pub fn get_multiple_grouped<T: FromParameterGroup>(
+        &self,
+        i: usize,
+        name: &str,
+    ) -> Result<Vec<T>, Error> {
+        let elements = self.shaped_elements(i, name, true, false)?;
+        let arity = T::ARITY.max(1);
+        if elements.len() % arity != 0 {
+            return Err(Error::general_error(format!(
+                "Argument #{} '{}' takes elements of {} parameters; {} given",
+                i + 1,
+                name,
+                arity,
+                elements.len()
+            ))
+            .with_position(&self.action_position));
+        }
+        elements.chunks(arity).map(T::from_parameter_group).collect()
+    }
+
+    /// Returns a `multiple` argument read as key and value pairs
+    /// ([`crate::command_metadata::VariadicShape::Map`]): `row-0-col-8` as `{col: 8, row: 0}`.
+    ///
+    /// A key given twice, or a key without a value, is an error naming the argument. An element
+    /// that is an object (an override, or a link to one) contributes its entries.
+    pub fn get_multiple_map<V: FromParameterValue<V>>(
+        &self,
+        i: usize,
+        name: &str,
+    ) -> Result<std::collections::BTreeMap<String, V>, Error> {
+        let elements = self.shaped_elements(i, name, true, true)?;
+        self.pairs(&elements, i, name)?
+            .into_iter()
+            .map(|(key, element)| Ok((key, V::from_parameter_value(element)?)))
+            .collect()
+    }
+
+    /// Splits flat elements into unique keys and their value elements, in order.
+    fn pairs<'a>(
+        &self,
+        elements: &'a [ParameterValue],
+        i: usize,
+        name: &str,
+    ) -> Result<Vec<(String, &'a ParameterValue)>, Error> {
+        if elements.len() % 2 != 0 {
+            return Err(Error::general_error(format!(
+                "Argument #{} '{}' takes key and value pairs; the last key has no value",
+                i + 1,
+                name
+            ))
+            .with_position(&elements.last().map(|e| self.element_position(e)).unwrap_or_else(|| self.action_position.clone())));
+        }
+        let mut pairs: Vec<(String, &ParameterValue)> = Vec::with_capacity(elements.len() / 2);
+        for pair in elements.chunks(2) {
+            let key = self.key_text(&pair[0], name)?;
+            if pairs.iter().any(|(seen, _)| *seen == key) {
+                return Err(Error::general_error(format!(
+                    "Key '{}' is given twice in argument #{} '{}'",
+                    key,
+                    i + 1,
+                    name
+                ))
+                .with_position(&self.element_position(&pair[0])));
+            }
+            pairs.push((key, &pair[1]));
+        }
+        Ok(pairs)
+    }
+
+    /// Returns a `multiple` argument read as a JSON value
+    /// ([`crate::command_metadata::VariadicShape::Json`]). The parameters decide its form:
+    ///
+    /// | Parameters | Value |
+    /// |---|---|
+    /// | none | `null` |
+    /// | one, not empty | a number or a string ([`json_scalar`]) |
+    /// | a leading empty string | the rest as a list; one empty string alone is `[]` |
+    /// | anything else | key and value pairs, an object; keys are text (`1-a` is `{"1": "a"}`) |
+    ///
+    /// There are no booleans: `true` cannot be told from a string. A single element that is
+    /// already a JSON value other than a string (an override, a link) is returned as it is.
+    pub fn get_multiple_json(&self, i: usize, name: &str) -> Result<serde_json::Value, Error> {
+        let elements = self.shaped_elements(i, name, false, false)?;
+        let scalar = |element: &ParameterValue| serde_json::Value::from_parameter_value(element);
+        let is_marker =
+            |element: &ParameterValue| matches!(element.value(), Some(serde_json::Value::String(s)) if s.is_empty());
+        match elements.as_slice() {
+            [] => Ok(serde_json::Value::Null),
+            [first, rest @ ..] if is_marker(first) => {
+                Ok(serde_json::Value::Array(rest.iter().map(scalar).collect::<Result<_, _>>()?))
+            }
+            [single] => scalar(single),
+            pairs => {
+                let mut object = serde_json::Map::new();
+                for (key, element) in self.pairs(pairs, i, name)? {
+                    object.insert(key, scalar(element)?);
+                }
+                Ok(serde_json::Value::Object(object))
+            }
         }
     }
 
@@ -281,7 +482,7 @@ impl<E: Environment> CommandArguments<E> {
             ParameterValue::DefaultLink(_, query)
             | ParameterValue::ParameterLink(_, query, _)
             | ParameterValue::OverrideLink(_, query)
-            | ParameterValue::EnumLink(_, query, _) => Err(Error::general_error(format!(
+            | ParameterValue::EnumLink(_, query, _) | ParameterValue::NodeLink(_, _, query, _) => Err(Error::general_error(format!(
                 "Unresolved link in multiple argument #{} '{}': {}",
                 i + 1,
                 name,
@@ -355,6 +556,154 @@ impl<E: Environment> CommandArguments<E> {
 pub trait FromParameterValue<T> {
     fn from_parameter_value(param: &ParameterValue) -> Result<T, Error>;
 }
+
+/// A number when `text` is written as a JSON number (`8`, `-0.5`, `1e3`), otherwise a string.
+///
+/// This is how a value without a declared type is read from a query parameter: the value of a
+/// dictionary declared with JSON values, and the scalars of a JSON value argument. `007`, `+1`,
+/// `true` and `null` stay strings: only a number can be told from text.
+pub fn json_scalar(text: &str) -> serde_json::Value {
+    match serde_json::from_str::<serde_json::Value>(text) {
+        Ok(serde_json::Value::Number(number)) => serde_json::Value::Number(number),
+        Ok(serde_json::Value::Null)
+        | Ok(serde_json::Value::Bool(_))
+        | Ok(serde_json::Value::String(_))
+        | Ok(serde_json::Value::Array(_))
+        | Ok(serde_json::Value::Object(_))
+        | Err(_) => serde_json::Value::String(text.to_string()),
+    }
+}
+
+/// The JSON value that a list of parameter texts stands for, by the rules of
+/// [`CommandArguments::get_multiple_json`]: none is `null`, one is a number or a string, a
+/// leading empty text makes the rest a list, anything else is key and value pairs.
+///
+/// For a caller that has the parameters as text and no plan, such as a URL query string.
+///
+/// ```
+/// use liquers_core::commands::json_value_from_texts;
+/// # fn main() -> Result<(), liquers_core::error::Error> {
+/// assert_eq!(json_value_from_texts(&["", "1", "a"])?, serde_json::json!([1, "a"]));
+/// assert_eq!(json_value_from_texts(&["row", "0"])?, serde_json::json!({"row": 0}));
+/// # Ok(())
+/// # }
+/// ```
+pub fn json_value_from_texts<S: AsRef<str>>(texts: &[S]) -> Result<serde_json::Value, Error> {
+    match texts {
+        [] => Ok(serde_json::Value::Null),
+        [first, rest @ ..] if first.as_ref().is_empty() => Ok(serde_json::Value::Array(
+            rest.iter().map(|text| json_scalar(text.as_ref())).collect(),
+        )),
+        [single] => Ok(json_scalar(single.as_ref())),
+        pairs => {
+            if pairs.len() % 2 != 0 {
+                return Err(Error::general_error(format!(
+                    "Key and value pairs expected; the last key '{}' has no value",
+                    pairs.last().map(|text| text.as_ref()).unwrap_or_default()
+                )));
+            }
+            let mut object = serde_json::Map::new();
+            for pair in pairs.chunks(2) {
+                let key = pair[0].as_ref();
+                if object.contains_key(key) {
+                    return Err(Error::general_error(format!("Key '{key}' is given twice")));
+                }
+                object.insert(key.to_string(), json_scalar(pair[1].as_ref()));
+            }
+            Ok(serde_json::Value::Object(object))
+        }
+    }
+}
+
+/// A JSON value from one parameter: text is read with [`json_scalar`], anything that already
+/// is a JSON value (an override, a materialised link) is kept.
+impl FromParameterValue<serde_json::Value> for serde_json::Value {
+    fn from_parameter_value(param: &ParameterValue) -> Result<serde_json::Value, Error> {
+        match param.value() {
+            Some(serde_json::Value::String(text)) => Ok(json_scalar(&text)),
+            Some(value) => Ok(value),
+            None => Err(Error::conversion_error_with_message(
+                param,
+                "a JSON value",
+                "Parameter value expected",
+            )),
+        }
+    }
+}
+
+/// A type that can be one component of a tuple element, or the value of a dictionary, of a
+/// shaped `multiple` argument: it converts from one parameter and names its argument type.
+pub trait ParameterComponent: FromParameterValue<Self> + Sized {
+    fn argument_type() -> command_metadata::ArgumentType;
+}
+
+macro_rules! impl_parameter_component {
+    ($argument_type:expr => $($t:ty),+) => {
+        $(impl ParameterComponent for $t {
+            fn argument_type() -> command_metadata::ArgumentType {
+                $argument_type
+            }
+        })+
+    };
+}
+
+/// A fixed-size group of consecutive parameters converted into one value: an element of a
+/// `multiple` argument of shape [`command_metadata::VariadicShape::Tuples`].
+///
+/// Implemented for tuples of 2 to 4 [`ParameterComponent`]s. Implement it for your own type to
+/// take `Vec<YourType> multiple`:
+///
+/// ```
+/// use liquers_core::command_metadata::ArgumentType;
+/// use liquers_core::commands::{FromParameterGroup, FromParameterValue};
+/// use liquers_core::error::Error;
+/// use liquers_core::plan::ParameterValue;
+///
+/// struct Point { x: f64, y: f64 }
+///
+/// impl FromParameterGroup for Point {
+///     const ARITY: usize = 2;
+///     fn component_types() -> Vec<ArgumentType> {
+///         vec![ArgumentType::Float, ArgumentType::Float]
+///     }
+///     fn from_parameter_group(group: &[ParameterValue]) -> Result<Self, Error> {
+///         Ok(Point { x: f64::from_parameter_value(&group[0])?, y: f64::from_parameter_value(&group[1])? })
+///     }
+/// }
+/// assert_eq!(Point::component_types().len(), Point::ARITY);
+/// ```
+pub trait FromParameterGroup: Sized {
+    /// How many consecutive parameters form one value.
+    const ARITY: usize;
+    /// The argument type of each component, `ARITY` of them, for the command's metadata.
+    fn component_types() -> Vec<command_metadata::ArgumentType>;
+    /// Converts exactly `ARITY` parameters.
+    fn from_parameter_group(group: &[ParameterValue]) -> Result<Self, Error>;
+}
+
+macro_rules! impl_from_parameter_group {
+    ($arity:expr; $($component:ident : $index:tt),+) => {
+        impl<$($component: ParameterComponent),+> FromParameterGroup for ($($component,)+) {
+            const ARITY: usize = $arity;
+            fn component_types() -> Vec<command_metadata::ArgumentType> {
+                vec![$($component::argument_type()),+]
+            }
+            fn from_parameter_group(group: &[ParameterValue]) -> Result<Self, Error> {
+                if group.len() != $arity {
+                    return Err(Error::general_error(format!(
+                        "An element of {} parameters expected, {} given",
+                        $arity,
+                        group.len()
+                    )));
+                }
+                Ok(($($component::from_parameter_value(&group[$index])?,)+))
+            }
+        }
+    };
+}
+impl_from_parameter_group!(2; A: 0, B: 1);
+impl_from_parameter_group!(3; A: 0, B: 1, C: 2);
+impl_from_parameter_group!(4; A: 0, B: 1, C: 2, D: 3);
 
 /// Macro to simplify the implementation of the FromParameterValue trait
 macro_rules! impl_from_parameter_value2 {
@@ -498,6 +847,12 @@ impl_from_parameter_value2_opt!(f64, |p: &serde_json::Value| p.as_f64());
 impl_from_parameter_value2_opt!(f32, |p: &serde_json::Value| p.as_f64().map(|x| x as f32));
 impl_from_parameter_value2!(bool, |p: &serde_json::Value| p.as_bool());
 impl_from_parameter_value2_opt!(bool, |p: &serde_json::Value| p.as_bool());
+
+impl_parameter_component!(command_metadata::ArgumentType::String => String);
+impl_parameter_component!(command_metadata::ArgumentType::Integer => i64, i32, i16, i8, isize, u64, u32, u16, u8, usize);
+impl_parameter_component!(command_metadata::ArgumentType::Float => f64, f32);
+impl_parameter_component!(command_metadata::ArgumentType::Boolean => bool);
+impl_parameter_component!(command_metadata::ArgumentType::Any => serde_json::Value);
 
 impl<V: ValueInterface> FromParameterValue<Vec<V>> for Vec<V> {
     fn from_parameter_value(param: &ParameterValue) -> Result<Vec<V>, Error> {
@@ -1033,6 +1388,143 @@ mod tests {
 
         fn args_of(parameter: ParameterValue) -> CommandArguments<TestEnv> {
             CommandArguments::<TestEnv>::new(ResolvedParameterValues(vec![parameter]))
+        }
+
+        fn list_of(values: Vec<serde_json::Value>) -> CommandArguments<TestEnv> {
+            args_of(ParameterValue::MultipleParameters(
+                "data".to_string(),
+                values
+                    .into_iter()
+                    .enumerate()
+                    .map(|(n, v)| element("data", v, 10 + 2 * n))
+                    .collect(),
+            ))
+        }
+
+        /// Tuples: consecutive parameters form one element, each component converted by its type.
+        #[test]
+        fn get_multiple_grouped_builds_pairs() -> Result<(), Error> {
+            // The plan has already typed each position, so an integer component is a number.
+            let args = list_of(vec!["a".into(), 1.into(), "b".into(), 2.into()]);
+            let pairs: Vec<(String, i64)> = args.get_multiple_grouped(0, "data")?;
+            assert_eq!(pairs, vec![("a".to_string(), 1), ("b".to_string(), 2)]);
+
+            // A nested override: each element is an array, flattened one level.
+            let args = list_of(vec![
+                serde_json::json!(["a", 1.5, true]),
+                serde_json::json!(["b", 2, false]),
+            ]);
+            let triples: Vec<(String, f64, bool)> = args.get_multiple_grouped(0, "data")?;
+            assert_eq!(
+                triples,
+                vec![("a".to_string(), 1.5, true), ("b".to_string(), 2.0, false)]
+            );
+            assert_eq!(
+                <(String, f64, bool)>::component_types(),
+                vec![
+                    command_metadata::ArgumentType::String,
+                    command_metadata::ArgumentType::Float,
+                    command_metadata::ArgumentType::Boolean
+                ]
+            );
+            Ok(())
+        }
+
+        /// Tuples: a count that is not a multiple of the arity is an error naming the argument.
+        #[test]
+        fn get_multiple_grouped_reports_remainder() {
+            let args = list_of(vec!["a".into(), 1.into(), "b".into()]);
+            let err = args
+                .get_multiple_grouped::<(String, i64)>(0, "data")
+                .expect_err("three parameters do not make pairs");
+            assert!(err.message.contains("'data'"), "message: {}", err.message);
+            assert!(err.message.contains("3 given"), "message: {}", err.message);
+        }
+
+        /// Map: values without a declared type are numbers when written as numbers.
+        #[test]
+        fn get_multiple_map_reads_json_scalars() -> Result<(), Error> {
+            let args = list_of(vec![
+                "row".into(),
+                "0".into(),
+                "align".into(),
+                "center".into(),
+                "flag".into(),
+                "true".into(),
+            ]);
+            let map: std::collections::BTreeMap<String, serde_json::Value> =
+                args.get_multiple_map(0, "data")?;
+            assert_eq!(map["row"], serde_json::json!(0));
+            assert_eq!(map["align"], serde_json::json!("center"));
+            assert_eq!(map["flag"], serde_json::json!("true"));
+
+            let args = list_of(vec!["row".into(), 0.into(), "col".into(), 8.into()]);
+            let typed: std::collections::BTreeMap<String, i64> = args.get_multiple_map(0, "data")?;
+            assert_eq!(typed["col"], 8);
+
+            let args = list_of(vec!["row".into(), 0.into(), "row".into(), 1.into()]);
+            let err = args
+                .get_multiple_map::<i64>(0, "data")
+                .expect_err("a key given twice");
+            assert!(err.message.contains("'row'"), "message: {}", err.message);
+            assert_eq!(err.position.offset, 14);
+
+            let args = list_of(vec!["row".into()]);
+            let err = args
+                .get_multiple_map::<i64>(0, "data")
+                .expect_err("a key without a value");
+            assert!(err.message.contains("no value"), "message: {}", err.message);
+            Ok(())
+        }
+
+        /// Map: an element that is an object (an override, a link) contributes its entries.
+        #[test]
+        fn get_multiple_map_collects_json_object() -> Result<(), Error> {
+            let args = list_of(vec![
+                serde_json::json!({"row": 0, "col": 8}),
+                "align".into(),
+                "center".into(),
+            ]);
+            let map: std::collections::BTreeMap<String, serde_json::Value> =
+                args.get_multiple_map(0, "data")?;
+            assert_eq!(
+                serde_json::to_value(&map).map_err(|e| Error::general_error(e.to_string()))?,
+                serde_json::json!({"align": "center", "col": 8, "row": 0})
+            );
+            Ok(())
+        }
+
+        /// JSON value: the parameters decide the form.
+        #[test]
+        fn get_multiple_json_forms() -> Result<(), Error> {
+            let json = |values: Vec<serde_json::Value>| list_of(values).get_multiple_json(0, "data");
+            assert_eq!(json(vec![])?, serde_json::Value::Null);
+            assert_eq!(json(vec!["8".into()])?, serde_json::json!(8));
+            assert_eq!(json(vec!["-0.5".into()])?, serde_json::json!(-0.5));
+            assert_eq!(json(vec!["abc".into()])?, serde_json::json!("abc"));
+            assert_eq!(json(vec!["true".into()])?, serde_json::json!("true"));
+            assert_eq!(json(vec!["".into()])?, serde_json::json!([]));
+            assert_eq!(
+                json(vec!["".into(), "1".into(), "a".into()])?,
+                serde_json::json!([1, "a"])
+            );
+            assert_eq!(
+                json(vec!["1".into(), "a".into()])?,
+                serde_json::json!({"1": "a"})
+            );
+            assert_eq!(
+                json(vec!["row".into(), "0".into(), "align".into(), "center".into()])?,
+                serde_json::json!({"row": 0, "align": "center"})
+            );
+            // A value that already is JSON (an override, a link) is kept.
+            assert_eq!(
+                json(vec![serde_json::json!({"a": [1, 2]})])?,
+                serde_json::json!({"a": [1, 2]})
+            );
+            assert_eq!(json(vec![serde_json::json!([1, 2])])?, serde_json::json!([1, 2]));
+            let err = json(vec!["a".into(), "1".into(), "b".into()]).expect_err("odd pairs");
+            assert!(err.message.contains("no value"), "message: {}", err.message);
+            Ok(())
         }
 
         /// U1 - three elements convert, in order.

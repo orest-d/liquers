@@ -37,6 +37,7 @@ use nom::Err;
 use serde_json::Value;
 
 use crate::command_metadata::{
+    VariadicShape,
     self, ArgumentInfo, ArgumentType, CommandKey, CommandMetadata, CommandMetadataRegistry,
     CommandParameterValue, EnumArgumentType, PayloadRequirement,
 };
@@ -503,6 +504,10 @@ pub enum ParameterValue {
     Placeholder(String),
     /// Query link selected through an enum alias.
     EnumLink(String, Query, Position),
+    /// A Node argument given by name: the argument, the node name, and the link the name stands
+    /// for (`NodeArgument::link`). It is evaluated like a link; the name is kept so strict mode
+    /// can tell it from a link the query wrote, and so a rename can find it.
+    NodeLink(String, String, Query, Position),
     /// Resolved elements of a variadic argument, with the argument's name.
     ///
     /// The name is carried here for the same reason every other variant carries one: an argument
@@ -542,6 +547,9 @@ impl Display for ParameterValue {
                 write!(f, "override link {}: {}", name, q.encode())
             }
             ParameterValue::EnumLink(name, q, _) => write!(f, "enum link {}: {}", name, q.encode()),
+            ParameterValue::NodeLink(name, node, q, _) => {
+                write!(f, "node link {}: {} ({})", name, node, q.encode())
+            }
             ParameterValue::MultipleParameters(_, v) => {
                 write!(
                     f,
@@ -915,6 +923,21 @@ impl ParameterValue {
                     ))
                 }
             }
+            ArgumentType::Node(ref node) => {
+                if s.is_empty() {
+                    let res = Self::from_arginfo(arginfo);
+                    if !res.is_none() {
+                        return Ok(res);
+                    }
+                }
+                let link = node.link(s).map_err(|e| e.with_position(pos))?;
+                Ok(ParameterValue::NodeLink(
+                    arginfo.name.clone(),
+                    s.to_owned(),
+                    link,
+                    pos.to_owned(),
+                ))
+            }
             ArgumentType::None => Err(Error::not_supported(
                 "None not supported as argument type".to_string(),
             )),
@@ -929,6 +952,67 @@ impl ParameterValue {
     /// Injected arguments consume no query parameters. Variadic arguments consume the iterator's
     /// remainder. If a required scalar is absent, a placeholder is returned only when
     /// `allow_placeholders` is enabled; otherwise this returns `ArgumentMissing`.
+    /// Checks the parameters of a shaped `multiple` argument that can be checked while
+    /// planning: an incomplete element and a repeated key. `literals` holds, per parameter, its
+    /// text (`None` for a link) and its position.
+    ///
+    /// The checks need every parameter to be a literal: a link is only known at run time, where
+    /// `CommandArguments` repeats them on the materialised values.
+    fn check_shape(
+        arginfo: &ArgumentInfo,
+        literals: &[(Option<String>, Position)],
+    ) -> Result<(), Error> {
+        let pairs_from = match &arginfo.shape {
+            VariadicShape::List => return Ok(()),
+            VariadicShape::Tuples(_) => None,
+            VariadicShape::Map => Some(0),
+            VariadicShape::Json => {
+                // One parameter is a scalar and a leading empty string starts a list; anything
+                // else is key and value pairs. A link in first place decides at run time.
+                match literals.first() {
+                    Some((Some(first), _)) if !first.is_empty() && literals.len() > 1 => Some(0),
+                    Some(_) | None => return Ok(()),
+                }
+            }
+        };
+        if literals.iter().any(|(text, _)| text.is_none()) {
+            return Ok(());
+        }
+        let arity = match &arginfo.shape {
+            VariadicShape::Json => 2,
+            VariadicShape::List | VariadicShape::Tuples(_) | VariadicShape::Map => arginfo.shape.arity(),
+        };
+        let remainder = literals.len() % arity;
+        if remainder != 0 {
+            let (text, position) = &literals[literals.len() - remainder];
+            return Err(Error::conversion_error_with_message(
+                text.clone().unwrap_or_default(),
+                format!("an element of argument '{}'", arginfo.name),
+                &format!(
+                    "argument '{}' takes elements of {} parameters; the last element has {}",
+                    arginfo.name, arity, remainder
+                ),
+            )
+            .with_position(position));
+        }
+        if let Some(start) = pairs_from {
+            let mut seen: Vec<&str> = Vec::new();
+            for (text, position) in literals.iter().skip(start).step_by(2) {
+                let key = text.as_deref().unwrap_or_default();
+                if seen.contains(&key) {
+                    return Err(Error::conversion_error_with_message(
+                        key,
+                        format!("a key of argument '{}'", arginfo.name),
+                        &format!("key '{}' is given twice in argument '{}'", key, arginfo.name),
+                    )
+                    .with_position(position));
+                }
+                seen.push(key);
+            }
+        }
+        Ok(())
+    }
+
     pub fn pop_value(
         arginfo: &ArgumentInfo,
         param: &mut ActionParameterIterator,
@@ -944,11 +1028,26 @@ impl ParameterValue {
             // empty element gets that type's element fallback rather than the list's default.
             let mut element = arginfo.clone();
             element.multiple = false;
+            element.shape = VariadicShape::List;
+            element.columns = Vec::new();
             element.default = CommandParameterValue::None;
+            // The shape says how consecutive parameters form one element; parameter `j` is
+            // converted as component `j % n` of it. The list stays flat either way.
+            let component_types: Vec<ArgumentType> = match &arginfo.shape {
+                VariadicShape::List => vec![arginfo.argument_type.clone()],
+                VariadicShape::Tuples(components) => components.clone(),
+                VariadicShape::Map => vec![ArgumentType::String, arginfo.argument_type.clone()],
+                VariadicShape::Json => vec![ArgumentType::Any],
+            };
+            let mut literals: Vec<(Option<String>, Position)> = Vec::new();
             let mut values = Vec::new();
             for x in &mut *param {
+                if let Some(component) = component_types.get(values.len() % component_types.len().max(1)) {
+                    element.argument_type = component.clone();
+                }
                 match x {
                     ActionParameter::String(s, pos) => {
+                        literals.push((Some(s.clone()), pos.clone()));
                         let pv = Self::from_string(&element, s, pos)?;
                         match pv {
                             ParameterValue::ParameterValue(_, _, _) => values.push(pv),
@@ -957,7 +1056,7 @@ impl ParameterValue {
                             ParameterValue::DefaultLink(_, _) => values.push(pv),
                             ParameterValue::ParameterLink(_, _, _) => values.push(pv),
                             ParameterValue::OverrideLink(_, _) => values.push(pv),
-                            ParameterValue::EnumLink(_, _, _) => values.push(pv),
+                            ParameterValue::EnumLink(_, _, _) | ParameterValue::NodeLink(_, _, _, _) => values.push(pv),
                             ParameterValue::MultipleParameters(_, _) => {
                                 return Err(Error::unexpected_error(
                                     "Multiple parameters not supported inside vector argument"
@@ -990,6 +1089,7 @@ impl ParameterValue {
                         }
                     }
                     ActionParameter::Link(q, pos) => {
+                        literals.push((None, pos.clone()));
                         values.push(ParameterValue::ParameterLink(
                             arginfo.name.clone(),
                             q.clone(),
@@ -998,6 +1098,7 @@ impl ParameterValue {
                     }
                 }
             }
+            Self::check_shape(arginfo, &literals)?;
             return Ok(ParameterValue::MultipleParameters(
                 arginfo.name.clone(),
                 values,
@@ -1048,7 +1149,7 @@ impl ParameterValue {
             ParameterValue::DefaultLink(_, _) => true,
             ParameterValue::ParameterLink(_, _, _) => true,
             ParameterValue::OverrideLink(_, _) => true,
-            ParameterValue::EnumLink(_, _, _) => true,
+            ParameterValue::EnumLink(_, _, _) | ParameterValue::NodeLink(_, _, _, _) => true,
             _ => false,
         }
     }
@@ -1075,7 +1176,7 @@ impl ParameterValue {
             ParameterValue::ParameterLink(name, _, _) => Some(name.clone()),
             ParameterValue::OverrideValue(name, _) => Some(name.clone()),
             ParameterValue::OverrideLink(name, _) => Some(name.clone()),
-            ParameterValue::EnumLink(name, _, _) => Some(name.clone()),
+            ParameterValue::EnumLink(name, _, _) | ParameterValue::NodeLink(name, _, _, _) => Some(name.clone()),
             ParameterValue::Injected(name) => Some(name.clone()),
             ParameterValue::Placeholder(name) => Some(name.clone()),
             ParameterValue::MultipleParameters(name, _) => Some(name.clone()),
@@ -1109,7 +1210,7 @@ impl ParameterValue {
             | ParameterValue::OverrideValue(_, _)
             | ParameterValue::OverrideLink(_, _)
             | ParameterValue::Placeholder(_)
-            | ParameterValue::EnumLink(_, _, _)
+            | ParameterValue::EnumLink(_, _, _) | ParameterValue::NodeLink(_, _, _, _)
             | ParameterValue::MultipleParameters(_, _)
             | ParameterValue::Injected(_)
             | ParameterValue::InputState(_) | ParameterValue::FrameArgument(_, _)
@@ -1122,7 +1223,7 @@ impl ParameterValue {
             ParameterValue::DefaultLink(_, q) => Some(q.clone()),
             ParameterValue::ParameterLink(_, q, _) => Some(q.clone()),
             ParameterValue::OverrideLink(_, q) => Some(q.clone()),
-            ParameterValue::EnumLink(_, q, _) => Some(q.clone()),
+            ParameterValue::EnumLink(_, q, _) | ParameterValue::NodeLink(_, _, q, _) => Some(q.clone()),
             _ => None,
         }
     }
@@ -1140,7 +1241,7 @@ impl ParameterValue {
         match self {
             ParameterValue::ParameterValue(_, _, pos) => pos.clone(),
             ParameterValue::ParameterLink(_, _, pos) => pos.clone(),
-            ParameterValue::EnumLink(_, _, pos) => pos.clone(),
+            ParameterValue::EnumLink(_, _, pos) | ParameterValue::NodeLink(_, _, _, pos) => pos.clone(),
             ParameterValue::ParameterPipeline(_, _, pos) => pos.clone(),
             _ => Position::unknown(),
         }
@@ -1177,19 +1278,31 @@ impl ResolvedParameterValues {
     /// only that link and cannot move the enclosing plan's working key. This mirrors the scope rule
     /// `find_dependencies` already applies, and is what
     /// `find_dependencies_child_query_cwd_does_not_leak` pins.
-    pub(crate) fn freeze_cwd(&mut self, cursor: &mut CwdCursor) {
+    ///
+    /// Fails when a Node argument given by name has no working directory to resolve against.
+    pub(crate) fn freeze_cwd(&mut self, cursor: &mut CwdCursor) -> Result<(), Error> {
         for parameter in self.0.iter_mut() {
-            parameter.freeze_cwd(cursor);
+            parameter.freeze_cwd(cursor)?;
         }
+        Ok(())
     }
 }
 
 impl ParameterValue {
     /// Rewrites this parameter's link query, if it has one, into CWD-absolute form.
     ///
-    /// See [`ResolvedParameterValues::freeze_cwd`] for the scope rule.
-    pub(crate) fn freeze_cwd(&mut self, cursor: &mut CwdCursor) {
+    /// See [`ResolvedParameterValues::freeze_cwd`] for the scope rule. A Node argument given by
+    /// name needs a working directory: without one it fails instead of falling back to the root.
+    pub(crate) fn freeze_cwd(&mut self, cursor: &mut CwdCursor) -> Result<(), Error> {
         match self {
+            ParameterValue::NodeLink(name, node, query, position) => {
+                if cursor.cwd().is_none() {
+                    return Err(Error::node_needs_cwd(name, node).with_position(position));
+                }
+                let mut scoped = cursor.clone();
+                *query = scoped.resolve_query_scoped(query);
+                cursor.absorb_diagnostics(&scoped);
+            }
             ParameterValue::DefaultLink(_, query)
             | ParameterValue::ParameterLink(_, query, _)
             | ParameterValue::OverrideLink(_, query)
@@ -1202,7 +1315,7 @@ impl ParameterValue {
             }
             ParameterValue::MultipleParameters(_, values) => {
                 for value in values.iter_mut() {
-                    value.freeze_cwd(cursor);
+                    value.freeze_cwd(cursor)?;
                 }
             }
             ParameterValue::DefaultValue(_, _)
@@ -1218,6 +1331,7 @@ impl ParameterValue {
             | ParameterValue::OverridePipeline(_, _)
             | ParameterValue::DefaultPipeline(_, _) => {}
         }
+        Ok(())
     }
 }
 impl Default for ResolvedParameterValues {
@@ -1620,7 +1734,7 @@ impl<'c> PlanAssembly<'c> {
             ParameterValue::DefaultLink(_, query)
             | ParameterValue::ParameterLink(_, query, _)
             | ParameterValue::OverrideLink(_, query)
-            | ParameterValue::EnumLink(_, query, _) => {
+            | ParameterValue::EnumLink(_, query, _) | ParameterValue::NodeLink(_, _, query, _) => {
                 // Build a sub-plan for the linked query and check if it's volatile
                 let mut link_pb = PlanBuilder::new(query.clone(), self.command_registry);
                 let link_plan = link_pb.build()?;
@@ -2528,7 +2642,7 @@ impl Plan {
                     *query = step_cursor.resolve_query_scoped(query);
                 }
                 Step::Action { parameters, .. } => {
-                    parameters.freeze_cwd(step_cursor);
+                    parameters.freeze_cwd(step_cursor)?;
                 }
                 Step::Plan(nested) => {
                     nested.freeze_cwd_with(step_cursor)?;
@@ -3146,6 +3260,14 @@ fn collect_parameter_dependencies(
             dependencies.insert(PlanDependency::new(
                 DependencyKey::from(&resolved),
                 DependencyRelation::EnumLink(name.clone()),
+            ));
+        }
+        // A node name is a link the query wrote in short form: the same relation as a link.
+        ParameterValue::NodeLink(name, _, query, _) => {
+            let resolved = cursor.resolve_query_scoped(query);
+            dependencies.insert(PlanDependency::new(
+                DependencyKey::from(&resolved),
+                DependencyRelation::ParameterLink(name.clone()),
             ));
         }
         ParameterValue::MultipleParameters(_, values) => {
@@ -5777,6 +5899,119 @@ mod tests {
         let elements = values.0[0].multiple().expect("still a parameter list");
         assert_eq!(elements.len(), 1);
         assert!(elements[0].link().is_some());
+        Ok(())
+    }
+
+    fn shaped_command(argument: ArgumentInfo) -> CommandMetadata {
+        let mut cm = CommandMetadata::new("cmd");
+        cm.with_argument(argument);
+        cm
+    }
+
+    fn pairs_of(first: ArgumentType, second: ArgumentType) -> ArgumentInfo {
+        ArgumentInfo::any_argument("xs")
+            .set_multiple()
+            .with_shape(VariadicShape::Tuples(vec![first, second]))
+    }
+
+    /// AC-2: parameter `j` of a tuple shape is converted as component `j % n`.
+    #[test]
+    fn shaped_variadic_types_each_position() -> Result<(), Error> {
+        let cm = shaped_command(pairs_of(ArgumentType::String, ArgumentType::Integer));
+        let values = ResolvedParameterValues::from_action(&action_of("cmd-a-1-b-2"), &cm, false)?;
+        let elements = values.0[0].multiple().expect("a parameter list");
+        assert_eq!(elements.len(), 4, "the list stays flat");
+        assert_eq!(elements[0].value(), Some(Value::String("a".to_string())));
+        assert_eq!(elements[1].value(), Some(Value::from(1i64)));
+        assert_eq!(elements[3].value(), Some(Value::from(2i64)));
+
+        let action = action_of("cmd-a-1-b-x");
+        let error = ResolvedParameterValues::from_action(&action, &cm, false)
+            .expect_err("x is not an integer");
+        assert_eq!(error.position, action.parameters[3].position());
+        Ok(())
+    }
+
+    /// AC-3: an incomplete element fails planning at its first parameter.
+    #[test]
+    fn shaped_variadic_incomplete_element_is_positioned() {
+        let cm = shaped_command(pairs_of(ArgumentType::String, ArgumentType::Integer));
+        let action = action_of("cmd-a-1-b");
+        let error = ResolvedParameterValues::from_action(&action, &cm, false)
+            .expect_err("three parameters are not pairs");
+        assert_eq!(error.position, action.parameters[2].position());
+        assert!(error.message.contains("'xs'"), "{}", error.message);
+        assert!(error.message.contains("2 parameters"), "{}", error.message);
+
+        let map = shaped_command(ArgumentInfo::any_argument("xs").set_multiple().with_shape(VariadicShape::Map));
+        let action = action_of("cmd-row-0-col");
+        let error = ResolvedParameterValues::from_action(&action, &map, false)
+            .expect_err("a key without a value");
+        assert_eq!(error.position, action.parameters[2].position());
+    }
+
+    /// AC-4: no parameter at all is an empty value for every shape.
+    #[test]
+    fn shaped_variadic_empty_is_allowed() -> Result<(), Error> {
+        for shape in [
+            VariadicShape::Tuples(vec![ArgumentType::String, ArgumentType::String]),
+            VariadicShape::Map,
+            VariadicShape::Json,
+        ] {
+            let cm = shaped_command(ArgumentInfo::any_argument("xs").set_multiple().with_shape(shape));
+            let values = ResolvedParameterValues::from_action(&action_of("cmd"), &cm, false)?;
+            assert_eq!(values.0[0].multiple().map(|e| e.len()), Some(0));
+        }
+        Ok(())
+    }
+
+    /// AC-10: a repeated literal key fails planning at the second one.
+    #[test]
+    fn shaped_variadic_duplicate_key_is_positioned() -> Result<(), Error> {
+        let cm = shaped_command(ArgumentInfo::any_argument("xs").set_multiple().with_shape(VariadicShape::Map));
+        let values = ResolvedParameterValues::from_action(&action_of("cmd-row-0-col-8"), &cm, false)?;
+        assert_eq!(values.0[0].multiple().map(|e| e.len()), Some(4));
+
+        let action = action_of("cmd-row-0-row-1");
+        let error = ResolvedParameterValues::from_action(&action, &cm, false)
+            .expect_err("row is given twice");
+        assert_eq!(error.position, action.parameters[2].position());
+        assert!(error.message.contains("'row'"), "{}", error.message);
+        Ok(())
+    }
+
+    /// AC-16: a JSON value is checked as pairs only when it is pairs: two or more parameters
+    /// that do not start with an empty string.
+    #[test]
+    fn shaped_variadic_json_pairs_are_checked() -> Result<(), Error> {
+        let cm = shaped_command(ArgumentInfo::any_argument("xs").set_multiple().with_shape(VariadicShape::Json));
+        for (query, count) in [("cmd", 0), ("cmd-5", 1), ("cmd-", 1), ("cmd--1-a-b", 4), ("cmd-1-a", 2), ("cmd-row-0-col-8", 4)] {
+            let values = ResolvedParameterValues::from_action(&action_of(query), &cm, false)?;
+            assert_eq!(values.0[0].multiple().map(|e| e.len()), Some(count), "{query}");
+        }
+        let action = action_of("cmd-row-0-col");
+        let error = ResolvedParameterValues::from_action(&action, &cm, false)
+            .expect_err("a key without a value");
+        assert_eq!(error.position, action.parameters[2].position());
+
+        let action = action_of("cmd-row-0-row-1");
+        let error = ResolvedParameterValues::from_action(&action, &cm, false)
+            .expect_err("row is given twice");
+        assert_eq!(error.position, action.parameters[2].position());
+
+        // A link in first place: the form is only known at run time.
+        ResolvedParameterValues::from_action(&action_of("cmd-~X~a~E-0-col"), &cm, false)?;
+        Ok(())
+    }
+
+    /// AC-8: an argument without a shape plans exactly as before.
+    #[test]
+    fn scalar_variadic_plan_unchanged() -> Result<(), Error> {
+        let cm = shaped_command(ArgumentInfo::string_argument("xs").set_multiple());
+        let values = ResolvedParameterValues::from_action(&action_of("cmd-a-b-a"), &cm, false)?;
+        let elements = values.0[0].multiple().expect("a parameter list");
+        assert_eq!(elements.len(), 3, "an odd count and a repeated value are fine");
+        assert_eq!(elements[2].value(), Some(Value::String("a".to_string())));
         Ok(())
     }
 

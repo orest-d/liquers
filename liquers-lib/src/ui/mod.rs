@@ -59,6 +59,7 @@ pub mod event;
 pub mod handle;
 pub mod message;
 pub mod payload;
+pub mod recipes;
 pub mod resolve;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native;
@@ -92,6 +93,7 @@ pub use shortcuts::{find_conflicts, validate_shortcut_strings, Key, KeyboardShor
 pub use ui_context::UIContext;
 pub use widgets::QueryConsoleElement;
 pub use widgets::UISpecElement;
+pub use widgets::{DisplayPhase, DisplayTimer, SnapshotOutcome, StatusLine, ValueDisplay};
 pub use widgets::{
     delegate_for, register_delegate, unregister_delegate, DelegatedElement, ElementDelegate,
 };
@@ -121,6 +123,39 @@ pub fn try_sync_lock<T: ?Sized>(
     mutex
         .try_lock()
         .map_err(|_| Error::general_error("AppState lock held by async task".to_string()))
+}
+
+/// The name of the UI event an element's own timers arrive as (see [`schedule_event`]).
+pub const TIMER_EVENT: &str = "lq:timer";
+
+/// Delivers `event` to the element at `handle` after `after`, as a UI event through the runner
+/// (`AppMessage::UIEvent`). Elements use it for their own delays — a debounce, the quiet
+/// threshold of `ValueDisplay` — instead of reading a clock, which `std::time::Instant` cannot
+/// do on wasm32 (design `query-update-modes`).
+///
+/// Natively it sleeps on the tokio timer (and is dropped outside a tokio runtime); on wasm32 with `webui` on a browser timer; otherwise
+/// (wasm32 without a timer) the event is sent at once.
+pub fn schedule_event(ctx: &UIContext, handle: UIHandle, after: std::time::Duration, event: UIEvent) {
+    let ctx = ctx.clone();
+    // Outside a tokio runtime (a plain `#[test]`) there is no timer: the event is dropped, and
+    // a test delivers it itself.
+    #[cfg(not(target_arch = "wasm32"))]
+    if tokio::runtime::Handle::try_current().is_ok() {
+        spawn_ui_task(async move {
+            tokio::time::sleep(after).await;
+            ctx.send_message(AppMessage::UIEvent { handle, event });
+        });
+    }
+    #[cfg(all(target_arch = "wasm32", feature = "webui"))]
+    spawn_ui_task(async move {
+        gloo_timers::future::sleep(after).await;
+        ctx.send_message(AppMessage::UIEvent { handle, event });
+    });
+    #[cfg(all(target_arch = "wasm32", not(feature = "webui")))]
+    {
+        let _ = after;
+        ctx.send_message(AppMessage::UIEvent { handle, event });
+    }
 }
 
 /// Spawn an async task on the appropriate runtime.

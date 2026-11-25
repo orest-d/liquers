@@ -2,10 +2,10 @@
 //!
 //! [`editor_html`] renders an [`EditorTree`] in a mode and a density as plain HTML, with the
 //! layout the egui renderer draws ([`editor_layout`]): Simple mode shows step chips and one card,
-//! Advanced mode an outline beside the key part and query part cards. Cards are `<details>` (the
-//! browser keeps their open state), with the header of [`header_parts`], the toolbar of
+//! Advanced mode every card, closed except one (the last action, or the step named by
+//! [`editor_html_open`]). Cards are `<details>` (the browser keeps their open state), with the header of [`header_parts`], the toolbar of
 //! [`toolbar_items`] with presets as chips, and a CSS grid form of [`form_rows`]. Hover text is
-//! `title=`, fields carry `data-lq-field` names and buttons `data-lq-event` names that
+//! `title=` (an argument's description and default are only there), fields carry `data-lq-field` names and buttons `data-lq-event` names that
 //! [`crate::ui::editor::EditorView::from_ui_event`] decodes back into commands (and
 //! [`crate::ui::editor::EditorView::mode_event`] into a mode). A selector or a checkbox sends
 //! `change:<field>` on the DOM `change` event; Enter in a text field submits every changed field.
@@ -16,7 +16,7 @@
 //!
 //! # Main components
 //!
-//! - [`editor_html`]: the whole editor.
+//! - [`editor_html`]: the whole editor; [`editor_html_open`] names the card Advanced mode opens.
 //! - [`icon_html`]: an icon's first variant the browser can draw: a Phosphor web-font glyph, an
 //!   SVG (sanitized) or raster image as a `data:` URI, else its Unicode text.
 //! - [`EDITOR_CSS`]: the editor's stylesheet.
@@ -46,12 +46,12 @@
 //! ```
 
 use base64::Engine;
-use liquers_core::command_metadata::ArgumentGUIInfo;
+use liquers_core::command_metadata::{ArgumentGUIInfo, VariadicShape};
 
 use super::html::{escape_html, event_attr, field_attr};
 use crate::ui::editor::{
-    editor_layout, event_name, field_id, form_rows, header_parts, node_label, toolbar_items, CardGroupKind, EditorField,
-    EditorMode, EditorNode, EditorTree, FieldValue, HeaderPart, NodePath, StepChip, ToolItem, RESOURCE_HEADERS,
+    editor_layout, event_name, field_id, form_rows, header_parts, toolbar_items, CardGroupKind, EditorField,
+    EditorMode, EditorNode, EditorTree, FieldValue, HeaderPart, JsonForm, NodePath, StepChip, ToolItem, UpdateMode, RESOURCE_HEADERS,
 };
 use crate::ui::event::UIEventKind;
 use crate::ui::theme::{Density, IconSource, IconVariant, ResolvedIcon, Theme, PHOSPHOR};
@@ -70,10 +70,7 @@ pub const EDITOR_CSS: &str = r#"
 .lq-query{font-family:var(--lq-font-mono),monospace}
 .lq-ed-chip{color:var(--lq-ink-muted)}
 .lq-ed-body{display:flex;gap:12px;align-items:flex-start}
-.lq-outline{min-width:150px;border-right:1px solid var(--lq-line);padding-right:8px}
-.lq-outline button{display:block;width:100%;text-align:left;border:none;background:none}
 .lq-ed-cards{flex:1;display:flex;flex-direction:column;gap:var(--lq-card-gap)}
-.lq-group-title{font-size:var(--lq-size-small);color:var(--lq-ink-muted)}
 .lq-card{background:var(--lq-card);border:1px solid var(--lq-line);border-radius:var(--lq-card-radius);padding:var(--lq-card-padding);box-shadow:0 1px 3px var(--lq-shadow)}
 .lq-card.lq-err{border-color:var(--lq-danger)}
 .lq-card-head{display:flex;align-items:center;gap:8px;cursor:pointer}
@@ -94,6 +91,24 @@ pub const EDITOR_CSS: &str = r#"
 .lq-factions{opacity:.45}
 .lq-form>div:hover+.lq-factions,.lq-factions:hover,.lq-factions:focus-within{opacity:1}
 .lq-link-tree{border-left:1px dashed var(--lq-line-strong);padding-left:8px;margin-top:4px}
+.lq-qc-body{display:flex;gap:8px;align-items:flex-start}
+.lq-qc-content{flex:1;min-width:0}
+.lq-ed-textrow{display:flex;gap:4px;align-items:center}
+.lq-ed-textrow .lq-ed-text{flex:1;min-width:0}
+.lq-ed-btn i::before,.lq-ed-auto i::before{content:attr(data-fallback);font-style:normal}
+.lq-ed-preview{color:var(--lq-preview)}
+.lq-ed-pending-check{color:var(--lq-accent)}
+.lq-ed-auto{color:var(--lq-ink-faint)}
+.lq-ed-auto.lq-ed-busy{color:var(--lq-accent)}
+.lq-qc-editor{flex:0 0 340px;max-width:45%;overflow:auto;border-left:1px solid var(--lq-line)}
+.lq-qc-toolbar i::before{content:attr(data-fallback);font-style:normal}
+.lq-qc-check.lq-ed-pending-check{color:var(--lq-accent)}
+.lq-status-bar{display:flex;gap:8px;align-items:center;color:var(--lq-ink-muted);font-size:var(--lq-size-small);padding:2px 4px}
+.lq-value-stale{opacity:.45;filter:blur(.5px)}
+.lq-value-preview{outline:2px solid var(--lq-preview);outline-offset:2px}
+.lq-ed-rows{border-collapse:collapse}
+.lq-ed-rows th{font-weight:normal;font-size:var(--lq-size-small);color:var(--lq-ink-muted);text-align:left;padding:0 4px}
+.lq-ed-rows td{padding:1px 4px 1px 0}
 "#;
 
 fn button(label: &str, verb: &str, path: &NodePath, rest: &str, title: &str) -> String {
@@ -108,6 +123,72 @@ fn button_class(label: &str, verb: &str, path: &NodePath, rest: &str, title: &st
         event_attr(&UIEventKind::Named(event_name(verb, path, rest))),
         escape_html(label)
     )
+}
+
+/// A Phosphor icon in the browser: the web font's `<i>`, with `fallback` shown without it.
+pub(crate) fn ph_html(name: &str, fallback: &str) -> String {
+    format!(
+        "<i class=\"ph ph-{}\" aria-hidden=\"true\" data-fallback=\"{}\"></i>",
+        escape_html(name),
+        escape_html(fallback)
+    )
+}
+
+/// An icon button sending `ed:<verb>`.
+fn icon_button_html(icon: &str, fallback: &str, verb: &str, rest: &str, title: &str, class: &str, enabled: bool) -> String {
+    format!(
+        "<button type=\"button\" class=\"{}\" title=\"{}\"{}{}>{}</button>",
+        escape_html(class),
+        escape_html(title),
+        if enabled { "" } else { " disabled" },
+        event_attr(&UIEventKind::Named(event_name(verb, &NodePath::default(), rest))),
+        ph_html(icon, fallback)
+    )
+}
+
+/// The update mode control, Undo, Redo and Revert of an editor's toolbar (AC-10, AC-13, AC-22).
+fn update_controls_html(tree: &EditorTree) -> String {
+    let mut h = String::from("<span class=\"lq-ed-modes\">");
+    for mode in &tree.update_modes {
+        let on = *mode == tree.update_mode;
+        let class = match (on, *mode) {
+            (true, UpdateMode::LivePreview) => "lq-ed-btn lq-mode-on lq-ed-preview",
+            (true, UpdateMode::OnDemand) | (true, UpdateMode::ApplyImmediately) => "lq-ed-btn lq-mode-on",
+            (false, _) => "lq-ed-btn",
+        };
+        h.push_str(&icon_button_html(mode.icon(), mode.label(), "updatemode", mode.name(), mode.label(), class, true));
+    }
+    h.push_str("</span>");
+    h.push_str(&icon_button_html("arrow-u-up-left", "↶", "undo", "", "Undo", "lq-ed-btn", tree.can_undo));
+    h.push_str(&icon_button_html("arrow-u-up-right", "↷", "redo", "", "Redo", "lq-ed-btn", tree.can_redo));
+    if !tree.text_editable {
+        h.push_str(&check_mark_html(tree));
+    }
+    if tree.pending && tree.update_mode != UpdateMode::ApplyImmediately {
+        h.push_str(&button("Revert", "revert", &NodePath::default(), "", "Drop the edits and reload"));
+        h.push_str("<em class=\"lq-ed-pending\">pending</em>");
+    }
+    h
+}
+
+/// The ✓ beside the query field (AC-13, AC-22); a lightning mark in Apply immediately.
+fn check_mark_html(tree: &EditorTree) -> String {
+    match tree.update_mode {
+        UpdateMode::ApplyImmediately => format!(
+            "<span class=\"lq-ed-auto{}\" title=\"Each edit is applied at once\">{}</span>",
+            if tree.pending { " lq-ed-busy" } else { "" },
+            ph_html("lightning", "⚡")
+        ),
+        UpdateMode::LivePreview | UpdateMode::OnDemand => {
+            let class = match (tree.update_mode, tree.pending) {
+                (UpdateMode::LivePreview, _) => "lq-ed-btn lq-ed-check lq-ed-preview",
+                (UpdateMode::OnDemand, true) => "lq-ed-btn lq-ed-check lq-ed-pending-check",
+                (UpdateMode::OnDemand, false) | (UpdateMode::ApplyImmediately, _) => "lq-ed-btn lq-ed-check",
+            };
+            let icon = if tree.pending { "check-circle" } else { "check" };
+            icon_button_html(icon, "✓", "update", "", "Apply the edits (Ctrl+Enter, or Enter in the query)", class, tree.pending)
+        }
+    }
 }
 
 fn change(field: &str) -> String {
@@ -276,6 +357,23 @@ fn fallback_icon(node: &EditorNode) -> IconVariant {
 
 /// The editor's markup in `mode` and `density`, with the icons of `theme`.
 pub fn editor_html(tree: &EditorTree, title: &str, mode: EditorMode, density: Density, theme: &Theme) -> String {
+    editor_html_open(tree, title, mode, density, theme, None)
+}
+
+/// [`editor_html`], with the top-level card Advanced mode shows open: `open`, else the card
+/// Simple mode shows (normally the last action). Every other card starts closed.
+pub fn editor_html_open(
+    tree: &EditorTree,
+    title: &str,
+    mode: EditorMode,
+    density: Density,
+    theme: &Theme,
+    open: Option<&NodePath>,
+) -> String {
+    let open = match open {
+        Some(path) => Some(path.clone()),
+        None => crate::ui::editor::open_card(tree, None),
+    };
     let root = NodePath::default();
     let mut h = String::new();
     h.push_str(&format!(
@@ -294,15 +392,8 @@ pub fn editor_html(tree: &EditorTree, title: &str, mode: EditorMode, density: De
         };
         h.push_str(&button_class(label, "mode", &root, mode_name(m), "Simple shows the last step; Advanced every step (Ctrl+B)", class));
     }
-    h.push_str(&format!(
-        "<label><input type=\"checkbox\"{}{}{}> Update immediately</label>",
-        field_attr("continuous"),
-        change("continuous"),
-        if tree.continuous { " checked" } else { "" }
-    ));
-    if !tree.continuous {
-        h.push_str(&button("Update", "update", &root, "", "Set the edits into where the value lives"));
-        h.push_str(&button("Revert", "revert", &root, "", "Drop the edits and reload"));
+    if !tree.host_controls {
+        h.push_str(&update_controls_html(tree));
     }
     if tree.pending {
         h.push_str("<em class=\"lq-ed-pending\">pending</em>");
@@ -311,13 +402,16 @@ pub fn editor_html(tree: &EditorTree, title: &str, mode: EditorMode, density: De
     // Text (AC-4, AC-10, AC-15).
     if tree.text_editable {
         h.push_str(&format!(
-            "<input type=\"text\" class=\"lq-ed-text\" value=\"{}\"{}{}>",
+            "<div class=\"lq-ed-textrow\"><input type=\"text\" class=\"lq-ed-text\" value=\"{}\"{}{}>{}</div>",
             escape_html(&tree.text),
             field_attr("text"),
-            event_attr(&UIEventKind::Submit)
+            event_attr(&UIEventKind::Submit),
+            if tree.host_controls { String::new() } else { check_mark_html(tree) }
         ));
     }
-    h.push_str(&super::widgets::query_to_html(&tree.text));
+    if !tree.hide_text {
+        h.push_str(&super::widgets::query_to_html(&tree.text));
+    }
     if let Some(note) = &tree.text_note {
         h.push_str(&format!("<div class=\"lq-ed-note\">{}</div>", escape_html(note)));
     }
@@ -332,17 +426,6 @@ pub fn editor_html(tree: &EditorTree, title: &str, mode: EditorMode, density: De
         chips_html(&mut h, &layout.before);
     }
     h.push_str("<div class=\"lq-ed-body\">");
-    if layout.outline {
-        h.push_str("<nav class=\"lq-outline\">");
-        for node in &tree.nodes {
-            h.push_str(&format!(
-                "<button type=\"button\" data-lq-path=\"{}\">{}</button>",
-                escape_html(&node.path().id()),
-                escape_html(&node_label(node))
-            ));
-        }
-        h.push_str("</nav>");
-    }
     h.push_str("<div class=\"lq-ed-cards\">");
     let mut position = 0;
     for group in &layout.groups {
@@ -351,16 +434,10 @@ pub fn editor_html(tree: &EditorTree, title: &str, mode: EditorMode, density: De
             CardGroupKind::QueryPart => "query",
         };
         h.push_str(&format!("<section class=\"lq-group\" data-part=\"{part}\">"));
-        if layout.outline {
-            let title = match group.kind {
-                CardGroupKind::KeyPart => "Key part",
-                CardGroupKind::QueryPart => "Query part",
-            };
-            h.push_str(&format!("<div class=\"lq-group-title\">{title}</div>"));
-        }
         for card in &group.cards {
             position += 1;
-            card_html(&mut h, tree, card.node, mode, theme, position);
+            let is_open = open.as_ref() == Some(card.node.path());
+            card_html(&mut h, tree, card.node, mode, theme, position, is_open);
         }
         h.push_str("</section>");
     }
@@ -380,6 +457,9 @@ pub fn editor_html(tree: &EditorTree, title: &str, mode: EditorMode, density: De
             }
         }
     }
+    if crate::ui::editor::offers_key(tree) {
+        h.push_str(&button("Add key…", "addkey", &root, "", "Start the query with a key (a resource)"));
+    }
     if tree.has_filename {
         h.push_str(&button("Add action…", "picker", &root, "", "Append a command (Ctrl+K)"));
         if mode == EditorMode::Advanced {
@@ -388,7 +468,7 @@ pub fn editor_html(tree: &EditorTree, title: &str, mode: EditorMode, density: De
         }
     }
     h.push_str("</div>");
-    if tree.has_filename && mode == EditorMode::Advanced {
+    if tree.has_filename && !tree.hide_text && mode == EditorMode::Advanced {
         h.push_str(&format!(
             "<div class=\"lq-ed-filename\">filename <input type=\"text\" value=\"{}\"{}{}>",
             escape_html(&tree.filename),
@@ -416,7 +496,7 @@ fn chips_html(h: &mut String, chips: &[StepChip]) {
     h.push_str("</div>");
 }
 
-fn card_html(h: &mut String, tree: &EditorTree, node: &EditorNode, mode: EditorMode, theme: &Theme, position: usize) {
+fn card_html(h: &mut String, tree: &EditorTree, node: &EditorNode, mode: EditorMode, theme: &Theme, position: usize, open: bool) {
     let path = node.path();
     let fallback = fallback_icon(node);
     let icon = node_icon(theme, node, &fallback);
@@ -433,7 +513,8 @@ fn card_html(h: &mut String, tree: &EditorTree, node: &EditorNode, mode: EditorM
     let refused = tree.message.as_ref().is_some_and(|(p, _)| p == path);
     let class = if refused { "lq-card lq-err" } else { "lq-card" };
     let (open_tag, close_tag, head_tag) = match mode {
-        EditorMode::Advanced => ("<details open", "</details>", "summary"),
+        EditorMode::Advanced if open => ("<details open", "</details>", "summary"),
+        EditorMode::Advanced => ("<details", "</details>", "summary"),
         EditorMode::Simple => ("<div", "</div>", "div"),
     };
     h.push_str(&format!(
@@ -464,6 +545,7 @@ fn card_html(h: &mut String, tree: &EditorTree, node: &EditorNode, mode: EditorM
                     HeaderPart::Menu => {
                         if !path.0.is_empty() {
                             h.push_str(&button("+", "picker", path, "", "Insert a command before"));
+                            h.push_str(&button("+›", "picker", &path.next_sibling(), "", "Insert a command after"));
                         }
                     }
                     HeaderPart::Chevron | HeaderPart::Icon | HeaderPart::Realm(_) | HeaderPart::Label(_) | HeaderPart::CommandId(_) => {}
@@ -530,9 +612,6 @@ fn card_html(h: &mut String, tree: &EditorTree, node: &EditorNode, mode: EditorM
                     escape_html(&label)
                 ));
                 field_editor_html(h, tree, path, field, mode, theme);
-                if !row.help.is_empty() {
-                    h.push_str(&format!("<div class=\"lq-help\">{}</div>", escape_html(&row.help)));
-                }
                 if let Some(message) = &row.message {
                     h.push_str(&format!("<div class=\"lq-fmsg\">{}</div>", escape_html(message)));
                 }
@@ -586,7 +665,7 @@ fn field_editor_html(h: &mut String, tree: &EditorTree, path: &NodePath, field: 
                     if *is_key { "key link" } else { "link" }
                 ));
                 for (i, n) in nodes.iter().enumerate() {
-                    card_html(h, tree, n, mode, theme, i + 1);
+                    card_html(h, tree, n, mode, theme, i + 1, true);
                 }
                 h.push_str("</div>");
             }
@@ -669,7 +748,7 @@ fn node_body_html(h: &mut String, tree: &EditorTree, node: &EditorNode, mode: Ed
         }
         EditorNode::Nested { nodes, .. } => {
             for (i, n) in nodes.iter().enumerate() {
-                card_html(h, tree, n, mode, theme, i + 1);
+                card_html(h, tree, n, mode, theme, i + 1, true);
             }
         }
         EditorNode::Opaque { path, text, reason } => {
@@ -791,6 +870,41 @@ fn input_html(field: &EditorField, name: &str, text: &str) -> String {
             escape_html(text),
             event_attr(&UIEventKind::Submit)
         ),
+        // A node of the folder's recipe tree, by filename and title, with Rename (design
+        // `recipe-tree`, AC-18, AC-25).
+        ArgumentGUIInfo::NodeSelector if !field.node_choices.is_empty() => {
+            let mut s = format!("<select{attrs}{}>", change(name));
+            if !field.node_choices.iter().any(|c| c.name == shown) {
+                s.push_str(&format!("<option value=\"{0}\" selected>{0}</option>", escape_html(&shown)));
+            }
+            for c in &field.node_choices {
+                let label = if c.title.is_empty() {
+                    c.filename.clone()
+                } else {
+                    format!("{} \u{2014} {}", c.filename, c.title)
+                };
+                s.push_str(&format!(
+                    "<option value=\"{}\"{}>{}</option>",
+                    escape_html(&c.name),
+                    if c.name == shown { " selected" } else { "" },
+                    escape_html(&label)
+                ));
+            }
+            s.push_str("</select>");
+            // `name` is `f:<path>:<arg>`; the rename input and button carry the same pair.
+            if let (Some(rest), false) = (name.strip_prefix("f:"), shown.is_empty()) {
+                s.push_str(&format!(
+                    "<input type=\"text\" size=\"10\" value=\"{}\"{}>",
+                    escape_html(&shown),
+                    field_attr(&format!("nrename:{rest}"))
+                ));
+                s.push_str(&format!(
+                    "<button type=\"button\" class=\"lq-ed-btn\" title=\"Rename this node in the folder\"{}>Rename</button>",
+                    event_attr(&UIEventKind::Named(format!("ed:rename:{rest}:{shown}")))
+                ));
+            }
+            s
+        }
         ArgumentGUIInfo::EnumSelector | ArgumentGUIInfo::HorizontalRadioEnum | ArgumentGUIInfo::VerticalRadioEnum
             if !field.alternatives.is_empty() && !field.others_allowed =>
         {
@@ -805,7 +919,10 @@ fn input_html(field: &EditorField, name: &str, text: &str) -> String {
             s.push_str("</select>");
             s
         }
-        ArgumentGUIInfo::EnumSelector | ArgumentGUIInfo::HorizontalRadioEnum | ArgumentGUIInfo::VerticalRadioEnum => {
+        ArgumentGUIInfo::EnumSelector
+        | ArgumentGUIInfo::HorizontalRadioEnum
+        | ArgumentGUIInfo::VerticalRadioEnum
+        | ArgumentGUIInfo::NodeSelector => {
             let list = format!("{name}-list");
             let mut s = format!(
                 "<input type=\"text\" list=\"{}\" value=\"{}\"{attrs}{}><datalist id=\"{}\">",
@@ -834,7 +951,129 @@ fn input_html(field: &EditorField, name: &str, text: &str) -> String {
     }
 }
 
+/// The field of one cell of a shaped argument: `field` with the widget of its component.
+fn cell_field(field: &EditorField, widget: Option<&ArgumentGUIInfo>) -> EditorField {
+    let mut cell = field.clone();
+    cell.default_text = None;
+    cell.widget = widget.cloned().unwrap_or_else(|| liquers_core::command_metadata::DEFAULT_GUI.clone());
+    cell
+}
+
+/// A text box of the add form of a shaped argument: `n:<path>:<arg>:<component>`.
+fn new_cell_html(path: &NodePath, field: &EditorField, component: usize, hint: &str) -> String {
+    format!(
+        "<input type=\"text\" size=\"8\" placeholder=\"{}\"{}>",
+        escape_html(hint),
+        field_attr(&format!("n:{}:{}:{component}", path.id(), field.name))
+    )
+}
+
+/// The elements of a list of tuples or of a dictionary as a table, one element per row (design
+/// `composite-variadic-arguments`, AC-13): a row is added, removed and moved whole. A key is
+/// fixed once written; the add form takes every component, so no partial element is written.
+fn rows_html(
+    h: &mut String,
+    path: &NodePath,
+    field: &EditorField,
+    texts: &[String],
+    headers: &[(String, Option<ArgumentGUIInfo>)],
+    key_fixed: bool,
+) {
+    let arity = headers.len().max(1);
+    let rows = texts.len() / arity;
+    h.push_str("<table class=\"lq-ed-rows\"><tr>");
+    for (label, _) in headers {
+        h.push_str(&format!("<th>{}</th>", escape_html(label)));
+    }
+    h.push_str("<th></th></tr>");
+    for r in 0..rows {
+        h.push_str("<tr>");
+        for (c, (_, widget)) in headers.iter().enumerate() {
+            let k = r * arity + c;
+            if key_fixed && c == 0 {
+                h.push_str(&format!("<td><code>{}</code></td>", escape_html(&texts[k])));
+            } else {
+                let name = field_id(path, &field.name, Some(k));
+                h.push_str(&format!(
+                    "<td>{}</td>",
+                    input_html(&cell_field(field, widget.as_ref()), &name, &texts[k])
+                ));
+            }
+        }
+        let at = format!("{}:{r}", field.name);
+        h.push_str("<td>");
+        if !key_fixed {
+            h.push_str(&button("↑", "rowup", path, &at, "Earlier"));
+            h.push_str(&button("↓", "rowdown", path, &at, "Later"));
+        }
+        h.push_str(&button("✕", "delrow", path, &at, "Remove"));
+        h.push_str("</td></tr>");
+    }
+    h.push_str("<tr class=\"lq-ed-newrow\">");
+    for (c, (label, _)) in headers.iter().enumerate() {
+        h.push_str(&format!("<td>{}</td>", new_cell_html(path, field, c, label)));
+    }
+    h.push_str(&format!(
+        "<td>{}</td></tr></table>",
+        button("+", "addrow", path, &format!("{}:{rows}", field.name), "Add")
+    ));
+}
+
+/// A JSON value argument: the chooser of its form, then the editor of that form. The leading
+/// empty item that marks a list is never shown.
+fn json_value_html(h: &mut String, path: &NodePath, field: &EditorField, texts: &[String]) {
+    let form = JsonForm::of(texts);
+    let name = format!("jf:{}:{}", path.id(), field.name);
+    h.push_str(&format!("<select{}{}>", field_attr(&name), change(&name)));
+    for option in JsonForm::ALL {
+        h.push_str(&format!(
+            "<option value=\"{0}\"{1}>{0}</option>",
+            option.label(),
+            if option == form { " selected" } else { "" }
+        ));
+    }
+    h.push_str("</select>");
+    let plain = cell_field(field, None);
+    match form {
+        JsonForm::Null => {}
+        JsonForm::Scalar => {
+            h.push_str(&input_html(&plain, &field_id(path, &field.name, Some(0)), &texts[0]));
+        }
+        JsonForm::List => {
+            for (k, text) in texts.iter().enumerate().skip(1) {
+                h.push_str(&input_html(&plain, &field_id(path, &field.name, Some(k)), text));
+                h.push_str(&button("✕", "delitem", path, &format!("{}:{k}", field.name), "Remove"));
+            }
+            h.push_str(&new_cell_html(path, field, 0, "+"));
+            h.push_str(&button("+", "addentry", path, &format!("{}:{}", field.name, texts.len()), "Append an entry"));
+        }
+        JsonForm::Dictionary => {
+            let headers = [("key".to_string(), None), ("value".to_string(), None)];
+            rows_html(h, path, field, texts, &headers, true);
+        }
+    }
+}
+
 fn items_html(h: &mut String, path: &NodePath, field: &EditorField, items: &[FieldValue]) {
+    // A shaped argument shows its elements; items that are not all literals (a link among
+    // them) stay the flat list, which edits each one correctly.
+    let texts: Vec<String> = field.item_texts().into_iter().flatten().collect();
+    if texts.len() == items.len() {
+        match &field.shape {
+            VariadicShape::Tuples(_) | VariadicShape::Map
+                if texts.len() % field.components.len().max(1) == 0 =>
+            {
+                let headers: Vec<(String, Option<ArgumentGUIInfo>)> = field
+                    .components
+                    .iter()
+                    .map(|c| (c.label.clone(), Some(c.widget.clone())))
+                    .collect();
+                return rows_html(h, path, field, &texts, &headers, field.shape == VariadicShape::Map);
+            }
+            VariadicShape::Json => return json_value_html(h, path, field, &texts),
+            VariadicShape::List | VariadicShape::Tuples(_) | VariadicShape::Map => {}
+        }
+    }
     for (k, item) in items.iter().enumerate() {
         let name = field_id(path, &field.name, Some(k));
         match item {
@@ -880,6 +1119,110 @@ mod tests {
         state
     }
 
+    fn shaped_state(query: &str) -> EditorState {
+        use liquers_core::command_metadata::{ArgumentType, VariadicShape};
+        let mut cmr = CommandMetadataRegistry::new();
+        let mut weights = CommandMetadata::new("weights");
+        weights.with_argument(
+            ArgumentInfo::any_argument("pairs")
+                .set_multiple()
+                .with_shape(VariadicShape::Tuples(vec![ArgumentType::String, ArgumentType::Integer]))
+                .with_columns(&["Name", "Weight"]),
+        );
+        cmr.add_command(&weights);
+        let mut place = CommandMetadata::new("place");
+        place.with_argument(ArgumentInfo::any_argument("layout").set_multiple().with_shape(VariadicShape::Map));
+        cmr.add_command(&place);
+        let mut set_data = CommandMetadata::new("set_data");
+        set_data.with_argument(ArgumentInfo::any_argument("data").set_multiple().with_shape(VariadicShape::Json));
+        cmr.add_command(&set_data);
+        let mut state = EditorState::new(EditorKind::Query, Arc::new(cmr));
+        let q = liquers_core::parse::parse_query(query).expect("query");
+        state.on_snapshot(&Value::from_query(&q), None).expect("snapshot");
+        state
+    }
+
+    fn shaped_html(state: &EditorState) -> String {
+        editor_html(state.tree(), "Editor", EditorMode::Advanced, Density::Comfortable, &Theme::builtin())
+    }
+
+    /// composite-variadic-arguments AC-13, AC-14: tuples and dictionaries are tables of whole
+    /// rows; the events of a row decode to the row commands.
+    #[test]
+    fn shaped_rows_in_html_and_events() {
+        let mut state = shaped_state("weights-a-1-b-2");
+        let html = shaped_html(&state);
+        assert!(html.contains("<th>Name</th><th>Weight</th>"), "{html}");
+        assert!(html.contains("data-lq-field=\"f:0:pairs:3\""), "{html}");
+        assert!(html.contains("type=\"number\""), "an integer cell: {html}");
+        assert!(html.contains("data-lq-event=\"ed:delrow:0:pairs:1\""), "{html}");
+        assert!(html.contains("data-lq-field=\"n:0:pairs:1\""), "{html}");
+        assert!(html.contains("data-lq-event=\"ed:addrow:0:pairs:2\""), "{html}");
+        assert!(!html.contains("ed:additem"), "no single-item add for tuples: {html}");
+
+        let tree = state.tree().clone();
+        let add = UIEvent::new(UIEventKind::Named("ed:addrow:0:pairs:2".into()))
+            .with_field("n:0:pairs:0", Value::from("c".to_string()))
+            .with_field("n:0:pairs:1", Value::from("3".to_string()));
+        for command in EditorView::from_ui_event(&add, &tree) {
+            state.apply(command).expect("apply");
+        }
+        assert_eq!(state.tree().text, "weights-a-1-b-2-c-3");
+        let tree = state.tree().clone();
+        let up = UIEvent::new(UIEventKind::Named("ed:rowup:0:pairs:2".into()));
+        for command in EditorView::from_ui_event(&up, &tree) {
+            state.apply(command).expect("apply");
+        }
+        assert_eq!(state.tree().text, "weights-a-1-c-3-b-2");
+
+        // A dictionary: the key is text, not a field, and a pair has no move buttons.
+        let state = shaped_state("place-row-0");
+        let html = shaped_html(&state);
+        assert!(html.contains("<th>key</th><th>value</th>"), "{html}");
+        assert!(html.contains("<code>row</code>"), "{html}");
+        assert!(!html.contains("data-lq-field=\"f:0:layout:0\""), "{html}");
+        assert!(html.contains("data-lq-field=\"f:0:layout:1\""), "{html}");
+        assert!(!html.contains("ed:rowup"), "{html}");
+    }
+
+    /// composite-variadic-arguments AC-13: a JSON value has a form chooser, and choosing a form
+    /// rewrites its items.
+    #[test]
+    fn shaped_json_value_in_html_and_events() {
+        let mut state = shaped_state("set_data--1-a");
+        let html = shaped_html(&state);
+        assert!(html.contains("<select data-lq-field=\"jf:0:data\""), "{html}");
+        assert!(html.contains("<option value=\"list\" selected>"), "{html}");
+        assert!(!html.contains("data-lq-field=\"f:0:data:0\""), "the list marker is hidden: {html}");
+        assert!(html.contains("data-lq-field=\"f:0:data:1\""), "{html}");
+        assert!(html.contains("data-lq-event=\"ed:addentry:0:data:3\""), "{html}");
+
+        let tree = state.tree().clone();
+        let add = UIEvent::new(UIEventKind::Named("ed:addentry:0:data:3".into()))
+            .with_field("n:0:data:0", Value::from("b".to_string()));
+        for command in EditorView::from_ui_event(&add, &tree) {
+            state.apply(command).expect("apply");
+        }
+        assert_eq!(state.tree().text, "set_data--1-a-b");
+
+        let tree = state.tree().clone();
+        let choose = UIEvent::new(UIEventKind::Change("jf:0:data".into()))
+            .with_field("jf:0:data", Value::from("dictionary".to_string()));
+        for command in EditorView::from_ui_event(&choose, &tree) {
+            state.apply(command).expect("apply");
+        }
+        assert_eq!(state.tree().text, "set_data-key1-1-key2-a-key3-b");
+        let html = shaped_html(&state);
+        assert!(html.contains("<code>key2</code>"), "{html}");
+        assert!(html.contains("data-lq-event=\"ed:delrow:0:data:1\""), "{html}");
+        let tree = state.tree().clone();
+        let delete = UIEvent::new(UIEventKind::Named("ed:delrow:0:data:1".into()));
+        for command in EditorView::from_ui_event(&delete, &tree) {
+            state.apply(command).expect("apply");
+        }
+        assert_eq!(state.tree().text, "set_data-key1-1-key3-b");
+    }
+
     /// query-pipeline-editor AC-11, AC-3: fields, events and hover text are in the markup.
     #[test]
     fn editor_html_marks_fields_and_events() {
@@ -911,7 +1254,12 @@ mod tests {
         assert!(icon < label);
         assert!(html.contains("data-lq-event=\"ed:mode::advanced\""), "{html}");
         let advanced = editor_html(&tree, "Editor", EditorMode::Advanced, Density::Comfortable, &Theme::builtin());
-        assert!(advanced.contains("lq-outline") && advanced.contains("data-part=\"key\""));
+        assert!(!advanced.contains("lq-outline") && !advanced.contains("Query part") && advanced.contains("data-part=\"key\""));
+        // Only the last action's card is open.
+        assert_eq!(advanced.matches("<details open class=\"lq-card\"").count(), 1, "{advanced}");
+        assert!(advanced.contains("<details open class=\"lq-card\" data-ns=\"pl\" data-path=\"2\""), "{advanced}");
+        let first = editor_html_open(&tree, "Editor", EditorMode::Advanced, Density::Comfortable, &Theme::builtin(), Some(&NodePath::element(1)));
+        assert!(first.contains("<details open class=\"lq-card\" data-ns=\"pl\" data-path=\"1\""), "{first}");
         let css = format!("{}{}", Theme::builtin().to_css(), EDITOR_CSS);
         assert!(css.contains("--lq-card:") && css.contains(".lq-form{"));
 

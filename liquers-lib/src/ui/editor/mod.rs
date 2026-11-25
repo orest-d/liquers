@@ -10,15 +10,28 @@
 //! # Main components
 //!
 //! - [`EditorElement`]: the `UIElement`, with an [`EditorKind`] (`Query`, `Action`, `Resource`,
-//!   `Key`) and an [`EditorBinding`] (an accessor's query, or the value in memory). "Update
-//!   immediately" sets each committed edit into the accessor; otherwise edits wait for Update.
+//!   `Key`) and an [`EditorBinding`] (an accessor's query, or the value in memory). Its
+//!   [`UpdateMode`] decides when an edit takes effect: Apply immediately sets each committed edit
+//!   into the accessor; On demand waits for ✓ (Update); Live preview (query editors) evaluates the
+//!   edit in place, in the view it follows, in the recipe's folder, without writing
+//!   (`AppMessage::Preview`), until ✓ writes it. Undo and Redo step through the edits.
 //! - [`EditorState`]: the backend-free core. It applies every [`EditorCommand`] as a validated
 //!   edit (a refused edit changes nothing and is shown at its node), keeps at most one write in
 //!   flight, turns a change elsewhere into a reload or a conflict, and builds the [`EditorTree`].
 //! - [`EditorTree`] and [`EditorNode`]: what the renderers draw — the query text, resource,
 //!   `ns`, action, directive and subtree nodes, each action's [`EditorField`]s with the widget
 //!   [`effective_gui`] picks, the command picker ([`command_catalog`]) and the file selector.
+//!   A variadic argument with a shape (`VariadicShape`: tuples, a dictionary, a JSON value) keeps
+//!   its flat item list and adds [`EditorField::shape`] and [`ComponentField`]s; its structure
+//!   is edited with whole rows ([`EditorCommand::InsertRow`], `RemoveRow`, `MoveRow`) or replaced
+//!   at once ([`EditorCommand::SetItems`], a JSON value changing its [`JsonForm`]), so the query
+//!   never holds part of an element.
 //! - [`EditorView`]: what is being typed between frames, and the decoding of browser events.
+//! - [`NodeContext`] and [`recipe_folder`]: an editor bound to a recipe of a `recipes.yaml` asks
+//!   the runner for the folder's recipes and listing (`AppMessage::NodeContext`); its Node
+//!   arguments (`ArgumentType::Node`) then list the folder's nodes and offer a rename
+//!   ([`EditorCommand::RenameNode`], applied with `liquers_core::recipe_tree::TreeEditor` and
+//!   saved by the runner as `AppMessage::RenameData`).
 //!
 //! # Where it is used
 //!
@@ -33,6 +46,7 @@
 //! - `liquers_core::pipeline` — the validated edits, including the safe `ns` edits
 //!   (`NamespaceImpact`) and the argument reset and variadic item edits of `ActionEditor`.
 //! - `liquers_core::accessor` — the binding: `set_if` conflicts and change events.
+//! - `liquers_core::recipe_tree` — recipe trees, node names and the tree editor behind Rename.
 //! - [`crate::ui::widgets::QueryConsoleElement`] — a text console; its Parameters panel holds an
 //!   action editor of its last action.
 //!
@@ -77,19 +91,20 @@ mod view;
 
 pub use catalog::command_catalog;
 pub use command::{EditorCommand, EditorEffect, NewElement};
-pub use element::{EditorBinding, EditorElement};
+pub use element::{recipe_folder, EditorBinding, EditorElement, PREVIEW_END_EVENT};
 pub use keys::{editor_keymap, keymap_table, shortcut_text, EditorKey, KeyScope};
 pub use layout::{
-    card_marks, command_id, editor_layout, form_rows, header_parts, node_label, simple_card, toolbar_items, Card,
+    card_marks, command_id, editor_layout, form_rows, header_parts, node_label, offers_key, simple_card, toolbar_items, Card,
     CardGroup, CardGroupKind, CardMarks, EditorLayout, EditorMode, FormRow, HeaderPart, StepChip, ToolItem,
 };
-pub use state::{EditorKind, EditorState};
+pub use state::{EditorKind, EditorState, UpdateMode};
 pub use tree::{
-    default_text, effective_gui, is_numeric, json_text, scale_numeric, Browser, CatalogCommand,
-    CatalogNamespace, Confirmation, DirectoryEntry, DirectoryListing, EditorField, EditorNode,
-    EditorTree, FieldValue, NodePath, PathStep, Picker, PresetEntry, SpanTarget, TextSpan, RESOURCE_HEADERS,
+    default_text, effective_gui, is_numeric, item_type, json_text, scale_numeric, shape_components,
+    Browser, CatalogCommand, CatalogNamespace, ComponentField, Confirmation, DirectoryEntry,
+    DirectoryListing, EditorField, EditorNode, EditorTree, FieldValue, JsonForm, NodeContext,
+    NodePath, PathStep, Picker, PresetEntry, SpanTarget, TextSpan, RESOURCE_HEADERS,
 };
-pub use view::{event_name, field_id, find_node, CardMenu, EditorView, FocusTarget};
+pub use view::{event_name, field_id, find_node, open_card, CardMenu, EditorView, FocusTarget};
 
 #[cfg(test)]
 mod tests;

@@ -3,7 +3,7 @@ title: Value Accessors
 kind: reference
 audience: internal
 area: [core/value, core/assets, core/query, lib/value, axum, py, web]
-reviewed: 2026-11-16
+reviewed: 2026-11-24
 ---
 
 # Value Accessors
@@ -217,6 +217,7 @@ Core (`liquers-core/src/accessor/steps.rs`):
 | `FieldStep(name)` | a field of a mapping | anchor: the field exists |
 | `ItemStep(index)` | an item of a list | anchor: the index and the list length, so an insertion or a removal invalidates the item projections of that list |
 | `RecipeStep(index)` | a recipe of a `recipes.yaml` (a `recipes:` list or a bare list), as `Value::Recipe` | reports the recipe's `arguments` and `links` as overridden |
+| `RecipeFileStep(filename)` | the recipe of a `recipes.yaml` whose query produces `filename`, as `Value::Recipe` | found by filename, so it follows its recipe when the list is reordered; a `put` that changes the filename is refused (a rename goes through `TreeEditor::rename`); anchor: the filename |
 | `QueryFieldStep` | a recipe's query, as a query value | |
 | `PipelineFieldStep` | a recipe's pipeline | |
 | `ActionStep(index)` | one action of a query or pipeline, as a one-element pipeline in the parent's realm | element 0 is a query's resource; anchor: element count and command, so an inserted step or a renamed command invalidates it |
@@ -247,7 +248,7 @@ expansion needs a `CommandEnvironment` type alias in scope):
 |---|---|---|
 | `accessor` | a key (`-R-key/…`) | `key_accessor` of the key |
 | `store-<view>` | a key | `store_accessor`, view `binary`, `metadata` or `value` (default) |
-| `recipe-<i>`, `query`, `pipeline`, `action-<i>`, `argument-<name>`, `field-<name>`, `item-<i>` | an accessor | its projection through the step of §6 |
+| `recipe-<i>`, `recipe_file-<filename>`, `query`, `pipeline`, `action-<i>`, `argument-<name>`, `field-<name>`, `item-<i>` | an accessor | its projection through the step of §6 |
 | `get` (volatile) | an accessor | its current value |
 
 Each command is cached as an asset, so one query is one shared handle. A projection command sets an
@@ -307,3 +308,4 @@ spawn it on construction. Contracts of each integration: [`PYTHON_INTEGRATION.md
 |---|---|---|
 | 2026-11-16 | Created: roots and projections, the hub, fingerprints and conflicts, events, the first-class accessors, the steps, the `acc` commands, the web routes and the Python and JavaScript wrappers. | `design/settable-value-accessor/` |
 | 2026-11-16 | Review fixes: a wrapper projection's `set` checks its last-seen fingerprint; the WebSocket reads the root on connect; the record steps keep row identity and sources. | PR #274 review |
+| 2026-11-24 | §6–7: `RecipeFileStep` and `acc/recipe_file-<filename>`, a recipe by filename. Those rows reviewed against the implementation. | `design/recipes-editor/` |

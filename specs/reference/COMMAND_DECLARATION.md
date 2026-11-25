@@ -3,7 +3,7 @@ title: Command Declaration Format
 kind: reference
 audience: internal
 area: [core/commands, web, py]
-reviewed: 2026-11-04
+reviewed: 2026-11-25
 ---
 # Command Declaration Format
 
@@ -277,6 +277,8 @@ shared. `impl_version` is supplied at registration.
 | `type` | `argument_type` | `type` is an accepted spelling of `argument_type` |
 | `default` | `default` | §3.3. Besides `!Value` and `!Query`, a default may be a pipeline: `!pipeline […]` (YAML) or `{"pipeline": …}` (JSON), planned as a link when it has a query form |
 | `multiple` | `multiple` | Variadic: consumes every remaining action parameter. Must be the last query-consuming argument; it cannot be injected |
+| `shape` | `shape` | How the parameters of a `multiple` argument form its value: absent for a plain list, `{tuples: [<type>, …]}` (2 to 4 scalar types), `map` (key and value pairs, values of the argument's type) or `json` (a JSON value). See `REGISTER_COMMAND_FSD.md` §Variadic Parameters |
+| `columns` | `columns` | Names of a tuple's components; empty, or one per component |
 | `injected` | `injected` | Supplied from the context, never from the query; may follow `multiple` |
 | `gui_info` | `gui_info` | Preferred entry widget |
 | `hints`, `presets` | same | `hints` here are **usage** hints and reach the metadata — §6 |
@@ -419,6 +421,9 @@ Stage 4 reports, naming the command and where relevant the argument:
 - an empty or missing `name`;
 - an argument entry naming an argument that does not exist (§2.1);
 - a `multiple` argument followed by another query-consuming argument, or one also marked `injected`;
+- a `shape` on an argument that is not `multiple`, a `tuples` shape of fewer than 2 or more than 4
+  components or with a component that is not a plain scalar type, and `columns` that do not match
+  a `tuples` shape;
 - a default that does not fit its declared type;
 - an unrecognised argument type.
 
@@ -526,6 +531,7 @@ so no query parameter is consumed by either — that is conventions.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-25 | Argument fields `shape` and `columns`, and their stage 4 rules. | `design/composite-variadic-arguments/` |
 | 2026-11-04 | §4.1 `definition: Pipeline`; pipeline defaults (`!pipeline`). | phase-5, `design/composite-command-definition/` |
 | 2026-10-18 | Reviewed against `liquers-py` (phase-5). §9: how the shipped Python integration differs from the worked example (no `arguments=` on its decorators; the context passed positionally). | `design/liquers-py/` (phase-5) |
 | 2026-10-18 | §7: `CommandDeclaration::check` returns the full report; `build`'s refusal is its summary, and a deserialization failure is one entry. | `design/web-environ-validation-report/` |

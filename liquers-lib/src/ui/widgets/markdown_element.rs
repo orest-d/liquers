@@ -1,3 +1,34 @@
+//! [`MarkdownElement`]: a UI element that shows Markdown text.
+//!
+//! egui draws it with `egui_commonmark` inside its own scroll area (so it reports
+//! `scrolls_itself`); the browser converts it to HTML with `pulldown-cmark`. An asset snapshot
+//! whose value is text replaces the shown text.
+//!
+//! # Main components
+//!
+//! - [`MarkdownElement`]: the element; persistent title and Markdown source.
+//!
+//! # Where it is used
+//!
+//! - The `lui/markdown` command (`ui::commands`) creates it; the query console shows it when a
+//!   query evaluates to it.
+//!
+//! # Related concepts
+//!
+//! - `ui::element::UIElement`: the element trait.
+//! - `liquers-markdown`: the query-aware Markdown parser (not used for display).
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_lib::ui::element::UIElement;
+//! use liquers_lib::ui::widgets::MarkdownElement;
+//!
+//! let element = MarkdownElement::new("Notes".to_string(), "# Hello".to_string());
+//! assert_eq!(element.title(), "Notes");
+//! assert!(element.scrolls_itself());
+//! ```
+
 use std::sync::Arc;
 
 #[cfg(feature = "egui")]
@@ -111,7 +142,7 @@ impl UIElement for MarkdownElement {
             UpdateMessage::AssetNotification(_) => UpdateResponse::Unchanged,
             UpdateMessage::Timer { .. } => UpdateResponse::Unchanged,
             UpdateMessage::Custom(_) => UpdateResponse::Unchanged,
-            UpdateMessage::Accessor(_) | UpdateMessage::Directory(_) => UpdateResponse::Unchanged,
+            UpdateMessage::Accessor(_) | UpdateMessage::Directory(_) | UpdateMessage::NodeContext(_) => UpdateResponse::Unchanged,
             UpdateMessage::UI(_) => UpdateResponse::Unchanged,
         }
     }
@@ -134,7 +165,13 @@ impl UIElement for MarkdownElement {
         let output = egui::ScrollArea::vertical().show(ui, |ui| {
             CommonMarkViewer::new().show(ui, &mut self.cache, &self.markdown_text);
         });
-        ui.allocate_response(output.content_size, egui::Sense::hover())
+        // The scroll area already took its space; allocating the content size again below it
+        // made the parent overflow and grow a second scroll bar.
+        ui.interact(output.inner_rect, output.id.with("lq-markdown"), egui::Sense::hover())
+    }
+
+    fn scrolls_itself(&self) -> bool {
+        true
     }
 
     #[cfg(feature = "webui")]
@@ -217,6 +254,31 @@ mod tests {
         assert_eq!(cloned.handle(), Some(UIHandle(7)));
     }
 
+    /// A long document scrolls inside the element: it takes no more than the space it is given,
+    /// so a host does not grow a second scroll bar around it.
+    #[cfg(feature = "egui")]
+    #[test]
+    fn long_markdown_stays_within_its_space() {
+        let text = (0..200).map(|i| format!("Line {i}\n")).collect::<Vec<_>>().join("\n");
+        let mut elem = MarkdownElement::new("T".to_string(), text);
+        assert!(elem.scrolls_itself());
+        let (ctx, _rx) = create_test_context();
+        let mut state = crate::ui::app_state::DirectAppState::new();
+        let egui_ctx = egui::Context::default();
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 300.0))),
+            ..Default::default()
+        };
+        let mut used = 0.0;
+        let mut output = egui_ctx.run_ui(input, |ui| {
+            let top = ui.cursor().top();
+            elem.show_in_egui(ui, &ctx, &mut state);
+            used = ui.cursor().top() - top;
+        });
+        output.textures_delta.clear();
+        assert!(used <= 310.0, "the element took {used} px of a 300 px window");
+    }
+
     #[test]
     fn test_is_initialised() {
         let mut elem = MarkdownElement::new("T".to_string(), "text".to_string());
@@ -250,6 +312,8 @@ mod tests {
             metadata: liquers_core::metadata::Metadata::new(),
             error: None,
             status: Status::Ready,
+            query: None,
+            preview: false,
         };
         let response = elem.update(&UpdateMessage::AssetUpdate(snapshot), &ctx);
         assert_eq!(response, UpdateResponse::NeedsRepaint);
@@ -265,6 +329,8 @@ mod tests {
             metadata: liquers_core::metadata::Metadata::new(),
             error: None,
             status: Status::Submitted,
+            query: None,
+            preview: false,
         };
         let response = elem.update(&UpdateMessage::AssetUpdate(snapshot), &ctx);
         assert_eq!(response, UpdateResponse::Unchanged);

@@ -7,6 +7,7 @@ use std::sync::Arc;
 use liquers_core::accessor::Fingerprint;
 use liquers_core::command_metadata::{
     ArgumentGUIInfo, ArgumentInfo, ArgumentType, CommandMetadata, CommandMetadataRegistry,
+    VariadicShape,
 };
 use liquers_core::error::Error;
 use liquers_core::parse::{parse_key, parse_query};
@@ -22,10 +23,12 @@ use serde_json::Value as Json;
 use super::catalog::command_catalog;
 use super::command::{EditorCommand, EditorEffect, NewElement};
 use super::tree::{
-    default_text, effective_gui, enum_alternatives, is_numeric, json_text, scale_numeric,
+    default_text, effective_gui, enum_alternatives, is_numeric, item_type, json_text,
+    scale_numeric, shape_components,
     Browser, Confirmation, DirectoryListing, EditorField, EditorNode, EditorTree, FieldValue,
-    NodePath, PathStep, Picker, PresetEntry,
+    NodeContext, NodePath, PathStep, Picker, PresetEntry,
 };
+use liquers_core::recipe_tree::TreeEditor;
 use crate::value::Value;
 
 /// What an editor element edits.
@@ -41,6 +44,73 @@ pub enum EditorKind {
     /// A key, as text (AC-15).
     Key,
 }
+
+/// What a committed edit does (design `query-update-modes`).
+///
+/// - `OnDemand`: the edit is kept, pending, until Update (✓ or Enter).
+/// - `LivePreview`: the edit is shown as a preview ([`EditorEffect::Preview`]) and kept pending;
+///   nothing is written until Update.
+/// - `ApplyImmediately`: the edit is written at once ([`EditorEffect::Write`]).
+///
+/// Its names (`on_demand`, `preview`, `immediate`) are those of the `mode` argument of the `lui`
+/// editor and console commands, and of its serialized form.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub enum UpdateMode {
+    #[serde(rename = "on_demand")]
+    OnDemand,
+    #[default]
+    #[serde(rename = "preview")]
+    LivePreview,
+    #[serde(rename = "immediate")]
+    ApplyImmediately,
+}
+
+impl UpdateMode {
+    /// Every mode, in the order the mode control shows them.
+    pub const ALL: [UpdateMode; 3] = [UpdateMode::OnDemand, UpdateMode::LivePreview, UpdateMode::ApplyImmediately];
+
+    /// The mode named `name`: `on_demand`, `preview` or `immediate`.
+    pub fn from_name(name: &str) -> Result<UpdateMode, Error> {
+        match name {
+            "on_demand" => Ok(UpdateMode::OnDemand),
+            "preview" => Ok(UpdateMode::LivePreview),
+            "immediate" => Ok(UpdateMode::ApplyImmediately),
+            other => Err(Error::general_error(format!(
+                "unknown update mode '{other}'; use on_demand, preview or immediate"
+            ))),
+        }
+    }
+
+    /// The mode's name, as [`UpdateMode::from_name`] reads it.
+    pub fn name(self) -> &'static str {
+        match self {
+            UpdateMode::OnDemand => "on_demand",
+            UpdateMode::LivePreview => "preview",
+            UpdateMode::ApplyImmediately => "immediate",
+        }
+    }
+
+    /// A short label for the mode control.
+    pub fn label(self) -> &'static str {
+        match self {
+            UpdateMode::OnDemand => "On demand",
+            UpdateMode::LivePreview => "Live preview",
+            UpdateMode::ApplyImmediately => "Apply immediately",
+        }
+    }
+
+    /// The Phosphor icon of the mode control (AC-22).
+    pub fn icon(self) -> &'static str {
+        match self {
+            UpdateMode::OnDemand => "hand-tap",
+            UpdateMode::LivePreview => "eye",
+            UpdateMode::ApplyImmediately => "lightning",
+        }
+    }
+}
+
+/// The most edits [`EditorCommand::Undo`] can take back.
+const UNDO_LIMIT: usize = 100;
 
 /// The working copy.
 #[derive(Debug, Clone)]
@@ -209,7 +279,31 @@ fn literal(info: &ArgumentInfo, text: &str) -> Json {
         | ArgumentType::Enum(_)
         | ArgumentType::GlobalEnum(_)
         | ArgumentType::Any
-        | ArgumentType::None => Json::String(text.to_string()),
+        | ArgumentType::None
+        | ArgumentType::Node(_) => Json::String(text.to_string()),
+    }
+}
+
+/// The literal of item `at` of a variadic argument: typed by its component for a shaped one.
+fn item_literal(info: &ArgumentInfo, at: usize, text: &str) -> Json {
+    if info.shape.is_list() {
+        return literal(info, text);
+    }
+    let mut item = info.clone();
+    item.argument_type = item_type(info, at);
+    literal(&item, text)
+}
+
+/// The number of items in one row of a shaped argument. Tuples and dictionaries have rows; a
+/// JSON value has them in its dictionary form, which is what a row command on it means.
+fn row_arity(info: &ArgumentInfo) -> Result<usize, Error> {
+    match &info.shape {
+        VariadicShape::Tuples(_) | VariadicShape::Map => Ok(info.shape.arity()),
+        VariadicShape::Json => Ok(2),
+        VariadicShape::List => Err(Error::general_error(format!(
+            "Argument '{}' has no rows: it is a plain list",
+            info.name
+        ))),
     }
 }
 
@@ -292,8 +386,18 @@ pub struct EditorState {
     root: Option<Edited>,
     /// The fingerprint of the accessor value the copy was loaded from or last written as.
     fingerprint: Option<Fingerprint>,
-    continuous: bool,
+    update_mode: UpdateMode,
     pending: bool,
+    /// Working copies before each edit, newest last (AC-10).
+    undo: Vec<Edited>,
+    /// Working copies an Undo took back, newest last.
+    redo: Vec<Edited>,
+    /// Set by `commit`, so `apply` knows the command edited the copy.
+    committed: bool,
+    /// The host draws the mode, ✓ and undo controls (the query console).
+    host_controls: bool,
+    /// The modes the mode control offers.
+    update_modes: Vec<UpdateMode>,
     write_in_flight: bool,
     /// The value changed elsewhere while edits were pending: the next write is a conflict.
     remote_changed: bool,
@@ -303,6 +407,8 @@ pub struct EditorState {
     browser: Option<Browser>,
     confirmation: Option<Confirmation>,
     message: Option<(NodePath, String)>,
+    /// The folder of the edited recipe, for Node arguments (design `recipe-tree`).
+    node_context: Option<NodeContext>,
     tree: EditorTree,
 }
 
@@ -314,8 +420,13 @@ impl EditorState {
             registry,
             root: None,
             fingerprint: None,
-            continuous: true,
+            update_mode: UpdateMode::ApplyImmediately,
             pending: false,
+            undo: Vec::new(),
+            redo: Vec::new(),
+            committed: false,
+            host_controls: false,
+            update_modes: UpdateMode::ALL.to_vec(),
             write_in_flight: false,
             remote_changed: false,
             read_only: false,
@@ -324,15 +435,42 @@ impl EditorState {
             browser: None,
             confirmation: None,
             message: None,
+            node_context: None,
             tree: EditorTree::default(),
         };
         state.rebuild();
         state
     }
 
-    /// Sets "Update immediately" (AC-26) without writing.
-    pub fn with_continuous(mut self, continuous: bool) -> Self {
-        self.continuous = continuous;
+    /// Sets the folder the edited query belongs to, so Node arguments list its nodes and can be
+    /// renamed (design `recipe-tree`, AC-18, AC-25); `None` makes them text boxes again.
+    pub fn set_node_context(&mut self, context: Option<NodeContext>) {
+        self.node_context = context;
+        self.rebuild();
+    }
+
+    /// The folder set by [`Self::set_node_context`].
+    pub fn node_context(&self) -> Option<&NodeContext> {
+        self.node_context.as_ref()
+    }
+
+    /// Sets the update mode without writing. A new state is in `ApplyImmediately`.
+    pub fn with_update_mode(mut self, mode: UpdateMode) -> Self {
+        self.update_mode = mode;
+        self.rebuild();
+        self
+    }
+
+    /// Limits the modes the mode control offers; the current mode stays as it is.
+    pub fn with_update_modes(mut self, modes: &[UpdateMode]) -> Self {
+        self.update_modes = modes.to_vec();
+        self.rebuild();
+        self
+    }
+
+    /// Marks the state as hosted: the host draws the mode, ✓ and undo controls (AC-13).
+    pub fn with_host_controls(mut self, on: bool) -> Self {
+        self.host_controls = on;
         self.rebuild();
         self
     }
@@ -340,8 +478,16 @@ impl EditorState {
     pub fn kind(&self) -> EditorKind {
         self.kind
     }
-    pub fn continuous(&self) -> bool {
-        self.continuous
+    pub fn update_mode(&self) -> UpdateMode {
+        self.update_mode
+    }
+    /// An edit can be taken back.
+    pub fn can_undo(&self) -> bool {
+        !self.undo.is_empty()
+    }
+    /// An edit taken back can be re-applied.
+    pub fn can_redo(&self) -> bool {
+        !self.redo.is_empty()
     }
     pub fn is_pending(&self) -> bool {
         self.pending
@@ -424,7 +570,15 @@ impl EditorState {
     pub fn on_written(&mut self, fingerprint: Fingerprint) -> EditorEffect {
         self.write_in_flight = false;
         self.fingerprint = Some(fingerprint);
-        let effect = if self.pending && self.continuous { self.write() } else { EditorEffect::None };
+        let effect = match self.update_mode {
+            UpdateMode::ApplyImmediately if self.pending => self.write(),
+            // The applied value is shown again; edits made meanwhile are previewed.
+            UpdateMode::LivePreview => match (&self.root, self.pending) {
+                (Some(root), true) => EditorEffect::Preview(root.value()),
+                (Some(_), false) | (None, _) => EditorEffect::ClearPreview,
+            },
+            UpdateMode::ApplyImmediately | UpdateMode::OnDemand => EditorEffect::None,
+        };
         self.rebuild();
         effect
     }
@@ -471,13 +625,18 @@ impl EditorState {
         }
     }
 
-    /// An edit of the copy was made: write it now (continuous) or mark it pending.
+    /// An edit of the copy was made: write it (Apply immediately), preview it (Live preview) or
+    /// keep it pending (On demand).
     fn commit(&mut self) -> EditorEffect {
         self.pending = true;
-        if self.continuous {
-            self.write()
-        } else {
-            EditorEffect::None
+        self.committed = true;
+        match self.update_mode {
+            UpdateMode::ApplyImmediately => self.write(),
+            UpdateMode::LivePreview => match &self.root {
+                Some(root) => EditorEffect::Preview(root.value()),
+                None => EditorEffect::None,
+            },
+            UpdateMode::OnDemand => EditorEffect::None,
         }
     }
 
@@ -486,9 +645,20 @@ impl EditorState {
     pub fn apply(&mut self, command: EditorCommand) -> Result<EditorEffect, Error> {
         let backup = self.root.clone();
         let path = command_path(&command);
+        let history = !matches!(command, EditorCommand::Undo | EditorCommand::Redo);
+        self.committed = false;
         let result = self.apply_inner(command);
         match &result {
             Ok(_) => {
+                if self.committed && history {
+                    if let Some(before) = backup {
+                        self.undo.push(before);
+                        if self.undo.len() > UNDO_LIMIT {
+                            self.undo.remove(0);
+                        }
+                        self.redo.clear();
+                    }
+                }
                 if !matches!(self.message, Some((_, ref m)) if m.starts_with("Conflict") || m.contains("changed elsewhere")) {
                     self.message = None;
                 }
@@ -532,6 +702,36 @@ impl EditorState {
         Ok(self.commit())
     }
 
+    /// The literal keys of a dictionary argument, as written now.
+    fn item_keys(&self, path: &NodePath, arg: &str) -> Result<Vec<String>, Error> {
+        let root = self.root.as_ref().ok_or_else(|| no_node(&path.0))?;
+        let mut level = root.clone();
+        let registry = self.registry.clone();
+        let source = with_level(&mut level, &path.0, &registry, |l, at| {
+            l.editor()?.argument_source(at, arg)
+        })?;
+        let items = match source {
+            Some(Source::Multiple(items)) => items,
+            Some(Source::Value(Json::Array(values))) => {
+                values.into_iter().map(Source::Value).collect()
+            }
+            Some(other) => vec![other],
+            None => Vec::new(),
+        };
+        Ok(items
+            .iter()
+            .step_by(2)
+            .filter_map(|item| match item {
+                Source::Value(value) => Some(json_text(value)),
+                Source::Link(_)
+                | Source::Pipeline(_)
+                | Source::Placeholder(_)
+                | Source::State(_)
+                | Source::Multiple(_) => None,
+            })
+            .collect())
+    }
+
     fn metadata_at(&self, path: &NodePath) -> Result<CommandMetadata, Error> {
         let root = self.root.as_ref().ok_or_else(|| no_node(&path.0))?;
         let mut level = root.clone();
@@ -550,7 +750,7 @@ impl EditorState {
             }
             EditorCommand::SetItem { path, arg, at, text } => self.edit_argument(&path, |a, info| {
                 a.remove_item(info.name.as_str(), at)?;
-                a.insert_item(info.name.as_str(), at, Source::Value(literal(info, &text)))?;
+                a.insert_item(info.name.as_str(), at, Source::Value(item_literal(info, at, &text)))?;
                 Ok(())
             }, &arg),
             EditorCommand::SetLink { path, arg, query } => {
@@ -581,7 +781,86 @@ impl EditorState {
                 Ok(())
             }, &arg),
             EditorCommand::InsertItem { path, arg, at, text } => self.edit_argument(&path, |a, info| {
-                a.insert_item(info.name.as_str(), at, Source::Value(literal(info, &text)))?;
+                a.insert_item(info.name.as_str(), at, Source::Value(item_literal(info, at, &text)))?;
+                Ok(())
+            }, &arg),
+            EditorCommand::InsertRow { path, arg, at, texts } => {
+                let keys = self.item_keys(&path, &arg)?;
+                self.edit_argument(&path, |a, info| {
+                    let arity = row_arity(info)?;
+                    if texts.len() != arity {
+                        return Err(Error::general_error(format!(
+                            "An element of '{}' has {arity} values, {} given",
+                            info.name,
+                            texts.len()
+                        )));
+                    }
+                    if info.shape == VariadicShape::Map || info.shape == VariadicShape::Json {
+                        let key = texts.first().map(String::as_str).unwrap_or_default();
+                        if key.is_empty() {
+                            return Err(Error::general_error(format!(
+                                "A key of '{}' cannot be empty",
+                                info.name
+                            )));
+                        }
+                        if keys.iter().any(|k| k == key) {
+                            return Err(Error::general_error(format!(
+                                "'{}' already has the key '{key}'",
+                                info.name
+                            )));
+                        }
+                    }
+                    for (c, text) in texts.iter().enumerate() {
+                        let item = at * arity + c;
+                        a.insert_item(
+                            info.name.as_str(),
+                            item,
+                            Source::Value(item_literal(info, item, text)),
+                        )?;
+                    }
+                    Ok(())
+                }, &arg)
+            }
+            EditorCommand::RemoveRow { path, arg, at } => self.edit_argument(&path, |a, info| {
+                let arity = row_arity(info)?;
+                for _ in 0..arity {
+                    a.remove_item(info.name.as_str(), at * arity)?;
+                }
+                Ok(())
+            }, &arg),
+            EditorCommand::MoveRow { path, arg, from, to } => self.edit_argument(&path, |a, info| {
+                let arity = row_arity(info)?;
+                for c in 0..arity {
+                    // Forwards, the row's first item goes behind the target row each time;
+                    // backwards, each item goes to its own place in front of it.
+                    if from < to {
+                        a.move_item(info.name.as_str(), from * arity, to * arity + arity - 1)?;
+                    } else {
+                        a.move_item(info.name.as_str(), from * arity + c, to * arity + c)?;
+                    }
+                }
+                Ok(())
+            }, &arg),
+            EditorCommand::SetItems { path, arg, texts } => self.edit_argument(&path, |a, info| {
+                let arity = match &info.shape {
+                    VariadicShape::Tuples(_) | VariadicShape::Map => info.shape.arity(),
+                    VariadicShape::List | VariadicShape::Json => 1,
+                };
+                if texts.len() % arity != 0 {
+                    return Err(Error::general_error(format!(
+                        "'{}' takes elements of {arity} values, {} given",
+                        info.name,
+                        texts.len()
+                    )));
+                }
+                a.reset(info.name.as_str())?;
+                for (item, text) in texts.iter().enumerate() {
+                    a.insert_item(
+                        info.name.as_str(),
+                        item,
+                        Source::Value(item_literal(info, item, text)),
+                    )?;
+                }
                 Ok(())
             }, &arg),
             EditorCommand::RemoveItem { path, arg, at } => self.edit_argument(&path, |a, info| {
@@ -795,6 +1074,15 @@ impl EditorState {
                 }
             }
             EditorCommand::Revert => {
+                if self.update_mode == UpdateMode::LivePreview && self.pending {
+                    // The runner reloads the accessor; the host drops the preview first.
+                    self.pending = false;
+                    self.remote_changed = false;
+                    self.typed_text = None;
+                    self.fingerprint = None;
+                    self.message = None;
+                    return Ok(EditorEffect::ClearPreview);
+                }
                 self.pending = false;
                 self.remote_changed = false;
                 self.typed_text = None;
@@ -802,13 +1090,71 @@ impl EditorState {
                 self.message = None;
                 Ok(EditorEffect::Reload)
             }
-            EditorCommand::SetContinuous(on) => {
-                self.continuous = on;
-                if on && self.pending {
-                    Ok(self.write())
-                } else {
-                    Ok(EditorEffect::None)
+            EditorCommand::SetUpdateMode(mode) => {
+                let was = self.update_mode;
+                self.update_mode = mode;
+                match (mode, self.pending) {
+                    (UpdateMode::ApplyImmediately, true) => Ok(self.write()),
+                    (UpdateMode::LivePreview, true) => Ok(self.root.as_ref().map(|r| EditorEffect::Preview(r.value())).unwrap_or(EditorEffect::None)),
+                    (UpdateMode::OnDemand, _) | (UpdateMode::LivePreview, false) | (UpdateMode::ApplyImmediately, false) => {
+                        Ok(if was == UpdateMode::LivePreview { EditorEffect::ClearPreview } else { EditorEffect::None })
+                    }
                 }
+            }
+            // With nothing to take back these are not errors: a key may still arrive.
+            EditorCommand::Undo => {
+                self.root_mut()?;
+                match self.undo.pop() {
+                    Some(previous) => {
+                        if let Some(current) = self.root.replace(previous) {
+                            self.redo.push(current);
+                        }
+                        self.typed_text = None;
+                        Ok(self.commit())
+                    }
+                    None => Ok(EditorEffect::None),
+                }
+            }
+            EditorCommand::Redo => {
+                self.root_mut()?;
+                match self.redo.pop() {
+                    Some(next) => {
+                        if let Some(current) = self.root.replace(next) {
+                            self.undo.push(current);
+                        }
+                        self.typed_text = None;
+                        Ok(self.commit())
+                    }
+                    None => Ok(EditorEffect::None),
+                }
+            }
+            EditorCommand::RenameNode { from, to } => {
+                let context = self.node_context.as_mut().ok_or_else(|| {
+                    Error::general_error(
+                        "renaming a node needs the recipes of its folder".to_string(),
+                    )
+                })?;
+                let mut editor = TreeEditor::new(
+                    context.recipes.clone(),
+                    context.listing.clone(),
+                    self.registry.clone(),
+                )?;
+                editor.rename(&from, &to)?;
+                // Shown at once; the runner writes the document and the edited query follows.
+                context.recipes = editor.recipes().clone();
+                if let Some(listing) = context.listing.as_mut() {
+                    for rename in editor.pending_data_renames() {
+                        for name in listing.iter_mut() {
+                            if *name == rename.from {
+                                *name = rename.to.clone();
+                            }
+                        }
+                    }
+                }
+                Ok(EditorEffect::RenameData {
+                    folder: context.folder.clone(),
+                    editor: Box::new(editor),
+                })
             }
         }
     }
@@ -891,7 +1237,11 @@ impl EditorState {
 
     fn rebuild(&mut self) {
         let mut tree = EditorTree {
-            continuous: self.continuous,
+            update_mode: self.update_mode,
+            update_modes: self.update_modes.clone(),
+            can_undo: !self.undo.is_empty(),
+            can_redo: !self.redo.is_empty(),
+            host_controls: self.host_controls,
             pending: self.pending,
             read_only: self.read_only,
             message: self.message.clone(),
@@ -971,6 +1321,9 @@ impl EditorState {
                 catalog: command_catalog(&self.registry, &realm, filter),
             });
         }
+        if let Some(context) = &self.node_context {
+            fill_node_choices(&mut tree.nodes, context, &self.registry);
+        }
         self.tree = tree;
     }
 }
@@ -1000,6 +1353,10 @@ fn command_path(command: &EditorCommand) -> NodePath {
         | EditorCommand::InsertItem { path, .. }
         | EditorCommand::RemoveItem { path, .. }
         | EditorCommand::MoveItem { path, .. }
+        | EditorCommand::InsertRow { path, .. }
+        | EditorCommand::RemoveRow { path, .. }
+        | EditorCommand::MoveRow { path, .. }
+        | EditorCommand::SetItems { path, .. }
         | EditorCommand::Insert { path, .. }
         | EditorCommand::Remove { path }
         | EditorCommand::Move { path, .. }
@@ -1024,8 +1381,42 @@ fn command_path(command: &EditorCommand) -> NodePath {
         | EditorCommand::SetNumeric { .. }
         | EditorCommand::Update
         | EditorCommand::Revert
-        | EditorCommand::SetContinuous(_) => NodePath::default(),
+        | EditorCommand::SetUpdateMode(_)
+        | EditorCommand::Undo
+        | EditorCommand::Redo
+        | EditorCommand::RenameNode { .. } => NodePath::default(),
     }
+}
+
+/// Lists the nodes of `context` in every Node field of `nodes`, links included.
+fn fill_node_choices(nodes: &mut [EditorNode], context: &NodeContext, registry: &Arc<CommandMetadataRegistry>) {
+    let editor = match TreeEditor::new(context.recipes.clone(), context.listing.clone(), registry.clone()) {
+        Ok(editor) => editor,
+        Err(_) => return,
+    };
+    fn walk(nodes: &mut [EditorNode], editor: &TreeEditor) {
+        for node in nodes.iter_mut() {
+            match node {
+                EditorNode::Action { fields, .. } => {
+                    for field in fields.iter_mut() {
+                        if let Some(ext) = &field.node_extension {
+                            field.node_choices = editor.node_choices(ext);
+                        }
+                        if let FieldValue::Link { nodes, .. } = &mut field.value {
+                            walk(nodes, editor);
+                        }
+                    }
+                }
+                EditorNode::Nested { nodes, .. } => walk(nodes, editor),
+                EditorNode::Resource { .. }
+                | EditorNode::Namespaces { .. }
+                | EditorNode::Directive { .. }
+                | EditorNode::Value { .. }
+                | EditorNode::Opaque { .. } => {}
+            }
+        }
+    }
+    walk(nodes, &editor);
 }
 
 /// The nodes of one level.
@@ -1129,6 +1520,16 @@ fn action_node(
             Ok(Some(source)) => field_value(&source, &arg_path, info.multiple, registry),
             Ok(None) | Err(_) => FieldValue::Unset,
         };
+        // A link to a node of the folder is shown as the node's name (AC-18).
+        let value = match (info.argument_type.node(), value) {
+            (Some(node), FieldValue::Link { query, nodes, is_key }) => {
+                match parse_query(&query).ok().and_then(|q| node.name_of(&q)) {
+                    Some(name) => FieldValue::Text(name),
+                    None => FieldValue::Link { query, nodes, is_key },
+                }
+            }
+            (_, value) => value,
+        };
         let (alternatives, others_allowed) = match &info.argument_type {
             ArgumentType::Enum(e) => (enum_alternatives(e), e.others_allowed),
             ArgumentType::String
@@ -1140,7 +1541,8 @@ fn action_node(
             | ArgumentType::BooleanOption
             | ArgumentType::GlobalEnum(_)
             | ArgumentType::Any
-            | ArgumentType::None => (Vec::new(), true),
+            | ArgumentType::None
+            | ArgumentType::Node(_) => (Vec::new(), true),
         };
         let numeric_index = if is_numeric(&info) {
             numeric += 1;
@@ -1158,6 +1560,8 @@ fn action_node(
             alternatives,
             others_allowed,
             multiple: info.multiple,
+            shape: info.shape.clone(),
+            components: shape_components(&info),
             value,
             presets: info
                 .presets
@@ -1169,6 +1573,8 @@ fn action_node(
                 })
                 .collect(),
             numeric_index,
+            node_extension: info.argument_type.node().map(|n| n.extension.clone()),
+            node_choices: Vec::new(),
         });
     }
     let slots = md.arguments.iter().filter(|a| !a.injected).count();

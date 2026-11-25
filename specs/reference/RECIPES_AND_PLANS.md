@@ -3,7 +3,7 @@ title: Recipes and Plans Reference
 kind: reference
 audience: internal
 area: [core/plan, core/query, core/assets, core/context]
-reviewed: 2026-11-17
+reviewed: 2026-11-25
 ---
 # Recipes and Plans
 
@@ -117,7 +117,12 @@ the asset's log. A `null` is accepted only for the optional types. One that does
 override, with a `Step::Warning`); a non-string value, or a string that is no alias, passes
 unchanged, and inside a `multiple` argument a link alias is a `ConversionError`. An alias whose value
 is a pipeline becomes a pipeline override (`ParameterValue::OverridePipeline`), the same way. A `multiple`
-argument converts element-wise. `any`, `none` and global-enum arguments take any value unchanged.
+argument converts element-wise. A `multiple` argument with a shape takes the value its parameters
+stand for and becomes their flat list: `tuples` takes a flat array or an array of arrays of the
+tuple's size, each position converted to its component type; `map` takes an object or a flat array
+of key and value pairs, and refuses a key given twice; `json` takes any JSON value that has no
+list or object inside another, kept as one element (a string is read as a query parameter would
+be, so `"8"` is the number 8). `any`, `none` and global-enum arguments take any value unchanged.
 Because an override patches that action, its recorded prefix query (`Step::Action::query`) no
 longer describes what runs and is cleared; earlier actions keep theirs.
 
@@ -925,6 +930,17 @@ assets they made expire as for any write of the file.
   editing a different part.
 - Comments and formatting of the YAML are not kept; keys, their order and unknown keys are.
 
+## Recipe trees
+
+A `recipes.yaml` may have a `tree:` section (`RecipeList::tree`, `TreeDeclaration`: `roots`,
+`result`, `shape`, `dependencies`). Without one it reads exactly as before. A recipe whose query is
+only a filename is a **source recipe** (`Recipe::is_source_declaration`): its value is the stored
+data, with the recipe's title and description and status `Source` in the asset metadata, and
+`KeyNotFound` when nothing is stored. Under `dependencies: strict`, `DefaultRecipeProvider` runs
+the tree check on the file when it parses it, with the store's listing of the folder; any error
+refuses every recipe of the folder and the file is not cached. Contract:
+[`RECIPE_TREES.md`](RECIPE_TREES.md).
+
 ## Known limitations
 
 - Complete recipe application is a convention: `to_plan`, `finalize_plan`, setting the expiration and
@@ -962,6 +978,8 @@ assets they made expire as for any write of the file.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-25 | Value overrides of a shaped `multiple` argument (tuples, map, json). | `design/composite-variadic-arguments/` |
+| 2026-11-23 | §Recipe trees: the `tree:` section, source recipes, strict enforcement in `DefaultRecipeProvider`. | `design/recipe-tree/` |
 | 2026-11-17 | §Provider contract: a write into a folder re-resolves its recipes, and an edited or removed recipe expires its asset and its readers. | `design/recipe-dependency-versions/` |
 | 2026-11-16 | §Editing recipes through accessors: the `acc` projections of a `recipes.yaml`, validated query edits, invalidation of moved parts, and what the YAML keeps. | `design/settable-value-accessor/` |
 | 2026-11-04 | `Recipe::pipeline` and §Recipe pipelines; `PipelinePlanBuilder` as the planning entry point; `Step::UseValue`, `Step::PipelineCommand` and the pipeline parameter values; pipeline enum aliases in overrides; the last-action limitation closed by recipe pipelines. | phase-5, `design/composite-command-definition/` |

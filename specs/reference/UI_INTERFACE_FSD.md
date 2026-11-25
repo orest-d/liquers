@@ -3,7 +3,7 @@ title: UI Interface Specification
 kind: reference
 audience: internal
 area: [lib/ui]
-reviewed: 2026-11-22
+reviewed: 2026-11-24
 ---
 # UI Interface Specification
 
@@ -362,6 +362,11 @@ because handles belong to the shared `AppState` the event reaches its element wh
 it. egui calls an element's handler inline from `show_in_egui` instead of going through the
 channel (the query console's Enter does), so both backends share one handling path.
 
+An element whose egui rendering scrolls its own content (draws a `ScrollArea` filling the space
+it gets) returns `true` from `UIElement::scrolls_itself` (default `false`; the Markdown element
+does); the query console then draws it without a scroll area of its own, so there is one scroll
+bar.
+
 **Web declarations.** `render_web` declares interest in markup (helpers in `ui/web/html.rs`):
 
 | Attribute | On | Meaning |
@@ -419,10 +424,45 @@ second editor of the same recipe follows. A write is `set_if` against the finger
 loaded from: a conflict reloads the live value and reports the refused text. At most one write is
 in flight; edits made meanwhile are written when it completes.
 
+**Node arguments.** A Node argument (`ArgumentType::Node`) is drawn as `NodeSelector`. An editor
+bound to a recipe of a `recipes.yaml` sends `AppMessage::NodeContext { handle, folder }`; the runner
+answers `UpdateMessage::NodeContext` with the folder's recipes and its asset-manager listing, and
+`EditorField::node_choices` then lists the folder's nodes of the argument's extension (filename and
+title). A link to such a node is shown as the node's name. **Rename** sends
+`EditorCommand::RenameNode { from, to }`, which rewrites the whole document (`TreeEditor::rename`)
+and returns `EditorEffect::RenameData`; the runner saves it (`AppMessage::RenameData`: stored files,
+then `recipes.yaml`) and sends the context again. Without a folder the field is a text box. See
+[`RECIPE_TREES.md`](RECIPE_TREES.md) §In the editors.
+
 **Edits.** `EditorState` (backend-free) applies each `EditorCommand` as a validated edit of a
 `liquers_core::pipeline::QueryEditor` / `PipelineEditor` working copy: a refused edit changes
-nothing and is shown at its node. "Update immediately" (`continuous`, default on) writes each
-committed edit; otherwise edits are pending until Update, and Revert reloads. A namespace edit that
+nothing and is shown at its node. When a committed edit takes effect is the state's
+`UpdateMode` (serde and `mode` names `on_demand`, `preview`, `immediate`): **Apply immediately**
+writes it (`EditorEffect::Write`); **Live preview** keeps it pending and returns
+`EditorEffect::Preview(value)`, Update writing it and Revert or Undo back to the applied value
+returning `ClearPreview`; **On demand** keeps it pending until Update, and Revert reloads.
+`EditorState::with_update_modes` limits the modes its control offers. Undo and Redo
+(`EditorCommand::Undo` / `Redo`, at most 100 steps; a new edit clears Redo) restore earlier
+working copies and commit them like any edit; `EditorTree::{update_mode, update_modes, can_undo,
+can_redo}` carry the state to the renderers, and `host_controls` tells them that the host draws the
+mode control, Undo, Redo and ✓ itself.
+
+**Editor element modes** (`design/query-update-modes/` Part B). `EditorElement` serializes
+`update_mode`; an element saved before it loads its `continuous` ("Update immediately") as Apply
+immediately (`true`) or On demand (`false`), and one with neither loads in Live preview. Live
+preview needs a whole query, so only a query editor offers it: an action, resource or key editor
+offers On demand and Apply immediately (and loads in Apply immediately). The commands take a
+`mode` argument (`lui/query_editor-preview|immediate|on_demand`, default `preview`;
+`action_editor`, `resource_editor`, `key_editor` and `query_console` `immediate|on_demand`, default
+`immediate`). A Live preview edit sends `AppMessage::Preview { handle, query, cwd }` to the view
+the editor follows (`with_follow`), else to the editor itself, which then shows the value framed
+under its form; `cwd` is the folder of the `recipes.yaml` the editor is bound to
+(`recipe_folder`). The runner evaluates it as an ad-hoc asset (`Recipe` with that `cwd`, through
+`AssetManager::apply_queued`), so relative keys (`-R/./data.txt`) read as in the recipe's own
+evaluation and nothing is stored or expires; its snapshots carry `preview: true`. A write or a
+Revert ends the preview: the followed view of a recipe gets the UI event `lq:preview-end`
+(`PREVIEW_END_EVENT`) and evaluates its own query again, which the write has expired; any other
+followed view is re-pointed at the applied query (`RequestAssetUpdates`). A namespace edit that
 changes what a command resolves to waits for Confirm; one that leaves a command unresolved is
 refused. Unknown commands and excess parameters are shown read-only and kept.
 
@@ -430,14 +470,18 @@ refused. Unknown commands and excess parameters are shown read-only and kept.
 `ui::web::editor::editor_html(tree, title, mode, density, theme)` both draw the same `EditorTree`
 through the same backend-free layout (`ui::editor::layout`) and return `EditorCommand`s;
 `EditorView::from_ui_event` decodes the browser's events (`ed:<verb>:<path>:<rest>`). Hover text
-is each field's label, description, type and default. `UIContext::command_registry()` carries the
+is each field's label, description, type and default; the description and the default are shown
+only there (and the default in the Reset button's hover), never under the field. `UIContext::command_registry()` carries the
 registry snapshot every host gives its contexts; with none, the editor shows the text only.
 Design of the layout below: `design/query-editor-ergonomics/`.
 
 **Modes.** `EditorMode::Simple` (the default) shows step chips for the pipeline, one card for the
 last action (`simple_card`) and "Continue with" chips from the command's `next` presets.
-`EditorMode::Advanced` shows every step as a card, an outline when there is more than one, link
-arguments nested under their field, Collapse all / Expand all and the filename field. The mode
+`EditorMode::Advanced` shows every step as a card, with no outline and no part titles, link
+arguments nested under their field, Collapse all / Expand all and the filename field. Entering
+Advanced mode collapses every card but one (`EditorView::enter_mode`, `open_card`): the card
+holding focus (a step chip, a `Ctrl+J` jump), else the last action; the browser renders the
+others as closed `<details>` (`editor_html_open` names the open card). The mode
 and an optional `Density` are serialized with the element (`with_mode`, `with_density`); the
 browser switches with `ed:mode::simple|advanced`.
 
@@ -445,8 +489,8 @@ browser switches with `ed:mode::simple|advanced`.
 `namespace/name`, modified and error marks, its position and a menu (collapsed: icon, label, id).
 An expanded card shows `toolbar_items` (Reset, Presets, Next, Filename; Move up / down in
 Advanced only) with presets as chips (at most three, the active one lit, the rest under "+N"),
-then a form grid of `form_rows` (label, editor, per-field actions, help, and a refused edit's
-message under the field it concerns). `ed:resetall:<path>:` resets every argument of a card.
+then a form grid of `form_rows` (label, editor, per-field actions, and a refused edit's message
+under the field it concerns). `ed:resetall:<path>:` resets every argument of a card.
 
 **Keyboard (egui).** `editor_keymap()` is the table of `ui/editor/keys.rs`, each entry with a
 scope (`Anywhere`, `Header`, `Field`) and matched most specific first: Ctrl+B mode, Ctrl+L query
@@ -454,8 +498,14 @@ text, Ctrl+J jump, F6 / Shift+F6 regions, PageUp / PageDown / Home / End between
 a field), Enter / Escape / Space / arrows on a header, Ctrl+Shift+[ and ] collapse and expand all,
 Alt+R reset, Alt+P presets, Alt+Shift+N next (Alt+N is the browser console's New Console),
 Alt+1…9 apply a preset, Ctrl+K add an action, Alt+Up / Down move, Ctrl+Delete delete, Alt+L
-link, Ctrl+Space complete, Ctrl+Enter update. **Ctrl+J** jumps from the query text to the field
-whose span holds the cursor (committing typed text first) and back to that field's span. The
+link, Ctrl+Space complete, Ctrl+Enter update, Ctrl+Z undo, Ctrl+Shift+Z or Ctrl+Y redo. The toolbar
+holds the mode control (one icon per mode: `hand-tap`, `eye`, `lightning`, the Live preview icon in
+the theme's preview colour), Undo and Redo; ✓ sits beside the query field (a filled
+`check-circle` while edits are pending; in Apply immediately a lightning mark instead).
+**Ctrl+J** jumps from the query text to the field
+whose span holds the cursor (committing typed text first) and back to that field's span. In
+Simple mode, a jump to a step other than the shown card asks for Advanced mode
+(`EditorView::mode_request`, reported as `EditorOutput::mode`) with that step the open card. The
 browser renderer has no keyboard model yet beyond the page's own focus order.
 
 **Theme and icons** (full reference: [`THEME.md`](THEME.md)). `ui::theme` is one token model for both renderers: a `Theme` composed from
@@ -469,8 +519,86 @@ library icon, SVG or raster inline, embedded or by store key) with a Unicode tex
 empty. Icon images by key are loaded by the runner (`AppMessage::LoadIcon`) into the
 `IconCache` that `UIContext::icon_bytes` reads.
 
-The query console's Parameters panel (egui; `qc:params` in the browser) is the same core over the
-console's text, showing the whole pipeline; an edit rewrites the text and does not submit.
+The query console's editor panel (the pencil button; `qc:params` in the browser) is the same core
+over the console's text, showing the whole pipeline in a narrow column beside the value (egui: a
+resizable right `Panel`; browser: `.lq-qc-editor` in `.lq-qc-body`); an edit rewrites the text and
+does not submit. On a query with no key, such as an empty one, the editor offers "Add key…"
+(`offers_key`; a resource with an empty key inserted first, `ed:addkey` in the browser) beside
+"Add action…", so a query can be built in the panel. The panel does not repeat the query, nor
+its filename field (`EditorTree::hide_text`): `Ctrl+J` in the
+console's query field opens the panel on the step under the cursor, in Advanced mode when that is
+not the last action, and `Ctrl+J` in a panel field selects that field's text in the console's
+query field (`EditorOutput::select_text`).
+
+**Console update modes** (`design/query-update-modes/` Part A). The console has two modes,
+serialized as `update_mode`: Apply immediately (the default) and On demand (an editor's Live
+preview reads as Apply immediately). The panel's `EditorState` always applies at once and has
+`host_controls`, so it never holds an edit and shows no mode control or ✓; it persists, with its
+undo history, and follows the query only when one is applied (Enter, ✓, history, a preset). Every
+panel edit rewrites the query text at once; in Apply immediately the text is evaluated
+`DEBOUNCE_MS` (300 ms) after the last such edit, On demand only on ✓ (`qc:update`) or Enter
+(`Submit`). Text typed in the query field is applied only on Enter or ✓, and only when it parses and
+plans (`PlanBuilder` with the context's registry); otherwise `typed_error` is shown and nothing is
+evaluated. A panel edit made after unentered typing replaces the typed text with the edited applied
+query. ✓ is enabled while the text differs from the query last evaluated or that asset changed
+upstream (`check_mark_enabled`); the browser always draws it (class `lq-go lq-qc-check`), since it
+cannot see typing between renders. The toolbar has the mode control (`qc:mode::<name>`) and Undo /
+Redo (`qc:undo`, `qc:redo`, Ctrl+Z / Ctrl+Shift+Z in egui). "Browse…" in the panel sends
+`AppMessage::ListDirectory` and the `UpdateMessage::Directory` answer reaches the panel. The value
+is kept in a `ui::widgets::ValueDisplay`: a new value replaces the old one with no empty frame; a
+late snapshot of one of the console's own earlier requests (by `AssetSnapshot::query` and
+`preview`) is ignored, and a snapshot of any other query is the console re-pointed from outside
+(the runner monitors the latest query asked for an element): the display adopts it, and an
+adopted applied query becomes the console's text, while a preview leaves the text; an
+evaluation still running after `QUIET_MS` (250 ms) dims the value and shows a status bar
+(`.lq-status-bar`: status, progress, last log), after `SLOW_MS` (3 s) with "Switch to On demand";
+an error keeps the old value, dimmed. An `Expired` snapshot without a value is recalculated in
+Apply immediately and marked "changed upstream" (dimmed, ✓ recalculates) On demand. A preview
+value is framed in the theme's `preview` colour (`.lq-value-preview`), a stale one dimmed
+(`.lq-value-stale`). The console's timers are UI events it sends itself through
+`ui::schedule_event` (`lq:timer`, fields `timer` and `generation`; tokio natively, `gloo_timers` in
+the browser), so a test delivers them instead of sleeping; outside a tokio runtime the timer is
+dropped.
+
+### Recipe editors
+
+`liquers-lib/src/ui/recipes/` (design `design/recipes-editor/`) edits recipes with two elements.
+The recipe list is **not a value type**: the panel reads and writes `recipes.yaml` as document
+text through an accessor, so the file stays the source of truth and a file that does not parse
+can still be repaired.
+
+| Element | Edits | Created by |
+|---|---|---|
+| `RecipesElement` | a folder's `recipes.yaml`: a narrow side panel with an outline (or the tree of dependencies), a window per open recipe and a YAML window | `lui/recipes_editor` |
+| `RecipeElement` | one recipe as a form, with the query editor inside | `lui/recipe_editor` (over `acc/recipe_file-<filename>`, which finds the recipe by filename, not position) |
+
+**Panel.** `RecipesState` (backend-free) holds the working copy as a `TreeEditor`, so a rename
+rewrites every reference to the node and an edit that would add a check error (a cycle, a used
+name) is refused and changes nothing. Rows show the type icon (the asset's `unicode_icon`, else the
+extension's), the filename or, in a tree, the node name; `RecipeLabel` chooses name, title or both.
+A coloured circle shows the asset's status, replaced by a small percentage while it reports
+progress; hover gives the status, the error, the check's findings, and over the name the title and
+description. Right-click (egui) or the row's `⋯` menu (browser) offers View, Metadata, Edit,
+Evaluate, Rename, Duplicate, Add child and Set as result (trees), Save as, Export as `<format>` (the
+type's `supported_data_formats`, known once evaluated) and Delete (refused while referenced). New
+and Add child append a recipe whose filename the editor suggests; it is a source declaration until
+its query is written. The `continuous` flag writes each edit at once; otherwise edits wait for
+Update, and Revert reloads.
+
+**Protocol.** Besides `AppMessage::Accessor` and `NodeContext` (whose `UpdateMessage::NodeContext`
+now carries the folder's `AssetInfo` by filename, the formats and a `notice`), the panel sends:
+`RenameData` when a rename moves stored data; `SubmitQuery` with `-R/<key>/-/ns-lui/add-child` (View)
+or `-R-meta/<key>/-/ns-lui/add-child` (Metadata), whose results are the panel's children, drawn as
+windows; `AppMessage::Evaluate { query }`, which starts the asset without waiting (the status
+follows from the folder's context, refreshed every half second while an asset is busy); and
+`AppMessage::SaveAs { handle, query, format, path }`, which evaluates, serializes (in `format`, or
+the value's own data format) and writes a local file, then reports the outcome as the context's
+`notice`. Save as is native only; a browser refuses it.
+
+**Renderers.** `egui::recipes::show_recipes` and `show_form`; `ui::web::recipes::recipes_html` and
+`form_html` (the browser shows one recipe form at a time, below the rows). The YAML window
+highlights keys, punctuation, scalars and each `query:` value as a query (`yaml_spans`), and applies
+only text that parses, naming the line of a parse error.
 
 ## Hosts
 
@@ -867,6 +995,7 @@ Candidate universal operations identified across use cases:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-23 | §Editors: Node arguments — `NodeSelector`, `AppMessage::NodeContext` / `RenameData`, `EditorCommand::RenameNode`. | `design/recipe-tree/` |
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |
 | 2026-10-30 | Event Handling: implemented UI events (`UIEvent`, `data-lq-*` markup, keyboard precedence, limits). Only that section was reviewed against the implementation. | ui-events |
 | 2026-11-11 | Hosts: the native driver, the egui window and the Python host; reviewed against the implementation (that section only). | `design/egui-native-app/`, `design/liquers-py-ui/`, `design/liquers-py-ui-window/` |
@@ -874,3 +1003,8 @@ Candidate universal operations identified across use cases:
 | 2026-11-17 | Editors: the editor element, its binding and message protocol, edits and renderers; UI events gain `Change(field)`. Those sections reviewed against the implementation. | `design/query-pipeline-editor/` |
 | 2026-11-21 | Editors: modes, cards, the egui keymap and Ctrl+J, theme and icons; Hosts: the `ui` section. Those parts reviewed against the implementation. | `design/query-editor-ergonomics/` |
 | 2026-11-22 | Editors: links the new theme reference. | `design/query-editor-ergonomics/` |
+| 2026-11-23 | Editors: no outline or part titles in Advanced mode, one card open on entering it, argument help and defaults in hovers only, Ctrl+J opens Advanced mode on another step; the query console's editor panel is a side column behind a pencil button and does not repeat the query. Those parts reviewed against the implementation. | — |
+| 2026-11-24 | Editors: "Add key…" on a query with no key; the console's panel keeps "Add action…". `UIElement::scrolls_itself` lets the console draw a self-scrolling element (Markdown) without a second scroll area. Those parts reviewed against the implementation. | — |
+| 2026-11-24 | Editors: recipe editors — `RecipesElement` / `RecipeElement`, `lui/recipes_editor` / `lui/recipe_editor`, `AppMessage::Evaluate` / `SaveAs`, the `NodeContext` asset information, formats and notice. That subsection reviewed against the implementation. | `design/recipes-editor/` |
+| 2026-11-24 | Editors: update modes (On demand, Live preview, Apply immediately), Undo / Redo, ✓ beside the query field, `host_controls`; the query console's update modes, debounce, typed-text validation, `ValueDisplay` (no flicker, status bar, dimming, preview frame), expiry by mode, Browse in the panel, `schedule_event` (`design/query-update-modes/` Part A). Those parts reviewed against the implementation. | — |
+| 2026-11-24 | Editor element modes and Live preview through `AppMessage::Preview` (recipe folder as `cwd`, `lq:preview-end`), the `mode` arguments, mode names `on_demand` / `preview` / `immediate`, the value display adopting a re-pointed query (`design/query-update-modes/` Part B). Those parts reviewed against the implementation. | — |

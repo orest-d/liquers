@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write;
 
 use liquers_core::{
-    command_metadata::{ArgumentType, CommandDefinition, CommandParameterValue},
+    command_metadata::{ArgumentType, CommandDefinition, CommandParameterValue, VariadicShape},
     context::{Context, Environment},
     error::Error,
     state::State,
@@ -93,6 +93,7 @@ fn argument_type_name(at: &ArgumentType) -> &str {
         ArgumentType::Any => "Any",
         ArgumentType::None => "None",
         ArgumentType::GlobalEnum(s) => s.as_str(),
+        ArgumentType::Node(_) => "Node",
     }
 }
 
@@ -190,7 +191,15 @@ pub fn commands_doc<E: Environment>(
                 let _ = writeln!(md, "| Label | Argument | Multiplicity | Type | Default |");
                 let _ = writeln!(md, "|-------|----------|--------------|------|---------|");
                 for arg in &visible_args {
-                    let multiplicity = if arg.multiple { "multiple" } else { "single" };
+                    let multiplicity = match (arg.multiple, &arg.shape) {
+                        (false, _) => "single".to_string(),
+                        (true, VariadicShape::List) => "multiple".to_string(),
+                        (true, VariadicShape::Tuples(components)) => {
+                            format!("multiple, tuples of {}", components.len())
+                        }
+                        (true, VariadicShape::Map) => "multiple, key and value pairs".to_string(),
+                        (true, VariadicShape::Json) => "multiple, a JSON value".to_string(),
+                    };
                     let label = if arg.label.is_empty() {
                         "\u{2014}"
                     } else {

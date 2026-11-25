@@ -1710,6 +1710,24 @@ impl<E: Environment> AssetData<E> {
         )
     }
 
+    /// Lays a source recipe's title and description over the loaded metadata and marks the
+    /// value `Source`. Used by `try_fast_track`.
+    fn adopt_source_declaration(&mut self, recipe: &Recipe) -> Result<(), Error> {
+        self.recipe_sets_title = !recipe.title.is_empty();
+        self.recipe_sets_description = !recipe.description.is_empty();
+        self.status = Status::Source;
+        self.metadata.set_status(Status::Source)?;
+        if let Metadata::MetadataRecord(metadata) = &mut self.metadata {
+            if !recipe.title.is_empty() {
+                metadata.with_title(recipe.title.clone());
+            }
+            if !recipe.description.is_empty() {
+                metadata.with_description(recipe.description.clone());
+            }
+        }
+        Ok(())
+    }
+
     pub async fn try_fast_track(&mut self) -> Result<bool, Error> {
         eprintln!("Trying fast track for asset {}", self.id());
         self.fast_track_refusal = None;
@@ -1979,6 +1997,20 @@ impl<E: Environment> AssetData<E> {
                                 },
                             )
                             .await;
+                    }
+                }
+
+                // A source recipe gives the loaded data its title and description, in the
+                // asset's metadata only (the store's record is not changed), and the status
+                // `Source` (`specs/design/recipe-tree/`, AC-27). A provider error leaves the data
+                // as plain stored data.
+                if let Ok(Some(recipe)) = envref
+                    .get_recipe_provider()
+                    .recipe_opt(&key, envref.clone())
+                    .await
+                {
+                    if recipe.is_source_declaration() {
+                        self.adopt_source_declaration(&recipe)?;
                     }
                 }
 
@@ -4745,6 +4777,14 @@ impl<E: Environment> AssetRef<E> {
                                 }
                             }
                         }
+                        // A source recipe computes nothing: its value is the stored data, which
+                        // the fast track would have loaded. Reaching here means there is none, or
+                        // it could not be read — the evaluation fails and nothing is stored.
+                        if recipe.is_source_declaration() {
+                            return Err(refusal
+                                .map(|refusal| refusal.error)
+                                .unwrap_or_else(|| Error::key_not_found(&key)));
+                        }
                         eprintln!(
                             "Evaluating asset {} using its own recipe for key {}:\n{}\n",
                             self.id(),
@@ -6472,6 +6512,21 @@ fn written_status(supplied: Status) -> Option<Status> {
     }
 }
 
+/// Whether a recipe *recomputes* `key`: the provider has a recipe for it that is not a source
+/// declaration ([`Recipe::is_source_declaration`]). A source recipe only names stored data, so
+/// for the status of that data the key behaves as if it had no recipe: written data is `Source`,
+/// never `Override`, and a file with no metadata is never mistaken for a computed value.
+async fn recipe_recomputes<E: Environment>(
+    provider: &dyn AsyncRecipeProvider<E>,
+    key: &Key,
+    envref: EnvRef<E>,
+) -> Result<bool, Error> {
+    match provider.recipe_opt(key, envref).await? {
+        Some(recipe) => Ok(!recipe.is_source_declaration()),
+        None => Ok(false),
+    }
+}
+
 /// The written status of a supplied value [`written_status`] leaves to the recipe: `Override`
 /// when the key has a recipe (the value overrides what the recipe would produce), `Source`
 /// otherwise.
@@ -6750,10 +6805,12 @@ where
     if metadata.status() != Status::None && !inferred {
         return Ok(());
     }
-    let has_recipe = manager
-        .get_recipe_provider()
-        .can_make(key, manager.try_get_envref()?)
-        .await?;
+    let has_recipe = recipe_recomputes(
+        manager.get_recipe_provider().as_ref(),
+        key,
+        manager.try_get_envref()?,
+    )
+    .await?;
     if inferred {
         // An inferred record says nothing the data does not (`storage-none-computed-values`):
         // without a recipe it stands; under one, the store has no record of what made the bytes,
@@ -6895,10 +6952,12 @@ where
         VersionCheck::Verified => return Ok(None),
         VersionCheck::Mismatch { actual, .. } => actual,
     };
-    let has_recipe = manager
-        .get_recipe_provider()
-        .can_make(key, manager.try_get_envref()?)
-        .await?;
+    let has_recipe = recipe_recomputes(
+        manager.get_recipe_provider().as_ref(),
+        key,
+        manager.try_get_envref()?,
+    )
+    .await?;
     let status = external_change_status(metadata.status(), recorded, has_recipe);
     Ok(
         external_change_action(status, has_recipe, manager.external_change_policy(), actual)
@@ -10097,9 +10156,12 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             let final_status = match written_status(input_status) {
                 Some(status) => status,
                 None => written_status_with_recipe(
-                    self.get_recipe_provider()
-                        .can_make(key, self.try_get_envref()?)
-                        .await?,
+                    recipe_recomputes(
+                        self.get_recipe_provider().as_ref(),
+                        key,
+                        self.try_get_envref()?,
+                    )
+                    .await?,
                 ),
             };
             metadata.status = final_status;
@@ -10203,9 +10265,12 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             let final_status = match written_status(input_status) {
                 Some(status) => status,
                 None => written_status_with_recipe(
-                    self.get_recipe_provider()
-                        .can_make(key, self.try_get_envref()?)
-                        .await?,
+                    recipe_recomputes(
+                        self.get_recipe_provider().as_ref(),
+                        key,
+                        self.try_get_envref()?,
+                    )
+                    .await?,
                 ),
             };
 
@@ -11709,9 +11774,12 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             let final_status = match written_status(metadata.status) {
                 Some(status) => status,
                 None => written_status_with_recipe(
-                    self.get_recipe_provider()
-                        .can_make(key, self.try_get_envref()?)
-                        .await?,
+                    recipe_recomputes(
+                        self.get_recipe_provider().as_ref(),
+                        key,
+                        self.try_get_envref()?,
+                    )
+                    .await?,
                 ),
             };
             metadata.status = final_status;
@@ -11773,9 +11841,12 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             let final_status = match written_status(state.metadata.status()) {
                 Some(status) => status,
                 None => written_status_with_recipe(
-                    self.get_recipe_provider()
-                        .can_make(key, self.try_get_envref()?)
-                        .await?,
+                    recipe_recomputes(
+                        self.get_recipe_provider().as_ref(),
+                        key,
+                        self.try_get_envref()?,
+                    )
+                    .await?,
                 ),
             };
             let mut metadata = state.metadata.as_ref().clone();

@@ -84,6 +84,10 @@ use super::ui_context::UIContext;
 struct MonitoredAsset<E: Environment> {
     asset_ref: AssetRef<E>,
     notification_rx: tokio::sync::watch::Receiver<AssetNotificationMessage>,
+    /// The query asked for, carried by every snapshot (design `query-update-modes`, AC-6).
+    query: String,
+    /// The asset is a preview (AC-17).
+    preview: bool,
 }
 
 /// A status change of one element, recorded by the runner and read by the backend after `run`.
@@ -131,6 +135,17 @@ impl ContextParts {
 }
 
 /// A theme layer from an asset value: YAML text, or an already structured value.
+/// The pipeline a value text stands for, when it is a pipeline's JSON (an editor's
+/// `value_text`) rather than a query: a query never starts with `{` or `[`.
+fn pipeline_text(text: &str) -> Option<liquers_core::pipeline::Pipeline> {
+    let trimmed = text.trim_start();
+    if !(trimmed.starts_with('{') || trimmed.starts_with('[')) {
+        return None;
+    }
+    let json: serde_json::Value = serde_json::from_str(trimmed).ok()?;
+    liquers_core::pipeline::Pipeline::from_json(&json).ok()
+}
+
 fn theme_layer_of(value: &Value) -> Result<ThemeLayer, Error> {
     match value.try_into_json_value() {
         Ok(serde_json::Value::String(text)) => ThemeLayer::from_yaml(&text),
@@ -460,9 +475,36 @@ where
                 AppMessage::ListDirectory { handle, folder } => {
                     Box::pin(self.handle_list_directory(handle, folder, app_state)).await;
                 }
+                AppMessage::NodeContext { handle, folder } => {
+                    Box::pin(self.handle_node_context(handle, folder, app_state)).await;
+                }
+                AppMessage::RenameData {
+                    handle,
+                    folder,
+                    editor,
+                } => {
+                    Box::pin(self.handle_rename_data(handle, folder, *editor, app_state)).await;
+                }
+                AppMessage::Evaluate { query } => {
+                    // Started, not awaited: the panel follows the asset's status.
+                    if let Err(e) = self.envref.evaluate(&query).await {
+                        eprintln!("Evaluating {query} failed: {e}");
+                    }
+                }
+                AppMessage::SaveAs {
+                    handle,
+                    query,
+                    format,
+                    path,
+                } => {
+                    Box::pin(self.handle_save_as(handle, query, format, path, app_state)).await;
+                }
                 AppMessage::RequestAssetUpdates { handle, query } => {
                     self.handle_request_asset_updates(handle, query, app_state)
                         .await;
+                }
+                AppMessage::Preview { handle, query, cwd } => {
+                    self.handle_preview(handle, query, cwd, app_state).await;
                 }
                 AppMessage::ApplyToInput {
                     handle,
@@ -819,6 +861,149 @@ where
         }
     }
 
+    /// Handle `AppMessage::NodeContext`: the recipes of `folder` and the asset manager's listing
+    /// of it, for an editor's Node arguments (design `recipe-tree`). A folder that cannot be read
+    /// sends nothing: the fields stay text boxes.
+    async fn handle_node_context(
+        &mut self,
+        handle: UIHandle,
+        folder: String,
+        app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
+    ) {
+        let Some(context) = self.node_context(&folder).await else {
+            return;
+        };
+        let _ = Self::deliver_update(
+            handle,
+            UpdateMessage::NodeContext(context),
+            app_state,
+            &self.context_parts(),
+        )
+        .await;
+    }
+
+    async fn node_context(&self, folder: &str) -> Option<crate::ui::editor::NodeContext> {
+        let key = parse_key(folder).ok()?;
+        let bytes = self
+            .envref
+            .get_async_store()
+            .get_bytes(&key.join("recipes.yaml"))
+            .await
+            .ok()?;
+        let recipes: liquers_core::recipes::RecipeList = serde_yaml::from_slice(&bytes).ok()?;
+        let infos = self
+            .envref
+            .get_asset_manager()
+            .listdir_asset_info(&key)
+            .await
+            .ok();
+        let mut context = crate::ui::editor::NodeContext::new(folder, recipes, None);
+        if let Some(infos) = infos {
+            let registry = self.envref.get_type_registry();
+            let mut listing = Vec::new();
+            for info in infos.into_iter().filter(|info| !info.is_dir) {
+                let Some(name) = info
+                    .filename
+                    .clone()
+                    .filter(|f| !f.is_empty())
+                    .or_else(|| info.key.as_ref().and_then(|k| k.filename().map(|f| f.to_string())))
+                else {
+                    continue;
+                };
+                // The formats a value of this type can be written in (Export, design
+                // `recipes-editor`); unknown before the asset has a type.
+                if let Some(type_info) = registry.get(&info.type_identifier) {
+                    let formats: Vec<String> = type_info
+                        .supported_data_formats
+                        .iter()
+                        .map(|f| f.to_string())
+                        .collect();
+                    if !formats.is_empty() {
+                        context.formats.insert(name.clone(), formats);
+                    }
+                }
+                listing.push(name.clone());
+                context.assets.insert(name, info);
+            }
+            context.listing = Some(listing);
+        }
+        Some(context)
+    }
+
+    /// Handle `AppMessage::RenameData`: saves the renamed tree (stored files, then
+    /// `recipes.yaml`) and sends the folder's context again. The edited query follows through
+    /// its accessor. A failure is reported on stderr and leaves the store as the save left it.
+    async fn handle_rename_data(
+        &mut self,
+        handle: UIHandle,
+        folder: String,
+        editor: liquers_core::recipe_tree::TreeEditor,
+        app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
+    ) {
+        match parse_key(&folder) {
+            Ok(key) => {
+                if let Err(e) = editor.save(&key, self.envref.clone()).await {
+                    eprintln!("Renaming a node of {folder} failed: {e}");
+                }
+            }
+            Err(e) => eprintln!("Renaming a node of {folder} failed: {e}"),
+        }
+        self.handle_node_context(handle, folder, app_state).await;
+    }
+
+    /// Handle `AppMessage::SaveAs`: evaluate `query`, serialize it and write it to the local
+    /// file `path`, then send the folder's context with the outcome as its notice.
+    async fn handle_save_as(
+        &mut self,
+        handle: UIHandle,
+        query: String,
+        format: Option<String>,
+        path: String,
+        app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
+    ) {
+        let notice = match self.save_as(&query, format.as_deref(), &path).await {
+            Ok(size) => format!("Saved {size} bytes to {path}"),
+            Err(e) => format!("Saving to {path} failed: {e}"),
+        };
+        let folder = save_as_folder(&query);
+        let mut context = self
+            .node_context(&folder)
+            .await
+            .unwrap_or_else(|| crate::ui::editor::NodeContext::new(&folder, Default::default(), None));
+        context.notice = Some(notice);
+        let _ = Self::deliver_update(
+            handle,
+            UpdateMessage::NodeContext(context),
+            app_state,
+            &self.context_parts(),
+        )
+        .await;
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn save_as(&self, query: &str, format: Option<&str>, path: &str) -> Result<usize, Error> {
+        use liquers_core::value::DefaultValueSerializer;
+        let asset = self.envref.evaluate(query).await?;
+        let bytes: Vec<u8> = match format.filter(|f| !f.is_empty()) {
+            Some(format) => {
+                let state = asset.get().await?;
+                state.data_unchecked().as_bytes(format)?
+            }
+            None => asset.get_binary().await?.0.as_ref().clone(),
+        };
+        tokio::fs::write(path, &bytes)
+            .await
+            .map_err(|e| Error::general_error(format!("cannot write {path}: {e}")))?;
+        Ok(bytes.len())
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    async fn save_as(&self, _query: &str, _format: Option<&str>, _path: &str) -> Result<usize, Error> {
+        Err(Error::general_error(
+            "Save as writes a local file, which a browser cannot do here".to_owned(),
+        ))
+    }
+
     /// Handle `AppMessage::ListDirectory`: the asset manager's listing of `folder` (recipe keys
     /// included), for an editor's file selector.
     async fn handle_list_directory(
@@ -918,14 +1103,57 @@ where
         query: String,
         app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
     ) {
-        // 1. Evaluate the query (async, returns AssetRef)
-        match self.envref.evaluate(&query).await {
+        let evaluated = match pipeline_text(&query) {
+            // A pipeline editor's value is the pipeline's JSON.
+            Some(pipeline) => {
+                let recipe = Recipe { pipeline: Some(pipeline), ..Recipe::default() };
+                self.envref.get_asset_manager().apply_queued(recipe, State::new()).await
+            }
+            None => self.envref.evaluate(&query).await,
+        };
+        self.monitor_evaluation(handle, query, false, evaluated, app_state).await;
+    }
+
+    /// `AppMessage::Preview`: `query` as an ad-hoc asset with `cwd`, monitored like any request.
+    async fn handle_preview(
+        &mut self,
+        handle: UIHandle,
+        query: String,
+        cwd: Option<String>,
+        app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
+    ) {
+        let recipe = match pipeline_text(&query) {
+            // A pipeline editor's value is the pipeline's JSON.
+            Some(pipeline) => Ok(Recipe { pipeline: Some(pipeline), ..Recipe::default() }),
+            None => parse_query(&query).map(Recipe::from),
+        };
+        let evaluated = match recipe {
+            Ok(mut recipe) => {
+                recipe.cwd = cwd;
+                self.envref.get_asset_manager().apply_queued(recipe, State::new()).await
+            }
+            Err(e) => Err(e),
+        };
+        self.monitor_evaluation(handle, query, true, evaluated, app_state).await;
+    }
+
+    /// Delivers the first snapshot of an evaluation to `handle` and monitors the asset (replacing
+    /// what the handle monitored), or delivers its error.
+    async fn monitor_evaluation(
+        &mut self,
+        handle: UIHandle,
+        query: String,
+        preview: bool,
+        evaluated: Result<AssetRef<E>, Error>,
+        app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
+    ) {
+        match evaluated {
             Ok(asset_ref) => {
                 // 2. Subscribe to notifications
                 let notification_rx = asset_ref.subscribe_to_notifications().await;
 
                 // 3. Build initial snapshot
-                let snapshot = Self::build_snapshot(&asset_ref).await;
+                let snapshot = Self::build_snapshot(&asset_ref, &query, preview).await;
 
                 // 4. Deliver snapshot to element
                 let status = snapshot.status;
@@ -951,6 +1179,8 @@ where
                             MonitoredAsset {
                                 asset_ref,
                                 notification_rx,
+                                query,
+                                preview,
                             },
                         );
                     }
@@ -964,6 +1194,8 @@ where
                     metadata: liquers_core::metadata::Metadata::new(),
                     error: Some(e),
                     status: Status::Error,
+                    query: Some(query.clone()),
+                    preview,
                 };
                 let error = error_snapshot.error.clone();
                 let outcome = Self::deliver_update(
@@ -998,7 +1230,8 @@ where
                 let _notification = monitored.notification_rx.borrow_and_update().clone();
 
                 // Build fresh snapshot
-                let snapshot = Self::build_snapshot(&monitored.asset_ref).await;
+                let snapshot =
+                    Self::build_snapshot(&monitored.asset_ref, &monitored.query, monitored.preview).await;
 
                 // Deliver to element
                 let status = snapshot.status;
@@ -1034,7 +1267,7 @@ where
     }
 
     /// Build an AssetSnapshot from an AssetRef.
-    async fn build_snapshot(asset_ref: &AssetRef<E>) -> AssetSnapshot {
+    async fn build_snapshot(asset_ref: &AssetRef<E>, query: &str, preview: bool) -> AssetSnapshot {
         // Get status
         let status = asset_ref.status().await;
 
@@ -1061,6 +1294,8 @@ where
             metadata,
             error,
             status,
+            query: Some(query.to_string()),
+            preview,
         }
     }
 
@@ -1141,7 +1376,7 @@ where
                     let mut notification_rx = asset_ref.subscribe_to_notifications().await;
                     let _ = notification_rx.borrow_and_update();
                     self.apply_theme_asset(&asset_ref).await;
-                    self.theme_watch = Some((query, MonitoredAsset { asset_ref, notification_rx }));
+                    self.theme_watch = Some((query, MonitoredAsset { asset_ref, notification_rx, query: String::new(), preview: false }));
                 }
                 Err(e) => {
                     eprintln!("theme '{query}' could not be evaluated: {e}");
@@ -1175,7 +1410,7 @@ where
     /// Composes the theme asset's value over the built-in theme and swaps it into the cell; a
     /// value that is not a theme keeps the previous one (AC-16).
     async fn apply_theme_asset(&mut self, asset_ref: &AssetRef<E>) {
-        let snapshot = Self::build_snapshot(asset_ref).await;
+        let snapshot = Self::build_snapshot(asset_ref, "", false).await;
         if let Some(e) = snapshot.error {
             eprintln!("theme asset failed: {e}");
             self.record(None, Status::Error, Some(e));
@@ -1271,4 +1506,13 @@ pub enum ElementStatusInfo {
     Ready,
     /// Node not found or other error.
     Error,
+}
+
+/// The folder of a Save as query `-R/<folder>/<file>`: its key without the last segment.
+fn save_as_folder(query: &str) -> String {
+    let key = query.strip_prefix("-R/").unwrap_or(query);
+    match key.rsplit_once('/') {
+        Some((folder, _)) => folder.to_owned(),
+        None => String::new(),
+    }
 }

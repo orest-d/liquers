@@ -55,6 +55,7 @@ encoding, and the interpreter that turns a plan into asset evaluation.
 - **Plan building and evaluation** — documented → [`reference/api/DOC_01_ARCHITECTURE_REFERENCE.md`](reference/api/DOC_01_ARCHITECTURE_REFERENCE.md)
 - **One evaluation path: flows and public surface** — documented → [`reference/ASSET_LIFECYCLE.md`](reference/ASSET_LIFECYCLE.md) *(design in [`design/evaluate-path-consolidation/`](design/evaluate-path-consolidation/))*
 - **Recipes and plan contracts** — documented → [`reference/RECIPES_AND_PLANS.md`](reference/RECIPES_AND_PLANS.md)
+- **Self-contained recipe trees (`tree:` section, Node arguments, strict mode, `TreeEditor`)** — documented → [`reference/RECIPE_TREES.md`](reference/RECIPE_TREES.md) *(design in [`design/recipe-tree/`](design/recipe-tree/))*
 - **Planner instructions (`ns`, `q`, `v`, resource header instructions) versus commands** — documented → [`reference/RECIPES_AND_PLANS.md`](reference/RECIPES_AND_PLANS.md) §Planner instructions
 - **Metadata ownership during plan execution (asset, context, step state)** — documented → [`reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`](reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md) §Metadata ownership during evaluation *(design in [`design/plan-step-state-metadata/`](design/plan-step-state-metadata/))*
 - **Offline query and recipe validation** — built → [`design/query-validation/`](design/query-validation/)
@@ -263,6 +264,8 @@ on wasm.
 - **Native UI driver and egui window (`NativeDriver`, `spawn_headless`, `run_window`)** — built → [`design/egui-native-app/`](design/egui-native-app/)
 - **Query, pipeline, action and resource editors (tree view, `gui_info` widgets, presets, store file selector, accessor binding; supersedes `command-parameter-editor`)** — complete → [`design/query-pipeline-editor/`](design/query-pipeline-editor/)
 - **Query editor ergonomics (action cards, Simple and Advanced modes, icons, shortcuts, jump from text to field, theme proof of concept)** — complete → [`design/query-editor-ergonomics/`](design/query-editor-ergonomics/)
+- **Recipe and recipes editors (a recipe form with the query editor inside; a `recipes.yaml` outline of files or tree nodes with type icons, recipe windows, new/rename/duplicate/delete; dependencies view; highlighted YAML view; recipes addressed by filename)** — complete → [`design/recipes-editor/`](design/recipes-editor/)
+- **Update modes for the query editors and console (on demand, live preview, apply immediately; ✓ and Enter; undo; a value display with a status bar instead of flicker; views follow upstream expiry by mode)** — complete → [`design/query-update-modes/`](design/query-update-modes/)
 - **Liquers UI from Python (the model, and an egui window)** — built → [`design/liquers-py-ui/`](design/liquers-py-ui/), [`design/liquers-py-ui-window/`](design/liquers-py-ui-window/)
 - **UI redesign: UI crate(s), egui, web and ratatui frontends, monolithic and split client-server, Tauri, sessions, themes, tools, charts, MIDI** — planned → [`design/ui-redesign/`](design/ui-redesign/) *(idea map, review of the current architecture, master design (proposed) and plan of designs D1–D21; investigation: [`design/ui-split-elements/`](design/ui-split-elements/); issue: [`issues/UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE.md`](issues/UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE.md))*
 - **UI core crate (`liquers-ui`: one element model for every frontend, independent of `liquers-lib`)** — planned → [`design/ui-core-crate/`](design/ui-core-crate/) *(Phase 1 in review)*
@@ -666,11 +669,13 @@ deliberately folded behind a broader line.
 - feature `DEPENDENCY-ANALYSIS-SUMMARIES-NOT-REUSED-ACROSS-EVALUATIONS`
 - feature `DOCS-SITE-HAS-NO-PER-RELEASE-VERSIONS`
 - feature `EDITOR-CANNOT-EDIT-INSIDE-A-NESTED-PIPELINE`
+- feature `EDITOR-HAS-NO-KEY-TO-DISCARD-A-PREVIEW`
 - feature `ENVIRONMENT-ORDERLY-SHUTDOWN`
 - feature `EXTENDED-SCALARS-NOT-MAPPED-BY-LANGUAGE-BRIDGES`
 - feature `EXTERNAL-INDEX-HAS-NO-RECONCILIATION-CONTRACT`
 - feature `HTTP-ACCEPT-HEADER-NOT-NEGOTIATED`
 - feature `ICON-SETS-OTHER-THAN-PHOSPHOR-ARE-NOT-DRAWN`
+- feature `IMAGE-CANNOT-BE-WRITTEN-IN-DISPLAY-FORMATS`
 - feature `INDEX-PAGE-IS-A-FIXED-REDIRECT`
 - feature `ISSUE-REPORT-PLAN-AND-METADATA-LOGGING`
 - feature `LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`
@@ -690,6 +695,7 @@ deliberately folded behind a broader line.
 - feature `NO-TEMPLATE-EDITOR-UI`
 - feature `NO-WRITE-PATH-FROM-RECORDS-INTO-A-RELATIONAL-DATABASE`
 - feature `PIPELINE-RESULTS-ARE-NEVER-CACHED`
+- feature `PREVIEW-IS-FRAMED-ONLY-IN-THE-QUERY-CONSOLE`
 - feature `PY-CANNOT-INSPECT-THE-DEPENDENCY-MANAGER`
 - feature `PY-COMMAND-CANNOT-SET-ICON-PRESETS-OR-NEXT`
 - feature `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`
@@ -699,7 +705,9 @@ deliberately folded behind a broader line.
 - feature `QUERY-BUILDER-NOT-IN-BINDINGS`
 - feature `QUERY-CANNOT-CHOOSE-A-DATA-FORMAT`
 - feature `QUERY-CANNOT-MARK-CACHED-INTERMEDIATES`
-- feature `RECIPES-CANNOT-DESCRIBE-A-SELF-CONTAINED-ASSET-TREE`
+- feature `QUERY-COST-IS-UNKNOWN-TO-THE-UI`
+- feature `RECIPE-TREE-CANNOT-BE-EXPORTED-AS-AN-ARCHIVE`
+- feature `RECIPE-TREES-NOT-IN-LANGUAGE-BINDINGS`
 - feature `RECORD-FIELD-TYPE-HAS-NO-DECIMAL`
 - feature `RECORD-FIELD-TYPE-HAS-NO-UUID-TIME-OR-INTERVAL`
 - feature `RECORD-SOURCE-ROWS-CANNOT-BE-STREAMED`
@@ -733,6 +741,7 @@ deliberately folded behind a broader line.
 - feature `VALUE-TYPE-DEFINITION-MACRO`
 - feature `WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS`
 - feature `WEB-API-REFERENCE-NOT-GENERATED`
+- feature `WEB-COMMAND-CANNOT-DECLARE-VARIADIC-ARGUMENT`
 - feature `WEB-EDITOR-HAS-NO-KEYBOARD-MODEL`
 - feature `WEB-EVALUATE-CANNOT-RETURN-THE-SERIALIZED-RESULT`
 - feature `WEB-FOLDER-SERVES-STORED-FILES-ONLY`
@@ -742,6 +751,7 @@ deliberately folded behind a broader line.
 - feature `WEB-PAGE-CANNOT-PASS-A-PIPELINE-VALUE`
 - feature `WEB-PIPELINE-EDITOR-HAS-NO-DEFINITION-MODE`
 - feature `WEB-QUERY-EDITOR-NOT-LIVE`
+- feature `WEB-RECIPES-EDITOR-CANNOT-DOWNLOAD`
 - feature `WEB-UI-CANNOT-BE-DRIVEN-BY-A-REMOTE-ENGINE`
 - feature `YAML-DOCUMENT-EDIT-DROPS-COMMENTS`
 <!-- END generated: unplaced -->

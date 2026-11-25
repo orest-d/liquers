@@ -1,3 +1,48 @@
+//! Command metadata: what a command is called, what arguments it takes and how they are shown.
+//!
+//! # Purpose
+//!
+//! Every registered command has a [`CommandMetadata`] record, separate from the code that runs it.
+//! The planner reads it to convert a query's text parameters into typed values, to resolve
+//! defaults, links and enum aliases, and to refuse a wrong argument before anything runs; user
+//! interfaces, validation and the MCP and language bindings read it to describe the command.
+//!
+//! # Main components
+//!
+//! - [`CommandMetadataRegistry`]: all commands, looked up by [`CommandKey`] (realm, namespace,
+//!   name), with the default namespaces.
+//! - [`CommandMetadata`]: one command — label, doc, arguments, presets, `next`, `filename`,
+//!   caching and payload settings ([`PayloadRequirement`]).
+//! - [`ArgumentInfo`] and [`ArgumentType`]: one argument and how its text is converted; an
+//!   [`EnumArgument`] restricts it to named alternatives, and a [`NodeArgument`]
+//!   (`ArgumentType::Node`) makes it name a file of the working folder, a recipe-tree node.
+//! - [`VariadicShape`] (`ArgumentInfo::shape`): how the parameters of a variadic (`multiple`)
+//!   argument form its value — a plain list, tuples, a dictionary or a JSON value — with
+//!   `ArgumentInfo::columns` naming a tuple's components.
+//! - [`CommandParameterValue`]: a default — a literal, a query link or a pipeline.
+//! - [`ArgumentGUIInfo`]: the widget a user interface draws for the argument.
+//!
+//! # Where it is used
+//!
+//! `register_command!` (`liquers-macro`) builds the records; `crate::plan` and
+//! `crate::pipeline` plan against them; `crate::validate` checks queries offline against an
+//! exported registry; the editors in `liquers-lib`, `liquers-mcp`'s tool schemas and the Python
+//! bindings describe commands from them.
+//!
+//! # Related concepts
+//!
+//! [`crate::commands`] (the executable side of a command), `specs/reference/REGISTER_COMMAND_FSD.md`,
+//! `specs/reference/RECIPE_TREES.md` (Node arguments).
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_core::command_metadata::{ArgumentType, NodeArgument, NodeLinkForm};
+//!
+//! let node = ArgumentType::Node(NodeArgument::new("glb").with_form(NodeLinkForm::Key));
+//! assert_ne!(node, ArgumentType::Node(NodeArgument::new("glb")));
+//! ```
+
 #![allow(unused_imports)]
 #![allow(dead_code)]
 
@@ -48,6 +93,79 @@ mod validation_tests {
         argument.multiple = multiple;
         argument.injected = injected;
         argument
+    }
+
+    fn shaped(shape: VariadicShape) -> CommandMetadata {
+        let mut metadata = CommandMetadata::new("shaped");
+        metadata.arguments = vec![ArgumentInfo::string_argument("items").set_multiple().with_shape(shape)];
+        metadata
+    }
+
+    /// AC-5: a shape serializes beside `multiple`, and a plain list has no `shape` key at all,
+    /// so registries written before shapes existed are unchanged.
+    #[test]
+    fn shape_round_trips_and_list_is_omitted() {
+        let list = ArgumentInfo::string_argument("items").set_multiple();
+        let json = serde_json::to_value(&list).expect("serialize");
+        assert!(json.get("shape").is_none(), "{json}");
+        assert!(json.get("columns").is_none(), "{json}");
+
+        for (shape, expected) in [
+            (
+                VariadicShape::Tuples(vec![ArgumentType::String, ArgumentType::Integer]),
+                serde_json::json!({"tuples": ["string", "int"]}),
+            ),
+            (VariadicShape::Map, serde_json::json!("map")),
+            (VariadicShape::Json, serde_json::json!("json")),
+        ] {
+            let argument = ArgumentInfo::argument("items").set_multiple().with_shape(shape);
+            let json = serde_json::to_value(&argument).expect("serialize");
+            assert_eq!(json["shape"], expected);
+            let back: ArgumentInfo = serde_json::from_value(json).expect("deserialize");
+            assert_eq!(back, argument);
+            let yaml = serde_yaml::to_string(&argument).expect("yaml");
+            let back: ArgumentInfo = serde_yaml::from_str(&yaml).expect("from yaml");
+            assert_eq!(back, argument);
+        }
+    }
+
+    /// AC-6: hand-built metadata with a wrong shape is refused.
+    #[test]
+    fn shape_requires_multiple_and_valid_components() {
+        let pairs = VariadicShape::Tuples(vec![ArgumentType::String, ArgumentType::String]);
+        assert!(!shaped(pairs.clone()).check().has_errors());
+        assert!(!shaped(VariadicShape::Map).check().has_errors());
+        assert!(!shaped(VariadicShape::Json).check().has_errors());
+
+        for shape in [pairs, VariadicShape::Map, VariadicShape::Json] {
+            let mut metadata = shaped(shape);
+            metadata.arguments[0].multiple = false;
+            assert!(metadata.check().has_errors(), "a shape needs multiple");
+        }
+        let one = VariadicShape::Tuples(vec![ArgumentType::String]);
+        assert!(shaped(one).check().has_errors(), "one component");
+        let five = VariadicShape::Tuples(vec![ArgumentType::Integer; 5]);
+        assert!(shaped(five).check().has_errors(), "five components");
+        let option = VariadicShape::Tuples(vec![ArgumentType::String, ArgumentType::IntegerOption]);
+        assert!(shaped(option).check().has_errors(), "an option component");
+    }
+
+    /// AC-14: component names are optional, and when given there is one per component.
+    #[test]
+    fn shape_columns_match_arity() {
+        let pairs = VariadicShape::Tuples(vec![ArgumentType::String, ArgumentType::String]);
+        let mut metadata = shaped(pairs);
+        metadata.arguments[0] = metadata.arguments[0].clone().with_columns(&["Old name", "New name"]);
+        assert!(!metadata.check().has_errors());
+        let json = serde_json::to_value(&metadata.arguments[0]).expect("serialize");
+        assert_eq!(json["columns"], serde_json::json!(["Old name", "New name"]));
+
+        metadata.arguments[0] = metadata.arguments[0].clone().with_columns(&["Only one"]);
+        assert!(metadata.check().has_errors(), "wrong number of columns");
+
+        let mut map = shaped(VariadicShape::Map);
+        map.arguments[0] = map.arguments[0].clone().with_columns(&["Key", "Value"]);
+        assert!(map.check().has_errors(), "columns need a tuple shape");
     }
 
     #[test]
@@ -218,6 +336,95 @@ pub enum ArgumentType {
     Any,
     #[serde(rename = "none")]
     None,
+    /// A node of a recipe folder: a bare name the plan turns into a link to `./<name>.<ext>`, or
+    /// any link (`specs/reference/RECIPE_TREES.md`).
+    #[serde(rename = "node")]
+    Node(NodeArgument),
+}
+
+/// What kind of node a [`ArgumentType::Node`] argument names. Only nodes directly in the
+/// recipe folder exist today; sub-folders and asset folders may follow.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum NodeKind {
+    /// A file directly in the working folder: `./<name>.<ext>`.
+    #[default]
+    Local,
+}
+
+/// How a node name becomes a link: the node's value, or its key.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum NodeLinkForm {
+    /// `-R/./<name>.<ext>`: the command receives the node's value.
+    #[default]
+    Resource,
+    /// `-R-key/./<name>.<ext>`: the command receives the node's key.
+    Key,
+}
+
+/// The declaration of a Node argument: its kind, the extension of the files it names and the
+/// form of the link a name becomes.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct NodeArgument {
+    #[serde(default)]
+    pub kind: NodeKind,
+    /// The extension without the dot, e.g. `glb`.
+    pub extension: String,
+    #[serde(default)]
+    pub form: NodeLinkForm,
+}
+
+impl NodeArgument {
+    /// A local node argument with the resource link form.
+    pub fn new(extension: &str) -> Self {
+        NodeArgument {
+            kind: NodeKind::Local,
+            extension: extension.to_owned(),
+            form: NodeLinkForm::Resource,
+        }
+    }
+
+    /// Sets the link form.
+    pub fn with_form(mut self, form: NodeLinkForm) -> Self {
+        self.form = form;
+        self
+    }
+
+    /// The filename a node name stands for: `<name>.<ext>`.
+    pub fn filename(&self, name: &str) -> String {
+        format!("{}.{}", name, self.extension)
+    }
+
+    /// The link `name` becomes: `-R/./<name>.<ext>` or `-R-key/./<name>.<ext>`.
+    ///
+    /// Refuses a name that is not a single resource name (a `/`, an empty name, …).
+    pub fn link(&self, name: &str) -> Result<crate::query::Query, Error> {
+        let filename = self.filename(name);
+        if name.is_empty() || !crate::escape::is_resource_name(&filename) {
+            return Err(Error::invalid_token(name, "a node name"));
+        }
+        let text = match self.form {
+            NodeLinkForm::Resource => format!("-R/./{filename}"),
+            NodeLinkForm::Key => format!("-R-key/./{filename}"),
+        };
+        crate::parse::parse_query(&text)
+    }
+
+    /// The node name, when `query` is exactly the link [`Self::link`] builds for some name.
+    pub fn name_of(&self, query: &crate::query::Query) -> Option<String> {
+        let text = query.encode();
+        let prefix = match self.form {
+            NodeLinkForm::Resource => "-R/./",
+            NodeLinkForm::Key => "-R-key/./",
+        };
+        let filename = text.strip_prefix(prefix)?;
+        let name = filename.strip_suffix(&format!(".{}", self.extension))?;
+        match self.link(name) {
+            Ok(link) if link.encode() == text => Some(name.to_owned()),
+            Ok(_) | Err(_) => None,
+        }
+    }
 }
 
 impl ArgumentType {
@@ -233,7 +440,43 @@ impl ArgumentType {
             | ArgumentType::Enum(_)
             | ArgumentType::GlobalEnum(_)
             | ArgumentType::Any
-            | ArgumentType::None => false,
+            | ArgumentType::None
+            | ArgumentType::Node(_) => false,
+        }
+    }
+    /// Whether this type may be one component of a tuple element of a `multiple` argument
+    /// ([`VariadicShape::Tuples`]): a plain scalar, or `Any`, which reads a number or a string.
+    pub fn is_tuple_component(&self) -> bool {
+        match self {
+            ArgumentType::String
+            | ArgumentType::Integer
+            | ArgumentType::Float
+            | ArgumentType::Boolean
+            | ArgumentType::Any => true,
+            ArgumentType::IntegerOption
+            | ArgumentType::FloatOption
+            | ArgumentType::BooleanOption
+            | ArgumentType::Enum(_)
+            | ArgumentType::GlobalEnum(_)
+            | ArgumentType::None
+            | ArgumentType::Node(_) => false,
+        }
+    }
+    /// The node declaration, when this is a Node argument.
+    pub fn node(&self) -> Option<&NodeArgument> {
+        match self {
+            ArgumentType::Node(n) => Some(n),
+            ArgumentType::String
+            | ArgumentType::Integer
+            | ArgumentType::IntegerOption
+            | ArgumentType::Float
+            | ArgumentType::FloatOption
+            | ArgumentType::Boolean
+            | ArgumentType::BooleanOption
+            | ArgumentType::Enum(_)
+            | ArgumentType::GlobalEnum(_)
+            | ArgumentType::Any
+            | ArgumentType::None => None,
         }
     }
     pub fn resolve_global_enums(&self, cmr: &CommandMetadataRegistry) -> Result<Self, Error> {
@@ -318,6 +561,9 @@ pub enum ArgumentGUIInfo {
     VerticalRadioEnum,
     /// Select enum from a dropdown list.
     EnumSelector,
+    /// Select a node of the recipe folder (an [`ArgumentType::Node`] argument): the folder's
+    /// files with the argument's extension, shown by name and title.
+    NodeSelector,
     /// Color picker for a color value
     /// Should edit the color in form of a color name or hex code RGB or RGBA.
     /// The hex code does NOT start with `#`, but is just a string of 6 or 8 hexadecimal digits.
@@ -575,6 +821,60 @@ fn gui_info_is_none(gui_info: &ArgumentGUIInfo) -> bool {
     }
 }
 
+/// How the dash-separated parameters of a `multiple` argument form its value.
+///
+/// The query and the plan stay flat: a shape only says how consecutive parameters are read.
+/// `argument_type` keeps its meaning — the type of one element of a [`VariadicShape::List`], or
+/// of one value of a [`VariadicShape::Map`].
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum VariadicShape {
+    /// One element per parameter, each of the argument's type.
+    #[default]
+    List,
+    /// Consecutive parameters form one element; the component types, 2 to 4 of them, each a
+    /// scalar type.
+    Tuples(Vec<ArgumentType>),
+    /// Key and value pairs with unique string keys; a value is of the argument's type.
+    Map,
+    /// A JSON value whose form the parameters decide: none is `null`, one is a number or a
+    /// string, a leading empty string starts a list, anything else is key and value pairs.
+    Json,
+}
+
+impl VariadicShape {
+    /// The smallest and largest number of components of a tuple element.
+    pub const MIN_TUPLE_ARITY: usize = 2;
+    pub const MAX_TUPLE_ARITY: usize = 4;
+
+    pub fn is_list(&self) -> bool {
+        match self {
+            VariadicShape::List => true,
+            VariadicShape::Tuples(_) | VariadicShape::Map | VariadicShape::Json => false,
+        }
+    }
+
+    /// Number of parameters that form one element: the component count of a tuple, 2 for a
+    /// dictionary (key and value), 1 otherwise.
+    pub fn arity(&self) -> usize {
+        match self {
+            VariadicShape::Tuples(components) => components.len().max(1),
+            VariadicShape::Map => 2,
+            VariadicShape::List | VariadicShape::Json => 1,
+        }
+    }
+
+    /// A short name for messages and displays: `list`, `tuples`, `map`, `json`.
+    pub fn name(&self) -> &'static str {
+        match self {
+            VariadicShape::List => "list",
+            VariadicShape::Tuples(_) => "tuples",
+            VariadicShape::Map => "map",
+            VariadicShape::Json => "json",
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 pub struct ArgumentInfo {
     /// Name of the argument, used to identify it in the command metadata.
@@ -605,6 +905,18 @@ pub struct ArgumentInfo {
     #[serde(skip_serializing_if = "is_false")]
     #[serde(default = "false_default")]
     pub multiple: bool,
+
+    /// How the parameters of a `multiple` argument form its value: a list (the default), tuples,
+    /// a dictionary or a JSON value. Only valid with `multiple`; omitted when it is a list.
+    #[serde(skip_serializing_if = "VariadicShape::is_list")]
+    #[serde(default)]
+    pub shape: VariadicShape,
+
+    /// Names of the components of a tuple element ([`VariadicShape::Tuples`]), e.g. for column
+    /// headers in a UI. Empty when not given; otherwise one name per component.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
+    pub columns: Vec<String>,
 
     /// If true, then this argument is injected by the plan interpreter.
     /// Injected parameters have to be accessible via action context. Typically these are global objects stored in the environment.
@@ -646,6 +958,8 @@ impl ArgumentInfo {
             default: CommandParameterValue::None,
             argument_type: ArgumentType::Any,
             multiple: false,
+            shape: VariadicShape::List,
+            columns: Vec::new(),
             injected: false,
             gui_info: DEFAULT_GUI.clone(),
             hints: serde_json::Map::new(),
@@ -675,7 +989,74 @@ impl ArgumentInfo {
                 ),
             )]);
         }
+        let mut shape_error = |message: String| {
+            report.extend([Issue::command_registry(
+                IssueSeverity::Error,
+                realm,
+                namespace,
+                name,
+                message,
+            )]);
+        };
+        if !self.shape.is_list() && !self.multiple {
+            shape_error(format!(
+                "Argument '{}' has the shape '{}', which requires a multiple argument",
+                self.name,
+                self.shape.name()
+            ));
+        }
+        match &self.shape {
+            VariadicShape::Tuples(components) => {
+                if components.len() < VariadicShape::MIN_TUPLE_ARITY
+                    || components.len() > VariadicShape::MAX_TUPLE_ARITY
+                {
+                    shape_error(format!(
+                        "Argument '{}': a tuple element has {} to {} components, {} declared",
+                        self.name,
+                        VariadicShape::MIN_TUPLE_ARITY,
+                        VariadicShape::MAX_TUPLE_ARITY,
+                        components.len()
+                    ));
+                }
+                for component in components {
+                    if !component.is_tuple_component() {
+                        shape_error(format!(
+                            "Argument '{}': {:?} cannot be a component of a tuple element",
+                            self.name, component
+                        ));
+                    }
+                }
+                if !self.columns.is_empty() && self.columns.len() != components.len() {
+                    shape_error(format!(
+                        "Argument '{}' names {} columns for elements of {} components",
+                        self.name,
+                        self.columns.len(),
+                        components.len()
+                    ));
+                }
+            }
+            VariadicShape::List | VariadicShape::Map | VariadicShape::Json => {
+                if !self.columns.is_empty() {
+                    shape_error(format!(
+                        "Argument '{}' names columns, which only a tuple shape has",
+                        self.name
+                    ));
+                }
+            }
+        }
         report
+    }
+
+    /// Sets the shape of a `multiple` argument (builder style).
+    pub fn with_shape(mut self, shape: VariadicShape) -> Self {
+        self.shape = shape;
+        self
+    }
+
+    /// Names the components of a tuple element (builder style).
+    pub fn with_columns(mut self, columns: &[&str]) -> Self {
+        self.columns = columns.iter().map(|c| c.to_string()).collect();
+        self
     }
 
     pub fn resolve_global_enums(&self, cmr: &CommandMetadataRegistry) -> Result<Self, Error> {
@@ -692,6 +1073,8 @@ impl ArgumentInfo {
             default: CommandParameterValue::None,
             argument_type: ArgumentType::Any,
             multiple: false,
+            shape: VariadicShape::List,
+            columns: Vec::new(),
             injected: false,
             gui_info: DEFAULT_GUI.clone(),
             hints: serde_json::Map::new(),
@@ -706,6 +1089,8 @@ impl ArgumentInfo {
             default: CommandParameterValue::None,
             argument_type: ArgumentType::String,
             multiple: false,
+            shape: VariadicShape::List,
+            columns: Vec::new(),
             injected: false,
             gui_info: DEFAULT_GUI.clone(),
             hints: serde_json::Map::new(),
@@ -728,6 +1113,8 @@ impl ArgumentInfo {
                 ArgumentType::Integer
             },
             multiple: false,
+            shape: VariadicShape::List,
+            columns: Vec::new(),
             injected: false,
             gui_info: ArgumentGUIInfo::IntegerField,
             hints: serde_json::Map::new(),
@@ -750,6 +1137,8 @@ impl ArgumentInfo {
                 ArgumentType::Float
             },
             multiple: false,
+            shape: VariadicShape::List,
+            columns: Vec::new(),
             injected: false,
             gui_info: ArgumentGUIInfo::FloatField,
             hints: serde_json::Map::new(),
@@ -764,6 +1153,8 @@ impl ArgumentInfo {
             default: CommandParameterValue::None,
             argument_type: ArgumentType::Boolean,
             multiple: false,
+            shape: VariadicShape::List,
+            columns: Vec::new(),
             injected: false,
             gui_info: ArgumentGUIInfo::Checkbox,
             hints: serde_json::Map::new(),
@@ -2609,5 +3000,47 @@ mod tests {
             yaml.contains("default_namespaces:\n- pl\n- ''\n- root\n"),
             "{yaml}"
         );
+    }
+
+    /// recipe-tree AC-17: a Node argument round-trips through serde.
+    #[test]
+    fn node_argument_serde_round_trip() {
+        let t = ArgumentType::Node(NodeArgument::new("glb").with_form(NodeLinkForm::Key));
+        let json = serde_json::to_value(&t).expect("serialize");
+        assert_eq!(
+            json,
+            serde_json::json!({"node": {"kind": "local", "extension": "glb", "form": "key"}})
+        );
+        let back: ArgumentType = serde_json::from_value(json).expect("deserialize");
+        assert_eq!(back, t);
+        let yaml = serde_yaml::to_string(&t).expect("serialize yaml");
+        let back: ArgumentType = serde_yaml::from_str(&yaml).expect("deserialize yaml");
+        assert_eq!(back, t);
+        let short: ArgumentType =
+            serde_json::from_value(serde_json::json!({"node": {"extension": "mat"}}))
+                .expect("short form");
+        assert_eq!(short, ArgumentType::Node(NodeArgument::new("mat")));
+    }
+
+    /// recipe-tree AC-17: both link forms, and `name_of` inverts them.
+    #[test]
+    fn node_link_builds_both_forms() {
+        let r = NodeArgument::new("glb");
+        let k = NodeArgument::new("glb").with_form(NodeLinkForm::Key);
+        assert_eq!(r.link("w").expect("link").encode(), "-R/./w.glb");
+        assert_eq!(k.link("w").expect("link").encode(), "-R-key/./w.glb");
+        assert_eq!(r.name_of(&r.link("w").expect("link")).as_deref(), Some("w"));
+        assert_eq!(k.name_of(&k.link("w").expect("link")).as_deref(), Some("w"));
+        assert_eq!(r.name_of(&k.link("w").expect("link")), None);
+        let other = crate::parse::parse_query("-R/data/w.glb").expect("parse");
+        assert_eq!(r.name_of(&other), None);
+    }
+
+    /// recipe-tree AC-17: a node name is one resource name.
+    #[test]
+    fn node_link_refuses_name_with_slash() {
+        let r = NodeArgument::new("glb");
+        assert!(r.link("a/b").is_err());
+        assert!(r.link("").is_err());
     }
 }

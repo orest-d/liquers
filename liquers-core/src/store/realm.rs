@@ -672,7 +672,7 @@ fn check_literals(
             ParameterValue::DefaultLink(name, _)
             | ParameterValue::ParameterLink(name, _, _)
             | ParameterValue::OverrideLink(name, _)
-            | ParameterValue::EnumLink(name, _, _) => Err(format!(
+            | ParameterValue::EnumLink(name, _, _) | ParameterValue::NodeLink(name, _, _, _) => Err(format!(
                 "parameter '{name}' is a link; only literals are allowed"
             )),
             ParameterValue::Placeholder(name) => Err(format!("parameter '{name}' is missing")),
@@ -806,7 +806,7 @@ pub fn string_parameter(parameters: &ResolvedParameterValues, name: &str) -> Res
             | ParameterValue::ParameterLink(_, _, _)
             | ParameterValue::OverrideLink(_, _)
             | ParameterValue::Placeholder(_)
-            | ParameterValue::EnumLink(_, _, _)
+            | ParameterValue::EnumLink(_, _, _) | ParameterValue::NodeLink(_, _, _, _)
             | ParameterValue::MultipleParameters(_, _)
             | ParameterValue::Injected(_)
             | ParameterValue::ParameterPipeline(_, _, _)
@@ -844,7 +844,7 @@ pub fn string_list_parameter(
                         | ParameterValue::ParameterLink(_, _, _)
                         | ParameterValue::OverrideLink(_, _)
                         | ParameterValue::Placeholder(_)
-                        | ParameterValue::EnumLink(_, _, _)
+                        | ParameterValue::EnumLink(_, _, _) | ParameterValue::NodeLink(_, _, _, _)
                         | ParameterValue::MultipleParameters(_, _)
                         | ParameterValue::Injected(_)
                         | ParameterValue::ParameterPipeline(_, _, _)

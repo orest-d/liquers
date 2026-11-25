@@ -456,6 +456,8 @@ enum ArgumentGUIInfo {
     VerticalRadioEnum,
     /// Select enum from a dropdown list.
     EnumSelector,
+    /// Select a node of a recipe tree (filename and title), with rename.
+    NodeSelector,
     /// Color picker for a color value
     /// Should edit the color in form of a color name or hex code RGB or RGBA.
     /// The hex code does NOT start with `#`, but is just a string of 6 or 8 hexadecimal digits.
@@ -561,6 +563,173 @@ fn variadic_element_type(ty: &syn::Type) -> Option<&syn::Type> {
     }
 }
 
+/// Element types a plain list (`Vec<T> multiple`) is made of: one parameter each. Any other
+/// element type is read as a group of parameters through `FromParameterGroup`.
+const SCALAR_ELEMENT_TYPES: &[&str] = &[
+    "i8", "i16", "i32", "i64", "isize", "u8", "u16", "u32", "u64", "usize", "f32", "f64", "bool",
+    "String", "Key", "Query", "Value", "Any", "CommandValue", "Option",
+];
+
+/// How the Rust type of a `multiple` argument reads the remaining parameters: the argument's
+/// shape (`liquers_core::command_metadata::VariadicShape`) and its accessor.
+enum VariadicKind<'a> {
+    /// `Vec<T>`, `T` one parameter: the plain list.
+    List(&'a syn::Type),
+    /// `Vec<(A, B, …)>`: tuples of 2 to 4 components.
+    Tuples(Vec<&'a syn::Type>),
+    /// `Vec<P>`, `P` a type of the caller's implementing `FromParameterGroup`.
+    Group(&'a syn::Type),
+    /// `BTreeMap<String, V>`: key and value pairs, the value type given.
+    Map(&'a syn::Type),
+    /// `serde_json::Map<String, serde_json::Value>`: key and value pairs of JSON scalars.
+    JsonMap,
+    /// `serde_json::Value`: a JSON value whose form the parameters decide.
+    Json,
+}
+
+impl VariadicKind<'_> {
+    fn is_list(&self) -> bool {
+        matches!(self, VariadicKind::List(_))
+    }
+}
+
+/// The type arguments of a path segment (`<A, B>`), types only.
+fn generic_types(segment: &syn::PathSegment) -> Vec<&syn::Type> {
+    match &segment.arguments {
+        syn::PathArguments::AngleBracketed(args) => args
+            .args
+            .iter()
+            .filter_map(|arg| match arg {
+                syn::GenericArgument::Type(ty) => Some(ty),
+                _ => None,
+            })
+            .collect(),
+        syn::PathArguments::None | syn::PathArguments::Parenthesized(_) => Vec::new(),
+    }
+}
+
+/// The last identifier of a path type (`std::collections::BTreeMap<…>` gives `BTreeMap`).
+fn last_ident(ty: &syn::Type) -> Option<String> {
+    match ty {
+        syn::Type::Path(type_path) if type_path.qself.is_none() => {
+            type_path.path.segments.last().map(|s| s.ident.to_string())
+        }
+        _ => None,
+    }
+}
+
+/// Whether the type is `serde_json::<name>`, written with its crate.
+fn is_serde_json(ty: &syn::Type, name: &str) -> bool {
+    let syn::Type::Path(type_path) = ty else {
+        return false;
+    };
+    let segments = &type_path.path.segments;
+    type_path.qself.is_none()
+        && segments.len() == 2
+        && segments[0].ident == "serde_json"
+        && segments[1].ident == name
+}
+
+/// A component of a tuple, or the value of a dictionary, is one parameter: not a container.
+fn check_component(ty: &syn::Type, what: &str) -> syn::Result<()> {
+    let nested = match ty {
+        syn::Type::Tuple(_) => true,
+        _ => matches!(last_ident(ty).as_deref(), Some("Vec" | "Option" | "BTreeMap" | "HashMap")),
+    };
+    if nested {
+        let rendered = quote! { #ty }.to_string().replace(' ', "");
+        return Err(syn::Error::new_spanned(
+            ty,
+            format!("{what} is one parameter; `{rendered}` is not (no `Vec`, `Option`, tuple or map)"),
+        ));
+    }
+    Ok(())
+}
+
+/// Classifies the declared type of a `multiple` argument; `None` when it is not one a variadic
+/// argument can have.
+fn variadic_kind(ty: &syn::Type) -> syn::Result<Option<VariadicKind<'_>>> {
+    if is_serde_json(ty, "Value") {
+        return Ok(Some(VariadicKind::Json));
+    }
+    let syn::Type::Path(type_path) = ty else {
+        return Ok(None);
+    };
+    if type_path.qself.is_some() {
+        return Ok(None);
+    }
+    let Some(segment) = type_path.path.segments.last() else {
+        return Ok(None);
+    };
+    let types = generic_types(segment);
+    if is_serde_json(ty, "Map") {
+        if let Some(key) = types.first() {
+            if last_ident(key).as_deref() != Some("String") {
+                return Err(syn::Error::new_spanned(key, "a dictionary argument has `String` keys"));
+            }
+        }
+        return Ok(Some(VariadicKind::JsonMap));
+    }
+    if segment.ident == "BTreeMap" {
+        let [key, value] = types.as_slice() else {
+            return Ok(None);
+        };
+        if last_ident(key).as_deref() != Some("String") {
+            return Err(syn::Error::new_spanned(key, "a dictionary argument has `String` keys"));
+        }
+        check_component(value, "the value of a dictionary argument")?;
+        return Ok(Some(VariadicKind::Map(value)));
+    }
+    let Some(element) = variadic_element_type(ty) else {
+        return Ok(None);
+    };
+    if let syn::Type::Tuple(tuple) = element {
+        if tuple.elems.len() < 2 || tuple.elems.len() > 4 {
+            return Err(syn::Error::new_spanned(
+                element,
+                format!(
+                    "a tuple element takes 2 to 4 components; this one has {}",
+                    tuple.elems.len()
+                ),
+            ));
+        }
+        for component in tuple.elems.iter() {
+            check_component(component, "a component of a tuple element")?;
+        }
+        return Ok(Some(VariadicKind::Tuples(tuple.elems.iter().collect())));
+    }
+    let scalar = match element {
+        syn::Type::Path(element_path) if element_path.qself.is_none() => {
+            match element_path.path.segments.last() {
+                Some(last) => SCALAR_ELEMENT_TYPES.iter().any(|name| last.ident == name),
+                None => false,
+            }
+        }
+        _ => true,
+    };
+    if scalar {
+        Ok(Some(VariadicKind::List(element)))
+    } else {
+        Ok(Some(VariadicKind::Group(element)))
+    }
+}
+
+/// A type that only a `multiple` argument can have, with the word for it in a diagnostic.
+fn composite_only_type(ty: &syn::Type) -> Option<&'static str> {
+    if matches!(ty, syn::Type::Tuple(tuple) if !tuple.elems.is_empty()) {
+        return Some("a tuple");
+    }
+    match variadic_kind(ty) {
+        Ok(Some(VariadicKind::Map(_))) | Ok(Some(VariadicKind::JsonMap)) => Some("a dictionary"),
+        Ok(Some(VariadicKind::Json)) => Some("a JSON value"),
+        Ok(Some(VariadicKind::List(_)))
+        | Ok(Some(VariadicKind::Tuples(_)))
+        | Ok(Some(VariadicKind::Group(_)))
+        | Ok(None) => None,
+        Err(_) => last_ident(ty).filter(|i| i == "BTreeMap" || i == "Map").map(|_| "a dictionary"),
+    }
+}
+
 enum CommandParameter {
     Param {
         name: syn::Ident,
@@ -573,11 +742,48 @@ enum CommandParameter {
         label: Option<String>,
         /// `description: "..."` in the parenthesised options; `None` when not given.
         description: Option<String>,
+        /// `columns: ["…", …]`: the names of a tuple element's components.
+        columns: Vec<String>,
         gui: ArgumentGUIInfo,
         gui_explicit: bool,
         enum_spec: Option<EnumParameterSpec>,
+        /// `node: local, ext: "…"` (and optionally `form: …`): a Node argument.
+        node_spec: Option<NodeParameterSpec>,
     },
     Context,
+}
+
+/// How a Node argument's bare name becomes a link (`form:` in the DSL).
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum NodeFormSpec {
+    /// `-R/./<name>.<ext>` (the default).
+    Resource,
+    /// `-R-key/./<name>.<ext>`.
+    Key,
+}
+
+/// The `node:` / `ext:` / `form:` options of an argument.
+#[derive(Debug, Clone, PartialEq)]
+struct NodeParameterSpec {
+    extension: String,
+    form: NodeFormSpec,
+}
+
+impl NodeParameterSpec {
+    fn to_argument_type_expression(&self) -> proc_macro2::TokenStream {
+        let ext = &self.extension;
+        let form = match self.form {
+            NodeFormSpec::Resource => {
+                quote! { liquers_core::command_metadata::NodeLinkForm::Resource }
+            }
+            NodeFormSpec::Key => quote! { liquers_core::command_metadata::NodeLinkForm::Key },
+        };
+        quote! {
+            liquers_core::command_metadata::ArgumentType::Node(
+                liquers_core::command_metadata::NodeArgument::new(#ext).with_form(#form)
+            )
+        }
+    }
 }
 
 impl CommandParameter {
@@ -610,8 +816,25 @@ impl CommandParameter {
                 if *multiple {
                     // A variadic argument never has a pre-materialised value, so it uses the
                     // accessor that walks `MultipleParameters` instead of `get`.
-                    quote! {
-                        let #var_name: #ty = arguments.get_multiple(#i, #name_str)?;
+                    match variadic_kind(ty) {
+                        Ok(Some(VariadicKind::Tuples(_))) | Ok(Some(VariadicKind::Group(_))) => quote! {
+                            let #var_name: #ty = arguments.get_multiple_grouped(#i, #name_str)?;
+                        },
+                        Ok(Some(VariadicKind::Map(_))) => quote! {
+                            let #var_name: #ty = arguments.get_multiple_map(#i, #name_str)?;
+                        },
+                        Ok(Some(VariadicKind::JsonMap)) => quote! {
+                            let #var_name: #ty = arguments
+                                .get_multiple_map::<serde_json::Value>(#i, #name_str)?
+                                .into_iter()
+                                .collect();
+                        },
+                        Ok(Some(VariadicKind::Json)) => quote! {
+                            let #var_name: #ty = arguments.get_multiple_json(#i, #name_str)?;
+                        },
+                        Ok(Some(VariadicKind::List(_))) | Ok(None) | Err(_) => quote! {
+                            let #var_name: #ty = arguments.get_multiple(#i, #name_str)?;
+                        },
                     }
                 } else if *injected {
                     quote! {
@@ -704,10 +927,14 @@ impl CommandParameter {
             CommandParameter::Param {
                 ty,
                 enum_spec,
+                node_spec,
                 name,
                 multiple,
                 ..
             } => {
+                if let Some(node_spec) = node_spec {
+                    return node_spec.to_argument_type_expression();
+                }
                 if let Some(enum_spec) = enum_spec {
                     let name_str = name.to_string();
                     return enum_spec
@@ -743,7 +970,23 @@ impl CommandParameter {
                 // parses each action parameter through `ArgumentType`, so leaving `Vec<i64>` as
                 // `Any` would deliver every element as a string and fail at retrieval.
                 let effective_ty = if *multiple {
-                    variadic_element_type(ty).unwrap_or(ty)
+                    match variadic_kind(ty) {
+                        Ok(Some(VariadicKind::List(element))) => element,
+                        // The value type of a dictionary names its own argument type.
+                        Ok(Some(VariadicKind::Map(value))) => {
+                            return quote! {
+                                <#value as liquers_core::commands::ParameterComponent>::argument_type()
+                            };
+                        }
+                        // The component types are in the shape; the argument itself is `any`.
+                        Ok(Some(VariadicKind::Tuples(_)))
+                        | Ok(Some(VariadicKind::Group(_)))
+                        | Ok(Some(VariadicKind::JsonMap))
+                        | Ok(Some(VariadicKind::Json)) => {
+                            return quote! { liquers_core::command_metadata::ArgumentType::Any };
+                        }
+                        Ok(None) | Err(_) => ty,
+                    }
                 } else {
                     ty
                 };
@@ -797,15 +1040,17 @@ impl CommandParameter {
         match self {
             CommandParameter::Param {
                 name,
-                ty: _ty,
+                ty,
                 injected,
                 multiple,
                 default_value: _default_value,
                 label,
                 description,
+                columns,
                 gui,
                 gui_explicit,
                 enum_spec,
+                node_spec,
             } => {
                 let name_str = name.to_string();
                 let default_label = name_str.replace('_', " ");
@@ -819,8 +1064,35 @@ impl CommandParameter {
                 };
                 let argument_type = self.argument_type_expression();
                 let default_value_expression = self.default_value_expression();
+                let shape_kind = if *multiple { variadic_kind(ty).ok().flatten() } else { None };
+                let shape_field = match shape_kind {
+                    Some(VariadicKind::Tuples(components)) => quote! {
+                        shape: liquers_core::command_metadata::VariadicShape::Tuples(vec![
+                            #(<#components as liquers_core::commands::ParameterComponent>::argument_type()),*
+                        ]),
+                    },
+                    Some(VariadicKind::Group(element)) => quote! {
+                        shape: liquers_core::command_metadata::VariadicShape::Tuples(
+                            <#element as liquers_core::commands::FromParameterGroup>::component_types()
+                        ),
+                    },
+                    Some(VariadicKind::Map(_)) | Some(VariadicKind::JsonMap) => quote! {
+                        shape: liquers_core::command_metadata::VariadicShape::Map,
+                    },
+                    Some(VariadicKind::Json) => quote! {
+                        shape: liquers_core::command_metadata::VariadicShape::Json,
+                    },
+                    Some(VariadicKind::List(_)) | None => quote! {},
+                };
+                let columns_field = if columns.is_empty() {
+                    quote! {}
+                } else {
+                    quote! { columns: vec![#(#columns.to_string()),*], }
+                };
                 let gui_expr = if !*gui_explicit {
-                    if let Some(enum_spec) = enum_spec {
+                    if node_spec.is_some() {
+                        quote! { liquers_core::command_metadata::ArgumentGUIInfo::NodeSelector }
+                    } else if let Some(enum_spec) = enum_spec {
                         match enum_spec {
                             EnumParameterSpec::Ref(_) => quote! {
                                 liquers_core::command_metadata::ArgumentGUIInfo::EnumSelector
@@ -852,6 +1124,8 @@ impl CommandParameter {
                         default: #default_value_expression,
                         argument_type: #argument_type,
                         multiple: #multiple,
+                        #shape_field
+                        #columns_field
                         injected: #injected,
                         gui_info: #gui_expr,
                         ..Default::default()
@@ -1147,12 +1421,91 @@ fn default_value_fits_enum(
     }
 }
 
+/// Checks the `node:` / `ext:` / `form:` options of one argument and builds its spec.
+///
+/// `node` and `ext` come together; the key form passes a key, so the argument must be a `Key`
+/// or a `Value`.
+fn node_parameter_spec(
+    name: &syn::Ident,
+    ty: &syn::Type,
+    kind: Option<syn::Ident>,
+    ext: Option<syn::LitStr>,
+    form: Option<syn::Ident>,
+    has_enum: bool,
+    multiple: bool,
+) -> syn::Result<Option<NodeParameterSpec>> {
+    match (kind, ext) {
+        (None, None) => {
+            if let Some(form) = form {
+                return Err(syn::Error::new(
+                    form.span(),
+                    "`form` applies to a Node argument; add `node: local, ext: \"…\"`",
+                ));
+            }
+            Ok(None)
+        }
+        (Some(_), None) => Err(syn::Error::new(
+            name.span(),
+            "a Node argument needs `ext: \"…\"` (its file extension)",
+        )),
+        (None, Some(ext)) => Err(syn::Error::new(
+            ext.span(),
+            "`ext` applies to a Node argument; add `node: local`",
+        )),
+        (Some(_), Some(ext)) => {
+            if has_enum {
+                return Err(syn::Error::new(
+                    name.span(),
+                    "a Node argument cannot also be an enum",
+                ));
+            }
+            if multiple {
+                return Err(syn::Error::new(
+                    name.span(),
+                    "a Node argument cannot be `multiple`",
+                ));
+            }
+            let form = match form {
+                Some(f) if f == "key" => NodeFormSpec::Key,
+                Some(_) | None => NodeFormSpec::Resource,
+            };
+            if form == NodeFormSpec::Key {
+                let type_name = match ty {
+                    syn::Type::Path(p) => p.path.get_ident().map(|i| i.to_string()),
+                    _ => None,
+                };
+                match type_name.as_deref() {
+                    Some("Key" | "Value") => {}
+                    _ => {
+                        return Err(syn::Error::new_spanned(
+                            ty,
+                            "a Node argument with `form: key` must be a `Key` or a `Value`",
+                        ));
+                    }
+                }
+            }
+            Ok(Some(NodeParameterSpec {
+                extension: ext.value(),
+                form,
+            }))
+        }
+    }
+}
+
 enum CommandParameterStatement {
     Label(String),
     Description(String),
+    /// `columns: ["Old name", "New name"]` — the names of a tuple element's components.
+    Columns(Vec<String>, proc_macro2::Span),
     Gui(ArgumentGUIInfo),
     Enum(EnumParameterSpec),
     EnumRef(String),
+    /// `node: local` — the node kind (only `local` exists).
+    Node(syn::Ident),
+    /// `ext: "glb"` — the node's file extension.
+    Ext(syn::LitStr),
+    /// `form: resource|key` — how the bare name becomes a link.
+    Form(syn::Ident),
 }
 
 impl Parse for CommandParameterStatement {
@@ -1169,6 +1522,16 @@ impl Parse for CommandParameterStatement {
                 let lit: syn::LitStr = input.parse()?;
                 Ok(CommandParameterStatement::Description(lit.value()))
             }
+            "columns" => {
+                input.parse::<syn::Token![:]>()?;
+                let content;
+                syn::bracketed!(content in input);
+                let names = content.parse_terminated(|p| p.parse::<syn::LitStr>(), syn::Token![,])?;
+                Ok(CommandParameterStatement::Columns(
+                    names.iter().map(syn::LitStr::value).collect(),
+                    ident.span(),
+                ))
+            }
             "gui" => {
                 input.parse::<syn::Token![:]>()?;
                 let gui_info: ArgumentGUIInfo = input.parse()?;
@@ -1182,6 +1545,40 @@ impl Parse for CommandParameterStatement {
                 input.parse::<syn::Token![:]>()?;
                 let lit: syn::LitStr = input.parse()?;
                 Ok(CommandParameterStatement::EnumRef(lit.value()))
+            }
+            "node" => {
+                input.parse::<syn::Token![:]>()?;
+                let kind: syn::Ident = input.call(syn::Ident::parse_any)?;
+                if kind != "local" {
+                    return Err(syn::Error::new(
+                        kind.span(),
+                        format!("unknown node kind `{kind}`; expected `local`"),
+                    ));
+                }
+                Ok(CommandParameterStatement::Node(kind))
+            }
+            "ext" => {
+                input.parse::<syn::Token![:]>()?;
+                let lit: syn::LitStr = input.parse()?;
+                let ext = lit.value();
+                if ext.is_empty() || ext.contains('/') || ext.starts_with('.') {
+                    return Err(syn::Error::new(
+                        lit.span(),
+                        "`ext` must be a file extension without the dot, such as \"glb\"",
+                    ));
+                }
+                Ok(CommandParameterStatement::Ext(lit))
+            }
+            "form" => {
+                input.parse::<syn::Token![:]>()?;
+                let form: syn::Ident = input.call(syn::Ident::parse_any)?;
+                if form != "resource" && form != "key" {
+                    return Err(syn::Error::new(
+                        form.span(),
+                        format!("unknown node form `{form}`; expected `resource` or `key`"),
+                    ));
+                }
+                Ok(CommandParameterStatement::Form(form))
             }
             // Argument hints were once parsed and silently dropped. Until `ArgumentInfo` hints
             // can be set from the macro (design `command-metadata-descriptions-and-hints`), a
@@ -1467,6 +1864,23 @@ impl CommandSignature {
             }
             None => quote!(),
         };
+        // A shape whose size the macro cannot see (a custom element type) is checked here, with
+        // the rest of the metadata rules, when the command is registered.
+        let shaped = self.parameters.iter().any(|p| match p {
+            CommandParameter::Param { ty, multiple, .. } => {
+                *multiple && matches!(variadic_kind(ty), Ok(Some(kind)) if !kind.is_list())
+            }
+            CommandParameter::Context => false,
+        });
+        let shape_check_code = if shaped {
+            quote! {
+                if let Some(error) = cm.check().to_error("Command metadata") {
+                    return Err(error);
+                }
+            }
+        } else {
+            quote!()
+        };
         quote! {
             #[allow(non_snake_case)]
             pub fn #register_fn_name(
@@ -1480,6 +1894,7 @@ impl CommandSignature {
                 #doc_cmd
                 #hints_code
                 cm.arguments = #arguments;
+                #shape_check_code
                 #presets_code
                 #next_code
                 cm.with_filename(#filename);
@@ -1632,6 +2047,7 @@ impl Parse for ArgumentGUIInfo {
             "HorizontalRadioEnum" => Ok(ArgumentGUIInfo::HorizontalRadioEnum),
             "VerticalRadioEnum" => Ok(ArgumentGUIInfo::VerticalRadioEnum),
             "EnumSelector" => Ok(ArgumentGUIInfo::EnumSelector),
+            "NodeSelector" => Ok(ArgumentGUIInfo::NodeSelector),
             "ColorString" => Ok(ArgumentGUIInfo::ColorString),
             "DateField" => {
                 let width: syn::LitInt = input.parse()?;
@@ -1694,6 +2110,9 @@ impl ToTokens for ArgumentGUIInfo {
             }
             ArgumentGUIInfo::EnumSelector => {
                 quote! { liquers_core::command_metadata::ArgumentGUIInfo::EnumSelector }
+            }
+            ArgumentGUIInfo::NodeSelector => {
+                quote! { liquers_core::command_metadata::ArgumentGUIInfo::NodeSelector }
             }
             ArgumentGUIInfo::ColorString => {
                 quote! { liquers_core::command_metadata::ArgumentGUIInfo::ColorString }
@@ -1806,7 +2225,10 @@ impl Parse for CommandParameter {
                 }
 
                 // A variadic argument holds several values, so its Rust type must be a container.
-                if multiple && variadic_element_type(&ty).is_none() {
+                // A dictionary (`BTreeMap<String, V>`, `serde_json::Map`) and a JSON value
+                // (`serde_json::Value`) are containers too: each is read from all the parameters.
+                let kind = if multiple { variadic_kind(&ty)? } else { None };
+                if multiple && kind.is_none() {
                     let rendered = quote! { #ty }.to_string().replace(' ', "");
                     return Err(syn::Error::new_spanned(
                         &ty,
@@ -1816,16 +2238,36 @@ impl Parse for CommandParameter {
                         ),
                     ));
                 }
+                // The reverse: a tuple, a dictionary or a JSON value takes several parameters,
+                // which only the variadic argument can.
+                if !multiple && !injected {
+                    if let Some(what) = composite_only_type(&ty) {
+                        let rendered = quote! { #ty }.to_string().replace(' ', "");
+                        return Err(syn::Error::new_spanned(
+                            &ty,
+                            format!(
+                                "{what} (`{rendered}`) is read from several parameters, so the \
+                                 argument must be `multiple`; for a tuple use `Vec<{rendered}> multiple`"
+                            ),
+                        ));
+                    }
+                }
 
                 // Injected arguments come from the context, not from a `Value`, so the option
                 // conversions do not apply to them.
                 if !injected {
-                    let effective_ty = if multiple {
-                        variadic_element_type(&ty).unwrap_or(&ty)
-                    } else {
-                        &ty
-                    };
-                    check_option_argument(&name.to_string(), effective_ty)?;
+                    match &kind {
+                        Some(VariadicKind::List(element)) => {
+                            check_option_argument(&name.to_string(), element)?
+                        }
+                        // Components and dictionary values were checked by `variadic_kind`.
+                        Some(VariadicKind::Tuples(_))
+                        | Some(VariadicKind::Group(_))
+                        | Some(VariadicKind::Map(_))
+                        | Some(VariadicKind::JsonMap)
+                        | Some(VariadicKind::Json) => {}
+                        None => check_option_argument(&name.to_string(), &ty)?,
+                    }
                 }
 
                 let default_value = if input.peek(syn::Token![=]) {
@@ -1846,9 +2288,13 @@ impl Parse for CommandParameter {
 
                 let mut label = None;
                 let mut description: Option<String> = None;
+                let mut columns: Vec<String> = Vec::new();
                 let mut gui = ArgumentGUIInfo::TextField(40);
                 let mut gui_explicit = false;
                 let mut enum_spec: Option<EnumParameterSpec> = None;
+                let mut node_kind: Option<syn::Ident> = None;
+                let mut node_ext: Option<syn::LitStr> = None;
+                let mut node_form: Option<syn::Ident> = None;
                 if input.peek(syn::token::Paren) {
                     let content;
                     syn::parenthesized!(content in input);
@@ -1857,6 +2303,37 @@ impl Parse for CommandParameter {
                         match stmt {
                             CommandParameterStatement::Label(l) => label = Some(l),
                             CommandParameterStatement::Description(d) => description = Some(d),
+                            CommandParameterStatement::Columns(names, span) => {
+                                // A custom element type's size is only known at registration,
+                                // where the metadata check compares the two.
+                                let expected = match &kind {
+                                    Some(VariadicKind::Tuples(components)) => Some(components.len()),
+                                    Some(VariadicKind::Group(_)) => None,
+                                    Some(VariadicKind::List(_))
+                                    | Some(VariadicKind::Map(_))
+                                    | Some(VariadicKind::JsonMap)
+                                    | Some(VariadicKind::Json)
+                                    | None => {
+                                        return Err(syn::Error::new(
+                                            span,
+                                            "`columns` names the components of a tuple element; \
+                                             it applies to a `Vec<(A, B, …)> multiple` argument",
+                                        ));
+                                    }
+                                };
+                                if let Some(expected) = expected {
+                                    if names.len() != expected {
+                                        return Err(syn::Error::new(
+                                            span,
+                                            format!(
+                                                "`columns` has {} names, but the element has {expected} components",
+                                                names.len()
+                                            ),
+                                        ));
+                                    }
+                                }
+                                columns = names;
+                            }
                             CommandParameterStatement::Gui(g) => {
                                 gui = g;
                                 gui_explicit = true;
@@ -1879,6 +2356,24 @@ impl Parse for CommandParameter {
                                 }
                                 enum_spec = Some(EnumParameterSpec::Ref(spec));
                             }
+                            CommandParameterStatement::Node(kind) => {
+                                if node_kind.is_some() {
+                                    return Err(syn::Error::new(kind.span(), "duplicate `node`"));
+                                }
+                                node_kind = Some(kind);
+                            }
+                            CommandParameterStatement::Ext(ext) => {
+                                if node_ext.is_some() {
+                                    return Err(syn::Error::new(ext.span(), "duplicate `ext`"));
+                                }
+                                node_ext = Some(ext);
+                            }
+                            CommandParameterStatement::Form(form) => {
+                                if node_form.is_some() {
+                                    return Err(syn::Error::new(form.span(), "duplicate `form`"));
+                                }
+                                node_form = Some(form);
+                            }
                         }
                         if content.peek(syn::Token![,]) {
                             content.parse::<syn::Token![,]>()?;
@@ -1886,10 +2381,26 @@ impl Parse for CommandParameter {
                     }
                 }
 
+                if enum_spec.is_some() && kind.as_ref().is_some_and(|k| !k.is_list()) {
+                    return Err(syn::Error::new(
+                        name.span(),
+                        "an enum applies to a plain list (`Vec<T> multiple`), not to tuples, a dictionary or a JSON value",
+                    ));
+                }
                 if let Some(spec) = &enum_spec {
                     let _ = spec.resolved_type()?;
                     default_value_fits_enum(&default_value, spec)?;
                 }
+
+                let node_spec = node_parameter_spec(
+                    &name,
+                    &ty,
+                    node_kind,
+                    node_ext,
+                    node_form,
+                    enum_spec.is_some(),
+                    multiple,
+                )?;
 
                 Ok(CommandParameter::Param {
                     name,
@@ -1899,9 +2410,11 @@ impl Parse for CommandParameter {
                     default_value,
                     label,
                     description,
+                    columns,
                     gui,
                     gui_explicit,
                     enum_spec,
+                    node_spec,
                 })
             }
         } else {
@@ -2370,8 +2883,10 @@ mod tests {
             label: None,
             gui: ArgumentGUIInfo::TextField(20),
             description: None,
+            columns: Vec::new(),
             gui_explicit: false,
             enum_spec: None,
+            node_spec: None,
         };
         let tokens = param.argument_type_expression();
         let expected = quote! { liquers_core::command_metadata::ArgumentType::Integer };
@@ -2389,8 +2904,10 @@ mod tests {
             label: None,
             gui: ArgumentGUIInfo::TextField(20),
             description: None,
+            columns: Vec::new(),
             gui_explicit: false,
             enum_spec: None,
+            node_spec: None,
         };
         let tokens = param.argument_type_expression();
         let expected = quote! { liquers_core::command_metadata::ArgumentType::IntegerOption };
@@ -2408,8 +2925,10 @@ mod tests {
             label: None,
             gui: ArgumentGUIInfo::TextField(20),
             description: None,
+            columns: Vec::new(),
             gui_explicit: false,
             enum_spec: None,
+            node_spec: None,
         };
         let tokens = param.argument_type_expression();
         let expected = quote! { liquers_core::command_metadata::ArgumentType::Float };
@@ -2427,8 +2946,10 @@ mod tests {
             label: None,
             gui: ArgumentGUIInfo::TextField(20),
             description: None,
+            columns: Vec::new(),
             gui_explicit: false,
             enum_spec: None,
+            node_spec: None,
         };
         let tokens = param.argument_type_expression();
         let expected = quote! { liquers_core::command_metadata::ArgumentType::FloatOption };
@@ -2446,8 +2967,10 @@ mod tests {
             label: None,
             gui: ArgumentGUIInfo::TextField(20),
             description: None,
+            columns: Vec::new(),
             gui_explicit: false,
             enum_spec: None,
+            node_spec: None,
         };
         let tokens = param.argument_type_expression();
         let expected = quote! { liquers_core::command_metadata::ArgumentType::String };
@@ -2465,8 +2988,10 @@ mod tests {
             label: None,
             gui: ArgumentGUIInfo::TextField(20),
             description: None,
+            columns: Vec::new(),
             gui_explicit: false,
             enum_spec: None,
+            node_spec: None,
         };
         let tokens = param.argument_type_expression();
         let expected = quote! { liquers_core::command_metadata::ArgumentType::Any };
@@ -2894,6 +3419,115 @@ mod tests {
                 "tokens: {tokens}"
             );
             assert!(!tokens.contains("get_multiple"), "tokens: {tokens}");
+        }
+
+        /// The Rust type of a `multiple` argument selects its shape, argument type and accessor.
+        #[test]
+        fn variadic_shape_from_rust_type() {
+            let tokens = registration_of(quote! {
+                fn weights(state, pairs: Vec<(String, f64)> multiple) -> result
+            });
+            assert!(tokens.contains("shape:liquers_core::command_metadata::VariadicShape::Tuples(vec![<StringasParameterComponent>::argument_type(),<f64asParameterComponent>::argument_type()])")
+                || tokens.contains("VariadicShape::Tuples(vec![<Stringasliquers_core::commands::ParameterComponent>::argument_type(),<f64asliquers_core::commands::ParameterComponent>::argument_type()])"),
+                "tokens: {tokens}");
+            assert!(tokens.contains("argument_type:liquers_core::command_metadata::ArgumentType::Any"), "tokens: {tokens}");
+            assert!(tokens.contains("arguments.get_multiple_grouped(0usize,\"pairs\")?"), "tokens: {tokens}");
+            assert!(tokens.contains("cm.check().to_error("), "a shaped command is checked: {tokens}");
+
+            let tokens = registration_of(quote! {
+                fn path(state, points: Vec<Point> multiple) -> result
+            });
+            assert!(tokens.contains("VariadicShape::Tuples(<Pointasliquers_core::commands::FromParameterGroup>::component_types())"), "tokens: {tokens}");
+            assert!(tokens.contains("arguments.get_multiple_grouped(0usize,\"points\")?"), "tokens: {tokens}");
+
+            let tokens = registration_of(quote! {
+                fn place(state, word: String, layout: BTreeMap<String, i64> multiple) -> result
+            });
+            assert!(tokens.contains("VariadicShape::Map"), "tokens: {tokens}");
+            assert!(tokens.contains("argument_type:<i64asliquers_core::commands::ParameterComponent>::argument_type()"), "tokens: {tokens}");
+            assert!(tokens.contains("arguments.get_multiple_map(1usize,\"layout\")?"), "tokens: {tokens}");
+
+            let tokens = registration_of(quote! {
+                fn place(state, layout: serde_json::Map<String, serde_json::Value> multiple) -> result
+            });
+            assert!(tokens.contains("VariadicShape::Map"), "tokens: {tokens}");
+            assert!(tokens.contains("get_multiple_map::<serde_json::Value>(0usize,\"layout\")?.into_iter().collect()"), "tokens: {tokens}");
+
+            let tokens = registration_of(quote! {
+                fn set_data(state, data: serde_json::Value multiple) -> result
+            });
+            assert!(tokens.contains("VariadicShape::Json"), "tokens: {tokens}");
+            assert!(tokens.contains("arguments.get_multiple_json(0usize,\"data\")?"), "tokens: {tokens}");
+
+            // A plain list is unchanged: no shape, no check.
+            let tokens = registration_of(quote! {
+                fn select_columns(state, columns: Vec<String> multiple) -> result
+            });
+            assert!(!tokens.contains("VariadicShape"), "tokens: {tokens}");
+            assert!(!tokens.contains("cm.check()"), "tokens: {tokens}");
+            let tokens = registration_of(quote! { fn load(state, keys: Vec<Key> multiple) -> result });
+            assert!(tokens.contains("arguments.get_multiple(0usize,\"keys\")?"), "tokens: {tokens}");
+        }
+
+        /// What cannot be a shaped argument is refused when the macro expands.
+        #[test]
+        fn variadic_shape_rejections() {
+            let m = parse_err(quote! { fn f(state, a: Vec<(String,)> multiple) -> result });
+            assert!(m.contains("2 to 4"), "{m}");
+            let m = parse_err(quote! { fn f(state, a: Vec<(i64, i64, i64, i64, i64)> multiple) -> result });
+            assert!(m.contains("2 to 4"), "{m}");
+            let m = parse_err(quote! { fn f(state, a: Vec<(String, Vec<i64>)> multiple) -> result });
+            assert!(m.contains("one parameter"), "{m}");
+            let m = parse_err(quote! { fn f(state, a: Vec<(String, Option<i64>)> multiple) -> result });
+            assert!(m.contains("one parameter"), "{m}");
+            let m = parse_err(quote! { fn f(state, a: BTreeMap<i64, String> multiple) -> result });
+            assert!(m.contains("`String` keys"), "{m}");
+            let m = parse_err(quote! { fn f(state, a: BTreeMap<String, Vec<String>> multiple) -> result });
+            assert!(m.contains("one parameter"), "{m}");
+            // No composite in a non-variadic position.
+            for declaration in [
+                quote! { fn f(state, a: (String, i64)) -> result },
+                quote! { fn f(state, a: BTreeMap<String, String>) -> result },
+                quote! { fn f(state, a: serde_json::Map<String, serde_json::Value>) -> result },
+                quote! { fn f(state, a: serde_json::Value) -> result },
+            ] {
+                let m = parse_err(declaration);
+                assert!(m.contains("must be `multiple`"), "{m}");
+            }
+            let m = parse_err(quote! { fn f(state, a: serde_json::Value multiple = "x") -> result });
+            assert!(m.contains("cannot have a default"), "{m}");
+            let m = parse_err(quote! { fn f(state, a: HashMap<String, String> multiple) -> result });
+            assert!(m.contains("container type"), "{m}");
+        }
+
+        /// `columns:` names the components of a tuple element.
+        #[test]
+        fn variadic_shape_columns() {
+            let tokens = registration_of(quote! {
+                fn rename(state, pairs: Vec<(String, String)> multiple
+                    (label: "Renames", columns: ["Old name", "New name"])) -> result
+            });
+            assert!(tokens.contains("columns:vec![\"Oldname\".to_string(),\"Newname\".to_string()]")
+                || tokens.contains("columns:vec![\"Old name\".to_string(),\"New name\".to_string()]"), "tokens: {tokens}");
+
+            // A custom element type: the count is checked at registration.
+            let tokens = registration_of(quote! {
+                fn path(state, points: Vec<Point> multiple (columns: ["x", "y"])) -> result
+            });
+            assert!(tokens.contains("columns:vec!["), "tokens: {tokens}");
+
+            let m = parse_err(quote! {
+                fn f(state, a: Vec<(String, String)> multiple (columns: ["only"])) -> result
+            });
+            assert!(m.contains("1 names") && m.contains("2 components"), "{m}");
+            for declaration in [
+                quote! { fn f(state, a: Vec<String> multiple (columns: ["a", "b"])) -> result },
+                quote! { fn f(state, a: BTreeMap<String, String> multiple (columns: ["a", "b"])) -> result },
+                quote! { fn f(state, a: String (columns: ["a"])) -> result },
+            ] {
+                let m = parse_err(declaration);
+                assert!(m.contains("`columns` names the components"), "{m}");
+            }
         }
 
         /// U11 - `multiple` needs a container type. The most likely mistake when converting an
@@ -3357,6 +3991,42 @@ mod tests {
         assert!(info.contains(
             "gui_info : liquers_core :: command_metadata :: ArgumentGUIInfo :: EnumSelector"
         ));
+    }
+
+    /// recipe-tree AC-17: `node:` / `ext:` / `form:` build a Node argument type.
+    #[test]
+    fn test_parse_node_argument() {
+        let param: CommandParameter = syn::parse_quote! {
+            part: Value (node: local, ext: "glb")
+        };
+        let info = param.argument_info_expression().unwrap().to_string();
+        assert!(info.contains("ArgumentType :: Node"), "{info}");
+        assert!(info.contains("NodeArgument :: new (\"glb\")"), "{info}");
+        assert!(info.contains("NodeLinkForm :: Resource"), "{info}");
+        assert!(info.contains("ArgumentGUIInfo :: NodeSelector"), "{info}");
+        let param: CommandParameter = syn::parse_quote! {
+            dir: Key (node: local, ext: "glb", form: key)
+        };
+        let info = param.argument_info_expression().unwrap().to_string();
+        assert!(info.contains("NodeLinkForm :: Key"), "{info}");
+    }
+
+    /// recipe-tree AC-17: the options that do not fit together are compile errors.
+    #[test]
+    fn test_node_argument_errors() {
+        let cases = [
+            quote! { part: Value (ext: "glb") },
+            quote! { part: Value (node: local) },
+            quote! { part: Value (form: key) },
+            quote! { part: Value (node: remote, ext: "glb") },
+            quote! { part: Value (node: local, ext: ".glb") },
+            quote! { part: String (node: local, ext: "glb", form: key) },
+            quote! { part: String (node: local, ext: "glb", enum: ["a"]) },
+        ];
+        for case in cases {
+            let parsed: syn::Result<CommandParameter> = syn::parse2(case.clone());
+            assert!(parsed.is_err(), "{case} should be refused");
+        }
     }
 
     #[test]

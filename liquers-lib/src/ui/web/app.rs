@@ -418,11 +418,13 @@ mod browser {
         root.set_inner_html(&html);
     }
 
-    /// The focused element and, for a text field, its selection — captured before markup is
-    /// replaced so it can be put back afterwards.
+    /// The focused element and, for a text field, its selection and what was typed in it —
+    /// captured before markup is replaced so it can be put back afterwards.
     struct FocusSnapshot {
         element_id: String,
         selection: Option<(u32, u32)>,
+        /// The field's typed value and the value its markup last rendered.
+        draft: Option<(String, String)>,
     }
 
     fn capture_focus(doc: &web_sys::Document) -> Option<FocusSnapshot> {
@@ -439,9 +441,13 @@ mod browser {
                     _ => None,
                 },
             );
+        let draft = active
+            .dyn_ref::<web_sys::HtmlInputElement>()
+            .map(|input| (input.value(), input.default_value()));
         Some(FocusSnapshot {
             element_id,
             selection,
+            draft,
         })
     }
 
@@ -452,6 +458,15 @@ mod browser {
         };
         if let Some(html_el) = element.dyn_ref::<web_sys::HtmlElement>() {
             let _ = html_el.focus();
+        }
+        // Text typed but not yet sent survives a re-render that did not change the field's
+        // rendered value (a timer, a snapshot): only the model's own change replaces it.
+        if let (Some(input), Some((typed, rendered))) =
+            (element.dyn_ref::<web_sys::HtmlInputElement>(), &snapshot.draft)
+        {
+            if input.default_value() == *rendered && input.value() != *typed {
+                input.set_value(typed);
+            }
         }
         if let (Some(input), Some((start, end))) = (
             element.dyn_ref::<web_sys::HtmlInputElement>(),
@@ -607,11 +622,53 @@ mod browser {
         let dom_id = super::super::element_dom_id(Some(handle));
         match doc.get_element_by_id(&dom_id) {
             Some(node) => {
+                // Editor cards are `<details>`: keep the ones the user opened or closed.
+                let cards = details_state(&node);
                 node.set_outer_html(&super::super::render_element_web(handle, state));
+                if let Some(new) = doc.get_element_by_id(&dom_id) {
+                    restore_details_state(&new, &cards);
+                }
                 true
             }
             // Never rendered: only a full render can place it.
             None => false,
+        }
+    }
+
+    /// The open state of each editor card (`details[data-path]`) under `node`.
+    fn details_state(node: &web_sys::Element) -> Vec<(String, bool)> {
+        let mut out = Vec::new();
+        if let Ok(list) = node.query_selector_all("details[data-path]") {
+            for i in 0..list.length() {
+                if let Some(e) = list.item(i).and_then(|n| n.dyn_into::<web_sys::Element>().ok()) {
+                    if let Some(path) = e.get_attribute("data-path") {
+                        out.push((path, e.has_attribute("open")));
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Reapplies [`details_state`] to the re-rendered element: a card keeps the open state the
+    /// user gave it; a card that was not there before keeps the rendered one.
+    fn restore_details_state(node: &web_sys::Element, cards: &[(String, bool)]) {
+        if cards.is_empty() {
+            return; // e.g. Simple mode before: Advanced mode starts from its own layout
+        }
+        let Ok(list) = node.query_selector_all("details[data-path]") else {
+            return;
+        };
+        for i in 0..list.length() {
+            let Some(e) = list.item(i).and_then(|n| n.dyn_into::<web_sys::Element>().ok()) else {
+                continue;
+            };
+            let Some(path) = e.get_attribute("data-path") else {
+                continue;
+            };
+            if let Some((_, open)) = cards.iter().find(|(p, _)| *p == path) {
+                let _ = if *open { e.set_attribute("open", "") } else { e.remove_attribute("open") };
+            }
         }
     }
 

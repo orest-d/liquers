@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use liquers_core::command_metadata::{
-    ArgumentType, CommandKey, CommandMetadata, CommandMetadataRegistry, CommandParameterValue,
+    ArgumentType, CommandKey, CommandMetadata, CommandMetadataRegistry, CommandParameterValue, VariadicShape,
 };
 use liquers_core::assets::AssetManager;
 use liquers_core::context::{EnvRef, Environment};
@@ -216,7 +216,15 @@ impl ToolRegistry {
                     };
                     let mut kind = type_name(&argument.argument_type);
                     if argument.multiple {
-                        kind = format!("{kind}…");
+                        kind = match &argument.shape {
+                            VariadicShape::List => format!("{kind}…"),
+                            VariadicShape::Tuples(components) => format!(
+                                "({})…",
+                                components.iter().map(type_name).collect::<Vec<_>>().join(", ")
+                            ),
+                            VariadicShape::Map => format!("key {kind}…"),
+                            VariadicShape::Json => "JSON value".to_string(),
+                        };
                     }
                     text.push_str(&format!(
                         "| `{}` | {} | {} | {} |\n",
@@ -250,6 +258,7 @@ fn type_name(argument_type: &ArgumentType) -> String {
         ArgumentType::GlobalEnum(name) => name.clone(),
         ArgumentType::Any => "any".to_string(),
         ArgumentType::None => "none".to_string(),
+        ArgumentType::Node(n) => format!("node .{}", n.extension),
     }
 }
 
@@ -557,7 +566,8 @@ fn check_parameter(
         ParameterValue::DefaultLink(_, query)
         | ParameterValue::ParameterLink(_, query, _)
         | ParameterValue::OverrideLink(_, query)
-        | ParameterValue::EnumLink(_, query, _) => check_query(query, allow, cmr),
+        | ParameterValue::EnumLink(_, query, _)
+        | ParameterValue::NodeLink(_, _, query, _) => check_query(query, allow, cmr),
         // A pipeline is checked through its query form, or else through its own plan.
         ParameterValue::ParameterPipeline(_, pipeline, _)
         | ParameterValue::OverridePipeline(_, pipeline)

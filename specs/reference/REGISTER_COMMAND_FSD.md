@@ -3,7 +3,7 @@ title: register_command! Macro Functional Specification
 kind: reference
 audience: internal
 area: [macro, core/commands]
-reviewed: 2026-10-20
+reviewed: 2026-11-25
 ---
 # register_command! Macro Functional Specification
 
@@ -123,7 +123,7 @@ Parameters are specified after the state parameter, separated by commas.
 ### Syntax
 
 ```
-<name>: <Type> [injected | multiple] [= <default_value>] [(label: "...", description: "...", gui: ..., enum: ..., enum_ref: ...)]
+<name>: <Type> [injected | multiple] [= <default_value>] [(label: "...", description: "...", columns: ["...", ...], gui: ..., enum: ..., enum_ref: ..., node: local, ext: "...", form: ...)]
 ```
 
 | Part | Required | Description |
@@ -151,6 +151,7 @@ The macro recognizes these types for metadata generation:
 | `String` | `String` |
 | `Value`, `Any`, `CommandValue` | `Any` |
 | `Vec<T>` with `multiple` | whatever `T` maps to — see [Variadic Parameters](#variadic-parameters) |
+| `Vec<(A, B, …)>`, `BTreeMap<String, V>`, `serde_json::Map`, `serde_json::Value` with `multiple` | a shaped argument — see [Variadic Parameters](#variadic-parameters) |
 | Other types | `Any` |
 
 #### Optional arguments: `Option<T>`
@@ -217,8 +218,8 @@ select_columns-a~_b     ->  one element, the string "a-b"
 select_columns          ->  MultipleParameters with no elements
 ```
 
-**Container type.** The declared type must be a container; `Vec<T>` is what is recognised. The
-macro's `variadic_element_type` is the single place another container would be added.
+**Container type.** The declared type must be a container: `Vec<T>`, or one of the types of a
+shaped argument below. The macro's `variadic_kind` is the single place another would be added.
 
 **Argument type comes from the element.** `Vec<String>` generates `ArgumentType::String`,
 `Vec<i64>` generates `Integer`, and so on — not `Any`, which is where an unflagged `Vec<T>` falls.
@@ -238,6 +239,57 @@ one.
 **Retrieval.** Generated code emits `arguments.get_multiple(i, name)?`, not `arguments.get`.
 `get_multiple` is bounded only by `FromParameterValue`; `get`'s additional
 `TryFrom<E::Value>` bound serves a pre-materialised fast path that a variadic argument never takes.
+
+**Shapes: tuples, a dictionary, a JSON value.** The parameters of a `multiple` argument can form
+one complex value. The declared Rust type selects the argument's **shape**
+(`ArgumentInfo::shape`, a `VariadicShape`; a plain list has none), its argument type and the
+accessor the generated code calls (design `composite-variadic-arguments`):
+
+| Declared type | `shape` | `argument_type` | Accessor |
+|---|---|---|---|
+| `Vec<T>`, `T` one parameter (a number, `bool`, `String`, `Key`, `Query`, `Value`) | `list` (not serialized) | from `T` | `get_multiple` |
+| `Vec<(A, B, …)>`, 2 to 4 components | `tuples` of the component types | `any` | `get_multiple_grouped` |
+| `Vec<P>`, any other `P` (it implements `FromParameterGroup`) | `tuples` of `P::component_types()` | `any` | `get_multiple_grouped` |
+| `BTreeMap<String, V>` | `map` | from `V` (`ParameterComponent`) | `get_multiple_map` |
+| `serde_json::Map<String, serde_json::Value>` | `map` | `any` | `get_multiple_map`, collected |
+| `serde_json::Value` | `json` | `any` | `get_multiple_json` |
+
+```rust
+register_command!(cr, fn rename(state,
+    pairs: Vec<(String, String)> multiple (label: "Renames", columns: ["Old name", "New name"])
+) -> result)?;
+register_command!(cr, fn place(state, word: String,
+    layout: BTreeMap<String, serde_json::Value> multiple) -> result)?;
+register_command!(cr, fn set_data(state, data: serde_json::Value multiple) -> result)?;
+```
+
+```
+rename-a-x-b-y              ->  [("a", "x"), ("b", "y")]
+place-current-row-0-col-8   ->  word "current", layout {"col": 8, "row": 0}
+set_data                    ->  null
+set_data-5                  ->  5            (one parameter: a number or a string)
+set_data--1-a               ->  [1, "a"]     (a leading empty parameter: the rest is a list)
+set_data-                   ->  []
+set_data-row-0-col-8        ->  {"row": 0, "col": 8}   (anything else: key and value pairs)
+```
+
+- Each parameter is parsed with the type of its position: the component of a tuple, text for a
+  dictionary key, the value type of a dictionary. A value without a declared type
+  (`serde_json::Value`) is a number when written as a JSON number and a string otherwise; there
+  are no booleans, because `true` cannot be told from a string. Keys are always text, so
+  `set_data-1-a` is `{"1": "a"}`.
+- An incomplete element (`rename-a-x-b`) and a key given twice (`place-current-row-0-row-1`) fail
+  when the plan is built, with the position of the offending parameter. When a parameter is a
+  link the same checks run at retrieval.
+- `columns: ["…", …]` names the components of a tuple element (column headers in an editor). Its
+  length is checked against a tuple at compile time and against a custom element type when the
+  command is registered.
+- A complex value is only ever the variadic argument: a tuple, a dictionary or a
+  `serde_json::Value` without `multiple` is a compile error, as are a tuple of fewer than 2 or
+  more than 4 components, a `Vec`, `Option`, tuple or map as a component or dictionary value, and
+  a dictionary key other than `String`.
+- The JSON types are written with their crate (`serde_json::Value`, `serde_json::Map`); a bare
+  `Value` is the environment's value type.
 
 **Compile-time rejections.**
 
@@ -272,6 +324,9 @@ register_command!(cr,
 | `gui: <GuiInfo>` | UI rendering hint |
 | `enum: <EnumSpec>` | Inline enum alternatives and mapping |
 | `enum_ref: "..."` | Reference a global enum by name |
+| `node: local` | A Node argument: names a file of the working folder (`ArgumentType::Node`); needs `ext:` |
+| `ext: "glb"` | The Node's file extension, without the dot; needs `node:` |
+| `form: resource \| key` | How a Node name becomes a link: `-R/./<name>.<ext>` (default, the asset's value) or `-R-key/./<name>.<ext>` (the key; the argument must be `Key` or `Value`) |
 
 `hint key: "..."` is rejected with *argument hints are not supported; `hint` would be ignored*.
 It used to be parsed and silently dropped. Argument-level hints remain open
@@ -326,6 +381,7 @@ Runtime rules:
 | `HorizontalRadioEnum` | `HorizontalRadioEnum` | Enum as horizontal radios |
 | `VerticalRadioEnum` | `VerticalRadioEnum` | Enum as vertical radios |
 | `EnumSelector` | `EnumSelector` | Enum dropdown |
+| `NodeSelector` | `NodeSelector` | A node of the folder's recipe tree, with rename |
 | `ColorString` | `ColorString` | Color picker |
 | `DateField` | `DateField 10` | Date input with width |
 | `Hide` | `Hide` | Hidden parameter |
@@ -334,6 +390,11 @@ Runtime rules:
 When enum metadata is present and `gui:` is omitted, defaults are:
 - up to 3 alternatives: `VerticalRadioEnum`
 - 4+ alternatives or `enum_ref`: `EnumSelector`
+
+A Node argument (`node:`) defaults to `NodeSelector`, which lists the folder's nodes of its
+extension. `node:` without `ext:`, `ext:` or `form:` without `node:`, a Node with `enum`, a
+`multiple` Node and a key-form Node whose type is not `Key` or `Value` are compile errors. A bare
+name is planned as a link and needs a working directory; see `RECIPE_TREES.md` §Node arguments.
 
 ---
 
@@ -710,6 +771,8 @@ pub fn register_commands(mut env: DefaultEnvironment<Value>) -> Result<DefaultEn
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-25 | §Variadic Parameters: shapes of a `multiple` argument (tuples, a custom element type, a dictionary, a JSON value), the `columns:` key and the new compile-time rejections. | `design/composite-variadic-arguments/` |
+| 2026-11-23 | §Parameter Metadata: Node arguments (`node: local`, `ext:`, `form:`) and the `NodeSelector` widget. | `design/recipe-tree/` |
 | 2026-10-20 | Links to `reference/api/DOC_08_RECIPES_PLANS.md` follow its promotion to `reference/RECIPES_AND_PLANS.md`; the `expires:` grammar pointer now names the section that has it. | DOC-08 promotion |
 | 2026-10-12 | Enum validation: an `_opt` type accepts literals of its base type, so `enum(type: bool_opt)` and `enum(type: int_opt)` can list values. An integer parameter outside its width's range is a conversion error, not a wrap. | `design/register-command-option-value/` review |
 | 2026-10-11 | §Supported Types: every integer width maps to `Integer` / `IntegerOption`, `Option<bool>` to `BooleanOption`, `FloatOpt` corrected to `FloatOption`; new §Optional arguments (supported inner types, the compile-time rejection, query spellings, `None` when omitted); `bool_opt` enum type keyword. | `design/register-command-option-value/` |

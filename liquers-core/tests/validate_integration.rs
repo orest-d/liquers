@@ -218,3 +218,59 @@ fn registry_accepts_json_and_yaml() -> Result<(), Error> {
     }
     Ok(())
 }
+
+/// recipe-tree AC-9: a `recipes.yaml` with a `tree:` section gets a tree report; a tree error
+/// fails the report (exit 1).
+#[test]
+fn recipes_tree_report_and_exit_code() -> Result<(), Error> {
+    use liquers_core::command_metadata::{ArgumentType, NodeArgument};
+    use liquers_core::recipes::RecipeList;
+    use liquers_core::validate::{validate_recipes, validate_tree};
+
+    let mut cmr = CommandMetadataRegistry::new();
+    let mut attach = CommandMetadata::new("attach");
+    let mut part = ArgumentInfo::any_argument("part");
+    part.argument_type = ArgumentType::Node(NodeArgument::new("glb"));
+    attach.arguments = vec![part];
+    cmr.add_command(&attach);
+
+    let check = |yaml: &str| -> Result<liquers_core::validate::ValidationReport, Error> {
+        let list: RecipeList =
+            serde_yaml::from_str(yaml).map_err(|e| Error::general_error(e.to_string()))?;
+        let results = validate_recipes(&list, ValidationLevel::Plan, &cmr);
+        let mut report = build_report(
+            ValidationLevel::Plan,
+            ValidationRegistryBuilder::new().build().1,
+            results,
+        );
+        if let Some(tree) = validate_tree(&list, &cmr) {
+            report.set_tree(tree);
+        }
+        Ok(report)
+    };
+
+    let good = check(
+        "tree: {dependencies: strict, result: car.glb}\nrecipes:\n  - {query: body.glb, title: Body}\n  - {query: wheel.glb}\n  - {query: \"-R/./body.glb/-/attach-wheel/car.glb\", title: Car}\n",
+    )?;
+    assert_eq!(good.exit_code(), 0, "{:?}", good.tree);
+    let json: serde_json::Value = serde_json::from_str(&good.to_json()?).expect("json");
+    assert_eq!(json["tree"]["result"], "car.glb");
+    assert_eq!(json["tree"]["roots"][0], "car.glb");
+    assert_eq!(json["tree"]["graph"]["nodes"]["body.glb"]["title"], "Body");
+
+    // Strict: the stored file `wheel.glb` is used but not declared (AC-28).
+    let bad = check(
+        "tree: {dependencies: strict}\nrecipes:\n  - {query: body.glb}\n  - {query: \"-R/./body.glb/-/attach-wheel/car.glb\"}\n",
+    )?;
+    assert_eq!(bad.status, ValidationStatus::Error);
+    assert_eq!(bad.exit_code(), 1);
+    assert!(bad
+        .diagnostic_lines()
+        .iter()
+        .any(|l| l.starts_with("ERROR    [tree]") && l.contains("wheel.glb")));
+
+    // Without a tree section there is no tree report.
+    let plain = check("recipes:\n  - {query: body.glb}\n")?;
+    assert!(plain.tree.is_none());
+    Ok(())
+}

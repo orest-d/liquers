@@ -3,7 +3,7 @@ title: Command Registration Guide
 kind: guide
 audience: internal
 area: [core/commands, macro]
-reviewed: 2026-11-22
+reviewed: 2026-11-25
 ---
 # Command Registration Guide
 
@@ -402,6 +402,48 @@ This is why a command taking a list should declare it variadic rather than takin
 splitting it internally: a self-split cannot tell those two apart, and it mangles any value that
 legitimately contains the separator.
 
+#### Taking pairs, a dictionary or a JSON value
+
+The remaining parameters can also form one complex value. Declare the type you want and keep
+`multiple`; the type selects how the parameters group
+([`REGISTER_COMMAND_FSD.md`](../reference/REGISTER_COMMAND_FSD.md) §Variadic Parameters has the
+full table):
+
+```rust
+// rename-a-x-b-y  ->  [("a", "x"), ("b", "y")]
+fn rename(state: &State<Value>, pairs: Vec<(String, String)>) -> Result<Value, Error> { /* … */ }
+register_command!(cr, fn rename(state,
+    pairs: Vec<(String, String)> multiple (columns: ["Old name", "New name"])) -> result)?;
+
+// place-current-row-0-col-8  ->  word "current", layout {"col": 8, "row": 0}
+fn place(state: &State<Value>, word: String,
+         layout: BTreeMap<String, serde_json::Value>) -> Result<Value, Error> { /* … */ }
+register_command!(cr, fn place(state, word: String,
+    layout: BTreeMap<String, serde_json::Value> multiple) -> result)?;
+
+// set_data-5 -> 5; set_data--1-a -> [1, "a"]; set_data-row-0 -> {"row": 0}; set_data -> null
+fn set_data(state: &State<Value>, data: serde_json::Value) -> Result<Value, Error> { /* … */ }
+register_command!(cr, fn set_data(state, data: serde_json::Value multiple) -> result)?;
+```
+
+Choose by what the caller writes:
+
+- **Tuples** (`Vec<(A, B, …)>`, 2 to 4 components) when every element has the same parts. Each
+  part is parsed with its own type, and an incomplete element fails when the plan is built.
+- **A dictionary** (`BTreeMap<String, V>`) for named options that vary per call, such as layout
+  data. With `V = serde_json::Value` a value is a number when it is written as one. A key given
+  twice fails when the plan is built.
+- **A JSON value** (`serde_json::Value`) when the caller decides the form: nothing is `null`, one
+  parameter is a number or a string, a leading empty parameter starts a list (`set_data-` is the
+  empty list), anything else is key and value pairs. There are no booleans.
+- **Your own element type**: implement `liquers_core::commands::FromParameterGroup` (its number of
+  parameters, their types, and the conversion) and declare `Vec<YourType> multiple`.
+
+Only the variadic argument can be one of these; the same types without `multiple` do not compile.
+A recipe or an MCP client passes the natural JSON instead of the flat list: `[["a", "x"], ["b",
+"y"]]`, `{"row": 0, "col": 8}`, any JSON value. The argument editor draws tuples as rows, a
+dictionary as pairs added whole, and a JSON value with a choice of its form.
+
 #### If the declaration will not compile
 
 The macro rejects malformed variadic declarations at compile time, naming the problem:
@@ -590,6 +632,18 @@ Notes:
 - `enum` and `enum_ref` cannot be used together.
 - Unknown enum aliases fail unless `others: true`.
 - If `gui:` is omitted, enum arguments default to `VerticalRadioEnum` (small sets) or `EnumSelector`.
+
+**Node argument** (a file of the working folder, by name):
+```rust
+register_command!(cr, fn attach(state, part: Value (node: local, ext: "glb")) -> result)?;
+register_command!(cr, fn locate(dir: Key (node: local, ext: "glb", form: key)) -> result)?;
+```
+
+`attach-wheel` passes the value of `./wheel.glb` (`form: key` passes the key); a link
+(`attach-~X~-R/data/x.glb~E`) works too. A bare name needs a working directory
+(`-R-cwd/scenes/car/-/…`, or a recipe of the folder). Editors list the folder's nodes and offer
+Rename. In a strict recipe tree it is the only way to reference another file from an argument
+(`specs/reference/RECIPE_TREES.md`).
 
 ---
 
@@ -1150,6 +1204,8 @@ only) action is that command ([`AGENT_MEMORY_SERVICE.md`](../reference/AGENT_MEM
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-25 | §*Accepting a variable number of parameters*: new *Taking pairs, a dictionary or a JSON value* (shaped `multiple` arguments). | `design/composite-variadic-arguments/` |
+| 2026-11-23 | §1: Node arguments (`node: local, ext: "…"`, `form: key`). | `design/recipe-tree/` |
 | 2026-11-22 | §5: a bare `hint icon` name means the theme's icon set (Phosphor by default); `ph:` is always Phosphor. | `issues/THEME-ICON-SET-SETTING-IS-IGNORED.md` |
 | 2026-11-21 | §5 Provide Comprehensive Metadata: `hint icon` forms, presets as chips, `next:` as Simple mode's "Continue with". | `design/query-editor-ergonomics/` |
 | 2026-11-17 | §5 Provide Comprehensive Metadata: what the editors show from the metadata. | `design/query-pipeline-editor/` |

@@ -30,8 +30,12 @@ pub struct EditorView {
     pub jump_back: Option<Range<usize>>,
     /// A jump waiting for the typed text to be committed and the tree rebuilt: the text offset.
     pub pending_jump: Option<usize>,
-    /// A jump target that Simple mode does not show; the renderer offers "Open in Advanced".
-    pub simple_offer: Option<NodePath>,
+    /// A mode the view asks the renderer to switch to: a jump in Simple mode to a step Simple
+    /// mode does not show opens Advanced mode on it. The renderer reports it as its output's mode.
+    pub mode_request: Option<EditorMode>,
+    /// The mode last drawn, so entering Advanced mode can collapse every card but one
+    /// ([`EditorView::enter_mode`]).
+    pub shown_mode: Option<EditorMode>,
     /// `focus` changed in code: the renderer moves its keyboard focus there on the next frame.
     pub focus_pending: bool,
     /// A card list opened from the keyboard (`Alt+P`, `Alt+Shift+N`, `Ctrl+Space`).
@@ -60,6 +64,16 @@ fn simple_target(path: &NodePath, target: FocusTarget) -> FocusTarget {
     }
 }
 
+/// The top-level card Advanced mode opens with: the one holding `focus`, else the card Simple
+/// mode shows (the last action, normally).
+pub fn open_card(tree: &EditorTree, focus: Option<&FocusTarget>) -> Option<NodePath> {
+    let focused = focus.and_then(|f| match f {
+        FocusTarget::Text => None,
+        FocusTarget::Node(path) | FocusTarget::Field { path, .. } => path.0.first().cloned().map(|s| NodePath(vec![s])),
+    });
+    focused.or_else(|| simple_card(tree).and_then(|i| tree.nodes.get(i)).map(|n| n.path().clone()))
+}
+
 /// What has keyboard focus in an editor (AC-9).
 #[derive(Debug, Clone, PartialEq)]
 pub enum FocusTarget {
@@ -75,8 +89,9 @@ impl EditorView {
     /// `Ctrl+J` in the query text with the cursor at byte `offset` (AC-10). When the typed text
     /// is not the tree's yet, the jump waits ([`EditorView::pending_jump`]) and the returned
     /// `SetText` commits it; [`EditorView::resume_jump`] finishes it after the rebuild. Otherwise
-    /// focus moves to the field under the cursor, or, for a node Simple mode does not show,
-    /// [`EditorView::simple_offer`] is set. Returns the command to apply, if any.
+    /// focus moves to the field under the cursor; for a node Simple mode does not show,
+    /// [`EditorView::mode_request`] asks for Advanced mode, with that step the one open card.
+    /// Returns the command to apply, if any.
     pub fn jump_from_text(&mut self, tree: &EditorTree, mode: EditorMode, offset: usize) -> Option<EditorCommand> {
         if let Some((typed, _)) = &self.text {
             if typed != &tree.text {
@@ -102,7 +117,6 @@ impl EditorView {
     }
 
     fn jump_to(&mut self, tree: &EditorTree, mode: EditorMode, offset: usize) {
-        self.simple_offer = None;
         let Some(span) = tree.locate(offset) else {
             return;
         };
@@ -112,26 +126,49 @@ impl EditorView {
                 FocusTarget::Field { path: span.path.clone(), arg: arg.clone(), item: *item }
             }
         };
+        let top = span.path.0.first().cloned().map(|s| NodePath(vec![s])).unwrap_or_default();
         let target = match mode {
-            EditorMode::Advanced => Some(target),
+            EditorMode::Advanced => {
+                self.collapsed.remove(&top.id());
+                target
+            }
             EditorMode::Simple => {
                 let card = simple_card(tree).and_then(|i| tree.nodes.get(i)).map(|n| n.path().clone());
                 let shown = card.as_ref().is_some_and(|c| span.path.0.first() == c.0.first())
                     && span.target != SpanTarget::Namespaces;
-                if !shown {
-                    let top = span.path.0.first().cloned().map(|s| NodePath(vec![s])).unwrap_or_default();
-                    self.simple_offer = Some(top);
-                    None
+                if shown {
+                    simple_target(&span.path, target)
                 } else {
-                    Some(simple_target(&span.path, target))
+                    // Another step: open Advanced mode with that step's card the open one.
+                    self.mode_request = Some(EditorMode::Advanced);
+                    target
                 }
             }
         };
-        if let Some(target) = target {
-            self.jump_back = Some(span.range.clone());
-            self.focus = Some(target);
-            self.focus_pending = true;
+        self.jump_back = Some(span.range.clone());
+        self.focus = Some(target);
+        self.focus_pending = true;
+    }
+
+    /// Called by a renderer before drawing `tree` in `mode`. Entering Advanced mode collapses
+    /// every top-level card except one: the card holding focus (a step chip, a `Ctrl+J` jump),
+    /// else the card Simple mode shows, normally the last action.
+    pub fn enter_mode(&mut self, tree: &EditorTree, mode: EditorMode) {
+        if self.mode_request == Some(mode) {
+            self.mode_request = None;
         }
+        let entering = mode == EditorMode::Advanced && self.shown_mode != Some(EditorMode::Advanced);
+        self.shown_mode = Some(mode);
+        if !entering {
+            return;
+        }
+        let open = open_card(tree, self.focus.as_ref());
+        self.collapsed = tree
+            .nodes
+            .iter()
+            .map(|n| n.path().id())
+            .filter(|id| open.as_ref().map(NodePath::id).as_ref() != Some(id))
+            .collect();
     }
 
     /// `Ctrl+J` in a field: the text range to select in the query text, the one the jump came
@@ -223,6 +260,18 @@ impl EditorView {
             _ => None,
         }
     }
+
+    /// The top-level step a mode event names: a step chip's `ed:mode:<path>:advanced`. The mode
+    /// switch's root path names none.
+    pub fn mode_event_path(event: &UIEvent) -> Option<NodePath> {
+        let UIEventKind::Named(name) = &event.kind else {
+            return None;
+        };
+        let (id, _) = name.strip_prefix("ed:mode:")?.rsplit_once(':')?;
+        let path = NodePath::from_id(id).ok()?;
+        let top = path.0.first().cloned()?;
+        Some(NodePath(vec![top]))
+    }
 }
 
 /// `Reset` of every argument of the action at `rest` (`<path>:`) that is not at its default.
@@ -286,6 +335,32 @@ fn decode_named(name: &str, field_text: &dyn Fn(&str) -> Option<String>) -> Opti
             let to = if verb == "itemup" { at.checked_sub(1)? } else { at + 1 };
             EditorCommand::MoveItem { path, arg, from: at, to }
         }
+        // Rows of a shaped argument (tuples, a dictionary). The new row's texts are the fields
+        // `n:<path>:<arg>:<component>` of the add form.
+        "addrow" => {
+            let (arg, at) = two();
+            let mut texts = Vec::new();
+            while let Some(text) = field_text(&format!("n:{}:{arg}:{}", path.id(), texts.len())) {
+                texts.push(text);
+            }
+            EditorCommand::InsertRow { path, arg, at: index(&at)?, texts }
+        }
+        "delrow" => {
+            let (arg, at) = two();
+            EditorCommand::RemoveRow { path, arg, at: index(&at)? }
+        }
+        "rowup" | "rowdown" => {
+            let (arg, at) = two();
+            let at = index(&at)?;
+            let to = if verb == "rowup" { at.checked_sub(1)? } else { at + 1 };
+            EditorCommand::MoveRow { path, arg, from: at, to }
+        }
+        // An entry appended to the list form of a JSON value, from the field `n:<path>:<arg>:0`.
+        "addentry" => {
+            let (arg, at) = two();
+            let text = field_text(&format!("n:{}:{arg}:0", path.id())).unwrap_or_default();
+            EditorCommand::InsertItem { path, arg, at: index(&at)?, text }
+        }
         "remove" => EditorCommand::Remove { path },
         "up" => {
             let at = path.last_element()?;
@@ -342,6 +417,8 @@ fn decode_named(name: &str, field_text: &dyn Fn(&str) -> Option<String>) -> Opti
             }
             EditorCommand::SetNamespaces { path, namespaces: list }
         }
+        // "Add key…": a resource with an empty key, first in the query (AC: an empty query).
+        "addkey" => EditorCommand::Insert { path: NodePath::element(0), element: NewElement::Resource(String::new()) },
         "confirm" => EditorCommand::ConfirmNamespaces,
         "cancel" => EditorCommand::CancelNamespaces,
         "append" => match extra {
@@ -352,6 +429,17 @@ fn decode_named(name: &str, field_text: &dyn Fn(&str) -> Option<String>) -> Opti
         },
         "update" => EditorCommand::Update,
         "revert" => EditorCommand::Revert,
+        "undo" => EditorCommand::Undo,
+        "redo" => EditorCommand::Redo,
+        "updatemode" => EditorCommand::SetUpdateMode(super::UpdateMode::from_name(extra).ok()?),
+        "rename" => {
+            let (arg, from) = two();
+            let to = field_text(&format!("nrename:{}:{arg}", path.id()))?;
+            if to.is_empty() || to == from {
+                return None;
+            }
+            EditorCommand::RenameNode { from, to }
+        }
         _ => return None,
     })
 }
@@ -364,9 +452,9 @@ fn decode_field(name: &str, value: &str, tree: &EditorTree) -> Option<EditorComm
     if name == "filename" {
         return (value != tree.filename).then(|| EditorCommand::SetFilename(value.to_string()));
     }
-    if name == "continuous" {
-        let on = value == "true";
-        return (on != tree.continuous).then_some(EditorCommand::SetContinuous(on));
+    if name == "update_mode" {
+        let mode = super::UpdateMode::from_name(value).ok()?;
+        return (mode != tree.update_mode).then_some(EditorCommand::SetUpdateMode(mode));
     }
     if let Some(rest) = name.strip_prefix("key:") {
         let path = NodePath::from_id(rest).ok()?;
@@ -395,6 +483,19 @@ fn decode_field(name: &str, value: &str, tree: &EditorTree) -> Option<EditorComm
         });
         return (current.as_deref() != Some(value))
             .then(|| EditorCommand::SetHeader { path, header: value.to_string() });
+    }
+    // The form chooser of a JSON value argument: `jf:<path>:<arg>`.
+    if let Some(rest) = name.strip_prefix("jf:") {
+        let (path, arg) = rest.split_once(':')?;
+        let path = NodePath::from_id(path).ok()?;
+        let field = find_node(&tree.nodes, &path)?.fields().iter().find(|f| f.name == arg)?;
+        let form = super::tree::JsonForm::from_label(value)?;
+        let texts: Vec<String> = field.item_texts().into_iter().flatten().collect();
+        return (form != super::tree::JsonForm::of(&texts)).then(|| EditorCommand::SetItems {
+            path,
+            arg: arg.to_string(),
+            texts: form.convert(&texts),
+        });
     }
     let rest = name.strip_prefix("f:")?;
     let parts: Vec<&str> = rest.split(':').collect();
