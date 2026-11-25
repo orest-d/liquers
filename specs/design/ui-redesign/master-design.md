@@ -62,6 +62,7 @@ walkthrough
 | R15 | An author may pick one frontend and write an element in that frontend's idiom: immediate-mode egui code, DOM and events in the page. Liquers handles how elements interact and combine | Orest 2026-11-23 |
 | R16 | The architecture supports thin and thick clients and lets an application choose per data type and use case. The standard web client is "reasonably thick" and under 5 MB: records yes, polars no | Orest 2026-11-23 |
 | R17 | Resizable horizontal and vertical layouts and a docking layout are part of the standard set, in every frontend, with the sizes and the arrangement saved and restored. A custom layout can be defined without changing the core (§10.10) | Orest 2026-11-25, from the DPL project |
+| R18 | Modal and popup windows are supported, with more than one level of modality. The number of instances of a window type can be limited, for example at most one "New file" window on the screen (§10.11) | Orest 2026-11-25 |
 
 ## 2. Answer in short
 
@@ -959,6 +960,22 @@ at level 2.
 Not tested. The split, the dock tree and a template layout are candidates for the next spike
 step.
 
+### 10.11 Modal and popup windows, instance limits (noted 2026-11-25)
+
+Requirement R18, a note from Orest (2026-11-25). Not designed yet; what the design has to cover:
+
+- **Modal and popup windows**, possibly with different levels of modality. The levels to
+  consider: a popup that does not block (a menu, a tooltip, a notification); a window that
+  blocks its parent element only; a window that blocks its whole window or tab; a window that
+  blocks the session. The `Overlay` node of §10.2 (dialog, popup) is the place in the view
+  vocabulary; who receives input while a modal window is open is a question for the session
+  (§12) and for focus (§19).
+- **A limit on the instances of a window type.** A type may say how many instances may be on
+  the screen, for example at most one "New file" window. Asking for one more then brings the
+  existing one to the front. It has to be decided whether the limit is a property of the element
+  type, of the command that opens the window, or both, and whether it counts per session or per
+  frontend attached to the session.
+
 ## 11. Frontends: three patterns over one store
 
 ```rust
@@ -1786,6 +1803,9 @@ Raised by spike S1 (findings §8), to be decided before D1's architecture:
   layouts as elements, as UISpec templates with named places, and with computed positions (which
   needs a free-position node and a size message). Is the template form what you meant by custom
   layouts in a UISpec?
+
+- **Windows** (§10.11, R18): levels of modality and instance limits are noted as requirements and
+  are not designed.
 
 For the spikes and the sub-designs, not blocking approval:
 
