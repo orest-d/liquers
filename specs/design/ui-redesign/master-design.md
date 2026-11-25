@@ -793,11 +793,31 @@ grid:
   and gets none chooses a default (the next free cell, the body role).
 - Saved state (§20) needs nothing new: the layout data is part of the parent's state.
 
-**Format and notation (proposed).** Layout data is one flat map from a key to a scalar
-(number, boolean or string). It is the same in a UISpec (`layout: {row: 0, col: 8}`), in a
-message and in a command. In a command it is a trailing list of key and value pairs, so it needs
-no syntax of its own: a value that reads as a number or as `true` / `false` is one, anything else
-is a string.
+**Format and notation (settled 2026-11-25).** Layout data is one flat map from a key to a
+scalar (number or string). It is the same in a UISpec (`layout: {row: 0, col: 8}`), in a message
+and in a command. In a command it is a trailing list of key and value pairs, which is the
+dictionary shape of a variadic argument (`shape: map`, merged in PR #288; see
+`specs/guides/COMMAND_REGISTRATION_GUIDE.md`). A `lui` command that takes layout data declares it
+last:
+
+```rust
+register_command!(cr, async fn add_child(state, position: String, reference: String,
+    layout: BTreeMap<String, serde_json::Value> multiple, context) -> result
+    namespace: "lui")?;
+```
+
+What follows from the shape, with nothing for the UI to implement:
+
+- A value that reads as a number is a number, anything else is a string. **There are no
+  booleans**: `closable-true` arrives as the string `true`, so a key with a yes or no meaning is
+  read by its parent with the usual text rules (`true`, `false`, `yes`, `no`).
+- A key given twice and a key without a value are errors found when the plan is built, with the
+  position in the query.
+- A recipe or a pipeline gives the same argument as a plain object (`layout: {row: 0, col: 8}`),
+  and the command editor shows it as rows of a key and a value added together.
+- The MCP tool schema of the command describes it as an object.
+- Values are scalars. A nested value (a list of breakpoints, say) does not fit in a query and
+  belongs to the parent's properties.
 
 ```
 ns-lui/add-child-current-row-0-col-8-colspan-4      a cell in a free grid
@@ -827,8 +847,9 @@ Keys are a shared vocabulary, so that a key means the same thing under every par
 - Orest (2026-11-24): this works, and it is a general convention, a dictionary of scalars as
   a variadic argument, useful for other commands too. It is the key-value case of the feature
   `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS` (`specs/issues/`), which should define it once for all
-  commands (its design `composite-variadic-arguments` was widened to dictionaries and scalars on
-  2026-11-24, PR #288). Until then a command takes a flat list of strings and pairs them up itself.
+  commands. That feature is implemented (design `composite-variadic-arguments`, complete,
+  PR #288 merged 2026-11-25), so the `lui` commands use it from the start and no command pairs
+  up strings itself.
 - The exact command signatures are D2's, checked with `liquers-validate`.
 
 Not tested. A free grid in the spike workspace would check it.
@@ -1653,7 +1674,8 @@ Raised by spike S1 (findings §8), to be decided before D1's architecture:
 
 - **S1-f. Children and layout data** (§10.9): children stay an ordered list; is optional
   per-child layout data, interpreted by the parent, the right extension for free grids and
-  roles? The slot marker for a native retained parent is still to be built.
+  roles? The slot marker for a native retained parent is still to be built. The notation in a
+  command is no longer open: it is the dictionary shape of a variadic argument (PR #288).
 
 For the spikes and the sub-designs, not blocking approval:
 
