@@ -863,9 +863,25 @@ corrections:
 - The tree part of the runner protocol carries `layout` in `Added` and has one more message,
   `Layout { handle, layout }`. A change redraws the parent only.
 - A free grid needs a declared or measured row height in a terminal and in egui (§10.8).
-- Open: the add command should let the parent check the map, so that a wrong key fails the
-  command and is not found only when the view is built; an empty value (`colspan-`) as the way
-  to remove a key; a client request to change layout data (drag to resize).
+- Open: a client request to change layout data (drag to resize).
+
+**Layout data are hints (Orest, 2026-11-25).** Each frontend may implement a subset of the keys,
+and a key it does not implement is not an error. The add command may define more complete data
+than the shared vocabulary above, for example a size in characters as well as in pixels, so that
+each frontend takes the one it can use. This replaces the rule above that a parent reports a key
+it does not know.
+
+- **Checks.** A central check is useful where it is possible, but cannot be complete, because
+  what a key means depends on the parent and on the frontend. What can be central: one registry
+  of known keys with the type of each value (a number, or one of a set of words), checked when
+  the command runs. It catches a misspelt key and `row-top`; it says nothing about whether a
+  frontend uses the key. The precise shapes, the units and the registry are to be discussed with
+  the layout elements (D2 and the layout part of D12).
+- **Removing a key (proposed, not decided).** Separate commands, not an empty value:
+  `ns-lui/layout-current-colspan-12` sets or replaces the keys given and keeps the others;
+  `ns-lui/remove_layout-current-colspan-rowspan` removes the keys named, and all of them when
+  none is named. An empty value stays a value (`title-` is an empty title), and the command
+  editor shows two plain commands: a dictionary to set, a list of keys to remove.
 
 ## 11. Frontends: three patterns over one store
 
