@@ -2,11 +2,12 @@
 id: NO-RECIPE-OR-RECIPES-EDITOR-UI
 kind: feature
 title: There is no UI element that edits a whole recipe or a folder's recipes.yaml
-status: draft
+status: closed
 priority: P3
 complexity: L
 area: [lib/ui, lib/egui]
 created: 2026-11-24
+design: recipes-editor
 github:
 ---
 ## Problem

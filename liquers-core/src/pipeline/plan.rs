@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use serde_json::Value as Json;
 
 use crate::command_metadata::{
-    ArgumentInfo, CommandDefinition, CommandKey, CommandMetadata, CommandMetadataRegistry,
+    ArgumentInfo, ArgumentType, CommandDefinition, CommandKey, CommandMetadata, CommandMetadataRegistry, VariadicShape,
 };
 use crate::error::Error;
 use crate::parse::{parse_key, parse_query};
@@ -24,7 +24,7 @@ use crate::plan::{
     VolatilitySource,
 };
 use crate::query::{ActionRequest, Position, Query};
-use crate::recipes::{convert_scalar, ConvertedOverride};
+use crate::recipes::{convert_override, convert_scalar, ConvertedOverride};
 
 use super::{
     ActionElement, ElementKind, Operand, Pipeline, PipelineElement, QueryOrPipeline, Read, Source,
@@ -754,12 +754,57 @@ impl<'c> PipelinePlanBuilder<'c> {
         if argument.multiple {
             let mut element = argument.clone();
             element.multiple = false;
-            let mut values = Vec::new();
+            element.shape = VariadicShape::List;
+            // A shaped argument types each parameter by its position in the element, and takes a
+            // whole value (nested arrays, an object, a JSON value) the way a recipe override does.
+            let component_types: Vec<ArgumentType> = match &argument.shape {
+                VariadicShape::List => vec![argument.argument_type.clone()],
+                VariadicShape::Tuples(components) => components.clone(),
+                VariadicShape::Map => vec![ArgumentType::String, argument.argument_type.clone()],
+                VariadicShape::Json => vec![ArgumentType::Any],
+            };
+            let mut values: Vec<ParameterValue> = Vec::new();
             for source in sources {
+                if let Some(component) = component_types.get(values.len() % component_types.len().max(1)) {
+                    element.argument_type = component.clone();
+                }
                 match source {
                     Source::Multiple(items) => {
                         for item in items {
+                            if let Some(component) =
+                                component_types.get(values.len() % component_types.len().max(1))
+                            {
+                                element.argument_type = component.clone();
+                            }
                             values.push(self.single_value(asm, &element, item, position)?);
+                        }
+                    }
+                    Source::Value(whole)
+                        if !argument.shape.is_list() && !whole.is_string() =>
+                    {
+                        match convert_override(argument, whole)? {
+                            ConvertedOverride::Value(Json::Array(items), note) => {
+                                if let Some(note) = note {
+                                    asm.plan.init_info(note);
+                                }
+                                for item in items {
+                                    values.push(ParameterValue::ParameterValue(
+                                        argument.name.clone(),
+                                        item,
+                                        position.clone(),
+                                    ));
+                                }
+                            }
+                            ConvertedOverride::Value(_, _)
+                            | ConvertedOverride::Link(_, _)
+                            | ConvertedOverride::Pipeline(_, _) => {
+                                return Err(Error::invalid_argument(
+                                    "",
+                                    &argument.name,
+                                    "takes a list of values",
+                                )
+                                .with_position(position))
+                            }
                         }
                     }
                     Source::Value(Json::Array(items)) => {

@@ -72,7 +72,7 @@ COMMAND-ALIAS-DEFINITION-UNTESTED,issue,"CommandDefinition::Alias has no test an
 COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ,issue,"CommandMetadata.cache is declared, documented and exported, but nothing reads it",closed,local,,ready,not-eligible,P3,S,core/commands;macro,,,,command-cache-flag,,2026-09-19,specs/issues/COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ.md
 COMMAND-CANNOT-BE-DEFINED-AS-A-COMMAND-SEQUENCE,feature,A command cannot be defined as a sequence of other commands with placeholders,closed,local,,ready,not-eligible,P2,XL,core/commands;core/plan;core/assets;core/query;core/validate,237,,,composite-command-definition,,2026-11-01,specs/issues/COMMAND-CANNOT-BE-DEFINED-AS-A-COMMAND-SEQUENCE.md
 COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT,feature,A command cannot be run with a restricted context,draft,local,,needs-decision,not-eligible,P2,M,core/context;core/commands,,,,pure-command-context,,2026-09-17,specs/issues/COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT.md
-COMMAND-COMPOSITE-VARIADIC-ARGUMENTS,feature,A variadic argument cannot carry composite elements such as pairs or tuples,draft,local,,needs-decision,not-eligible,P3,L,core/commands;macro;lib/ui,,,,composite-variadic-arguments,,2026-08-25,specs/issues/COMMAND-COMPOSITE-VARIADIC-ARGUMENTS.md
+COMMAND-COMPOSITE-VARIADIC-ARGUMENTS,feature,"A variadic argument cannot carry a complex value such as pairs, tuples or a dictionary",draft,local,,ready,not-eligible,P3,L,core/commands;macro;lib/ui;lib/egui,,,,composite-variadic-arguments,,2026-08-25,specs/issues/COMMAND-COMPOSITE-VARIADIC-ARGUMENTS.md
 COMMAND-CONTEXT-PARAM-ORDER,issue,"The context parameter must come last, as a workaround",closed,local,,,,P2,M,core/commands;macro,,,,context-param-order,,2026-08-08,specs/issues/COMMAND-CONTEXT-PARAM-ORDER.md
 COMMAND-DECLARATION-FORMAT,feature,"No language-neutral command declaration format, so every binding hand-parses its own",closed,local,,,,P0,L,core/commands;web;py,,,,command-declaration,,2026-08-27,specs/issues/COMMAND-DECLARATION-FORMAT.md
 COMMAND-ENUM-ALTERNATIVES-CANNOT-BE-COMPUTED,feature,An enum argument's alternatives are fixed at registration and cannot be computed,draft,local,,needs-decision,not-eligible,P3,L,core/commands;core/plan,,,,computed-enum-alternatives,,2026-10-20,specs/issues/COMMAND-ENUM-ALTERNATIVES-CANNOT-BE-COMPUTED.md
@@ -174,6 +174,7 @@ DOCS-STORE-CONFIG-DESCRIBES-ASYNC-FILESTORE-AS-FUTURE-WORK,issue,Store configura
 DOCS-TOOLING-TESTS-NOT-RUN-IN-CI,issue,The unit tests of the documentation tooling are not run by CI,closed,local,,ready,eligible,P3,S,docs;build,,,,docs-tooling-tests-in-ci,,2026-10-20,specs/issues/DOCS-TOOLING-TESTS-NOT-RUN-IN-CI.md
 DRAFT-MARKERS-LOOK-ALIKE,issue,Draft builds show every editorial marker the same way,draft,local,,,,P3,S,docs,,,,,,2026-11-01,specs/issues/DRAFT-MARKERS-LOOK-ALIKE.md
 DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE,issue,Removing a computed value with a stored record leaves an empty data file at its key,draft,local,,,,P3,S,core/assets;core/store,,,,,,2026-10-27,specs/issues/DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE.md
+DUPLICATE-OF-EXTERNAL-RESOURCE-RECIPE-KEEPS-ITS-FILENAME,issue,Duplicating a recipe whose query is only a resource outside the folder is refused,draft,local,,,,P3,S,core/plan,,,,,,2026-11-24,specs/issues/DUPLICATE-OF-EXTERNAL-RESOURCE-RECIPE-KEEPS-ITS-FILENAME.md
 EDITOR-CANNOT-EDIT-INSIDE-A-NESTED-PIPELINE,feature,The query and pipeline editor shows a nested pipeline element read-only,draft,local,,,,P3,M,lib/ui,,,,,,2026-11-17,specs/issues/EDITOR-CANNOT-EDIT-INSIDE-A-NESTED-PIPELINE.md
 EDITOR-HAS-NO-KEY-TO-DISCARD-A-PREVIEW,feature,Escape does not discard a Live preview in the query editor,draft,local,,,,P3,S,lib/egui,,,,,,2026-11-24,specs/issues/EDITOR-HAS-NO-KEY-TO-DISCARD-A-PREVIEW.md
 EDITOR-UNSET-OF-A-MIDDLE-POSITIONAL-ARGUMENT-SAYS-NOT-SET,issue,The query editor answers 'is not set' when asked to unset a positional argument that is followed by another,closed,local,,,,P3,S,core/query,,,,query-pipeline-editor,,2026-11-14,specs/issues/EDITOR-UNSET-OF-A-MIDDLE-POSITIONAL-ARGUMENT-SAYS-NOT-SET.md
@@ -218,6 +219,7 @@ HTTP-ACCEPT-HEADER-NOT-NEGOTIATED,feature,"The HTTP API reads Accept only for it
 HTTP-STORE-METADATA-DROPS-THE-EXTENSION-MEDIA-TYPE,issue,liquers-web's http store reports no media type for a key whose extension determines one,closed,local,,,,P2,S,web;core/store,,,,store-conformance-backlog,,2026-09-27,specs/issues/HTTP-STORE-METADATA-DROPS-THE-EXTENSION-MEDIA-TYPE.md
 ICON-SETS-OTHER-THAN-PHOSPHOR-ARE-NOT-DRAWN,feature,Renderers draw only Phosphor set icons; a theme cannot supply another icon set,draft,local,,,,P3,M,lib/ui;lib/egui,,,,query-editor-ergonomics,,2026-11-22,specs/issues/ICON-SETS-OTHER-THAN-PHOSPHOR-ARE-NOT-DRAWN.md
 ICONS-CANNOT-BE-ASSETS-OR-UNICODE,feature,"An icon can only be named from an icon set; no SVG or PNG asset, Unicode fallback or tool palette",closed,local,,,,P3,L,lib/ui,,,,query-editor-ergonomics,,2026-11-21,specs/issues/ICONS-CANNOT-BE-ASSETS-OR-UNICODE.md
+IMAGE-CANNOT-BE-WRITTEN-IN-DISPLAY-FORMATS,feature,An image cannot be read or written in the raw display formats that liquers-embedded devices show,draft,local,,,,P2,L,lib/image;lib/value,,,,,,2026-11-17,specs/issues/IMAGE-CANNOT-BE-WRITTEN-IN-DISPLAY-FORMATS.md
 IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE,issue,"On the immediate manager, an elapsed deadline expires the asset but not its dependents",closed,local,,ready,,P3,S,core/assets,,,,immediate-lazy-expiry-cascade,,2026-10-02,specs/issues/IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE.md
 IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES,issue,ImmediateAssetManager's lazy deadline expiry tests a condition that can never be true,closed,local,,,,P2,S,core/assets,,,,dependency-audit-and-expiry-provenance,,2026-09-28,specs/issues/IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES.md
 IMMEDIATE-MANAGER-NO-FAST-TRACK,issue,"ImmediateAssetManager never fast-tracks, so a stored file cannot be read by key on wasm",closed,local,,,,P1,M,core/assets;web,,,,,,2026-08-09,specs/issues/IMMEDIATE-MANAGER-NO-FAST-TRACK.md
@@ -287,7 +289,7 @@ NO-END-TO-END-TEST-OF-A-MANIFEST-OVER-STORED-CSV-FILES,issue,"No test reads a ma
 NO-MARKDOWN-NAVIGATION-COMMANDS,feature,"Markdown documents cannot be navigated, filtered or interpreted by structure",closed,local,,,,P3,L,lib/commands,,,,markdown-navigation,,2026-10-11,specs/issues/NO-MARKDOWN-NAVIGATION-COMMANDS.md
 NO-QUERY-AWARE-MARKDOWN-PARSER,feature,Liquers has no Markdown parser that knows queries and templates and can edit and render a document,draft,local,,,,P2,XL,lib/commands;records,,,,,,2026-10-31,specs/issues/NO-QUERY-AWARE-MARKDOWN-PARSER.md
 NO-QUERY-AWARE-TEMPLATE-LANGUAGE,feature,No template language understands Liquers queries and values,closed,local,,,,P2,XL,core/query;lib/commands,,,,liquers-mustache,,2026-10-13,specs/issues/NO-QUERY-AWARE-TEMPLATE-LANGUAGE.md
-NO-RECIPE-OR-RECIPES-EDITOR-UI,feature,There is no UI element that edits a whole recipe or a folder's recipes.yaml,draft,local,,,,P3,L,lib/ui;lib/egui,,,,,,2026-11-24,specs/issues/NO-RECIPE-OR-RECIPES-EDITOR-UI.md
+NO-RECIPE-OR-RECIPES-EDITOR-UI,feature,There is no UI element that edits a whole recipe or a folder's recipes.yaml,closed,local,,,,P3,L,lib/ui;lib/egui,,,,recipes-editor,,2026-11-24,specs/issues/NO-RECIPE-OR-RECIPES-EDITOR-UI.md
 NO-RECIPE-PROVIDER-CHAIN,feature,"An environment holds one recipe provider, with no way to compose several",closed,local,,,,P3,S,core/assets,,,,record-streams,,2026-09-20,specs/issues/NO-RECIPE-PROVIDER-CHAIN.md
 NO-RECORD-STREAM-ABSTRACTION,feature,No record stream abstraction,closed,local,,,,P2,XL,core/value;core/commands;lib/value;web,,,,record-streams,,2026-09-19,specs/issues/NO-RECORD-STREAM-ABSTRACTION.md
 NO-RELATIONAL-DATABASE-ACCESS-LAYER,feature,No access layer from Liquers into relational databases,draft,local,,phase2-blocked,not-eligible,P2,XL,lib/value;lib/commands;store/backends,,,,relational-database-access,,2026-09-20,specs/issues/NO-RELATIONAL-DATABASE-ACCESS-LAYER.md
@@ -417,6 +419,7 @@ RECIPE-TREE-CANNOT-BE-EXPORTED-AS-AN-ARCHIVE,feature,"A recipe tree cannot be ex
 RECIPE-TREES-NOT-IN-LANGUAGE-BINDINGS,feature,Python and JavaScript cannot validate or edit a recipe tree,draft,local,,,,P3,M,py;web,,,,,,2026-11-22,specs/issues/RECIPE-TREES-NOT-IN-LANGUAGE-BINDINGS.md
 RECIPE-WITHOUT-FILENAME-SILENTLY-OMITTED-FROM-LISTING,issue,A recipe with no valid filename is silently left out of the recipe listing and lookup,draft,local,,needs-decision,not-eligible,P3,S,core/assets;core/validate,,,,unnamed-recipe-diagnostics,,2026-10-20,specs/issues/RECIPE-WITHOUT-FILENAME-SILENTLY-OMITTED-FROM-LISTING.md
 RECIPES-CANNOT-DESCRIBE-A-SELF-CONTAINED-ASSET-TREE,feature,"A recipes folder cannot be used as a self-contained, editable tree of assets",closed,local,,ready,not-eligible,P2,XL,core/assets;core/store;core/validate,,,,recipe-tree,,2026-11-02,specs/issues/RECIPES-CANNOT-DESCRIBE-A-SELF-CONTAINED-ASSET-TREE.md
+RECIPES-EDITOR-SAVE-AS-HAS-NO-FILE-DIALOG,issue,Save as in the egui recipes panel asks for a typed path instead of a file dialog,draft,local,,,,P3,S,lib/egui,,,,,,2026-11-24,specs/issues/RECIPES-EDITOR-SAVE-AS-HAS-NO-FILE-DIALOG.md
 RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES,issue,Every recipes.yaml read error is treated as an empty recipe list,closed,local,,ready,eligible,P2,S,core/assets,,,,recipes-yaml-read-errors-propagate,,2026-10-20,specs/issues/RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES.md
 RECORD-ACCESSOR-STEPS-HAVE-NO-COMMANDS,feature,"Record rows, columns and cells cannot be projected from a query",draft,local,,,,P3,S,lib/value;records,,,,,,2026-11-16,specs/issues/RECORD-ACCESSOR-STEPS-HAVE-NO-COMMANDS.md
 RECORD-AND-POLARS-COMMANDS-NOT-INTEROPERABLE,feature,"Record and polars commands differ in names and inputs, so a query cannot move between them",closed,local,,ready,not-eligible,P2,L,records,,,,record-filter-commands,,2026-10-11,specs/issues/RECORD-AND-POLARS-COMMANDS-NOT-INTEROPERABLE.md
@@ -593,6 +596,7 @@ WEB-CANCELLATION-INERT,issue,Web cancellation surface exists but does nothing,ac
 WEB-CANNOT-DEFINE-UI-ELEMENTS,feature,A page cannot define a UI element type or a UI backend in JavaScript,closed,local,,ready,not-eligible,P3,L,web;lib/ui,,,,web-ui-define,,2026-10-27,specs/issues/WEB-CANNOT-DEFINE-UI-ELEMENTS.md
 WEB-CANNOT-USE-A-LIQUERS-UI,feature,"A page cannot mount, drive or observe a Liquers UI through liquers-web",closed,local,,ready,not-eligible,P2,L,web;lib/ui,,,,web-ui-use,,2026-10-27,specs/issues/WEB-CANNOT-USE-A-LIQUERS-UI.md
 WEB-CANNOT-USE-PIPELINES,feature,"JavaScript cannot pass, evaluate or register pipelines",closed,local,,ready,not-eligible,P2,L,web,,,,web-pipelines,,2026-11-04,specs/issues/WEB-CANNOT-USE-PIPELINES.md
+WEB-COMMAND-CANNOT-DECLARE-VARIADIC-ARGUMENT,feature,A JavaScript command cannot declare a variadic argument or its shape,draft,local,,,,P3,M,web,,,,,,2026-11-25,specs/issues/WEB-COMMAND-CANNOT-DECLARE-VARIADIC-ARGUMENT.md
 WEB-COMMAND-LOOKUP-IGNORES-NAMESPACE,issue,"describeCommand and unregisterCommand take a bare name, so namespaced commands cannot be addressed",draft,local,,,,P2,S,web,,,,,,2026-10-26,specs/issues/WEB-COMMAND-LOOKUP-IGNORES-NAMESPACE.md
 WEB-COMMAND-NAME-WITH-A-DASH-IS-ACCEPTED,issue,registerCommand accepts a command name that no query can spell,draft,local,,,,P3,S,web;core/commands,,,,,,2026-11-10,specs/issues/WEB-COMMAND-NAME-WITH-A-DASH-IS-ACCEPTED.md
 WEB-DESCRIBE-COMMAND-SHAPE-DIFFERS-FROM-DECLARATION,issue,"describeCommand returns raw CommandMetadata JSON, not the LiquersCommandInfo shape the .d.ts declares",draft,local,,,,P2,S,web,,,,,,2026-10-26,specs/issues/WEB-DESCRIBE-COMMAND-SHAPE-DIFFERS-FROM-DECLARATION.md
@@ -625,6 +629,7 @@ WEB-OUTBOUND-INT64-BEYOND-DOUBLE-UNTESTED,issue,"An i64 beyond 2^53 leaving for 
 WEB-PAGE-CANNOT-PASS-A-PIPELINE-VALUE,feature,A page cannot pass a pipeline to a command as a value,draft,local,,,,P3,S,web,,,,,,2026-11-04,specs/issues/WEB-PAGE-CANNOT-PASS-A-PIPELINE-VALUE.md
 WEB-PIPELINE-EDITOR-HAS-NO-DEFINITION-MODE,feature,"The JavaScript pipeline editors have no command-definition mode, so they refuse placeholders",draft,local,,,,P3,S,web,,,,,,2026-11-04,specs/issues/WEB-PIPELINE-EDITOR-HAS-NO-DEFINITION-MODE.md
 WEB-QUERY-EDITOR-NOT-LIVE,feature,"The browser query console checks and highlights a query only when it re-renders, not while typing",draft,local,,needs-decision,not-eligible,P3,M,lib/ui,,,,web-query-editor-live-preview,,2026-10-21,specs/issues/WEB-QUERY-EDITOR-NOT-LIVE.md
+WEB-RECIPES-EDITOR-CANNOT-DOWNLOAD,feature,The browser recipes panel cannot save or export a value to a local file,draft,local,,,,P3,M,lib/ui,,,,,,2026-11-24,specs/issues/WEB-RECIPES-EDITOR-CANNOT-DOWNLOAD.md
 WEB-RECORD-SOURCE-RESOLVES-THROUGH-SINGLETON,issue,A RecordSource from an explicit Environment streams through the singleton,closed,local,,,,P3,M,web;records,,,,,,2026-10-18,specs/issues/WEB-RECORD-SOURCE-RESOLVES-THROUGH-SINGLETON.md
 WEB-RECORDS-BRIDGE-ONE-WAY-AND-SOURCE-UNMAPPED,feature,The records bridge is one-way and a RecordSource has no JavaScript representation,closed,local,,ready,not-eligible,P2,L,web;records,,,,liquers-web-records-bridge,,2026-10-17,specs/issues/WEB-RECORDS-BRIDGE-ONE-WAY-AND-SOURCE-UNMAPPED.md
 WEB-RECORDS-SINGLE-CELL-VIEW-CROSSES-AS-BATCH,issue,A single-cell RecordView reaches JavaScript as a 1×1 batch instead of a scalar,closed,local,,ready,eligible,P2,S,web;records,,,,web-records-single-cell-scalar,,2026-10-17,specs/issues/WEB-RECORDS-SINGLE-CELL-VIEW-CROSSES-AS-BATCH.md
@@ -704,7 +709,7 @@ COVERED-09,design,Coverage record for COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAP
 COMMAND-REGISTRY-ISSUE-FIELDS,design,Preserve command registry issue identity fields,complete,local,,,,P3,S,core/commands,,,,command-registry-issue-fields,,2026-08-31,specs/design/command-registry-issue-fields/DESIGN.md
 COMMAND-SPECIALIZATION-BY-INPUT-TYPE,design,A generic command dispatches to the variant that accepts its input's type,in_review,local,implementation,needs-decision,not-eligible,P3,L,core/commands;core/plan;lib/commands,,,,command-specialization-by-input-type,,2026-10-26,specs/design/command-specialization-by-input-type/DESIGN.md
 COMPOSITE-COMMAND-DEFINITION,design,"Pipelines - pipeline commands, recipe pipelines and the pipeline as query builder and editor",complete,local,,ready,not-eligible,P2,XL,core/commands;core/plan;core/assets;core/query;core/validate;web,237,,,composite-command-definition,,2026-11-01,specs/design/composite-command-definition/DESIGN.md
-COMPOSITE-VARIADIC-ARGUMENTS,design,Variadic arguments with tuple elements,in_review,local,implementation,needs-decision,not-eligible,P3,L,core/commands;macro;core/plan,,,,composite-variadic-arguments,,2026-10-20,specs/design/composite-variadic-arguments/DESIGN.md
+COMPOSITE-VARIADIC-ARGUMENTS,design,"Complex values as variadic arguments (tuples, dictionaries, JSON values)",in_review,local,implementation,ready,not-eligible,P3,L,core/commands;macro;core/plan;lib/ui;lib/egui,,,,composite-variadic-arguments,,2026-10-20,specs/design/composite-variadic-arguments/DESIGN.md
 COMPUTED-ENUM-ALTERNATIVES,design,Enum alternatives computed at run time by a registered provider,in_review,local,implementation,needs-decision,not-eligible,P3,L,core/commands;core/plan,,,,computed-enum-alternatives,,2026-10-26,specs/design/computed-enum-alternatives/DESIGN.md
 CONFIGURATION-DOCUMENT,design,"One configuration document for every aspect of a host: environment, commands, server, language settings",complete,local,,ready,not-eligible,P3,L,core/context;axum;py,,264,,configuration-document,,2026-11-07,specs/design/configuration-document/DESIGN.md
 CONFIGURATION-ERROR-KIND,design,Classify semantic configuration failures,complete,local,,ready,not-eligible,P3,S,core/error;store/config,,117,,configuration-error-kind,,2026-08-31,specs/design/configuration-error-kind/DESIGN.md
@@ -934,6 +939,7 @@ RECIPE-PROVIDER-CHAIN-CONFIG,design,The recipe provider chain is configured as a
 RECIPE-PROVIDER-LISTING-CONTRACT,design,"Recipe-provider listing contract — listed vs producible keys, folder-cache invalidation, complete deep listings",complete,local,,ready,,P2,S,core/assets;records;axum,,79,,recipe-provider-listing-contract,,2026-10-05,specs/design/recipe-provider-listing-contract/DESIGN.md
 RECIPE-PROVIDER-SELECTION,design,Selecting a recipe provider by name,complete,local,,,,P0,S,core/assets;web,,48,,recipe-provider-selection,,2026-08-29,specs/design/recipe-provider-selection/DESIGN.md
 RECIPE-TREE,design,"Self-contained recipe trees - a recipes folder as one checked, editable tree of assets",complete,local,,ready,not-eligible,P2,XL,core/assets;core/validate;core/commands;macro;lib/ui,,281,,recipe-tree,,2026-11-22,specs/design/recipe-tree/DESIGN.md
+RECIPES-EDITOR,design,"Recipe and recipes editors - a recipe form, a folder outline (list or tree), a dependencies view and a YAML view",complete,local,,,,P3,L,lib/ui;lib/egui;core/value;core/assets,,,,recipes-editor,,2026-11-24,specs/design/recipes-editor/DESIGN.md
 RECIPES-YAML-READ-ERRORS-PROPAGATE,design,"A recipes.yaml that exists but cannot be read is an error, not an empty recipe list",complete,local,,ready,eligible,P2,S,core/assets,,194,,recipes-yaml-read-errors-propagate,,2026-10-26,specs/design/recipes-yaml-read-errors-propagate/DESIGN.md
 RECORD-BATCH-PRIVATE-FIELDS,design,"RecordBatch keeps its validated fields private, and materialized batches carry no placeholder chunk id",in_review,local,implementation,needs-decision,not-eligible,P3,M,records,,,,record-batch-private-fields,,2026-10-21,specs/design/record-batch-private-fields/DESIGN.md
 RECORD-DECIMAL-FIELD-TYPE,design,An exact Decimal record field type carried through every table format and bridge,in_review,local,implementation,needs-decision,not-eligible,P3,L,records;lib/polars;web,,,,record-decimal-field-type,,2026-10-26,specs/design/record-decimal-field-type/DESIGN.md
@@ -1096,7 +1102,7 @@ ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,
 ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,,,core/assets,,,,,2026-10-27,,specs/reference/ASSET_SET_OPERATION.md
 ASSETS,reference,Assets Specification,current,local,,,,,,core/assets,,,,,2026-11-17,,specs/reference/ASSETS.md
 COMMAND_ALIASES,reference,Command Aliases,current,local,,,,,,core/commands;core/plan,,,,,2026-11-04,,specs/reference/COMMAND_ALIASES.md
-COMMAND_DECLARATION,reference,Command Declaration Format,current,local,,,,,,core/commands;web;py,,,,,2026-11-04,,specs/reference/COMMAND_DECLARATION.md
+COMMAND_DECLARATION,reference,Command Declaration Format,current,local,,,,,,core/commands;web;py,,,,,2026-11-25,,specs/reference/COMMAND_DECLARATION.md
 CONFORMANCE_TERMS,reference,Conformance Terms,current,local,,,,,,docs,,,,,2026-09-02,,specs/reference/CONFORMANCE_TERMS.md
 DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,,,core/assets,,,,,2026-11-17,,specs/reference/DEPENDENCIES_STATUS.md
 ENVIRONMENT_CONFIG,reference,Environment Configuration,current,local,,,,,,core/context;core/store;core/assets,,,,,2026-11-15,,specs/reference/ENVIRONMENT_CONFIG.md
@@ -1110,17 +1116,17 @@ POSITIONING,reference,Positioning and Marketing Plan (draft),current,local,,,,,,
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-11-04,,specs/reference/PROJECT_OVERVIEW.md
 PYTHON_INTEGRATION,reference,Python Integration,current,local,,,,,,py;core/value;core/error;lib/value;core/store;store/config;core/assets;lib/ui;lib/egui,,,,,2026-11-19,,specs/reference/PYTHON_INTEGRATION.md
 REALMS,reference,Realms,current,local,,,,,,core/plan;core/commands;store/config,,,,,2026-11-04,,specs/reference/REALMS.md
-RECIPE_TREES,reference,Recipe Trees,current,local,,,,,,core/assets;core/plan;core/commands;core/validate,,,,,2026-11-23,,specs/reference/RECIPE_TREES.md
-RECIPES_AND_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/query;core/assets;core/context,,,,,2026-11-23,,specs/reference/RECIPES_AND_PLANS.md
+RECIPE_TREES,reference,Recipe Trees,current,local,,,,,,core/assets;core/plan;core/commands;core/validate,,,,,2026-11-24,,specs/reference/RECIPE_TREES.md
+RECIPES_AND_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/query;core/assets;core/context,,,,,2026-11-25,,specs/reference/RECIPES_AND_PLANS.md
 RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-11-03,,specs/reference/RECORD_STREAMS.md
-REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,,macro;core/commands,,,,,2026-11-23,,specs/reference/REGISTER_COMMAND_FSD.md
+REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,,macro;core/commands,,,,,2026-11-25,,specs/reference/REGISTER_COMMAND_FSD.md
 SEARCH,reference,Search,current,local,,,,,,records;lib/commands,,,,,2026-10-17,,specs/reference/SEARCH.md
 STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,,store/config,,,,,2026-11-01,,specs/reference/STORE_CONFIG_FSD.md
 STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-27,,specs/reference/STORE_SEMANTICS.md
 TEMPLATE_LANGUAGE,reference,Template Language,current,local,,,,,,core/query;lib/commands,,,,,2026-11-04,,specs/reference/TEMPLATE_LANGUAGE.md
 THEME,reference,UI Themes,current,local,,,,,,lib/ui;lib/egui,,,,,2026-11-24,,specs/reference/THEME.md
 UI_INTERFACE_FSD,reference,UI Interface Specification,current,local,,,,,,lib/ui,,,,,2026-11-24,,specs/reference/UI_INTERFACE_FSD.md
-VALUE_ACCESSORS,reference,Value Accessors,current,local,,,,,,core/value;core/assets;core/query;lib/value;axum;py;web,,,,,2026-11-16,,specs/reference/VALUE_ACCESSORS.md
+VALUE_ACCESSORS,reference,Value Accessors,current,local,,,,,,core/value;core/assets;core/query;lib/value;axum;py;web,,,,,2026-11-24,,specs/reference/VALUE_ACCESSORS.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-11-16,,specs/reference/VALUE_TYPE_SYSTEM.md
 VISION,reference,Liquers Vision and Strategy,current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/VISION.md
 WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,,axum;web,,,,,2026-11-16,,specs/reference/WEB_API_SPECIFICATION.md
@@ -1130,12 +1136,12 @@ ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,curr
 autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_bulk_design.md
 autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_issue_fixing.md
 COMMAND_DESIGN_GUIDE,guide,Command Design Guide,current,local,,,,,,core/commands,,,,,2026-11-04,,specs/guides/COMMAND_DESIGN_GUIDE.md
-COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,core/commands;macro,,,,,2026-11-23,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
+COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,core/commands;macro,,,,,2026-11-25,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 DEPENDENCY_CONSISTENCY_GUIDE,guide,Dependency Consistency Guide,current,local,,,,,,core/assets,,,,,2026-10-08,,specs/guides/DEPENDENCY_CONSISTENCY_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,,core/context;core/assets;core/store,,,,,2026-11-09,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
 GITHUB_ACTIONS_GUIDE,guide,GitHub Actions Guide,current,local,,,,,,build;docs,,,,,2026-11-11,,specs/guides/GITHUB_ACTIONS_GUIDE.md
 JAVASCRIPT_GUIDE,guide,Using Liquers from JavaScript in the browser,current,local,,,,,,web,,,,,2026-11-16,,specs/guides/JAVASCRIPT_GUIDE.md
-LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store;core/value;lib/commands,,,,,2026-11-16,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
+LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store;core/value;lib/commands,,,,,2026-11-25,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 PIPELINE_GUIDE,guide,Pipeline Guide,current,local,,,,,,core/commands;core/plan;core/query;core/validate,,,,,2026-11-04,,specs/guides/PIPELINE_GUIDE.md
 PROJECT_SITE_GUIDE,guide,Project Site Guide,current,local,,,,,,docs;build,,,,,2026-11-10,,specs/guides/PROJECT_SITE_GUIDE.md
 PYTHON_GUIDE,guide,Using Liquers from Python,current,local,,,,,,py,,,,,2026-11-16,,specs/guides/PYTHON_GUIDE.md
@@ -1178,7 +1184,7 @@ rust/01-introduction,chapter,Introduction,ready,local,,,,,,docs,,,,,2026-11-14,,
 rust/02-installing,chapter,Installing and setting up,ready,local,,,,,,docs,,,,,2026-11-10,,docs/guides/rust/02-installing.md
 rust/03-queries,chapter,Queries,ready,local,,,,,,docs,,,,,2026-11-14,,docs/guides/rust/03-queries.md
 rust/04-values,chapter,"Values, state and metadata",ready,local,,,,,,docs,,,,,2026-11-16,,docs/guides/rust/04-values.md
-rust/05-commands,chapter,Commands,ready,local,,,,,,docs,,,,,2026-11-23,,docs/guides/rust/05-commands.md
+rust/05-commands,chapter,Commands,ready,local,,,,,,docs,,,,,2026-11-25,,docs/guides/rust/05-commands.md
 rust/06-stores,chapter,Stores,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/rust/06-stores.md
 rust/07-assets,chapter,"Recipes, assets and caching",ready,local,,,,,,docs,,,,,2026-11-23,,docs/guides/rust/07-assets.md
 rust/08-environment,chapter,The environment,ready,local,,,,,,docs,,,,,2026-11-15,,docs/guides/rust/08-environment.md

@@ -10,7 +10,7 @@
 //!
 //! - [`FieldStep`] and [`ItemStep`]: a field of a mapping, an item of a list.
 //! - [`RecipeStep`]: a recipe of a `recipes.yaml` (a `recipes:` list, or a bare list), as
-//!   `Value::Recipe`.
+//!   `Value::Recipe`; [`RecipeFileStep`] the same by filename, following it through reordering.
 //! - [`QueryFieldStep`] and [`PipelineFieldStep`]: a recipe's query or pipeline.
 //! - [`ActionStep`]: one action of a query or pipeline, as a one-element pipeline (element 0 is
 //!   the resource of a query that has one).
@@ -19,7 +19,7 @@
 //! # Where it is used
 //!
 //! - [`super::ValueAccessor::project`] takes any of these; the `acc` commands of `liquers-lib`
-//!   (`acc/recipe`, `acc/query`, `acc/action`, `acc/argument`, `acc/field`, `acc/item`) build them.
+//!   (`acc/recipe`, `acc/recipe_file`, `acc/query`, `acc/action`, `acc/argument`, `acc/field`, `acc/item`) build them.
 //!
 //! # Related concepts
 //!
@@ -308,6 +308,78 @@ impl<V: ValueInterface> ProjectionStep<V> for RecipeStep {
             }
             None => None,
         })
+    }
+    fn describe(&self, _parent: &V) -> Result<PartDescription, Error> {
+        Ok(describe(ProjectionStep::<V>::name(self)))
+    }
+    fn overridden_arguments(&self, part: &V) -> Vec<String> {
+        recipe_of(part).map(|r| recipe_overrides(&r)).unwrap_or_default()
+    }
+}
+
+/// A recipe of a recipe list by its filename (`wheel.glb`), as `Value::Recipe`, wherever it
+/// sits in the list: it follows the recipe when others are added, removed or reordered. Setting
+/// a recipe with another filename is refused, because a rename must rewrite the folder's
+/// references (`crate::recipe_tree::TreeEditor::rename`).
+#[derive(Debug, Clone)]
+pub struct RecipeFileStep(pub String);
+
+impl RecipeFileStep {
+    /// The position and the recipe with this filename, if any.
+    fn find(&self, tree: &Yaml) -> Result<Option<(usize, Recipe)>, Error> {
+        let Some(list) = recipes(tree) else {
+            return Ok(None);
+        };
+        for (index, item) in list.iter().enumerate() {
+            // An item that is not a recipe, or has no filename, is not this one.
+            let Ok(recipe) = serde_yaml::from_value::<Recipe>(item.clone()) else {
+                continue;
+            };
+            if let Ok(Some(name)) = recipe.filename() {
+                if name.name == self.0 {
+                    return Ok(Some((index, recipe)));
+                }
+            }
+        }
+        Ok(None)
+    }
+}
+
+impl<V: ValueInterface> ProjectionStep<V> for RecipeFileStep {
+    fn name(&self) -> Cow<'_, str> {
+        Cow::Owned(format!("recipe_file-{}", self.0))
+    }
+    fn get(&self, parent: &V) -> Result<Option<V>, Error> {
+        let (tree, _) = read_doc(parent)?;
+        Ok(self.find(&tree)?.map(|(_, recipe)| V::from_recipe(recipe)))
+    }
+    fn put(&self, parent: &V, part: V) -> Result<V, Error> {
+        let recipe = recipe_of(&part)?;
+        let filename = recipe.filename()?.map(|n| n.name);
+        if filename.as_deref() != Some(self.0.as_str()) {
+            return Err(Error::general_error(format!(
+                "the recipe '{}' cannot be given the filename {}; rename it in the recipes editor, which rewrites the references",
+                self.0,
+                filename.map(|f| format!("'{f}'")).unwrap_or_else(|| "none".to_owned())
+            )));
+        }
+        let (mut tree, repr) = read_doc(parent)?;
+        let Some((index, _)) = self.find(&tree)? else {
+            return Err(Error::general_error(format!("there is no recipe '{}' to set", self.0)));
+        };
+        match recipes_mut(&mut tree).and_then(|l| l.get_mut(index)) {
+            Some(slot) => *slot = serde_yaml::to_value(&recipe).map_err(yaml_error)?,
+            None => {
+                return Err(Error::general_error(format!("there is no recipe '{}' to set", self.0)))
+            }
+        }
+        write_doc(&tree, repr)
+    }
+    fn anchor(&self, parent: &V) -> Result<Option<u64>, Error> {
+        let (tree, _) = read_doc(parent)?;
+        Ok(self
+            .find(&tree)?
+            .map(|_| stable_hash(&[b"recipe_file", self.0.as_bytes()])))
     }
     fn describe(&self, _parent: &V) -> Result<PartDescription, Error> {
         Ok(describe(ProjectionStep::<V>::name(self)))
@@ -624,5 +696,51 @@ mod tests {
         assert!(looks_like_json(&edited.try_into_string().unwrap()));
         assert_eq!(field.get(&json).unwrap().unwrap().try_into_json_value().unwrap(), serde_json::json!([1, 2]));
         assert!(field.get(&Value::from("b: 1\n")).unwrap().is_none());
+    }
+
+    fn recipe_file(file: &str) -> Arc<dyn ProjectionStep<Value>> {
+        Arc::new(RecipeFileStep(file.to_owned()))
+    }
+
+    fn title_of(value: &Value) -> String {
+        recipe_of(value).unwrap().title
+    }
+
+    #[test]
+    fn recipe_file_step_reads_and_writes_by_filename() {
+        let doc = Value::from("recipes:\n- {query: a.txt, title: A}\n- {query: \"-R/./a.txt/-/b.txt\", title: B}\n");
+        let step = recipe_file("b.txt");
+        let b = step.get(&doc).unwrap().unwrap();
+        assert_eq!(title_of(&b), "B");
+        let mut recipe = recipe_of(&b).unwrap();
+        recipe.title = "Bee".to_owned();
+        let edited = step.put(&doc, Value::from_recipe(recipe)).unwrap();
+        assert_eq!(title_of(&step.get(&edited).unwrap().unwrap()), "Bee");
+        assert_eq!(title_of(&recipe_file("a.txt").get(&edited).unwrap().unwrap()), "A");
+        assert!(recipe_file("c.txt").get(&doc).unwrap().is_none());
+        assert_eq!(step.name(), "recipe_file-b.txt");
+    }
+
+    #[test]
+    fn recipe_file_step_follows_reordering() {
+        let doc = Value::from("recipes:\n- {query: a.txt, title: A}\n- {query: b.txt, title: B}\n");
+        let reordered = Value::from("recipes:\n- {query: c.txt, title: C}\n- {query: b.txt, title: B}\n- {query: a.txt, title: A}\n");
+        let step = recipe_file("a.txt");
+        assert_eq!(title_of(&step.get(&doc).unwrap().unwrap()), "A");
+        assert_eq!(title_of(&step.get(&reordered).unwrap().unwrap()), "A");
+        // The anchor names the file, not its position, so a binding survives the move.
+        assert_eq!(step.anchor(&doc).unwrap(), step.anchor(&reordered).unwrap());
+    }
+
+    #[test]
+    fn recipe_file_step_refuses_a_filename_change() {
+        let doc = Value::from("recipes:\n- {query: a.txt, title: A}\n");
+        let step = recipe_file("a.txt");
+        let mut recipe = recipe_of(&step.get(&doc).unwrap().unwrap()).unwrap();
+        recipe.query = "z.txt".to_owned();
+        let error = step.put(&doc, Value::from_recipe(recipe)).unwrap_err();
+        assert!(error.to_string().contains("rename"), "{error}");
+        let missing = recipe_file("q.txt").put(&doc, Value::from_recipe(Recipe::new("q.txt".into(), String::new(), String::new()).unwrap()));
+        assert!(missing.is_err());
     }
 }

@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use liquers_core::command_metadata::{
-    ArgumentType, CommandKey, CommandMetadata, CommandMetadataRegistry, CommandParameterValue,
+    ArgumentType, CommandKey, CommandMetadata, CommandMetadataRegistry, CommandParameterValue, VariadicShape,
 };
 use liquers_core::assets::AssetManager;
 use liquers_core::context::{EnvRef, Environment};
@@ -216,7 +216,15 @@ impl ToolRegistry {
                     };
                     let mut kind = type_name(&argument.argument_type);
                     if argument.multiple {
-                        kind = format!("{kind}…");
+                        kind = match &argument.shape {
+                            VariadicShape::List => format!("{kind}…"),
+                            VariadicShape::Tuples(components) => format!(
+                                "({})…",
+                                components.iter().map(type_name).collect::<Vec<_>>().join(", ")
+                            ),
+                            VariadicShape::Map => format!("key {kind}…"),
+                            VariadicShape::Json => "JSON value".to_string(),
+                        };
                     }
                     text.push_str(&format!(
                         "| `{}` | {} | {} | {} |\n",

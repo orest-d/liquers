@@ -354,6 +354,39 @@ impl ArgumentInfo {
         self.0.multiple
     }
 
+    /// How the parameters of a `multiple` argument form its value: `"list"` (one value each),
+    /// `"tuples"`, `"map"` (key and value pairs) or `"json"` (a JSON value).
+    #[getter]
+    fn shape(&self) -> &'static str {
+        self.0.shape.name()
+    }
+
+    /// The type of each component of a `"tuples"` shape, named as `argument_type` names them;
+    /// empty for any other shape.
+    #[getter]
+    fn shape_components(&self) -> PyResult<Vec<String>> {
+        let components = match &self.0.shape {
+            liquers_core::command_metadata::VariadicShape::Tuples(components) => components.as_slice(),
+            liquers_core::command_metadata::VariadicShape::List
+            | liquers_core::command_metadata::VariadicShape::Map
+            | liquers_core::command_metadata::VariadicShape::Json => &[],
+        };
+        components
+            .iter()
+            .map(|component| match serde_json::to_value(component) {
+                Ok(serde_json::Value::String(name)) => Ok(name),
+                Ok(other) => Ok(other.to_string()),
+                Err(e) => Err(serialization_pyerr(e)),
+            })
+            .collect()
+    }
+
+    /// The names of a tuple's components, for column headers; may be empty.
+    #[getter]
+    fn columns(&self) -> Vec<String> {
+        self.0.columns.clone()
+    }
+
     fn __repr__(&self) -> String {
         format!("{:?}", self.0)
     }

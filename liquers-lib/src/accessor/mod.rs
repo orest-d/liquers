@@ -9,11 +9,11 @@
 //!
 //! # Main components
 //!
-//! - [`register_accessor_commands!`](crate::register_accessor_commands): registers the ten
+//! - [`register_accessor_commands!`](crate::register_accessor_commands): registers the eleven
 //!   commands in namespace `acc`.
 //! - Roots: [`accessor`] (a keyed asset: a set is an `Override` with a recipe, a `Source` without)
 //!   and [`store`] (the stored data, view `binary`, `metadata` or `value`).
-//! - Projections: [`recipe`], [`query`], [`pipeline`], [`action`], [`argument`], [`field`],
+//! - Projections: [`recipe`], [`recipe_file`], [`query`], [`pipeline`], [`action`], [`argument`], [`field`],
 //!   [`item`].
 //! - [`get`] (volatile): the accessor's current value.
 //!
@@ -56,7 +56,8 @@
 use std::sync::Arc;
 
 use liquers_core::accessor::steps::{
-    ActionStep, ArgumentStep, FieldStep, ItemStep, PipelineFieldStep, QueryFieldStep, RecipeStep,
+    ActionStep, ArgumentStep, FieldStep, ItemStep, PipelineFieldStep, QueryFieldStep, RecipeFileStep,
+    RecipeStep,
 };
 use liquers_core::accessor::{
     key_accessor, store_accessor, InvalidationSink, ProjectionStep, StoreView, ValueAccessor,
@@ -145,6 +146,16 @@ pub async fn recipe<E: Environment<Value = Value>>(
     project(state, Arc::new(RecipeStep(index)), &context).await
 }
 
+/// The recipe with filename `filename` of the recipe list the state accessor reads, wherever it
+/// sits in the list.
+pub async fn recipe_file<E: Environment<Value = Value>>(
+    state: State<Value>,
+    filename: String,
+    context: Context<E>,
+) -> Result<Value, Error> {
+    project(state, Arc::new(RecipeFileStep(filename)), &context).await
+}
+
 /// The query of the recipe the state accessor reads.
 pub async fn query<E: Environment<Value = Value>>(
     state: State<Value>,
@@ -231,6 +242,12 @@ macro_rules! register_accessor_commands {
             namespace: "acc"
             label: "Recipe"
             doc: "The accessor of one recipe of the recipe list the state accessor reads"
+        )?;
+        register_command!($cr,
+            async fn recipe_file(state, filename: String, context) -> result
+            namespace: "acc"
+            label: "Recipe by filename"
+            doc: "The accessor of the recipe with this filename in the recipe list the state accessor reads, wherever it sits in the list"
         )?;
         register_command!($cr,
             async fn query(state, context) -> result

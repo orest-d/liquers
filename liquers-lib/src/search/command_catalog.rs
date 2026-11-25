@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use liquers_core::command_metadata::{
-    ArgumentInfo, CommandKey, CommandMetadata, CommandParameterValue,
+    ArgumentInfo, CommandKey, CommandMetadata, CommandParameterValue, VariadicShape,
 };
 use liquers_core::context::{Context, Environment};
 use liquers_core::error::Error;
@@ -39,7 +39,21 @@ fn default_text(default: &CommandParameterValue) -> Option<String> {
 fn argument_text(argument: &ArgumentInfo) -> String {
     let mut out = format!("{}: {}", argument.name, type_name(&argument.argument_type));
     if argument.multiple {
-        out.push_str("...");
+        // The shape says how the remaining parameters group: pairs, a dictionary, a JSON value.
+        out = match &argument.shape {
+            VariadicShape::List => format!("{out}..."),
+            VariadicShape::Tuples(components) => format!(
+                "{}: ({})...",
+                argument.name,
+                components.iter().map(type_name).collect::<Vec<_>>().join(", ")
+            ),
+            VariadicShape::Map => format!(
+                "{}: {{String: {}}}...",
+                argument.name,
+                type_name(&argument.argument_type)
+            ),
+            VariadicShape::Json => format!("{}: JSON...", argument.name),
+        };
     } else if let Some(default) = default_text(&argument.default) {
         out.push_str(" = ");
         out.push_str(&default);

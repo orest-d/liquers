@@ -485,6 +485,20 @@ where
                 } => {
                     Box::pin(self.handle_rename_data(handle, folder, *editor, app_state)).await;
                 }
+                AppMessage::Evaluate { query } => {
+                    // Started, not awaited: the panel follows the asset's status.
+                    if let Err(e) = self.envref.evaluate(&query).await {
+                        eprintln!("Evaluating {query} failed: {e}");
+                    }
+                }
+                AppMessage::SaveAs {
+                    handle,
+                    query,
+                    format,
+                    path,
+                } => {
+                    Box::pin(self.handle_save_as(handle, query, format, path, app_state)).await;
+                }
                 AppMessage::RequestAssetUpdates { handle, query } => {
                     self.handle_request_asset_updates(handle, query, app_state)
                         .await;
@@ -877,29 +891,43 @@ where
             .await
             .ok()?;
         let recipes: liquers_core::recipes::RecipeList = serde_yaml::from_slice(&bytes).ok()?;
-        let listing = self
+        let infos = self
             .envref
             .get_asset_manager()
             .listdir_asset_info(&key)
             .await
-            .ok()
-            .map(|infos| {
-                infos
-                    .into_iter()
-                    .filter(|info| !info.is_dir)
-                    .filter_map(|info| {
-                        info.filename
-                            .clone()
-                            .filter(|f| !f.is_empty())
-                            .or_else(|| info.key.as_ref().and_then(|k| k.filename().map(|f| f.to_string())))
-                    })
-                    .collect()
-            });
-        Some(crate::ui::editor::NodeContext {
-            folder: folder.to_owned(),
-            recipes,
-            listing,
-        })
+            .ok();
+        let mut context = crate::ui::editor::NodeContext::new(folder, recipes, None);
+        if let Some(infos) = infos {
+            let registry = self.envref.get_type_registry();
+            let mut listing = Vec::new();
+            for info in infos.into_iter().filter(|info| !info.is_dir) {
+                let Some(name) = info
+                    .filename
+                    .clone()
+                    .filter(|f| !f.is_empty())
+                    .or_else(|| info.key.as_ref().and_then(|k| k.filename().map(|f| f.to_string())))
+                else {
+                    continue;
+                };
+                // The formats a value of this type can be written in (Export, design
+                // `recipes-editor`); unknown before the asset has a type.
+                if let Some(type_info) = registry.get(&info.type_identifier) {
+                    let formats: Vec<String> = type_info
+                        .supported_data_formats
+                        .iter()
+                        .map(|f| f.to_string())
+                        .collect();
+                    if !formats.is_empty() {
+                        context.formats.insert(name.clone(), formats);
+                    }
+                }
+                listing.push(name.clone());
+                context.assets.insert(name, info);
+            }
+            context.listing = Some(listing);
+        }
+        Some(context)
     }
 
     /// Handle `AppMessage::RenameData`: saves the renamed tree (stored files, then
@@ -921,6 +949,59 @@ where
             Err(e) => eprintln!("Renaming a node of {folder} failed: {e}"),
         }
         self.handle_node_context(handle, folder, app_state).await;
+    }
+
+    /// Handle `AppMessage::SaveAs`: evaluate `query`, serialize it and write it to the local
+    /// file `path`, then send the folder's context with the outcome as its notice.
+    async fn handle_save_as(
+        &mut self,
+        handle: UIHandle,
+        query: String,
+        format: Option<String>,
+        path: String,
+        app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
+    ) {
+        let notice = match self.save_as(&query, format.as_deref(), &path).await {
+            Ok(size) => format!("Saved {size} bytes to {path}"),
+            Err(e) => format!("Saving to {path} failed: {e}"),
+        };
+        let folder = save_as_folder(&query);
+        let mut context = self
+            .node_context(&folder)
+            .await
+            .unwrap_or_else(|| crate::ui::editor::NodeContext::new(&folder, Default::default(), None));
+        context.notice = Some(notice);
+        let _ = Self::deliver_update(
+            handle,
+            UpdateMessage::NodeContext(context),
+            app_state,
+            &self.context_parts(),
+        )
+        .await;
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn save_as(&self, query: &str, format: Option<&str>, path: &str) -> Result<usize, Error> {
+        use liquers_core::value::DefaultValueSerializer;
+        let asset = self.envref.evaluate(query).await?;
+        let bytes: Vec<u8> = match format.filter(|f| !f.is_empty()) {
+            Some(format) => {
+                let state = asset.get().await?;
+                state.data_unchecked().as_bytes(format)?
+            }
+            None => asset.get_binary().await?.0.as_ref().clone(),
+        };
+        tokio::fs::write(path, &bytes)
+            .await
+            .map_err(|e| Error::general_error(format!("cannot write {path}: {e}")))?;
+        Ok(bytes.len())
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    async fn save_as(&self, _query: &str, _format: Option<&str>, _path: &str) -> Result<usize, Error> {
+        Err(Error::general_error(
+            "Save as writes a local file, which a browser cannot do here".to_owned(),
+        ))
     }
 
     /// Handle `AppMessage::ListDirectory`: the asset manager's listing of `folder` (recipe keys
@@ -1425,4 +1506,13 @@ pub enum ElementStatusInfo {
     Ready,
     /// Node not found or other error.
     Error,
+}
+
+/// The folder of a Save as query `-R/<folder>/<file>`: its key without the last segment.
+fn save_as_folder(query: &str) -> String {
+    let key = query.strip_prefix("-R/").unwrap_or(query);
+    match key.rsplit_once('/') {
+        Some((folder, _)) => folder.to_owned(),
+        None => String::new(),
+    }
 }

@@ -46,12 +46,12 @@
 //! ```
 
 use base64::Engine;
-use liquers_core::command_metadata::ArgumentGUIInfo;
+use liquers_core::command_metadata::{ArgumentGUIInfo, VariadicShape};
 
 use super::html::{escape_html, event_attr, field_attr};
 use crate::ui::editor::{
     editor_layout, event_name, field_id, form_rows, header_parts, toolbar_items, CardGroupKind, EditorField,
-    EditorMode, EditorNode, EditorTree, FieldValue, HeaderPart, NodePath, StepChip, ToolItem, UpdateMode, RESOURCE_HEADERS,
+    EditorMode, EditorNode, EditorTree, FieldValue, HeaderPart, JsonForm, NodePath, StepChip, ToolItem, UpdateMode, RESOURCE_HEADERS,
 };
 use crate::ui::event::UIEventKind;
 use crate::ui::theme::{Density, IconSource, IconVariant, ResolvedIcon, Theme, PHOSPHOR};
@@ -106,6 +106,9 @@ pub const EDITOR_CSS: &str = r#"
 .lq-status-bar{display:flex;gap:8px;align-items:center;color:var(--lq-ink-muted);font-size:var(--lq-size-small);padding:2px 4px}
 .lq-value-stale{opacity:.45;filter:blur(.5px)}
 .lq-value-preview{outline:2px solid var(--lq-preview);outline-offset:2px}
+.lq-ed-rows{border-collapse:collapse}
+.lq-ed-rows th{font-weight:normal;font-size:var(--lq-size-small);color:var(--lq-ink-muted);text-align:left;padding:0 4px}
+.lq-ed-rows td{padding:1px 4px 1px 0}
 "#;
 
 fn button(label: &str, verb: &str, path: &NodePath, rest: &str, title: &str) -> String {
@@ -948,7 +951,129 @@ fn input_html(field: &EditorField, name: &str, text: &str) -> String {
     }
 }
 
+/// The field of one cell of a shaped argument: `field` with the widget of its component.
+fn cell_field(field: &EditorField, widget: Option<&ArgumentGUIInfo>) -> EditorField {
+    let mut cell = field.clone();
+    cell.default_text = None;
+    cell.widget = widget.cloned().unwrap_or_else(|| liquers_core::command_metadata::DEFAULT_GUI.clone());
+    cell
+}
+
+/// A text box of the add form of a shaped argument: `n:<path>:<arg>:<component>`.
+fn new_cell_html(path: &NodePath, field: &EditorField, component: usize, hint: &str) -> String {
+    format!(
+        "<input type=\"text\" size=\"8\" placeholder=\"{}\"{}>",
+        escape_html(hint),
+        field_attr(&format!("n:{}:{}:{component}", path.id(), field.name))
+    )
+}
+
+/// The elements of a list of tuples or of a dictionary as a table, one element per row (design
+/// `composite-variadic-arguments`, AC-13): a row is added, removed and moved whole. A key is
+/// fixed once written; the add form takes every component, so no partial element is written.
+fn rows_html(
+    h: &mut String,
+    path: &NodePath,
+    field: &EditorField,
+    texts: &[String],
+    headers: &[(String, Option<ArgumentGUIInfo>)],
+    key_fixed: bool,
+) {
+    let arity = headers.len().max(1);
+    let rows = texts.len() / arity;
+    h.push_str("<table class=\"lq-ed-rows\"><tr>");
+    for (label, _) in headers {
+        h.push_str(&format!("<th>{}</th>", escape_html(label)));
+    }
+    h.push_str("<th></th></tr>");
+    for r in 0..rows {
+        h.push_str("<tr>");
+        for (c, (_, widget)) in headers.iter().enumerate() {
+            let k = r * arity + c;
+            if key_fixed && c == 0 {
+                h.push_str(&format!("<td><code>{}</code></td>", escape_html(&texts[k])));
+            } else {
+                let name = field_id(path, &field.name, Some(k));
+                h.push_str(&format!(
+                    "<td>{}</td>",
+                    input_html(&cell_field(field, widget.as_ref()), &name, &texts[k])
+                ));
+            }
+        }
+        let at = format!("{}:{r}", field.name);
+        h.push_str("<td>");
+        if !key_fixed {
+            h.push_str(&button("↑", "rowup", path, &at, "Earlier"));
+            h.push_str(&button("↓", "rowdown", path, &at, "Later"));
+        }
+        h.push_str(&button("✕", "delrow", path, &at, "Remove"));
+        h.push_str("</td></tr>");
+    }
+    h.push_str("<tr class=\"lq-ed-newrow\">");
+    for (c, (label, _)) in headers.iter().enumerate() {
+        h.push_str(&format!("<td>{}</td>", new_cell_html(path, field, c, label)));
+    }
+    h.push_str(&format!(
+        "<td>{}</td></tr></table>",
+        button("+", "addrow", path, &format!("{}:{rows}", field.name), "Add")
+    ));
+}
+
+/// A JSON value argument: the chooser of its form, then the editor of that form. The leading
+/// empty item that marks a list is never shown.
+fn json_value_html(h: &mut String, path: &NodePath, field: &EditorField, texts: &[String]) {
+    let form = JsonForm::of(texts);
+    let name = format!("jf:{}:{}", path.id(), field.name);
+    h.push_str(&format!("<select{}{}>", field_attr(&name), change(&name)));
+    for option in JsonForm::ALL {
+        h.push_str(&format!(
+            "<option value=\"{0}\"{1}>{0}</option>",
+            option.label(),
+            if option == form { " selected" } else { "" }
+        ));
+    }
+    h.push_str("</select>");
+    let plain = cell_field(field, None);
+    match form {
+        JsonForm::Null => {}
+        JsonForm::Scalar => {
+            h.push_str(&input_html(&plain, &field_id(path, &field.name, Some(0)), &texts[0]));
+        }
+        JsonForm::List => {
+            for (k, text) in texts.iter().enumerate().skip(1) {
+                h.push_str(&input_html(&plain, &field_id(path, &field.name, Some(k)), text));
+                h.push_str(&button("✕", "delitem", path, &format!("{}:{k}", field.name), "Remove"));
+            }
+            h.push_str(&new_cell_html(path, field, 0, "+"));
+            h.push_str(&button("+", "addentry", path, &format!("{}:{}", field.name, texts.len()), "Append an entry"));
+        }
+        JsonForm::Dictionary => {
+            let headers = [("key".to_string(), None), ("value".to_string(), None)];
+            rows_html(h, path, field, texts, &headers, true);
+        }
+    }
+}
+
 fn items_html(h: &mut String, path: &NodePath, field: &EditorField, items: &[FieldValue]) {
+    // A shaped argument shows its elements; items that are not all literals (a link among
+    // them) stay the flat list, which edits each one correctly.
+    let texts: Vec<String> = field.item_texts().into_iter().flatten().collect();
+    if texts.len() == items.len() {
+        match &field.shape {
+            VariadicShape::Tuples(_) | VariadicShape::Map
+                if texts.len() % field.components.len().max(1) == 0 =>
+            {
+                let headers: Vec<(String, Option<ArgumentGUIInfo>)> = field
+                    .components
+                    .iter()
+                    .map(|c| (c.label.clone(), Some(c.widget.clone())))
+                    .collect();
+                return rows_html(h, path, field, &texts, &headers, field.shape == VariadicShape::Map);
+            }
+            VariadicShape::Json => return json_value_html(h, path, field, &texts),
+            VariadicShape::List | VariadicShape::Tuples(_) | VariadicShape::Map => {}
+        }
+    }
     for (k, item) in items.iter().enumerate() {
         let name = field_id(path, &field.name, Some(k));
         match item {
@@ -992,6 +1117,110 @@ mod tests {
         let q = liquers_core::parse::parse_query("-R/a.csv/-/ns-pl/is_in-region-EU/sort").expect("query");
         state.on_snapshot(&Value::from_query(&q), None).expect("snapshot");
         state
+    }
+
+    fn shaped_state(query: &str) -> EditorState {
+        use liquers_core::command_metadata::{ArgumentType, VariadicShape};
+        let mut cmr = CommandMetadataRegistry::new();
+        let mut weights = CommandMetadata::new("weights");
+        weights.with_argument(
+            ArgumentInfo::any_argument("pairs")
+                .set_multiple()
+                .with_shape(VariadicShape::Tuples(vec![ArgumentType::String, ArgumentType::Integer]))
+                .with_columns(&["Name", "Weight"]),
+        );
+        cmr.add_command(&weights);
+        let mut place = CommandMetadata::new("place");
+        place.with_argument(ArgumentInfo::any_argument("layout").set_multiple().with_shape(VariadicShape::Map));
+        cmr.add_command(&place);
+        let mut set_data = CommandMetadata::new("set_data");
+        set_data.with_argument(ArgumentInfo::any_argument("data").set_multiple().with_shape(VariadicShape::Json));
+        cmr.add_command(&set_data);
+        let mut state = EditorState::new(EditorKind::Query, Arc::new(cmr));
+        let q = liquers_core::parse::parse_query(query).expect("query");
+        state.on_snapshot(&Value::from_query(&q), None).expect("snapshot");
+        state
+    }
+
+    fn shaped_html(state: &EditorState) -> String {
+        editor_html(state.tree(), "Editor", EditorMode::Advanced, Density::Comfortable, &Theme::builtin())
+    }
+
+    /// composite-variadic-arguments AC-13, AC-14: tuples and dictionaries are tables of whole
+    /// rows; the events of a row decode to the row commands.
+    #[test]
+    fn shaped_rows_in_html_and_events() {
+        let mut state = shaped_state("weights-a-1-b-2");
+        let html = shaped_html(&state);
+        assert!(html.contains("<th>Name</th><th>Weight</th>"), "{html}");
+        assert!(html.contains("data-lq-field=\"f:0:pairs:3\""), "{html}");
+        assert!(html.contains("type=\"number\""), "an integer cell: {html}");
+        assert!(html.contains("data-lq-event=\"ed:delrow:0:pairs:1\""), "{html}");
+        assert!(html.contains("data-lq-field=\"n:0:pairs:1\""), "{html}");
+        assert!(html.contains("data-lq-event=\"ed:addrow:0:pairs:2\""), "{html}");
+        assert!(!html.contains("ed:additem"), "no single-item add for tuples: {html}");
+
+        let tree = state.tree().clone();
+        let add = UIEvent::new(UIEventKind::Named("ed:addrow:0:pairs:2".into()))
+            .with_field("n:0:pairs:0", Value::from("c".to_string()))
+            .with_field("n:0:pairs:1", Value::from("3".to_string()));
+        for command in EditorView::from_ui_event(&add, &tree) {
+            state.apply(command).expect("apply");
+        }
+        assert_eq!(state.tree().text, "weights-a-1-b-2-c-3");
+        let tree = state.tree().clone();
+        let up = UIEvent::new(UIEventKind::Named("ed:rowup:0:pairs:2".into()));
+        for command in EditorView::from_ui_event(&up, &tree) {
+            state.apply(command).expect("apply");
+        }
+        assert_eq!(state.tree().text, "weights-a-1-c-3-b-2");
+
+        // A dictionary: the key is text, not a field, and a pair has no move buttons.
+        let state = shaped_state("place-row-0");
+        let html = shaped_html(&state);
+        assert!(html.contains("<th>key</th><th>value</th>"), "{html}");
+        assert!(html.contains("<code>row</code>"), "{html}");
+        assert!(!html.contains("data-lq-field=\"f:0:layout:0\""), "{html}");
+        assert!(html.contains("data-lq-field=\"f:0:layout:1\""), "{html}");
+        assert!(!html.contains("ed:rowup"), "{html}");
+    }
+
+    /// composite-variadic-arguments AC-13: a JSON value has a form chooser, and choosing a form
+    /// rewrites its items.
+    #[test]
+    fn shaped_json_value_in_html_and_events() {
+        let mut state = shaped_state("set_data--1-a");
+        let html = shaped_html(&state);
+        assert!(html.contains("<select data-lq-field=\"jf:0:data\""), "{html}");
+        assert!(html.contains("<option value=\"list\" selected>"), "{html}");
+        assert!(!html.contains("data-lq-field=\"f:0:data:0\""), "the list marker is hidden: {html}");
+        assert!(html.contains("data-lq-field=\"f:0:data:1\""), "{html}");
+        assert!(html.contains("data-lq-event=\"ed:addentry:0:data:3\""), "{html}");
+
+        let tree = state.tree().clone();
+        let add = UIEvent::new(UIEventKind::Named("ed:addentry:0:data:3".into()))
+            .with_field("n:0:data:0", Value::from("b".to_string()));
+        for command in EditorView::from_ui_event(&add, &tree) {
+            state.apply(command).expect("apply");
+        }
+        assert_eq!(state.tree().text, "set_data--1-a-b");
+
+        let tree = state.tree().clone();
+        let choose = UIEvent::new(UIEventKind::Change("jf:0:data".into()))
+            .with_field("jf:0:data", Value::from("dictionary".to_string()));
+        for command in EditorView::from_ui_event(&choose, &tree) {
+            state.apply(command).expect("apply");
+        }
+        assert_eq!(state.tree().text, "set_data-key1-1-key2-a-key3-b");
+        let html = shaped_html(&state);
+        assert!(html.contains("<code>key2</code>"), "{html}");
+        assert!(html.contains("data-lq-event=\"ed:delrow:0:data:1\""), "{html}");
+        let tree = state.tree().clone();
+        let delete = UIEvent::new(UIEventKind::Named("ed:delrow:0:data:1".into()));
+        for command in EditorView::from_ui_event(&delete, &tree) {
+            state.apply(command).expect("apply");
+        }
+        assert_eq!(state.tree().text, "set_data-key1-1-key3-b");
     }
 
     /// query-pipeline-editor AC-11, AC-3: fields, events and hover text are in the markup.

@@ -21,6 +21,11 @@
 //! - [`EditorTree`] and [`EditorNode`]: what the renderers draw — the query text, resource,
 //!   `ns`, action, directive and subtree nodes, each action's [`EditorField`]s with the widget
 //!   [`effective_gui`] picks, the command picker ([`command_catalog`]) and the file selector.
+//!   A variadic argument with a shape (`VariadicShape`: tuples, a dictionary, a JSON value) keeps
+//!   its flat item list and adds [`EditorField::shape`] and [`ComponentField`]s; its structure
+//!   is edited with whole rows ([`EditorCommand::InsertRow`], `RemoveRow`, `MoveRow`) or replaced
+//!   at once ([`EditorCommand::SetItems`], a JSON value changing its [`JsonForm`]), so the query
+//!   never holds part of an element.
 //! - [`EditorView`]: what is being typed between frames, and the decoding of browser events.
 //! - [`NodeContext`] and [`recipe_folder`]: an editor bound to a recipe of a `recipes.yaml` asks
 //!   the runner for the folder's recipes and listing (`AppMessage::NodeContext`); its Node
@@ -94,10 +99,10 @@ pub use layout::{
 };
 pub use state::{EditorKind, EditorState, UpdateMode};
 pub use tree::{
-    default_text, effective_gui, is_numeric, json_text, scale_numeric, Browser, CatalogCommand,
-    CatalogNamespace, Confirmation, DirectoryEntry, DirectoryListing, EditorField, EditorNode,
-    EditorTree, FieldValue, NodeContext, NodePath, PathStep, Picker, PresetEntry, SpanTarget, TextSpan,
-    RESOURCE_HEADERS,
+    default_text, effective_gui, is_numeric, item_type, json_text, scale_numeric, shape_components,
+    Browser, CatalogCommand, CatalogNamespace, ComponentField, Confirmation, DirectoryEntry,
+    DirectoryListing, EditorField, EditorNode, EditorTree, FieldValue, JsonForm, NodeContext,
+    NodePath, PathStep, Picker, PresetEntry, SpanTarget, TextSpan, RESOURCE_HEADERS,
 };
 pub use view::{event_name, field_id, find_node, open_card, CardMenu, EditorView, FocusTarget};
 

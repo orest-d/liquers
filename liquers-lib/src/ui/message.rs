@@ -122,6 +122,20 @@ pub enum AppMessage {
         folder: String,
         editor: Box<liquers_core::recipe_tree::TreeEditor>,
     },
+    /// Start evaluating `query` without waiting for it (a recipes editor's Evaluate, design
+    /// `recipes-editor`). Its progress shows in the asset's status, read with the folder's
+    /// context.
+    Evaluate { query: String },
+    /// Evaluate `query`, serialize it in `format` (its own data format when `None`) and write the
+    /// bytes to the local file `path`, not to the store (design `recipes-editor`, AC-19). The
+    /// outcome comes back to `handle` as the `notice` of an `UpdateMessage::NodeContext` of the
+    /// folder of `query`. Native only: in a browser it is refused with a notice.
+    SaveAs {
+        handle: UIHandle,
+        query: String,
+        format: Option<String>,
+        path: String,
+    },
     /// Load the icon image at store key or query `key` into the context's icon cache (AC-17).
     LoadIcon { key: String },
     /// Request application quit.

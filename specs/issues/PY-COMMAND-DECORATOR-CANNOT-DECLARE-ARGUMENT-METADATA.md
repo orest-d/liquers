@@ -55,3 +55,9 @@ Overlap triage (bulk design, 2026-10-27): designed together with
 (this issue leading). Test that held: T3, both add a keyword to `_decorator.decorate` / `_register`
 in `liquers-py/python/liquers/_commands.py`; T1, T2, T4 did not. Runner-up: none (no open design
 changes those functions; `language-global-enum-import` is weak overlap only).
+
+Addition 2026-11-25 (`design/composite-variadic-arguments/`): the per-argument metadata now
+includes `shape` and `columns` of a variadic argument (tuples, a dictionary, a JSON value). A
+Python command cannot declare them until this issue is done; `ArgumentInfo` already exposes them
+read-only (`shape`, `shape_components`, `columns`). Declaring a shape also needs a rule for how
+the values reach the function (`*args` flat, or one list, dict or value).
