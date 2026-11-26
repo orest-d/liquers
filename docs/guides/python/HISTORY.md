@@ -71,3 +71,18 @@ have a row here (`specs/guides/USER_DOCS_EDITING_GUIDE.md`, maintenance).
 | 2026-11-24 | e-web-api.md | reviewed against `design/recipes-editor/`: still true, no change |
 | 2026-11-24 | 11-ui.md | reviewed against `design/query-update-modes/` Part A: the editors section gains "When edits take effect" (Apply immediately, On demand, ✓, Enter on valid text, Undo / Redo, the console's status line and dimming) |
 | 2026-11-24 | 11-ui.md | reviewed against `design/query-update-modes/` Part B: "When edits take effect" gains Live preview and the `mode` argument (`query_console-on_demand`) |
+| 2026-11-15 | 02-installing.md | the default environment can be configured (`lq.configure`, `lq.configure_from_command_line`) |
+| 2026-11-15 | 08-environment.md | §8.1 configuring the default environment with `lq.configure`; §8.2 `env.configure`; §8.3–8.4 when files and settings are read; new §8.7 "Starting an application" (`add_arguments`, `configure_from_args`, `configure_from_command_line`, `overrides`); examples run |
+| 2026-11-15 | 11-ui.md | every UI example starts from a `liquers.yaml` configuration; the window with a server from its `server` section; examples run |
+| 2026-11-15 | 12-serving.md | the service, server and settings examples load a YAML configuration; a server configured from its command line; examples run |
+| 2026-11-15 | 01-introduction.md | the default environment can be pointed at a configuration file with `lq.configure` |
+| 2026-11-15 | 03-queries.md | reviewed for `py-default-environment-config` / `py-command-line-config`: no claim about configuring the default environment or reading a configuration file changed; no edit |
+| 2026-11-15 | 04-values.md | reviewed for `py-default-environment-config` / `py-command-line-config`: no claim about configuring the default environment or reading a configuration file changed; no edit |
+| 2026-11-15 | 05-commands.md | reviewed for `py-default-environment-config` / `py-command-line-config`: no claim about configuring the default environment or reading a configuration file changed; no edit |
+| 2026-11-15 | 06-stores.md | reviewed for `py-default-environment-config` / `py-command-line-config`: no claim about configuring the default environment or reading a configuration file changed; no edit |
+| 2026-11-15 | 07-assets.md | reviewed for `py-default-environment-config` / `py-command-line-config`: no claim about configuring the default environment or reading a configuration file changed; no edit |
+| 2026-11-15 | 09-data.md | reviewed for `py-default-environment-config` / `py-command-line-config`: no claim about configuring the default environment or reading a configuration file changed; no edit |
+| 2026-11-15 | 10-templates.md | reviewed for `py-default-environment-config` / `py-command-line-config`: no claim about configuring the default environment or reading a configuration file changed; no edit |
+| 2026-11-15 | 14-testing.md | reviewed for `py-default-environment-config` / `py-command-line-config`: no claim about configuring the default environment or reading a configuration file changed; no edit |
+| 2026-11-15 | 15-troubleshooting.md | reviewed for `py-default-environment-config` / `py-command-line-config`: no claim about configuring the default environment or reading a configuration file changed; no edit |
+| 2026-11-15 | c-glossary.md | reviewed for `py-default-environment-config` / `py-command-line-config`: no claim about configuring the default environment or reading a configuration file changed; no edit |

@@ -658,7 +658,14 @@ impl UiModel {
         let mut options = WindowOptions::new(title);
         options.inner_size = [size.0, size.1];
         options.poll_interval = WAIT_SLICE;
-        options.ui = self.cell.config.ui.clone();
+        // The settings in force: `run` follows the environment's first use, so `configure` is over.
+        options.ui = match self.cell.settings(py) {
+            Ok(settings) => settings.config.ui.clone(),
+            Err(error) => {
+                self.end_window();
+                return Err(PyFailure::from(error));
+            }
+        };
         let model: &UiModel = self;
         let mut kept: Option<PyErr> = None;
         let mut last_attached = Instant::now();

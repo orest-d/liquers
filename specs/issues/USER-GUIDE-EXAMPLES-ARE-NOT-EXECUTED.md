@@ -34,3 +34,10 @@ with the reason.
 
 `design/user-documentation-guides` Phase 3 deferred it ("running chapter examples directly is a
 later step"); filed at Phase 5.
+
+## Update 2026-11-15
+
+Stale for the Python guide: `liquers-py/tests/test_GUIDE_examples.py` runs every block of
+`docs/guides/python/` that imports `liquers`, each in its own interpreter (found while writing
+`py-command-line-config`). The Rust and web guides are still not executed, so the issue stays
+open for them.

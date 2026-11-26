@@ -3,21 +3,25 @@
 //! One file (or YAML text, or a dict) configures the whole host: the environment's keys (`store`,
 //! `recipes`, `assets`, `default_namespaces`), a command metadata registry file
 //! (`command_registry`), the server `env.serve()` starts (`server`) and this host's own settings
-//! (`python`) and the window `lq.UI.run()` opens (`ui`: theme, mode, density). An unknown section or key fails at `lq.Environment`, naming what this host knows.
-//! A keyword argument of `lq.Environment` or `serve` overrides the file, which overrides the
-//! built-in default.
+//! (`python`) and the window `lq.UI.run()` opens (`ui`: theme, mode, density). An unknown section
+//! or key fails at `lq.Environment` or `configure`, naming what this host knows. A keyword argument
+//! of `lq.Environment` or `serve` overrides the file, which overrides the built-in default.
 //!
 //! # Main components
 //!
 //! - [`PyConfig`]: the assembled configuration; [`PyConfig::from_python`] reads the three forms of
 //!   `config=` (a `pathlib.Path` or other `os.PathLike` is a file, a `str` is YAML text, a `dict`
-//!   is the document itself), [`PyConfig::from_document`] takes the sections.
+//!   is the document itself) and merges `overrides=` over it (`ConfigDocument::overlay`, so a
+//!   file's folder still applies to its own `command_registry`); [`PyConfig::from_document`]
+//!   takes the sections.
 //! - [`PythonSettings`]: the `python` section (`conversion`, `pickle`, `async_loops`), each the
 //!   default of the matching keyword.
 //!
 //! # Where it is used
 //!
-//! - `Environment.__new__` (`environment.rs`) builds an `EnvCell` from it.
+//! - `Environment.__new__` and `Environment.configure` (`environment.rs`, `Settings::resolve`)
+//!   build the environment's settings from it; `liquers/_cli.py` passes command-line options as
+//!   `overrides`.
 //! - `Environment.serve` (`server.rs`) starts from its `server` section.
 //! - `tests/test_CONFIG_document.py` checks it end to end.
 //!
@@ -97,12 +101,30 @@ impl PyConfig {
 
     /// Reads `config=`: an `os.PathLike` names a file (`.yaml`, `.yml` or `.json`), a `str` is
     /// YAML text, a `dict` is the document. `None` is the defaults.
-    pub fn from_python(py: Python<'_>, config: Option<&Bound<'_, PyAny>>) -> Result<Self, Error> {
-        let config = match config {
-            None => return Ok(PyConfig::default()),
-            Some(config) if config.is_none() => return Ok(PyConfig::default()),
-            Some(config) => config,
+    pub fn from_python(
+        py: Python<'_>,
+        config: Option<&Bound<'_, PyAny>>,
+        overrides: Option<&Bound<'_, PyAny>>,
+    ) -> Result<Self, Error> {
+        let overrides = match overrides {
+            Some(overrides) if !overrides.is_none() => Some(overrides_to_json(py, overrides)?),
+            Some(_) | None => None,
         };
+        let mut doc = match config {
+            Some(config) if !config.is_none() => Self::document(py, config)?,
+            Some(_) | None => match overrides {
+                None => return Ok(PyConfig::default()),
+                Some(_) => ConfigDocument::default(),
+            },
+        };
+        if let Some(overrides) = overrides {
+            doc.overlay(overrides)?;
+        }
+        PyConfig::from_document(doc)
+    }
+
+    /// The document `config=` names: a file, YAML text or a dict.
+    fn document(py: Python<'_>, config: &Bound<'_, PyAny>) -> Result<ConfigDocument, Error> {
         let doc = if let Ok(text) = config.cast::<PyString>() {
             let text = text.to_string();
             ConfigDocument::from_yaml(&text).map_err(|e| explain_text(&text, e))?
@@ -132,8 +154,23 @@ impl PyConfig {
                 "config must be a pathlib.Path (a file), a str (YAML text) or a dict, not {type_name}"
             )));
         };
-        PyConfig::from_document(doc)
+        Ok(doc)
     }
+}
+
+/// `overrides=`: a dict in the document's form, as JSON.
+fn overrides_to_json(py: Python<'_>, overrides: &Bound<'_, PyAny>) -> Result<serde_json::Value, Error> {
+    if overrides.cast::<PyDict>().is_err() {
+        return Err(Error::configuration_error(
+            "overrides must be a dict in the configuration document's form".to_string(),
+        ));
+    }
+    let json = py
+        .import("json")
+        .and_then(|json| json.call_method1("dumps", (overrides,)))
+        .and_then(|dumped| dumped.extract::<String>())
+        .map_err(|e| Error::configuration_error(format!("overrides: the dict is not plain data: {e}")))?;
+    serde_json::from_str(&json).map_err(|e| Error::parse_error(format!("overrides: {e}")))
 }
 
 /// A `str` that is not a document: if it is a single scalar it was most likely meant as a file

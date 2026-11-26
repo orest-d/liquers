@@ -2,7 +2,7 @@
 title: The environment
 status: ready
 sources: [guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md, reference/ENVIRONMENT_CONFIG.md, reference/PROJECT_OVERVIEW.md]
-reviewed: 2026-11-10
+reviewed: 2026-11-15
 ---
 # 8. The environment
 

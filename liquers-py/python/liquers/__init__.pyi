@@ -95,6 +95,10 @@ from liquers.environment import Environment as Environment
 from liquers.environment import Context as Context
 from liquers.environment import Issue as Issue
 from liquers.environment import default_environment as default_environment
+from liquers.environment import configure as configure
+from liquers.environment import add_arguments as add_arguments
+from liquers.environment import configure_from_args as configure_from_args
+from liquers.environment import configure_from_command_line as configure_from_command_line
 from liquers.environment import evaluate as evaluate
 from liquers.environment import evaluate_async as evaluate_async
 from liquers.environment import require as require
@@ -225,6 +229,10 @@ __all__ = [
     "RecordStream",
     "RecordChunk",
     "default_environment",
+    "configure",
+    "add_arguments",
+    "configure_from_args",
+    "configure_from_command_line",
     "evaluate",
     "evaluate_async",
     "serve",
