@@ -329,6 +329,34 @@ local working copy     one per participant, in its own domain; synchronous (§3)
 - **Working offline.** A local copy that reconnects after a long time is a large rebase. Not
   proposed.
 
+### 10.3a Established approaches that have a patch (2026-11-26)
+
+Orest asked whether any established approach has the patch. Signal and slot frameworks do not:
+their change notifications (`dataChanged`, `rowsInserted`) are not values that can be sent or
+replayed, and the nearest thing in Qt is `QUndoCommand`. The patch comes from state management
+and from collaboration systems. From memory, to be checked when a design starts:
+
+| Approach | The patch | What to take from it |
+|---|---|---|
+| JSON Patch (RFC 6902), JSON Merge Patch (RFC 7386) | a list of `add`, `remove`, `replace`, `move`, `test` with a path | a standard wire form; `test` is our fingerprint precondition; a path is our chain of steps |
+| Immer (JavaScript) | mutate a *draft*, get patches and inverse patches | the same pairing as here: a draft that records patches; inverse patches for undo |
+| MobX-State-Tree | snapshots, a stream of JSON patches, actions | patches as the event a holder subscribes to |
+| Redux, Elm, event sourcing | an ordered log of actions | the log with sequence numbers |
+| Replicache and similar "server reconciliation" | the client keeps pending mutations and rebases them on each new server state | the model of §10.1: the server orders, local copies rebase |
+| Figma's multiplayer | a change per property of an object, the server's order decides, last writer wins | the default merge rule per part, for structured values |
+| Operational transformation (Google Docs, ShareDB, Etherpad) | operations transformed against concurrent ones by a server | concurrent text, with a server |
+| CRDTs (Yjs and its Rust port `yrs`, Automerge, Loro) | changes that merge in any order | concurrent text without transformation rules; usable as a text value type |
+
+Two conclusions for this proposal:
+
+- For structured values nothing has to be invented: a JSON Patch with a precondition, ordered by
+  the shared working copy, with pending patches rebased by the local copy. One known weakness is
+  a path by list index, which shifts under a concurrent insert. The accessor steps already have
+  the cure: steps that address by identity (`RecipeFileStep` by filename, a record row by its
+  identity) and anchors that invalidate a moved part.
+- For concurrent text, take an existing library as a value type (a CRDT or an OT text) and let
+  its own operations be the patches of a text step. That keeps the hard part out of Liquers.
+
 ### 10.4 What changes in the rest of this proposal
 
 - §2: a working copy holds its uncommitted patches, not only a draft value.
