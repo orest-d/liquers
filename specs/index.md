@@ -8,10 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 273
+Total rows: 272
 - P1: 2
 - P2: 69
-- P3: 202
+- P3: 201
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -236,7 +236,6 @@ Total rows: 273
 | [`WEB-RELEASE-MODULE-IS-20-MB`](issues/WEB-RELEASE-MODULE-IS-20-MB.md) | issue | The optimized browser module with records is 20 MB, and liquers-web/README.md says 16.5 MB | draft |  |  | P3 | M | web;build |  | 2026-11-10 |
 | [`WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG`](issues/WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG.md) | issue | liquers-web hand-rolls the environment configuration that EnvironmentConfig will own | draft |  |  | P3 | M | web;core/store;core/context |  | 2026-08-31 |
 | [`YAML-DOCUMENT-EDIT-DROPS-COMMENTS`](issues/YAML-DOCUMENT-EDIT-DROPS-COMMENTS.md) | feature | Editing a YAML document through an accessor drops its comments and formatting | draft |  |  | P3 | M | core/value |  | 2026-11-16 |
-| [`COMMAND-COMPOSITE-VARIADIC-ARGUMENTS`](issues/COMMAND-COMPOSITE-VARIADIC-ARGUMENTS.md) | feature | A variadic argument cannot carry a complex value such as pairs, tuples or a dictionary | draft | ready | not-eligible | P3 | L | core/commands;macro;lib/ui;lib/egui | [phase1](design/composite-variadic-arguments/phase1-high-level-design.md)  [phase2](design/composite-variadic-arguments/phase2-architecture.md)  [phase3](design/composite-variadic-arguments/phase3-examples.md)  [phase4](design/composite-variadic-arguments/phase4-implementation.md)  | 2026-08-25 |
 | [`HOSTS-READ-CONFIGURATION-DOCUMENTS-DIFFERENTLY`](issues/HOSTS-READ-CONFIGURATION-DOCUMENTS-DIFFERENTLY.md) | issue | Each host parses its configuration document on its own and ignores sections it does not know | draft | ready | not-eligible | P3 | L | core/context;mcp;web;py | [phase1](design/configuration-document/phase1-high-level-design.md)  [phase2](design/configuration-document/phase2-architecture.md)  [phase3](design/configuration-document/phase3-examples.md)  [phase4](design/configuration-document/phase4-implementation.md)  [phase5](design/configuration-document/phase5-documentation.md)  | 2026-11-07 |
 | [`AGENT-CANNOT-PROPOSE-A-COMMAND`](issues/AGENT-CANNOT-PROPOSE-A-COMMAND.md) | feature | An agent has no sanctioned way to propose a new command into a staging area | draft | needs-decision | not-eligible | P3 | L | mcp;core/commands;py;docs | [phase1](design/agent-command-proposal/phase1-high-level-design.md)  [phase2](design/agent-command-proposal/phase2-architecture.md)  [phase3](design/agent-command-proposal/phase3-examples.md)  [phase4](design/agent-command-proposal/phase4-implementation.md)  | 2026-10-21 |
 | [`ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE`](issues/ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE.md) | feature | The asset and dependency managers cannot be explicitly synchronized with the store | draft | needs-decision | not-eligible | P3 | L | core/assets | [phase1](design/asset-manager-store-sync/phase1-high-level-design.md)  [phase2](design/asset-manager-store-sync/phase2-architecture.md)  [phase3](design/asset-manager-store-sync/phase3-examples.md)  [phase4](design/asset-manager-store-sync/phase4-implementation.md)  | 2026-10-08 |
