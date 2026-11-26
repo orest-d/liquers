@@ -4,8 +4,7 @@ kind: design
 title: An invalid recipe tree downgrades to plain recipes instead of being refused, and a new node is an empty .node recipe
 form: compact
 workflow: liquers-project
-status: in_review
-phase: documentation
+status: complete
 area: [core/assets, lib/ui, lib/egui]
 issues: [STRICT-TREE-FINDING-LOCKS-ITS-RECIPES-FILE, RECIPES-EDITOR-NEW-RECIPE-BREAKS-A-STRICT-TREE]
 affects_docs: [reference/RECIPE_TREES.md, reference/UI_INTERFACE_FSD.md]
@@ -42,6 +41,7 @@ editor is empty and read-only. Found by DPL, whose projects are strict trees (or
   tree/DAG vocabulary is to be clarified later (`RECIPE-TREE-VOCABULARY-SAYS-TREE-FOR-A-DAG`).
 - **2026-11-26 21:10** Implemented (Phase 4 steps 1 to 6) and documented (Phase 5); DPL's egui
   workflow passes against the branch. Phase 5 is presented for review before `complete`.
+- **2026-11-26 20:33** Orest approved Phase 5; design complete.
 
 ## Phase 1: High-Level Design
 
