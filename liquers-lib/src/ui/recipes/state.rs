@@ -127,6 +127,8 @@ pub struct RecipesState {
     rows: Vec<RecipeRow>,
     report: TreeReport,
     message: Option<String>,
+    /// Why the last write failed, while its edits are still unsaved (AC-4).
+    write_error: Option<String>,
 }
 
 /// The `folder/filename` key text of `filename` in `folder` (the root when empty).
@@ -172,6 +174,7 @@ impl RecipesState {
             rows: Vec::new(),
             report: TreeReport::default(),
             message: None,
+            write_error: None,
         }
     }
 
@@ -243,6 +246,26 @@ impl RecipesState {
     pub fn continuous(&self) -> bool {
         self.continuous
     }
+    /// Whether edits are not on disk because the last write failed (design
+    /// `strict-tree-editing`, AC-4). The edits stay pending and are written with the next edit or
+    /// Update.
+    pub fn unsaved(&self) -> Option<&str> {
+        self.write_error.as_deref().filter(|_| self.pending)
+    }
+    /// The notice for a list that has a `tree:` section but fails its check (AC-9): it is used as
+    /// plain recipes, and the first findings say why.
+    pub fn tree_notice(&self) -> Option<String> {
+        if !self.is_tree() || self.report.errors.is_empty() {
+            return None;
+        }
+        let shown: Vec<String> = self.report.errors.iter().take(3).map(|f| f.to_string()).collect();
+        let more = self.report.errors.len().saturating_sub(shown.len());
+        let mut notice = format!("Not a valid recipe tree: plain recipes. {}", shown.join("; "));
+        if more > 0 {
+            notice.push_str(&format!(" (and {more} more)"));
+        }
+        Some(notice)
+    }
     /// Whether the document has a `tree:` section.
     pub fn is_tree(&self) -> bool {
         self.list().is_some_and(|l| l.tree.is_some())
@@ -302,6 +325,7 @@ impl RecipesState {
         self.loaded = true;
         self.fingerprint = fingerprint;
         self.remote_changed = false;
+        self.write_error = None;
         let text = match value.identifier().as_ref() {
             "None" => String::new(),
             "Bytes" => {
@@ -346,6 +370,7 @@ impl RecipesState {
     /// A write succeeded; edits made meanwhile are written next.
     pub fn on_written(&mut self, fingerprint: Fingerprint) -> RecipesEffect {
         self.write_in_flight = false;
+        self.write_error = None;
         self.fingerprint = Some(fingerprint);
         if self.pending && self.continuous {
             self.write()
@@ -372,7 +397,8 @@ impl RecipesState {
     pub fn on_write_failed(&mut self, error: &Error) {
         self.write_in_flight = false;
         self.pending = true;
-        self.message = Some(error.to_string());
+        self.write_error = Some(error.to_string());
+        self.message = Some(format!("Unsaved edits: {error}"));
     }
 
     /// A store listing for the recipe window that asked for one.
@@ -598,10 +624,12 @@ impl RecipesState {
 
     fn rename(&mut self, from: &str, to: &str) -> Result<RecipesEffect, Error> {
         let from_file = self.resolve_file(from);
-        let to_file = Self::renamed_file(&from_file, to);
+        // A used name is made unique, as the editor will (AC-14): the window follows the name the
+        // node gets.
+        let to_file = self.writable()?.unique_filename(&Self::renamed_file(&from_file, to), Some(&from_file));
         // Re-key the window first: the edit reloads the forms by their ids.
         self.rekey(&from_file, &to_file);
-        match self.edit(|e| e.rename(&from_file, to).map(|_| ())) {
+        match self.edit(|e| e.rename(&from_file, &to_file).map(|_| ())) {
             Ok(effect) => Ok(effect),
             Err(e) => {
                 self.rekey(&to_file, &from_file);
@@ -619,8 +647,18 @@ impl RecipesState {
             }
             FormChange::Rename(to) => self.rename(id, &to),
             FormChange::RenameNode { from, to } => self.rename(&from, &to),
-            FormChange::Recipe(recipe) => {
-                let new_file = recipe.filename().ok().flatten().map(|f| f.name);
+            FormChange::Recipe(mut recipe) => {
+                let mut new_file = recipe.filename().ok().flatten().map(|f| f.name);
+                // A filename typed into the query renames the node, made unique (AC-14).
+                if let (Some(to), false) = (new_file.clone(), id.starts_with('#')) {
+                    if to != id {
+                        let unique = self.writable()?.unique_filename(&to, Some(id));
+                        if unique != to {
+                            recipe.query = super::form::query_with_filename(&recipe.get_query()?, &unique);
+                            new_file = Some(unique);
+                        }
+                    }
+                }
                 // Re-key the window first: the edit reloads the forms by their ids.
                 let rekeyed = new_file.clone().filter(|to| !id.starts_with('#') && to != id);
                 if let Some(to) = &rekeyed {
@@ -709,16 +747,29 @@ impl RecipesState {
             }
             RecipesCommand::Rename { from, to } => self.rename(&from, &to),
             RecipesCommand::New { title, extension } => {
-                let editor = self.writable()?;
-                let filename = editor.suggest_filename(&title, extension.trim_start_matches('.'));
-                let recipe = Recipe::new(filename.clone(), title, String::new())?;
-                let effect = self.edit(|e| e.add(recipe).map(|_| ()))?;
+                // An empty node, `1.node` (design `strict-tree-editing`, AC-5): it is valid in
+                // any tree, and its query and filename are set in its window.
+                let mut filename = String::new();
+                let effect = self.edit(|e| {
+                    filename = e.add_empty(&title, extension.trim_start_matches('.'))?;
+                    Ok(())
+                })?;
                 self.open(&filename)?;
                 Ok(effect)
             }
             RecipesCommand::AddChild { parent, title, extension, action, arg } => {
                 let editor = self.writable()?;
-                let filename = editor.suggest_filename(&title, extension.trim_start_matches('.'));
+                // As New: an empty child is a `.node` file, named by its title or else by the
+                // first free integer (design `strict-tree-editing`, AC-5, AC-14).
+                let extension = match extension.trim_start_matches('.') {
+                    "" => liquers_core::metadata::NODE_EXTENSION.to_owned(),
+                    ext => ext.to_owned(),
+                };
+                let filename = if title.trim().is_empty() {
+                    editor.unique_filename(&format!("1.{extension}"), None)
+                } else {
+                    editor.suggest_filename(&title, &extension)
+                };
                 let recipe = Recipe::new(filename.clone(), title, String::new())?;
                 let parent = self.resolve_file(&parent);
                 let effect = self.edit(|e| e.add_child(&parent, recipe, action, &arg).map(|_| ()))?;

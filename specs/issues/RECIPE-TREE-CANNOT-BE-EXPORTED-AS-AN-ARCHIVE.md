@@ -44,3 +44,10 @@ the image).
 Split out of `RECIPES-CANNOT-DESCRIBE-A-SELF-CONTAINED-ASSET-TREE` (expected behaviour item 7) when
 the `recipe-tree` design started on 2026-11-22: it is store work rather than recipe work, and the
 tree design is complete without it.
+
+## Note (2026-11-26)
+
+Design `strict-tree-editing` (AC-13) no longer enforces strict mode at evaluation: a strict folder
+that fails its check is served as plain recipes. The archive must therefore run the tree check
+itself and refuse a folder that is not a valid strict tree (a non-tree or invalid folder cannot be
+made portable).

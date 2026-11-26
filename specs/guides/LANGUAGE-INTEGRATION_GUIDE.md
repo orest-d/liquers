@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets, core/store, core/value, lib/commands]
-reviewed: 2026-11-25
+reviewed: 2026-11-26
 ---
 # Liquers Language Integration Guide
 
@@ -1777,6 +1777,12 @@ whether it applies.
   arguments, each a member named `type#position`; only an identical entry is refused. Build the
   plan with `Recipe::plan_with_dependencies`, as the built-in providers do.
   `with_appended_recipe_provider` remains for a provider supplied in code
+
+**Recipe trees and `.node`.** A provider serving a folder with a `tree:` section serves its recipes
+as they are; the tree check is the editors' business, and a folder that fails it is still served
+as plain recipes (`reference/RECIPE_TREES.md`). A filename with the extension `node` (`1.node`) is
+valid for any type: `{query: 1.node}` is an empty node, not a source, and a language Node argument
+accepts a `.node` file whatever its declared extension. Nothing in an adapter has to change for it.
 
 **The design must answer:** Does the provider return `Recipe`, query text, or plain data? Which methods may use Liquers defaults? May provider callbacks evaluate queries? How are caching, invalidation, volatility, and provider precedence handled?
 
@@ -4229,6 +4235,7 @@ def test_DOCS04_every_public_name_is_documented():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-26 | `RECIPE`: recipe trees are served as plain recipes when they fail their check; `.node` files. | `design/strict-tree-editing/` |
 | 2026-11-25 | `COMMAND`: a variadic argument may declare a shape; what an integration owes when it lets a language command declare one. | `design/composite-variadic-arguments/` |
 | 2026-11-16 | New feature `ACCESSOR`: settable value accessors from the *language*, in two directions (use an existing accessor, define a root or step), with the wrapper rules (one token per wrapper, conflicts carrying the current token, the same `Arc` back, where events run, the driver), design questions and tests `ACCESSOR01`–`07`. §4 row, soft dependency and profiles; §6 Browser JavaScript and Python entries (direction 1; direction 2 `NA`, `ACCESSOR-CANNOT-BE-IMPLEMENTED-IN-PYTHON-OR-JAVASCRIPT`); Appendix A blueprints. | `design/settable-value-accessor/` |
 | 2026-11-15 | §6 Python lessons: stubs follow the module a class reports; maturin needs the extension inside a package (`_liquers`). | `design/py-package-submodules/` |

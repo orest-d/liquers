@@ -1249,6 +1249,16 @@ fn deserialize_stored_value<E: Environment>(
     ) {
         return Ok(Some(E::Value::from_bytes(binary.to_vec())));
     }
+    // A `.node` file says nothing about its format: it is read by its metadata only (design
+    // `strict-tree-editing`, AC-12).
+    if type_identifier.trim().is_empty()
+        && declared_data_format == Some(crate::metadata::NODE_EXTENSION)
+    {
+        return Err(Error::general_error(
+            "A .node file is read by its metadata (type and data format), and this one has none"
+                .to_owned(),
+        ));
+    }
     // A type this build does not know is *degraded*, not an error: the bytes and the metadata are
     // kept verbatim so a minimal build can still copy, proxy and re-store data it cannot
     // interpret. Asking for a value then fails with an error naming the type. `Ok(None)` is that
@@ -1290,6 +1300,20 @@ fn stored_declared_data_format(metadata: &Metadata) -> Option<String> {
             .or_else(|| metadata.extension()),
         Metadata::MetadataRecord(record) => record.declared_data_format().map(str::to_owned),
     }
+}
+
+/// [`stored_declared_data_format`] for the value stored under `key`. A `.node` file declares no
+/// format of its own, so when its metadata names no type the key's `node` extension is passed on,
+/// and [`deserialize_stored_value`] refuses it instead of guessing (design `strict-tree-editing`,
+/// AC-12). With a type, an undeclared format is the type's default, as for any other file.
+fn stored_data_format_at(key: &Key, metadata: &Metadata, type_identifier: &str) -> Option<String> {
+    stored_declared_data_format(metadata).or_else(|| {
+        if !type_identifier.trim().is_empty() {
+            return None;
+        }
+        key.extension()
+            .filter(|e| e == crate::metadata::NODE_EXTENSION)
+    })
 }
 
 /// Why [`deserialize_stored_value`] read a value as degraded, for the messages that report it.
@@ -1795,7 +1819,7 @@ impl<E: Environment> AssetData<E> {
                 }
 
                 let type_identifier = metadata.type_identifier()?;
-                let data_format = stored_declared_data_format(&metadata);
+                let data_format = stored_data_format_at(&key, &metadata, &type_identifier);
                 let registry_owner = self.try_get_envref()?;
                 let value = match deserialize_stored_value::<E>(
                     &binary,
@@ -8828,7 +8852,7 @@ pub trait AssetManager<E: Environment>:
             return Ok(None);
         }
         let type_identifier = metadata.type_identifier()?;
-        let data_format = stored_declared_data_format(&metadata);
+        let data_format = stored_data_format_at(key, &metadata, &type_identifier);
         let envref = self.try_get_envref()?;
         let value = deserialize_stored_value::<E>(
             &binary,
