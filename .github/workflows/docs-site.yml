@@ -4,14 +4,18 @@ name: docs-site
 # every Rust crate, the Python package and the JavaScript module) and publishes it to GitHub Pages.
 # Only sources are committed; the site, API references included, exists only as a build output. See specs/guides/GITHUB_ACTIONS_GUIDE.md and specs/guides/USER_DOCS_EDITING_GUIDE.md.
 #
-# - Pull requests: `liquers-docs check` (draft and release rules), a draft build, and the site as
-#   a downloadable artifact (`docs-site`). Changes under specs/ trigger it too, because a chapter
-#   may include a specs/ section that the change renamed.
+# - Pull requests: `liquers-docs check` (draft and release rules) only, in the light `check` job.
+#   Changes under specs/ trigger it too, because a chapter may include a specs/ section that the
+#   change renamed. The full draft build and the site as a downloadable artifact (`docs-site`) run
+#   only on a pull request labelled `docs-preview` (from its next push) or on a manual run of the
+#   branch: the full build compiles the whole workspace three ways and is the largest consumer of
+#   Actions time in this repository.
 # - Push to main: a release build (only `ready` chapters), deployed to Pages. Needs the
 #   repository's Settings → Pages → Source set to "GitHub Actions".
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'docs/**'
       - 'specs/**'
@@ -37,6 +41,12 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same pull request cancels the run still in progress; runs on main are never
+# cancelled. See specs/guides/GITHUB_ACTIONS_GUIDE.md §1a.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   MDBOOK_VERSION: 0.5.4
   PANDOC_VERSION: 3.12
@@ -45,7 +55,30 @@ env:
   TYPESCRIPT_VERSION: 5.9.3
 
 jobs:
+  # Pull requests: the chapter rules only. liquers-docs builds liquers-lib without its heavy
+  # features, so this is a fraction of the full build.
+  check:
+    if: github.event_name == 'pull_request' && !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CARGO_INCREMENTAL: 0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # saved from the pull request too: this job never runs on main, and its cache is small
+          shared-key: liquers-docs-check
+      - name: Check the guides (draft rules)
+        run: cargo run -q -p liquers-docs -- check
+      - name: Check the guides (release rules)
+        run: cargo run -q -p liquers-docs -- check --release
+
   build:
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'docs-preview')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:

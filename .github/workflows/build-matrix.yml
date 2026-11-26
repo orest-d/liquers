@@ -6,6 +6,7 @@ name: build-matrix
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       # every workspace crate is a liquers-* directory; a member named otherwise needs its own entry
       - 'liquers-*/**'
@@ -26,8 +27,16 @@ on:
       - '.github/workflows/build-matrix.yml'
   workflow_dispatch:
 
+# A newer push to the same pull request cancels the run still in progress; runs on main are never
+# cancelled. See specs/guides/GITHUB_ACTIONS_GUIDE.md §1a.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   check:
+    # draft pull requests are skipped; marking one ready for review runs it
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,6 +51,8 @@ jobs:
   # that are clean and need no optional native library are listed; liquers-lib and the crates built
   # on it join once liquers-lib's links are clean.
   rustdoc:
+    # draft pull requests are skipped; marking one ready for review runs it
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     env:
       RUSTDOCFLAGS: -D rustdoc::broken_intra_doc_links
