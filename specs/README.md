@@ -336,6 +336,8 @@ question are both measure-first items.
 <!-- BEGIN generated: issues -->
 | Issue | Pri | Cx | Design |
 |---|---|---|---|
+| [`RECIPES-EDITOR-NEW-RECIPE-BREAKS-A-STRICT-TREE`](issues/RECIPES-EDITOR-NEW-RECIPE-BREAKS-A-STRICT-TREE.md) | P1 | S | `strict-tree-editing` |
+| [`STRICT-TREE-FINDING-LOCKS-ITS-RECIPES-FILE`](issues/STRICT-TREE-FINDING-LOCKS-ITS-RECIPES-FILE.md) | P1 | M | `strict-tree-editing` |
 | [`UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE`](issues/UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE.md) | P1 | XL | `ui-redesign` |
 <!-- END generated: issues -->
 
@@ -599,6 +601,7 @@ deliberately folded behind a broader line.
 - design `stored-derived-value-pruning`
 - design `stored-value-default-data-format`
 - design `streamed-keyed-persistence`
+- design `strict-tree-editing`
 - design `stubs01-class-detection`
 - design `styled-query-entity-tokens`
 - design `submit-eagerness-documentation`
