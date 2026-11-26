@@ -27,6 +27,12 @@ editor is empty and read-only. Found by DPL, whose projects are strict trees (or
   `TreeEditor` always holds a valid tree. A new node is an empty query named `<n>.node`, and
   `node` is a universal extension. Errors propagate through dependencies as for any recipe. The
   former AC-3 (evaluation stays strict) is withdrawn and replaced by AC-8 to AC-10.
+- **2026-11-26 18:32** Orest's answers to the four questions, now decisions (AC-14 to AC-16, AC-11
+  revised). An empty `.node` node evaluates to `None`. A filename set in the form or in the action
+  editor renames the node, made unique. Duplicate filenames are illegal in plain recipes too. A
+  tree with a valid recipe always has a result. Strictness is a promise, not a gate, for now: GUI
+  editing through `TreeEditor` keeps trees valid, while a hand-edited or plain-edited file is never
+  invalidated as a whole and stays salvageable, so an expert can knowingly use plain recipes.
 
 ## Phase 1: High-Level Design
 
@@ -90,8 +96,8 @@ plain recipe.
 - **AC-11** `TreeEditor` holds a valid tree
   WHEN `TreeEditor::new` gets no recipes, or recipes with no `tree` section
   THEN it starts with an empty valid tree, or adds `tree: {}`, which changes no recipe's meaning.
-  Other repairs that keep the meaning (to be listed in Phase 2) are applied; anything else is left
-  as it is and reported (AC-9).
+  It also drops a `result` or `roots` entry that names no node, and sets the result when AC-16
+  requires one. Anything else is left as it is and reported (AC-9).
 - **AC-12** `node` is a universal extension
   WHEN a Node argument of any `ext:` names a node stored as `<n>.node`
   THEN it is accepted. A `.node` file is written and read by its metadata (type and data format),
@@ -100,6 +106,20 @@ plain recipe.
   WHEN a folder whose tree is invalid is exported as a portable archive
   THEN the export is refused with the findings (recorded on `RECIPE-TREE-CANNOT-BE-EXPORTED-AS-AN-ARCHIVE`,
   which is not implemented yet).
+
+- **AC-14** Setting a filename renames the node, uniquely
+  WHEN a filename is given for a node in the recipe form, or through the action editor's Filename
+  (for example a query edit ending in `net.obj`, or the first command's declared `filename`)
+  THEN the node is renamed, and its references with it. When `net.obj` is taken, the name becomes
+  the first free one of `net1.obj`, `net2.obj`, and so on. A name that is only an integer takes the
+  first free integer. Names compare by node name, so `net.obj` and `net.png` collide.
+- **AC-15** Duplicate filenames are illegal in plain recipes too
+  WHEN the recipes editor (tree or not) would give two recipes the same filename
+  THEN the AC-14 rule picks a unique one, and a file that already has duplicates is reported.
+- **AC-16** A tree with a valid recipe has a result
+  WHEN a tree has at least one recipe with a filename and no `result` naming a node
+  THEN `TreeEditor` sets `result` to the first root, else the first such recipe. The result may be
+  an error asset (AC-10).
 
 Out of scope: the archive itself; DPL's New Node and repair view (DPL's own design).
 
@@ -120,19 +140,19 @@ recipe-tree entry gets a sentence on `.node`.
 - User guides: none; the recipes editor is not in the user guides yet.
 - Designs: scope notes in `recipe-tree` (AC-24) and `recipes-editor` (AC-7) pointing here.
 
+### Decisions
+
+Orest's answers of 2026-11-26 18:32:
+
+1. An empty node is a filename-only query with extension `node`: not a source, it evaluates to
+   `None` (AC-5).
+2. Setting a filename renames the node, uniquely (AC-14, AC-15).
+3. The safe repairs are adding `tree: {}`, dropping a `result` or `roots` entry that names no node,
+   and keeping a result (AC-11, AC-16).
+4. Strictness is a promise checked on save and on archive, not a gate on evaluation, for now. It
+   may be tightened once the GUI editing works well.
+
 ### Open Questions
 
-1. **What an empty node evaluates to** (AC-5). `{query: 1.node}` is a query that is only a
-   filename, which today means a source declaration. Proposed: a filename-only query whose
-   extension is `node` is an *empty node*. It is not a source, and it evaluates to the empty value
-   (`None`), stored as `1.node`. Alternative: write it as a pipeline with only a filename.
-2. **How a node is renamed** when its first command declares a `filename` (`net` → `net.obj`).
-   Should the query edit rename `1.node` to the command's name (`net.obj`), or keep `1.node` until
-   the user renames it? Proposed: keep the name and extension the user sees (`1.node`), and rename
-   only on request. That keeps a reference stable, and `.node` is valid everywhere.
-3. **Which repairs are meaning-preserving** (AC-11) besides adding `tree: {}`. For example, dropping
-   a `result` that names no node, or a `roots` entry that is not a node. Proposed: only these
-   three, everything else reported.
-4. **Does `dependencies: strict` still matter at evaluation?** With AC-8 a strict tree that checks
-   is used as a tree, and one that fails is used as plain recipes. Proposed: yes, as described, so
-   strictness is a promise checked on save and archive, not a gate.
+None. Phase 2 decides where the downgrade lives (`RecipesProvider`), how the editor gets the report,
+and the metadata-based reading of `.node`.
