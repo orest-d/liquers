@@ -65,7 +65,7 @@ encoding, and the interpreter that turns a plan into asset evaluation.
 - **Payload inheritance in nested evaluation** — built → [`design/payload-nested-evaluation-inheritance/`](design/payload-nested-evaluation-inheritance/)
 - **CWD-relative nested query resolution** — documented → [`reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md`](reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md)
 - **Excess action parameters rejected** — built → [`design/excess-action-parameters-error/`](design/excess-action-parameters-error/) *(rule documented in [`reference/PROJECT_OVERVIEW.md`](reference/PROJECT_OVERVIEW.md) §Query Language)*
-- **Variadic command arguments (`multiple`)** — documented → [`reference/REGISTER_COMMAND_FSD.md`](reference/REGISTER_COMMAND_FSD.md) §Variadic Parameters *(how-to in [`guides/COMMAND_REGISTRATION_GUIDE.md`](guides/COMMAND_REGISTRATION_GUIDE.md); design in [`design/variadic-arguments-declaration/`](design/variadic-arguments-declaration/))* *(empty elements: [`design/variadic-empty-element-conversion/`](design/variadic-empty-element-conversion/))*
+- **Variadic command arguments (`multiple`)** — documented → [`reference/REGISTER_COMMAND_FSD.md`](reference/REGISTER_COMMAND_FSD.md) §Variadic Parameters *(how-to in [`guides/COMMAND_REGISTRATION_GUIDE.md`](guides/COMMAND_REGISTRATION_GUIDE.md); design in [`design/variadic-arguments-declaration/`](design/variadic-arguments-declaration/))* *(empty elements: [`design/variadic-empty-element-conversion/`](design/variadic-empty-element-conversion/))* *(tuples, a dictionary or a JSON value as the variadic argument: [`design/composite-variadic-arguments/`](design/composite-variadic-arguments/))*
 - **Default namespaces searched after a query's `ns` (`default_namespaces:` in the environment configuration)** — documented → [`reference/RECIPES_AND_PLANS.md`](reference/RECIPES_AND_PLANS.md) §Planner instructions *(configuration key in [`reference/ENVIRONMENT_CONFIG.md`](reference/ENVIRONMENT_CONFIG.md); design in [`design/plan-default-namespaces/`](design/plan-default-namespaces/); per-realm chains: [`issues/COMMAND-REGISTRY-NOT-ORGANIZED-BY-REALM.md`](issues/COMMAND-REGISTRY-NOT-ORGANIZED-BY-REALM.md))*
 - **Programmatic query builder (`QueryEditor`, `liquers-validate --build`)** — documented → [`guides/PIPELINE_GUIDE.md`](guides/PIPELINE_GUIDE.md) §3 *(contract in [`reference/PIPELINES.md`](reference/PIPELINES.md) §8)*
 - **Realms: what a realm is, a foreign realm that is addressable but not executable (`store_config`)** — documented → [`reference/REALMS.md`](reference/REALMS.md) *(design in [`design/store-adapters/`](design/store-adapters/))*
@@ -265,6 +265,7 @@ on wasm.
 - **Query, pipeline, action and resource editors (tree view, `gui_info` widgets, presets, store file selector, accessor binding; supersedes `command-parameter-editor`)** — complete → [`design/query-pipeline-editor/`](design/query-pipeline-editor/)
 - **Query editor ergonomics (action cards, Simple and Advanced modes, icons, shortcuts, jump from text to field, theme proof of concept)** — complete → [`design/query-editor-ergonomics/`](design/query-editor-ergonomics/)
 - **Recipe and recipes editors (a recipe form with the query editor inside; a `recipes.yaml` outline of files or tree nodes with type icons, recipe windows, new/rename/duplicate/delete; dependencies view; highlighted YAML view; recipes addressed by filename)** — complete → [`design/recipes-editor/`](design/recipes-editor/)
+- **Strict-tree editing (an invalid recipe tree is served as plain recipes with a notice instead of being refused; New adds an empty `.node` node; node names made unique; roots as display hints)** — complete → [`design/strict-tree-editing/`](design/strict-tree-editing/)
 - **Update modes for the query editors and console (on demand, live preview, apply immediately; ✓ and Enter; undo; a value display with a status bar instead of flicker; views follow upstream expiry by mode)** — complete → [`design/query-update-modes/`](design/query-update-modes/)
 - **Liquers UI from Python (the model, and an egui window)** — built → [`design/liquers-py-ui/`](design/liquers-py-ui/), [`design/liquers-py-ui-window/`](design/liquers-py-ui-window/)
 - **UI redesign: UI crate(s), egui, web and ratatui frontends, monolithic and split client-server, Tauri, sessions, themes, tools, charts, MIDI** — planned → [`design/ui-redesign/`](design/ui-redesign/) *(idea map and plan of designs D1–D21; investigation: [`design/ui-split-elements/`](design/ui-split-elements/); issue: [`issues/UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE.md`](issues/UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE.md))*
@@ -386,7 +387,6 @@ deliberately folded behind a broader line.
 - design `command-registry-issue-fields-coverage`
 - design `command-registry-issue-fields`
 - design `command-specialization-by-input-type`
-- design `composite-variadic-arguments`
 - design `computed-enum-alternatives`
 - design `configuration-error-kind`
 - design `console-mounts-nested-element`
@@ -658,7 +658,6 @@ deliberately folded behind a broader line.
 - feature `ASSETS-API-ADMIN-OPERATIONS`
 - feature `AXUM-CANNOT-SERVE-A-LIQUERS-UI`
 - feature `AXUM-SERVER-SENDS-NO-CORS-HEADERS`
-- feature `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS`
 - feature `COMMAND-ENUM-ALTERNATIVES-CANNOT-BE-COMPUTED`
 - feature `COMMAND-INPUT-OUTPUT-TYPES-ARE-UNDECLARED`
 - feature `COMMAND-SPECIALIZATION-BY-INPUT-TYPE-MISSING`

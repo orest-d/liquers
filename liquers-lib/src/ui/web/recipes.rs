@@ -229,11 +229,12 @@ pub fn recipes_html(state: &RecipesState, title: &str) -> String {
     ));
     html.push_str("</div>");
     if state.read_only().is_none() {
+        // An empty `.node` node, named by the first free integer; its query and filename are set
+        // in its form (design `strict-tree-editing`, AC-5, AC-7).
         html.push_str(
-            "<div class=\"lq-recipes-new\"><input data-lq-field=\"new_title\" placeholder=\"New recipe title\" size=\"14\">\
-             <input data-lq-field=\"new_ext\" value=\"txt\" size=\"4\">",
+            "<div class=\"lq-recipes-new\"><input data-lq-field=\"new_title\" placeholder=\"New node title (optional)\" size=\"16\">",
         );
-        html.push_str(&button("rc:new", "＋", "New recipe", None));
+        html.push_str(&button("rc:new", "＋", "New node", None));
         html.push_str("</div>");
     }
     if !state.continuous() && state.is_pending() {
@@ -242,6 +243,17 @@ pub fn recipes_html(state: &RecipesState, title: &str) -> String {
     }
     if let Some(reason) = state.read_only() {
         html.push_str(&format!("<div class=\"lq-warning\">{}</div>", escape_html(reason)));
+    }
+    // AC-9: an invalid tree is used as plain recipes, and says so.
+    if let Some(notice) = state.tree_notice() {
+        html.push_str(&format!("<div class=\"lq-warning lq-tree-notice\">{}</div>", escape_html(&notice)));
+    }
+    // AC-4: edits a failed write left in memory only.
+    if let Some(error) = state.unsaved() {
+        html.push_str(&format!(
+            "<div class=\"lq-warning lq-unsaved\" title=\"{}\">Unsaved edits</div>",
+            escape_html(error)
+        ));
     }
     if let Some(message) = state.message() {
         html.push_str(&format!("<div class=\"lq-message\">{}</div>", escape_html(message)));
@@ -364,5 +376,30 @@ mod tests {
         assert!(html.contains("data-lq-event=\"rf:save:a.csv\""));
         assert!(recipes_html(&state, "R").contains("lq-recipe-window"));
         assert!(!form_html(&state.forms()[0], None, true).contains("rf:save"));
+    }
+
+    /// strict-tree-editing AC-7: New asks for an optional title only.
+    #[test]
+    fn web_panel_new_has_no_extension_field() {
+        let html = recipes_html(&state(), "Recipes");
+        assert!(html.contains("data-lq-event=\"rc:new\""));
+        assert!(html.contains("data-lq-field=\"new_title\""));
+        assert!(!html.contains("new_ext"), "{html}");
+    }
+
+    /// strict-tree-editing AC-9, AC-4: the notice of an invalid tree, and the unsaved marker.
+    #[test]
+    fn web_panel_shows_the_notice() {
+        let mut state = RecipesState::new(Default::default()).with_folder(Some("p".into()));
+        state
+            .on_snapshot(&Value::from("tree: {}\nrecipes:\n- {query: -R/x.csv/-/head/a.csv}\n- {query: -R/y.csv/-/head/a.csv}\n"), None)
+            .expect("snapshot");
+        let html = recipes_html(&state, "Recipes");
+        assert!(html.contains("lq-tree-notice"), "{html}");
+        assert!(html.contains("Not a valid recipe tree: plain recipes."));
+        assert!(!recipes_html(&super::tests::state(), "R").contains("lq-tree-notice"));
+        state.apply(RecipesCommand::Duplicate("a.csv".into())).ok();
+        state.on_write_failed(&liquers_core::error::Error::general_error("disk full".to_owned()));
+        assert!(recipes_html(&state, "Recipes").contains("lq-unsaved"));
     }
 }

@@ -7,8 +7,9 @@
 //!
 //! # Main components
 //!
-//! - [`show_recipes`]: the panel of a [`RecipesElement`] — toolbar (outline ≡, dependencies ⑂,
-//!   YAML {}, settings ⚙, new ＋), rows (type icon, label, status circle or percentage, findings
+//! - [`show_recipes`]: the panel of a [`RecipesElement`] — toolbar (Phosphor icons for outline,
+//!   dependencies, YAML, settings and new, [`TOOLBAR_ICONS`]), the notice of an invalid tree and
+//!   the unsaved marker, rows (type icon, label, status circle or percentage, findings
 //!   marker, tooltips), the right-click menu, inline rename, the New / Add child / Save as dialogs,
 //!   recipe windows, the YAML window and the windows of View and Metadata.
 //! - [`show_form`]: one recipe as a form, with the query editor inside; used by the panel's
@@ -384,28 +385,45 @@ fn default_path(file: &str, format: Option<&str>) -> String {
     }
 }
 
+/// The toolbar's Phosphor icons, by name, with the text drawn when the icon font lacks one:
+/// outline, dependencies, YAML, settings, new (design `strict-tree-editing`, AC-6). Symbols such
+/// as `⑂` or `＋` are missing from egui's default fonts and drew as boxes.
+pub const TOOLBAR_ICONS: [(&str, &str); 5] = [
+    ("list", "="),
+    ("tree-structure", "Deps"),
+    ("brackets-curly", "{}"),
+    ("gear", "Set"),
+    ("plus", "+"),
+];
+
+fn toolbar_icon(index: usize) -> &'static str {
+    let (name, fallback) = TOOLBAR_ICONS[index];
+    crate::egui::theme::phosphor_glyph(name).unwrap_or(fallback)
+}
+
 fn toolbar(ui: &mut egui::Ui, element: &mut RecipesElement, state: &RecipesState, commands: &mut Vec<RecipesCommand>) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 2.0;
         let outline = state.view() == RecipesView::Outline;
-        if ui.selectable_label(outline, "≡").on_hover_text("Outline").clicked() && !outline {
+        if ui.selectable_label(outline, toolbar_icon(0)).on_hover_text("Outline").clicked() && !outline {
             commands.push(RecipesCommand::SetView(RecipesView::Outline));
         }
-        if ui.selectable_label(!outline, "⑂").on_hover_text("Dependencies").clicked() && outline {
+        if ui.selectable_label(!outline, toolbar_icon(1)).on_hover_text("Dependencies").clicked() && outline {
             commands.push(RecipesCommand::SetView(RecipesView::Dependencies));
         }
-        if ui.selectable_label(state.yaml().is_some(), "{}").on_hover_text("Edit as YAML").clicked() {
+        if ui.selectable_label(state.yaml().is_some(), toolbar_icon(2)).on_hover_text("Edit as YAML").clicked() {
             commands.push(if state.yaml().is_some() { RecipesCommand::CloseYaml } else { RecipesCommand::OpenYaml });
         }
-        let settings = ui.selectable_label(element.ui.settings_open, "⚙").on_hover_text("Settings");
+        let settings = ui.selectable_label(element.ui.settings_open, toolbar_icon(3)).on_hover_text("Settings");
         if settings.clicked() {
             element.ui.settings_open = !element.ui.settings_open;
         }
         let new = ui
-            .add_enabled(state.read_only().is_none(), egui::Button::new("＋").small())
-            .on_hover_text("New recipe");
+            .add_enabled(state.read_only().is_none(), egui::Button::new(toolbar_icon(4)).small())
+            .on_hover_text("New node");
         if new.clicked() {
-            element.ui.new_dialog = Some(NewDialog { parent: None, title: String::new(), extension: "txt".into(), slot: 0 });
+            // An empty `.node` node (AC-5): its query and filename are set in its window.
+            element.ui.new_dialog = Some(NewDialog { parent: None, title: String::new(), extension: String::new(), slot: 0 });
         }
     });
     if element.ui.settings_open {
@@ -443,7 +461,7 @@ fn new_dialog(ctx: &egui::Context, element: &mut RecipesElement, state: &Recipes
     let slots = dialog.parent.as_deref().map(|p| state.child_slots(p)).unwrap_or_default();
     let title = match &dialog.parent {
         Some(parent) => format!("Add a child of {parent}"),
-        None => "New recipe".to_owned(),
+        None => "New node".to_owned(),
     };
     let mut keep = true;
     let mut done = false;
@@ -472,13 +490,11 @@ fn new_dialog(ctx: &egui::Context, element: &mut RecipesElement, state: &Recipes
                     });
                 }
             } else {
-                ui.horizontal(|ui| {
-                    ui.label("Extension");
-                    ui.add(egui::TextEdit::singleline(&mut dialog.extension).desired_width(60.0));
-                });
+                ui.label(RichText::new("An empty node; set its query and filename in its window.").small());
             }
             ui.horizontal(|ui| {
-                let ready = !dialog.title.trim().is_empty() && (dialog.parent.is_none() || slots.get(dialog.slot).is_some());
+                // The title is optional: an untitled node is named by the first free integer.
+                let ready = dialog.parent.is_none() || slots.get(dialog.slot).is_some();
                 if ui.add_enabled(ready, egui::Button::new("Create")).clicked() {
                     match (&dialog.parent, slots.get(dialog.slot)) {
                         (Some(parent), Some(slot)) => commands.push(RecipesCommand::AddChild {
@@ -616,13 +632,22 @@ pub fn show_recipes(
             if let Some(reason) = state.read_only() {
                 ui.label(RichText::new(reason).small().color(color(palette.state.warning)));
             }
+            // AC-9: an invalid tree is used as plain recipes, and says so.
+            if let Some(notice) = state.tree_notice() {
+                ui.label(RichText::new(notice).small().color(color(palette.state.warning)));
+            }
+            // AC-4: edits a failed write left in memory only.
+            if state.unsaved().is_some() {
+                ui.label(RichText::new("Unsaved edits").small().strong().color(color(palette.state.warning)))
+                    .on_hover_text(state.unsaved().unwrap_or_default());
+            }
             if let Some(message) = state.message() {
                 ui.label(RichText::new(message).small().color(color(palette.text.ink_muted)));
             }
             ui.separator();
             egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
                 if state.rows().is_empty() && state.list().is_some() {
-                    ui.label(RichText::new("No recipes yet: ＋ adds one.").small().color(color(palette.text.ink_faint)));
+                    ui.label(RichText::new(format!("No recipes yet: {} adds one.", toolbar_icon(4))).small().color(color(palette.text.ink_faint)));
                 }
                 for (i, row) in state.rows().iter().enumerate() {
                     ui.push_id(i, |ui| show_row(ui, row, &state, &mut element.ui, &theme, &mut commands));
@@ -703,5 +728,15 @@ mod tests {
     fn default_path_uses_the_export_format() {
         assert_eq!(default_path("scenes/car.glb", None), "car.glb");
         assert_eq!(default_path("table.csv", Some("parquet")), "table.parquet");
+    }
+
+    /// strict-tree-editing AC-6: every toolbar icon is a Phosphor glyph, not a symbol the default
+    /// fonts lack.
+    #[test]
+    fn egui_toolbar_uses_phosphor_glyphs() {
+        for (i, (name, _)) in TOOLBAR_ICONS.iter().enumerate() {
+            let glyph = crate::egui::theme::phosphor_glyph(name).unwrap_or_else(|| panic!("no Phosphor icon {name}"));
+            assert_eq!(toolbar_icon(i), glyph);
+        }
     }
 }

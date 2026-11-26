@@ -38,6 +38,12 @@ on:
       - '.github/workflows/docs-check.yml'
   workflow_dispatch:
 
+# A newer push to the same pull request cancels the run still in progress; runs on main are never
+# cancelled. See specs/guides/GITHUB_ACTIONS_GUIDE.md §1a.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   check:
     runs-on: ubuntu-latest

@@ -37,6 +37,10 @@ new `Value` variant.
   Save as takes a typed path (no `rfd`), a new unstored source is allowed by `add` / `add_child`,
   `Recipe` skips three default fields when serialized, the browser shows one form at a time.
   Three issues filed.
+- **2026-11-26** Scope note: design `strict-tree-editing` changes New (an empty `<n>.node` node,
+  no extension field), makes used names unique instead of refused, adds the invalid-tree notice
+  and the unsaved marker, and draws the egui toolbar with Phosphor icons. See
+  [`../strict-tree-editing/`](../strict-tree-editing/DESIGN.md).
 
 ## Phases
 

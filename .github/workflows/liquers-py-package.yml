@@ -1,11 +1,13 @@
 name: liquers-py-package
 
-# On pull requests that touch packaging: builds the Linux x86_64 abi3 wheel the way the release does
+# On pull requests that touch packaging (not the crate's Rust sources, which liquers-py-tests.yml
+# covers): builds the Linux x86_64 abi3 wheel the way the release does
 # (liquers-py-release.yml jobs lock, notices, wheels, test), checks it, and runs the installed-wheel
 # tests against it. Publishes nothing. Design: specs/design/liquers-py-package/phase2-architecture.md.
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'liquers-py/pyproject.toml'
       - 'liquers-py/Cargo.toml'
@@ -14,7 +16,6 @@ on:
       - 'liquers-py/about.toml'
       - 'liquers-py/about.hbs'
       - 'liquers-py/packaging/**'
-      - 'liquers-py/src/**'
       - 'liquers-py/python/liquers/**'
       - 'liquers-py/python/_liquers/**'
       - 'liquers-py/tests/package/**'
@@ -28,6 +29,12 @@ on:
       - '.github/workflows/liquers-py-release.yml'
   workflow_dispatch:
 
+# A newer push to the same pull request cancels the run still in progress; runs on main are never
+# cancelled. See specs/guides/GITHUB_ACTIONS_GUIDE.md §1a.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
@@ -37,6 +44,8 @@ env:
 jobs:
   wheel:
     name: build, check and test the Linux x86_64 abi3 wheel
+    # draft pull requests are skipped; marking one ready for review runs it
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:

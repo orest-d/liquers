@@ -7,6 +7,7 @@ use liquers_core::command_metadata::CommandMetadataRegistry;
 use liquers_core::error::Error;
 use liquers_core::metadata::Version;
 use liquers_core::parse::parse_query;
+use liquers_core::query::{Query, QuerySegment};
 use liquers_core::recipes::Recipe;
 use liquers_core::value::ValueInterface;
 
@@ -80,6 +81,22 @@ fn query_value(recipe: &Recipe) -> Result<Value, Error> {
     match (&recipe.pipeline, recipe.query.is_empty()) {
         (Some(pipeline), true) => Ok(Value::from_pipeline(pipeline.clone())),
         (Some(_), false) | (None, true) | (None, false) => Ok(Value::from_query(&parse_query(&recipe.query)?)),
+    }
+}
+
+/// `query` ending in `filename`: a transform query takes it as its last segment's filename, a
+/// resource query as a segment of its own (`-R/data/x.csv/-/1.node`), an empty query is the
+/// filename alone. A transform's filename is replaced; a resource query keeps its key, which is
+/// its input (`-R/data/a.csv` → `-R/data/a.csv/-/a1.csv`).
+pub fn query_with_filename(query: &Query, filename: &str) -> String {
+    let query = match query.segments.last() {
+        Some(QuerySegment::Transform(t)) if t.filename.is_some() => query.clone().without_filename(),
+        Some(QuerySegment::Transform(_)) | Some(QuerySegment::Resource(_)) | None => query.clone(),
+    };
+    match query.segments.last() {
+        None => filename.to_owned(),
+        Some(QuerySegment::Transform(_)) => format!("{}/{filename}", query.encode()),
+        Some(QuerySegment::Resource(_)) => format!("{}/-/{filename}", query.encode()),
     }
 }
 
@@ -181,7 +198,13 @@ impl RecipeForm {
                     self.query.on_written(zero());
                     match value.try_into_query() {
                         Ok(q) => {
-                            recipe.query = q.encode();
+                            // An edited query without a filename keeps the recipe's: the filename
+                            // names the node, and only a rename changes it (design
+                            // `strict-tree-editing`, AC-14).
+                            recipe.query = match (q.filename(), self.filename()) {
+                                (None, Some(filename)) => query_with_filename(&q, &filename),
+                                (Some(_), Some(_)) | (Some(_), None) | (None, None) => q.encode(),
+                            };
                             recipe.pipeline = None;
                         }
                         Err(_) => {
@@ -233,5 +256,21 @@ fn parse_bool(text: &str) -> Result<Option<bool>, Error> {
         "true" | "yes" | "on" => Ok(Some(true)),
         "false" | "no" | "off" => Ok(Some(false)),
         other => Err(Error::general_error(format!("'{other}' is not true or false"))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A transform's filename is replaced; a resource query keeps its key (found by review).
+    #[test]
+    fn query_with_filename_keeps_resource_keys() {
+        let q = |text: &str| parse_query(text).expect("query");
+        assert_eq!(query_with_filename(&q("-R/data/a.csv"), "a1.csv"), "-R/data/a.csv/-/a1.csv");
+        assert_eq!(query_with_filename(&q("-R/data/x.csv/-/head/a.csv"), "b.csv"), "-R/data/x.csv/-/head/b.csv");
+        assert_eq!(query_with_filename(&q("-R/data/x.csv/-/head"), "1.node"), "-R/data/x.csv/-/head/1.node");
+        assert_eq!(query_with_filename(&q("1.node"), "wave.obj"), "wave.obj");
+        assert_eq!(query_with_filename(&q("-R/data/x.csv/-/a.csv"), "b.csv"), "-R/data/x.csv/-/b.csv");
     }
 }

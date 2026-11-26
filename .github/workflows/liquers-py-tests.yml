@@ -1,12 +1,13 @@
 name: liquers-py-tests
 
 # Runs the liquers-py test loop (scripts/test-liquers-py.sh: maturin develop, pytest, then the
-# crate's Rust unit tests) on the oldest supported CPython, the newest stable one and the
-# free-threaded build, under a virtual display so the window tests run too. Designs:
+# crate's Rust unit tests) on the newest stable CPython for pull requests, and also on the oldest
+# supported one and the free-threaded build for main pushes and manual runs, under a virtual display so the window tests run too. Designs:
 # specs/design/language-binding-tests-in-ci/, specs/design/liquers-py-ui-window/.
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       # every workspace crate is a liquers-* directory; the negations drop crates liquers-py does
       # not build from
@@ -39,14 +40,24 @@ on:
       - '.github/workflows/liquers-py-tests.yml'
   workflow_dispatch:
 
+# A newer push to the same pull request cancels the run still in progress; runs on main are never
+# cancelled. See specs/guides/GITHUB_ACTIONS_GUIDE.md §1a.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
+    # draft pull requests are skipped; marking one ready for review runs it
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
-        python: ['3.10', '3.14', '3.14t']
+        # Pull requests run the newest stable CPython only (it also carries the typing leg); main
+        # pushes and manual runs add the oldest supported one and the free-threaded build.
+        python: ${{ fromJSON(github.event_name == 'pull_request' && '["3.14"]' || '["3.10", "3.14", "3.14t"]') }}
     env:
       CARGO_INCREMENTAL: 0
     steps:

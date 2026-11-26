@@ -3,7 +3,7 @@ title: UI Interface Specification
 kind: reference
 audience: internal
 area: [lib/ui]
-reviewed: 2026-11-24
+reviewed: 2026-11-26
 ---
 # UI Interface Specification
 
@@ -573,16 +573,24 @@ can still be repaired.
 | `RecipeElement` | one recipe as a form, with the query editor inside | `lui/recipe_editor` (over `acc/recipe_file-<filename>`, which finds the recipe by filename, not position) |
 
 **Panel.** `RecipesState` (backend-free) holds the working copy as a `TreeEditor`, so a rename
-rewrites every reference to the node and an edit that would add a check error (a cycle, a used
-name) is refused and changes nothing. Rows show the type icon (the asset's `unicode_icon`, else the
+rewrites every reference to the node and an edit that would add a check error (a cycle) is
+refused and changes nothing. A used name is never refused but made unique (`net.obj`, `net1.obj`…),
+also in a plain list, and the node's window follows the name it gets; a filename set in the form or
+typed at the end of the query renames the node, and a query typed without a filename keeps the
+node's. Rows show the type icon (the asset's `unicode_icon`, else the
 extension's), the filename or, in a tree, the node name; `RecipeLabel` chooses name, title or both.
 A coloured circle shows the asset's status, replaced by a small percentage while it reports
 progress; hover gives the status, the error, the check's findings, and over the name the title and
 description. Right-click (egui) or the row's `⋯` menu (browser) offers View, Metadata, Edit,
 Evaluate, Rename, Duplicate, Add child and Set as result (trees), Save as, Export as `<format>` (the
 type's `supported_data_formats`, known once evaluated) and Delete (refused while referenced). New
-and Add child append a recipe whose filename the editor suggests; it is a source declaration until
-its query is written. The `continuous` flag writes each edit at once; otherwise edits wait for
+adds an empty node `<n>.node` (`TreeEditor::add_empty`, `<n>` the first free integer, an optional
+title, no extension field), valid in any tree, and opens it; Add child adds `<title>.<ext>` or
+`<n>.node`. A file with a `tree:` section that fails the check is used as plain recipes and stays
+editable: `RecipesState::tree_notice` ("Not a valid recipe tree: plain recipes." and the first
+findings) is drawn under the toolbar. A failed write keeps the edits pending and marks them
+(`RecipesState::unsaved`, "Unsaved edits"); the next edit or Update writes them. The egui toolbar
+uses Phosphor icons (`list`, `tree-structure`, `brackets-curly`, `gear`, `plus`). The `continuous` flag writes each edit at once; otherwise edits wait for
 Update, and Revert reloads.
 
 **Protocol.** Besides `AppMessage::Accessor` and `NodeContext` (whose `UpdateMessage::NodeContext`
@@ -1008,3 +1016,4 @@ Candidate universal operations identified across use cases:
 | 2026-11-24 | Editors: recipe editors — `RecipesElement` / `RecipeElement`, `lui/recipes_editor` / `lui/recipe_editor`, `AppMessage::Evaluate` / `SaveAs`, the `NodeContext` asset information, formats and notice. That subsection reviewed against the implementation. | `design/recipes-editor/` |
 | 2026-11-24 | Editors: update modes (On demand, Live preview, Apply immediately), Undo / Redo, ✓ beside the query field, `host_controls`; the query console's update modes, debounce, typed-text validation, `ValueDisplay` (no flicker, status bar, dimming, preview frame), expiry by mode, Browse in the panel, `schedule_event` (`design/query-update-modes/` Part A). Those parts reviewed against the implementation. | — |
 | 2026-11-24 | Editor element modes and Live preview through `AppMessage::Preview` (recipe folder as `cwd`, `lq:preview-end`), the `mode` arguments, mode names `on_demand` / `preview` / `immediate`, the value display adopting a re-pointed query (`design/query-update-modes/` Part B). Those parts reviewed against the implementation. | — |
+| 2026-11-26 | Recipe editors: New adds an empty `.node` node, used names are made unique, a query without a filename keeps the node's, the invalid-tree notice, the unsaved marker, Phosphor toolbar icons. That subsection reviewed against the implementation. | `design/strict-tree-editing/` |
