@@ -238,7 +238,23 @@ async fn unplannable_recipe_with_filename_is_an_error_asset() -> Result<(), Box<
     let envref = make_env(store)?;
     let error = text(&envref, "-R/p/broken.glb").await.expect_err("does not parse");
     assert_eq!(error.error_type, ErrorType::ParseError, "{error}");
+    Ok(())
+}
+
+/// strict-tree-editing AC-10: a node depending on an error node is an error, as for any recipe.
+#[tokio::test]
+async fn dependency_on_an_error_node_is_an_error() -> Result<(), Box<dyn std::error::Error>> {
+    let store = AsyncMemoryStore::new(&Key::new());
+    seed(&store, "p/body.glb", "body").await?;
+    seed_yaml(
+        &store,
+        "p/recipes.yaml",
+        "tree: {dependencies: strict}\nrecipes:\n  - {query: body.glb}\n  - {query: \"-R/./body.glb/-/attach-~X~-R/./x/broken.glb\"}\n  - {query: \"-R/./broken.glb/-/attach-body/car.glb\"}\n",
+    )
+    .await?;
+    let envref = make_env(store)?;
     text(&envref, "-R/p/car.glb").await.expect_err("depends on an error node");
+    assert_eq!(text(&envref, "-R/p/body.glb").await?, "body");
     Ok(())
 }
 
@@ -273,11 +289,19 @@ async fn node_file_round_trips_by_metadata() -> Result<(), Box<dyn std::error::E
     store
         .set(&key, b"body+body", &Metadata::MetadataRecord(record))
         .await?;
-    store.set(&parse_key("q/3.node")?, b"body", &Metadata::new()).await?;
     let envref = make_env(store)?;
     assert_eq!(text(&envref, "-R/p/2.node").await?, "body+body");
+    Ok(())
+}
+
+/// strict-tree-editing AC-12: a `.node` file whose metadata names no type is not guessed at.
+#[tokio::test]
+async fn node_file_without_metadata_fails_clearly() -> Result<(), Box<dyn std::error::Error>> {
+    let store = AsyncMemoryStore::new(&Key::new());
+    store.set(&parse_key("q/3.node")?, b"body", &Metadata::new()).await?;
+    let envref = make_env(store)?;
     let error = text(&envref, "-R/q/3.node").await.expect_err("no metadata");
-    assert!(error.message.contains("node"), "{error}");
+    assert!(error.message.contains(".node file is read by its metadata"), "{error}");
     Ok(())
 }
 
@@ -310,9 +334,6 @@ async fn tree_editor_normalizes_new_and_sectionless_lists() -> Result<(), Box<dy
     let editor = TreeEditor::new(RecipeList::new(), None, cmr.clone())?;
     assert!(editor.recipes().tree.is_some());
     assert!(editor.report().errors.is_empty());
-    let plain: RecipeList = serde_yaml::from_str("recipes:\n  - {query: body.glb}\n")?;
-    let editor = TreeEditor::new(plain, None, cmr.clone())?;
-    assert!(editor.recipes().tree.is_none(), "a plain list stays plain");
     let stale: RecipeList = serde_yaml::from_str(
         "tree: {result: gone.glb, roots: [gone.glb]}\nrecipes:\n  - {query: 1.node}\n",
     )?;
@@ -320,6 +341,36 @@ async fn tree_editor_normalizes_new_and_sectionless_lists() -> Result<(), Box<dy
     let tree = editor.recipes().tree.clone().ok_or("no tree")?;
     assert!(tree.roots.is_empty(), "{tree:?}");
     assert_eq!(tree.result.as_deref(), Some("1.node"));
+    Ok(())
+}
+
+/// strict-tree-editing AC-11: a non-empty list without a `tree:` section is a plain list, and the
+/// editor leaves it plain; it gets only the uniqueness rule.
+#[tokio::test]
+async fn plain_list_stays_plain() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = make_env(AsyncMemoryStore::new(&Key::new()))?;
+    let cmr = Arc::new(envref.get_command_metadata_registry().clone());
+    let plain: RecipeList = serde_yaml::from_str("recipes:\n  - {query: body.glb}\n")?;
+    let mut editor = TreeEditor::new(plain, None, cmr)?;
+    assert!(editor.recipes().tree.is_none(), "a plain list stays plain");
+    editor.add(Recipe::new("-R/./body.glb/-/attach-body/car.glb".into(), String::new(), String::new())?)?;
+    assert!(editor.recipes().tree.is_none());
+    editor.rename("car.glb", "body.glb")?;
+    assert!(editor.recipes().get("body1.glb").is_some(), "no duplicate filename");
+    Ok(())
+}
+
+/// strict-tree-editing AC-5: an empty node is `<n>.<ext>` with the first free integer.
+#[tokio::test]
+async fn add_empty_takes_the_first_free_integer() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = make_env(AsyncMemoryStore::new(&Key::new()))?;
+    let cmr = Arc::new(envref.get_command_metadata_registry().clone());
+    let list: RecipeList = serde_yaml::from_str("tree: {}\nrecipes:\n  - {query: 2.node}\n  - {query: 1.obj}\n")?;
+    let listing = vec!["3.node".to_owned()];
+    let mut editor = TreeEditor::new(list, Some(listing), cmr)?;
+    assert_eq!(editor.add_empty("", "")?, "4.node", "1, 2 and 3 are taken by name");
+    assert_eq!(editor.add_empty("Mesh", "obj")?, "5.obj");
+    assert_eq!(editor.recipes().get("5.obj").map(|r| r.title.clone()).as_deref(), Some("Mesh"));
     Ok(())
 }
 
