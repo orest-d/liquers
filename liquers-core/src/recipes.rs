@@ -18,13 +18,15 @@
 //!
 //! - [`Recipe`]: one query or pipeline with its title, description, overrides and caching
 //!   settings. [`Recipe::is_source_declaration`] tells a *source recipe* — a query that is only a
-//!   filename — which declares stored data instead of computing it.
+//!   filename — which declares stored data instead of computing it; a `.node` filename alone
+//!   (`1.node`) is an empty node instead.
 //! - [`RecipeList`]: the recipes of a folder, as read from `recipes.yaml`, with the optional
 //!   `tree:` section ([`crate::recipe_tree::TreeDeclaration`]).
 //! - [`AsyncRecipeProvider`]: resolves recipes registered for logical keys — what recipes are
 //!   available in each directory. [`DefaultRecipeProvider`] reads `<directory>/recipes.yaml`;
-//!   filenames derived from recipe queries identify the assets in that directory, and a folder
-//!   declared `dependencies: strict` is checked as a whole and refused on an error. A recipe
+//!   filenames derived from recipe queries identify the assets in that directory. A folder whose
+//!   recipe tree fails its check is served as plain recipes, not refused: the check describes a
+//!   folder and never blocks it (design `strict-tree-editing`). A recipe
 //!   looked up by key must use [`Recipe::to_plan_for_key`], because keyed assets are globally
 //!   shared and cannot receive a per-evaluation payload.
 //! - [`RecipesConfig`], [`RecipeProviderFactory`] and [`RecipeProviderChain`]: recipe providers
@@ -217,6 +219,10 @@ impl Recipe {
     /// gives it a title and a description and makes it a node of a recipe tree
     /// (`specs/design/recipe-tree/`, AC-27). Evaluating it with no stored data fails with
     /// `KeyNotFound`.
+    ///
+    /// A filename-only query with the extension [`crate::metadata::NODE_EXTENSION`] (`1.node`) is
+    /// not a source but an *empty node*: it evaluates to the empty value (design
+    /// `strict-tree-editing`, AC-5).
     pub fn is_source_declaration(&self) -> bool {
         if self.pipeline.is_some()
             || !self.arguments.is_empty()
@@ -230,7 +236,10 @@ impl Recipe {
         };
         match query.segments.as_slice() {
             [crate::query::QuerySegment::Transform(t)] => {
-                !query.rooted && t.header.is_none() && t.query.is_empty() && t.filename.is_some()
+                !query.rooted
+                    && t.header.is_none()
+                    && t.query.is_empty()
+                    && t.filename.as_ref().is_some_and(|f| f.extension().as_deref() != Some(crate::metadata::NODE_EXTENSION))
             }
             _ => false,
         }
@@ -879,6 +888,15 @@ impl<E: Environment> AsyncRecipeProvider<E> for TrivialRecipeProvider {
     }
 }
 
+/// The filename the text of a query that does not parse ends with, `…/name.ext`, when it is a
+/// plain resource name with an extension (design `strict-tree-editing`, AC-10).
+fn trailing_filename(query: &str) -> Option<String> {
+    let last = query.trim().rsplit('/').next()?;
+    let (stem, extension) = last.rsplit_once('.')?;
+    let plain = |t: &str| !t.is_empty() && t.chars().all(|c| c.is_alphanumeric() || c == '_');
+    (plain(stem) && plain(extension) && crate::escape::is_resource_name(last)).then(|| last.to_owned())
+}
+
 /// Store-backed provider using one `recipes.yaml` file per logical directory.
 ///
 /// Each file deserializes as [`RecipeList`]. Recipe query filenames identify the assets exposed in
@@ -959,29 +977,24 @@ impl DefaultRecipeProvider {
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let mut list: RecipeList = serde_yaml::from_slice(&bytes)
             .map_err(|e| Error::general_error(format!("Error parsing recipes: {}", e)))?;
-        // A strict tree is valid as a whole or not used (`specs/design/recipe-tree/`, AC-24):
-        // any finding of the tree check refuses every recipe of the folder, and the file is not
-        // cached, so a fix is seen at once.
-        if list
-            .tree
-            .as_ref()
-            .is_some_and(|t| t.dependencies == crate::recipe_tree::DependencyMode::Strict)
-        {
-            let listing = envref.get_async_store().listdir(key).await?;
-            let report = crate::recipe_tree::check_tree(
-                &list,
-                Some(&listing),
-                envref.get_command_metadata_registry(),
-            );
-            if let Some(error) = report.error() {
-                return Err(error.with_key(&recipes_key));
-            }
-        }
+        // A tree that fails its check is served as plain recipes, not refused (design
+        // `strict-tree-editing`, AC-8, replacing `recipe-tree` AC-24): the check describes the
+        // folder, and the editors show its findings. Nothing at evaluation reads `tree`.
         list.set_cwd(key.encode()).map_err(|e| e.with_key(key))?;
         let mut by_name = HashMap::new();
         for (index, recipe) in list.recipes.iter().enumerate() {
-            if let Ok(Some(filename)) = recipe.filename() {
-                by_name.entry(filename.name).or_insert(index);
+            match recipe.filename() {
+                Ok(Some(filename)) => {
+                    by_name.entry(filename.name).or_insert(index);
+                }
+                Ok(None) => {}
+                // A query that does not parse is still served under the filename its text ends
+                // with, so that key is an error asset carrying the parse error (AC-10).
+                Err(_) => {
+                    if let Some(filename) = trailing_filename(&recipe.query) {
+                        by_name.entry(filename).or_insert(index);
+                    }
+                }
             }
         }
         let entry = Arc::new(CachedRecipes {

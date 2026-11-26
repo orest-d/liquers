@@ -173,31 +173,212 @@ async fn tree_declaration_round_trips() -> Result<(), Box<dyn std::error::Error>
 
 const STRICT: &str = "tree: {dependencies: strict, result: car.glb}\n";
 
-/// AC-24: one bad recipe in a strict folder refuses every recipe of the folder, and the file is
-/// not cached: a fix is seen at once.
+/// strict-tree-editing AC-1, AC-8 (replacing recipe-tree AC-24): one bad recipe in a strict
+/// folder no longer refuses the folder; every recipe is served as a plain recipe, the bad one
+/// included, and a fix is seen at once.
 #[tokio::test]
-async fn strict_folder_fails_as_a_whole() -> Result<(), Box<dyn std::error::Error>> {
+async fn invalid_strict_folder_downgrades_to_plain_recipes() -> Result<(), Box<dyn std::error::Error>> {
     let store = AsyncMemoryStore::new(&Key::new());
     seed_car(&store, "scenes/car", STRICT).await?;
     seed(&store, "data/paint.mat", "paint").await?;
     let bad = "tree: {dependencies: strict}\nrecipes:\n  - {query: body.glb}\n  - {query: tyre.glb}\n  - {query: \"-R/./body.glb/-/attach-tyre/ok.glb\"}\n  - {query: \"-R/./body.glb/-/material-~X~-R/data/paint.mat~E/bad.glb\"}\n";
     seed_yaml(&store, "scenes/car/recipes.yaml", bad).await?;
     let envref = make_env(store)?;
-    let error = text(&envref, "-R/scenes/car/ok.glb")
-        .await
-        .expect_err("the whole folder is refused");
-    assert!(error.message.contains("bad.glb"), "{error}");
-    assert!(error.message.contains("'m'"), "{error}");
-    let fixed = bad.replace("material-~X~-R/data/paint.mat~E", "attach-tyre");
-    envref
-        .get_async_store()
-        .set(
-            &parse_key("scenes/car/recipes.yaml")?,
-            fixed.as_bytes(),
-            &Metadata::new(),
-        )
-        .await?;
     assert_eq!(text(&envref, "-R/scenes/car/ok.glb").await?, "body+tyre");
+    // The recipe breaking the strict rules evaluates as a plain recipe.
+    assert_eq!(text(&envref, "-R/scenes/car/bad.glb").await?, "body~paint");
+    let folder = parse_key("scenes/car")?;
+    let editor = editor_for(&envref, &folder).await?;
+    assert!(
+        editor.report().errors.iter().any(|e| e.to_string().contains("bad.glb")),
+        "{:?}",
+        editor.report().errors
+    );
+    Ok(())
+}
+
+/// strict-tree-editing AC-1, AC-2: the `recipes.yaml` of a tree that fails its check reads and
+/// writes as an asset.
+#[tokio::test]
+async fn recipes_yaml_of_an_invalid_tree_is_readable_and_writable() -> Result<(), Box<dyn std::error::Error>> {
+    let store = AsyncMemoryStore::new(&Key::new());
+    let broken = "tree: {dependencies: strict}\nrecipes:\n  - {query: wave.obj, title: wave}\n";
+    seed(&store, "p/recipes.yaml", broken).await?;
+    let envref = make_env(store)?;
+    let key = parse_key("p/recipes.yaml")?;
+    let asset = envref.get_asset_manager().get(&key).await?;
+    let read = asset.get().await?;
+    assert!(read.try_into_string()?.contains("wave.obj"));
+    let mut record = MetadataRecord::new();
+    record.with_key(key.clone()).with_type_identifier("Text".to_owned());
+    record.data_format = Some("txt".to_owned());
+    let fixed = "tree: {dependencies: strict}\nrecipes:\n  - {query: 1.node, title: wave}\n";
+    record.with_type_name("text".to_owned());
+    envref
+        .get_asset_manager()
+        .set_binary(&key, fixed.as_bytes(), record)
+        .await?;
+    let back = envref.get_asset_manager().get(&key).await?.get().await?;
+    assert!(back.try_into_string()?.contains("1.node"));
+    Ok(())
+}
+
+/// strict-tree-editing AC-10: a recipe whose query does not parse is an error asset under the
+/// filename its text ends with, and a recipe depending on a failing node fails too.
+#[tokio::test]
+async fn unplannable_recipe_with_filename_is_an_error_asset() -> Result<(), Box<dyn std::error::Error>> {
+    let store = AsyncMemoryStore::new(&Key::new());
+    seed(&store, "p/body.glb", "body").await?;
+    seed_yaml(
+        &store,
+        "p/recipes.yaml",
+        "recipes:\n  - {query: body.glb}\n  - {query: \"-R/./body.glb/-/attach-~X~-R/./x/broken.glb\"}\n  - {query: \"-R/./broken.glb/-/attach-body/car.glb\"}\n",
+    )
+    .await?;
+    let envref = make_env(store)?;
+    let error = text(&envref, "-R/p/broken.glb").await.expect_err("does not parse");
+    assert_eq!(error.error_type, ErrorType::ParseError, "{error}");
+    text(&envref, "-R/p/car.glb").await.expect_err("depends on an error node");
+    Ok(())
+}
+
+/// strict-tree-editing AC-5: `{query: 1.node}` is no source; it evaluates to the empty value.
+#[tokio::test]
+async fn empty_node_evaluates_to_none_and_is_no_source() -> Result<(), Box<dyn std::error::Error>> {
+    let empty = Recipe::new("1.node".into(), String::new(), String::new())?;
+    assert!(!empty.is_source_declaration());
+    assert!(Recipe::new("1.obj".into(), String::new(), String::new())?.is_source_declaration());
+    let store = AsyncMemoryStore::new(&Key::new());
+    seed_yaml(&store, "p/recipes.yaml", "tree: {}\nrecipes:\n  - {query: 1.node}\n").await?;
+    let envref = make_env(store)?;
+    let state = envref.evaluate(parse_query("-R/p/1.node")?).await?.get().await?;
+    assert!(state.is_none(), "{:?}", state.data_unchecked().identifier());
+    Ok(())
+}
+
+/// strict-tree-editing AC-12: the extension `node` seeds no data format, and a stored `.node`
+/// file is read by its metadata; without metadata the read fails.
+#[tokio::test]
+async fn node_file_round_trips_by_metadata() -> Result<(), Box<dyn std::error::Error>> {
+    let mut record = MetadataRecord::new();
+    record.with_filename("2.node".to_owned());
+    assert_eq!(record.data_format, None, "the extension seeds no format");
+    let store = AsyncMemoryStore::new(&Key::new());
+    let key = parse_key("p/2.node")?;
+    let mut record = MetadataRecord::new();
+    record
+        .with_key(key.clone())
+        .with_type_identifier("Text".to_owned())
+        .with_filename("2.node".to_owned());
+    store
+        .set(&key, b"body+body", &Metadata::MetadataRecord(record))
+        .await?;
+    store.set(&parse_key("q/3.node")?, b"body", &Metadata::new()).await?;
+    let envref = make_env(store)?;
+    assert_eq!(text(&envref, "-R/p/2.node").await?, "body+body");
+    let error = text(&envref, "-R/q/3.node").await.expect_err("no metadata");
+    assert!(error.message.contains("node"), "{error}");
+    Ok(())
+}
+
+/// strict-tree-editing AC-12: every Node argument accepts a `.node` file, by its filename.
+#[tokio::test]
+async fn node_argument_accepts_a_node_file() -> Result<(), Box<dyn std::error::Error>> {
+    let store = AsyncMemoryStore::new(&Key::new());
+    seed(&store, "p/body.glb", "body").await?;
+    seed_yaml(
+        &store,
+        "p/recipes.yaml",
+        "tree: {dependencies: strict}\nrecipes:\n  - {query: body.glb}\n  - {query: \"-R/./body.glb/-/attach-body/1.node\"}\n  - {query: \"-R/./body.glb/-/attach-1.node/car.glb\"}\n",
+    )
+    .await?;
+    let envref = make_env(store)?;
+    assert_eq!(text(&envref, "-R/p/car.glb").await?, "body+body+body");
+    let editor = editor_for(&envref, &parse_key("p")?).await?;
+    assert!(editor.report().errors.is_empty(), "{:?}", editor.report().errors);
+    let choices = editor.node_choices("glb");
+    assert!(choices.iter().any(|c| c.name == "1.node"), "{choices:?}");
+    Ok(())
+}
+
+/// strict-tree-editing AC-11: a new editor holds a valid tree; a list without a section gets
+/// one only when empty, and a plain list stays plain.
+#[tokio::test]
+async fn tree_editor_normalizes_new_and_sectionless_lists() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = make_env(AsyncMemoryStore::new(&Key::new()))?;
+    let cmr = Arc::new(envref.get_command_metadata_registry().clone());
+    let editor = TreeEditor::new(RecipeList::new(), None, cmr.clone())?;
+    assert!(editor.recipes().tree.is_some());
+    assert!(editor.report().errors.is_empty());
+    let plain: RecipeList = serde_yaml::from_str("recipes:\n  - {query: body.glb}\n")?;
+    let editor = TreeEditor::new(plain, None, cmr.clone())?;
+    assert!(editor.recipes().tree.is_none(), "a plain list stays plain");
+    let stale: RecipeList = serde_yaml::from_str(
+        "tree: {result: gone.glb, roots: [gone.glb]}\nrecipes:\n  - {query: 1.node}\n",
+    )?;
+    let editor = TreeEditor::new(stale, None, cmr)?;
+    let tree = editor.recipes().tree.clone().ok_or("no tree")?;
+    assert!(tree.roots.is_empty(), "{tree:?}");
+    assert_eq!(tree.result.as_deref(), Some("1.node"));
+    Ok(())
+}
+
+/// strict-tree-editing AC-16: a tree with a recipe always has a result.
+#[tokio::test]
+async fn tree_editor_keeps_a_result() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = make_env(AsyncMemoryStore::new(&Key::new()))?;
+    let cmr = Arc::new(envref.get_command_metadata_registry().clone());
+    let mut editor = TreeEditor::new(RecipeList::new(), None, cmr)?;
+    let first = editor.add_empty("Wave", "")?;
+    assert_eq!(first, "1.node");
+    assert_eq!(editor.recipes().tree.as_ref().and_then(|t| t.result.clone()).as_deref(), Some("1.node"));
+    assert!(editor.report().errors.is_empty(), "{:?}", editor.report().errors);
+    let second = editor.add_empty("", "node")?;
+    assert_eq!(second, "2.node");
+    assert_eq!(editor.recipes().tree.as_ref().and_then(|t| t.result.clone()).as_deref(), Some("1.node"));
+    Ok(())
+}
+
+/// strict-tree-editing AC-17: roots are display hints; any node may be listed, roots beside a
+/// result are no error, unknown roots are warnings.
+#[tokio::test]
+async fn roots_are_display_hints() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = make_env(AsyncMemoryStore::new(&Key::new()))?;
+    let cmr = envref.get_command_metadata_registry().clone();
+    let list: RecipeList = serde_yaml::from_str(
+        "tree: {result: car.glb, roots: [wheel.glb, gone.glb]}\nrecipes:\n  - {query: 1.node}\n  - {query: \"-R/./1.node/-/wheel.glb\"}\n  - {query: \"-R/./wheel.glb/-/car.glb\"}\n  - {query: \"-R/./1.node/-/spare.glb\"}\n",
+    )?;
+    let report = liquers_core::recipe_tree::check_tree(&list, None, &cmr);
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    assert!(report.warnings.iter().any(|w| matches!(w, TreeFinding::UnknownRoot { root } if root == "gone.glb")));
+    assert_eq!(list.roots(&cmr), vec!["car.glb", "wheel.glb", "spare.glb"]);
+    Ok(())
+}
+
+/// strict-tree-editing AC-5, AC-14, AC-15: new names take the first free integer, and a used
+/// name is made unique: `net.obj`, `net1.obj`, …
+#[tokio::test]
+async fn rename_makes_the_name_unique() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = make_env(AsyncMemoryStore::new(&Key::new()))?;
+    let cmr = Arc::new(envref.get_command_metadata_registry().clone());
+    let mut editor = TreeEditor::new(RecipeList::new(), None, cmr)?;
+    assert_eq!(editor.add_empty("", "")?, "1.node");
+    assert_eq!(editor.add_empty("", "")?, "2.node");
+    assert_eq!(editor.add_empty("", "")?, "3.node");
+    editor.rename("1.node", "net.obj")?;
+    editor.rename("2.node", "net.obj")?;
+    editor.rename("3.node", "net.png")?;
+    let files: Vec<String> = editor
+        .recipes()
+        .recipes
+        .iter()
+        .filter_map(|r| r.filename().ok().flatten().map(|f| f.name))
+        .collect();
+    assert_eq!(files, vec!["net.obj", "net1.obj", "net2.png"]);
+    assert_eq!(editor.unique_filename("7.node", None), "7.node");
+    assert_eq!(editor.add_empty("", "")?, "1.node");
+    editor.rename("net.obj", "1")?;
+    assert!(editor.recipes().get("2.obj").is_some(), "an integer name takes the first free integer");
     Ok(())
 }
 
@@ -410,7 +591,7 @@ async fn refused_edit_changes_nothing() -> Result<(), Box<dyn std::error::Error>
     let mut editor = movable_editor().await?;
     let before = serde_yaml::to_string(editor.recipes())?;
     assert!(editor.move_reference("y", "z", "b", 0, "part").is_err());
-    assert!(editor.rename("y", "z").is_err());
+    // A rename to a used name is no longer refused: it is made unique (`strict-tree-editing`).
     assert!(editor.delete("b", false).is_err());
     assert_eq!(serde_yaml::to_string(editor.recipes())?, before);
     assert!(editor.pending_data_renames().is_empty());

@@ -801,6 +801,71 @@ fn analyse(
     (graph, analysis)
 }
 
+/// The recipes of `graph` nothing depends on, in filename order.
+fn found_roots(graph: &TreeGraph) -> Vec<String> {
+    graph
+        .nodes
+        .values()
+        .filter(|n| matches!(n.origin, NodeOrigin::Recipe(_)))
+        .filter(|n| graph.parents(&n.filename).is_empty())
+        .map(|n| n.filename.clone())
+        .collect()
+}
+
+impl RecipeList {
+    /// Every root of the recipes, for display (design `strict-tree-editing`, AC-17): the
+    /// declared result, the declared roots that are nodes, and every recipe nothing depends on,
+    /// without duplicates. Declared roots are optional hints; a node not declared can still be a
+    /// root.
+    pub fn roots(&self, cmr: &CommandMetadataRegistry) -> Vec<String> {
+        let (graph, _) = analyse(self, None, cmr);
+        let mut roots = Vec::new();
+        let declaration = self.tree.clone().unwrap_or_default();
+        let declared = declaration.result.iter().chain(declaration.roots.iter());
+        for root in declared.chain(found_roots(&graph).iter()) {
+            if graph.nodes.contains_key(root) && !roots.contains(root) {
+                roots.push(root.clone());
+            }
+        }
+        roots
+    }
+}
+
+/// Keeps `list` a valid tree where that changes no recipe's meaning (design
+/// `strict-tree-editing`, AC-11, AC-16, AC-17). A list with no recipes and no `tree:` section
+/// gets an empty one; a non-empty list without a section is left plain. In a tree, a `result`
+/// or a `roots` entry that names no node is dropped, an empty `roots` is dropped, and a tree with
+/// a recipe that has a filename but no result gets one: its first found root, else its first
+/// such recipe.
+fn normalize(list: &mut RecipeList, listing: Option<&[String]>, cmr: &CommandMetadataRegistry) {
+    if list.tree.is_none() {
+        if list.recipes.is_empty() {
+            list.tree = Some(TreeDeclaration::default());
+        }
+        return;
+    }
+    let (graph, _) = analyse(list, listing, cmr);
+    let first_root = found_roots(&graph).into_iter().next();
+    let first_recipe = list
+        .recipes
+        .iter()
+        .filter_map(|r| r.filename().ok().flatten().map(|f| f.name))
+        .find(|f| graph.nodes.contains_key(f));
+    let Some(tree) = list.tree.as_mut() else {
+        return;
+    };
+    tree.roots.retain(|r| graph.nodes.contains_key(r));
+    if tree.result.as_ref().is_some_and(|r| !graph.nodes.contains_key(r)) {
+        tree.result = None;
+    }
+    if tree.result.is_none() {
+        tree.result = first_root.or(first_recipe);
+    }
+    if tree.roots.as_slice() == tree.result.as_slice() {
+        tree.roots.clear();
+    }
+}
+
 /// The whole tree check (AC-3–AC-8, AC-16, AC-19, AC-23, AC-27, AC-28). Never fails: every
 /// problem is a finding in the report. Without a `tree:` section the list is checked with the
 /// defaults (`dag`, `open`).
@@ -899,30 +964,37 @@ pub fn check_tree(
                     result: result.clone(),
                 });
             }
-            if !declaration.roots.is_empty() && declaration.roots != [result.clone()] {
-                errors.push(TreeFinding::RootsBesideResult {
-                    result: result.clone(),
-                    roots: declaration.roots.clone(),
-                });
+            // Roots beside a result are display hints (design `strict-tree-editing`, AC-17).
+            for root in &declaration.roots {
+                if !graph.nodes.contains_key(root) {
+                    warnings.push(TreeFinding::UnknownRoot { root: root.clone() });
+                }
             }
             vec![result.clone()]
         }
         None if !declaration.roots.is_empty() => {
             for root in &declaration.roots {
                 if !graph.nodes.contains_key(root) {
-                    errors.push(TreeFinding::UnknownRoot { root: root.clone() });
+                    warnings.push(TreeFinding::UnknownRoot { root: root.clone() });
                 }
             }
-            declaration.roots.clone()
+            // Declared roots are display hints: a recipe nothing depends on is a root too
+            // (design `strict-tree-editing`, AC-17).
+            let mut roots: Vec<String> = declaration
+                .roots
+                .iter()
+                .filter(|r| graph.nodes.contains_key(*r))
+                .cloned()
+                .collect();
+            for root in found_roots(&graph) {
+                if !roots.contains(&root) {
+                    roots.push(root);
+                }
+            }
+            roots
         }
         // The recipes nothing depends on; a source or a stored file nothing uses is an orphan.
-        None => graph
-            .nodes
-            .values()
-            .filter(|n| matches!(n.origin, NodeOrigin::Recipe(_)))
-            .filter(|n| graph.parents(&n.filename).is_empty())
-            .map(|n| n.filename.clone())
-            .collect(),
+        None => found_roots(&graph),
     };
 
     errors.extend(find_cycles(&graph));
@@ -1077,7 +1149,7 @@ pub struct TreeEditor {
 #[derive(Clone, Copy)]
 enum Rewrite<'a> {
     /// Rename the node: its file, its name and every reference.
-    Rename { to_file: &'a str, to_name: &'a str },
+    Rename { to_file: &'a str },
     /// Clear Node arguments naming the node (they take their defaults).
     Clear,
 }
@@ -1209,7 +1281,11 @@ impl Rewriter<'_> {
             Source::Value(Json::String(name)) => match ty.and_then(|t| t.node()) {
                 Some(node) if node.filename(name) == self.from_file => {
                     *name = match self.mode {
-                        Rewrite::Rename { to_name, .. } => to_name.to_owned(),
+                        // A `.node` file is named by its filename; a file of another extension
+                        // than the argument's is named in full, and the check reports it.
+                        Rewrite::Rename { to_file, .. } => {
+                            node.name_for(to_file).unwrap_or_else(|| to_file.to_owned())
+                        }
                         Rewrite::Clear => String::new(),
                     };
                     Ok(true)
@@ -1331,6 +1407,7 @@ impl TreeEditor {
         for recipe in list.recipes.iter_mut() {
             recipe.cwd = None;
         }
+        normalize(&mut list, listing.as_deref(), &cmr);
         Ok(TreeEditor {
             list,
             listing,
@@ -1369,9 +1446,17 @@ impl TreeEditor {
         graph
             .nodes
             .values()
-            .filter(|n| extension_of(&n.filename) == extension)
+            .filter(|n| {
+                let ext = extension_of(&n.filename);
+                ext == extension || ext == crate::metadata::NODE_EXTENSION
+            })
             .map(|n| NodeChoice {
-                name: n.name.clone(),
+                // A `.node` file is named by its filename in any Node argument (AC-12).
+                name: if extension_of(&n.filename) == crate::metadata::NODE_EXTENSION {
+                    n.filename.clone()
+                } else {
+                    n.name.clone()
+                },
                 filename: n.filename.clone(),
                 title: n.title.clone(),
             })
@@ -1379,7 +1464,7 @@ impl TreeEditor {
     }
 
     /// A filename for a new node titled `title`: the title in lower case, words joined by `_`,
-    /// made unique among the folder's names.
+    /// made unique among the folder's names ([`Self::unique_filename`]).
     pub fn suggest_filename(&self, title: &str, extension: &str) -> String {
         let mut stem = String::new();
         for c in title.chars() {
@@ -1391,16 +1476,66 @@ impl TreeEditor {
         }
         let stem = stem.trim_end_matches('_').to_owned();
         let stem = if stem.is_empty() { "node".to_owned() } else { stem };
+        let wanted = if extension.is_empty() {
+            stem
+        } else {
+            format!("{stem}.{extension}")
+        };
+        self.unique_filename(&wanted, None)
+    }
+
+    /// `wanted`, or the first free variant of it among the folder's node names (design
+    /// `strict-tree-editing`, AC-14, AC-15): `net.obj`, then `net1.obj`, `net2.obj`, …; a stem
+    /// that is only digits takes the first free integer from 1. Names compare by node name, so
+    /// `net.obj` and `net.png` collide. `except` is the node being renamed, whose own name is
+    /// free.
+    pub fn unique_filename(&self, wanted: &str, except: Option<&str>) -> String {
         let (graph, _) = analyse(&self.list, self.listing.as_deref(), &self.cmr);
-        let used = |s: &str| graph.nodes.values().any(|n| n.name == s);
-        let mut candidate = stem.clone();
-        let mut n = 2;
-        while used(&candidate) {
-            candidate = format!("{stem}_{n}");
+        let used: BTreeSet<&str> = graph
+            .nodes
+            .values()
+            .filter(|n| Some(n.filename.as_str()) != except)
+            .map(|n| n.name.as_str())
+            .collect();
+        let (stem, extension) = match wanted.rfind('.') {
+            Some(i) if i > 0 => (&wanted[..i], &wanted[i..]),
+            Some(_) | None => (wanted, ""),
+        };
+        if !used.contains(stem) && !(stem.is_empty()) {
+            return wanted.to_owned();
+        }
+        let numeric = !stem.is_empty() && stem.chars().all(|c| c.is_ascii_digit());
+        let candidate = |n: usize| {
+            if numeric || stem.is_empty() {
+                n.to_string()
+            } else {
+                format!("{stem}{n}")
+            }
+        };
+        let mut n = 1;
+        while used.contains(candidate(n).as_str()) {
             n += 1;
         }
-        format!("{candidate}.{extension}")
+        format!("{}{extension}", candidate(n))
     }
+
+    /// Adds an empty node `{query: <n>.<extension>, title}`, `<n>` the first free integer from 1,
+    /// and returns its filename (design `strict-tree-editing`, AC-5). With the extension
+    /// [`crate::metadata::NODE_EXTENSION`] (the default of the editors) it is no source
+    /// declaration: it evaluates to the empty value, and a tree stays valid.
+    pub fn add_empty(&mut self, title: &str, extension: &str) -> Result<String, Error> {
+        let extension = extension.trim_start_matches('.');
+        let extension = if extension.is_empty() {
+            crate::metadata::NODE_EXTENSION
+        } else {
+            extension
+        };
+        let filename = self.unique_filename(&format!("1.{extension}"), None);
+        let recipe = Recipe::new(filename.clone(), title.to_owned(), String::new())?;
+        self.add(recipe)?;
+        Ok(filename)
+    }
+
 
     /// The filename of the node `node` names: a filename, or a name shared by no other node.
     fn resolve(&self, node: &str) -> Result<String, Error> {
@@ -1455,6 +1590,8 @@ impl TreeEditor {
         renames: Vec<DataRename>,
         added: Option<&str>,
     ) -> Result<&mut Self, Error> {
+        let mut candidate = candidate;
+        normalize(&mut candidate, listing.as_deref(), &self.cmr);
         let before = self.report().errors;
         let after = check_tree(&candidate, listing.as_deref(), &self.cmr);
         let tolerated = |e: &TreeFinding| matches!(e, TreeFinding::MissingSource { node } if Some(node.as_str()) == added);
@@ -1506,18 +1643,19 @@ impl TreeEditor {
         if !crate::escape::is_resource_name(&to_file) || to_file == "recipes.yaml" {
             return Err(Error::invalid_token(to, "a node name"));
         }
-        let (graph, _) = analyse(&self.list, self.listing.as_deref(), &self.cmr);
-        if graph.nodes.contains_key(&to_file) {
-            return Err(Error::tree_check(&format!("'{to_file}' is already a node")));
+        // A used name is made unique, `net.obj` → `net1.obj` (design `strict-tree-editing`,
+        // AC-14).
+        let to_file = self.unique_filename(&to_file, Some(&from_file));
+        if to_file == from_file {
+            return Ok(self);
         }
+        let (graph, _) = analyse(&self.list, self.listing.as_deref(), &self.cmr);
         let from_name = node_name(&from_file).to_owned();
-        let to_name = node_name(&to_file).to_owned();
         let rewriter = Rewriter {
             from_file: &from_file,
             from_name: &from_name,
             mode: Rewrite::Rename {
                 to_file: &to_file,
-                to_name: &to_name,
             },
             cmr: &self.cmr,
         };
@@ -1627,6 +1765,12 @@ impl TreeEditor {
             .ok_or_else(|| Error::tree_check("a child recipe needs a filename"))?
             .name;
         let name = node_name(&filename).to_owned();
+        // A `.node` child is named by its filename in any Node argument (AC-12).
+        let argument_name = if extension_of(&filename) == crate::metadata::NODE_EXTENSION {
+            filename.clone()
+        } else {
+            name.clone()
+        };
         let (graph, _) = analyse(&self.list, self.listing.as_deref(), &self.cmr);
         if let Some(used) = graph.nodes.values().find(|n| n.name == name) {
             return Err(Error::tree_check(&format!(
@@ -1643,7 +1787,7 @@ impl TreeEditor {
             &mut candidate.recipes[index],
             action,
             arg,
-            Source::Value(Json::String(name)),
+            Source::Value(Json::String(argument_name)),
         )?;
         candidate.recipes.push(recipe);
         self.commit_new(candidate, self.listing.clone(), self.renames.clone(), Some(&filename))
@@ -1703,8 +1847,9 @@ impl TreeEditor {
     }
 
     /// Appends a copy of the recipe of `node` under `to` (a name, keeping the extension, or a
-    /// filename); the copy's references are those of the original (design `recipes-editor`,
-    /// AC-9). Stored data is not copied.
+    /// filename), made unique as in [`Self::unique_filename`]; the copy's references are those of
+    /// the original (design `recipes-editor`, AC-9; `strict-tree-editing`, AC-14). Stored data is
+    /// not copied.
     pub fn duplicate(&mut self, node: &str, to: &str) -> Result<&mut Self, Error> {
         let from_file = self.resolve(node)?;
         let index = self
@@ -1721,18 +1866,15 @@ impl TreeEditor {
         if !crate::escape::is_resource_name(&to_file) || to_file == "recipes.yaml" {
             return Err(Error::invalid_token(to, "a node name"));
         }
-        let (graph, _) = analyse(&self.list, self.listing.as_deref(), &self.cmr);
-        if graph.nodes.contains_key(&to_file) {
-            return Err(Error::tree_check(&format!("'{to_file}' is already a node")));
-        }
+        // A used name is made unique, `net.obj` → `net1.obj` (design `strict-tree-editing`,
+        // AC-14).
+        let to_file = self.unique_filename(&to_file, None);
         let from_name = node_name(&from_file).to_owned();
-        let to_name = node_name(&to_file).to_owned();
         let rewriter = Rewriter {
             from_file: &from_file,
             from_name: &from_name,
             mode: Rewrite::Rename {
                 to_file: &to_file,
-                to_name: &to_name,
             },
             cmr: &self.cmr,
         };
@@ -2018,8 +2160,10 @@ recipes:
     #[test]
     fn declared_root_must_be_a_node() {
         let report = check_tree(&car("tree: {roots: [car.glb, boat.glb]}\n"), None, &cmr());
-        assert!(has(&report.errors, |f| matches!(f, TreeFinding::UnknownRoot { root } if root == "boat.glb")));
-        assert!(!has(&report.errors, |f| matches!(f, TreeFinding::UnknownRoot { root } if root == "car.glb")));
+        // A display hint only: an unknown root is a warning (design `strict-tree-editing`).
+        assert!(has(&report.warnings, |f| matches!(f, TreeFinding::UnknownRoot { root } if root == "boat.glb")));
+        assert!(!has(&report.warnings, |f| matches!(f, TreeFinding::UnknownRoot { root } if root == "car.glb")));
+        assert!(report.errors.is_empty(), "{:?}", report.errors);
     }
 
     /// AC-4: a cycle is reported with its nodes in order.
@@ -2153,7 +2297,8 @@ recipes:
         let report = check_tree(&car("tree: {result: boat.glb}\n"), None, &cmr());
         assert!(has(&report.errors, |f| matches!(f, TreeFinding::ResultNotANode { .. })));
         let report = check_tree(&car("tree: {result: car.glb, roots: [wheel.glb]}\n"), None, &cmr());
-        assert!(has(&report.errors, |f| matches!(f, TreeFinding::RootsBesideResult { .. })));
+        // Roots beside the result are display hints (design `strict-tree-editing`).
+        assert!(!has(&report.errors, |f| matches!(f, TreeFinding::RootsBesideResult { .. })));
     }
 
     /// AC-23: a strict recipe may not pass a link, whatever the argument's type.
@@ -2230,7 +2375,7 @@ recipes:
         );
         assert_eq!(editor.node_choices("mat").len(), 1);
         assert_eq!(editor.suggest_filename("Front Wheel!", "glb"), "front_wheel.glb");
-        assert_eq!(editor.suggest_filename("Wheel", "glb"), "wheel_2.glb");
+        assert_eq!(editor.suggest_filename("Wheel", "glb"), "wheel1.glb");
         assert_eq!(
             editor.result_key(&crate::parse::parse_key("a").expect("key")),
             None
@@ -2283,7 +2428,8 @@ recipes:
         let spare = editor.recipes().get("spare.glb").expect("spare").clone();
         assert_eq!(spare.query, "-R/./tyre.glb/-/material-rubber/spare.glb");
         assert!(editor.recipes().get("wheel.glb").is_some());
-        assert!(editor.duplicate("wheel", "spare").is_err());
+        editor.duplicate("wheel", "spare").expect("made unique");
+        assert!(editor.recipes().get("spare1.glb").is_some());
     }
 
     /// recipes-editor AC-5, AC-14: a recipe is replaced in place; one adding a cycle is refused.
@@ -2308,8 +2454,10 @@ recipes:
         let mut editor = car_editor();
         editor.set_result(Some("car")).expect("result");
         assert_eq!(editor.recipes().tree.as_ref().and_then(|t| t.result.clone()).as_deref(), Some("car.glb"));
+        // A tree with a node always has a result: clearing it picks a found root again (design
+        // `strict-tree-editing`, AC-16).
         editor.set_result(None).expect("cleared");
-        assert_eq!(editor.recipes().tree.as_ref().and_then(|t| t.result.clone()), None);
+        assert_eq!(editor.recipes().tree.as_ref().and_then(|t| t.result.clone()).as_deref(), Some("car.glb"));
     }
 
     /// recipes-editor AC-12: a parsed list replaces the recipes even with findings.

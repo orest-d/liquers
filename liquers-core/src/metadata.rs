@@ -13,6 +13,18 @@ use crate::query::{Key, Position, Query};
 
 /// A version is a 128-bit integer that identifies a specific revision of an asset's content.
 /// Versions are opaque — only equality matters.
+/// The extension of a recipe-tree node that says nothing about its format (design
+/// `strict-tree-editing`): `1.node` is valid wherever a node of any extension is. A value stored
+/// under it is written in its type's default format and read back by its metadata, so the
+/// extension never seeds `data_format`.
+pub const NODE_EXTENSION: &str = "node";
+
+/// The level-2 data format an extension seeds: the extension itself, except
+/// [`NODE_EXTENSION`], which seeds none.
+fn format_of_extension(extension: Option<String>) -> Option<String> {
+    extension.filter(|e| e != NODE_EXTENSION)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Version(pub(crate) u128);
 
@@ -1156,7 +1168,7 @@ impl AssetInfo {
         // type is *not* written here — it derives from the effective format, and writing it would
         // make an ordinary filename look like a deliberate override.
         if self.data_format.is_none() {
-            self.data_format = self.extension();
+            self.data_format = format_of_extension(self.extension());
         }
         self
     }
@@ -1707,7 +1719,7 @@ impl MetadataRecord {
         // media type is *not* written here — it derives from the effective format, and writing it
         // would make an ordinary filename indistinguishable from a deliberate override.
         if self.data_format.is_none() {
-            self.data_format = self.extension();
+            self.data_format = format_of_extension(self.extension());
         }
         if self.unicode_icon.is_empty() {
             self.unicode_icon = self.default_unicode_icon().to_string();
@@ -1751,7 +1763,7 @@ impl MetadataRecord {
         // media type is *not* written here — it derives from the effective format, and writing it
         // would make an ordinary filename indistinguishable from a deliberate override.
         if self.data_format.is_none() {
-            self.data_format = self.extension();
+            self.data_format = format_of_extension(self.extension());
         }
     }
     pub fn extension(&self) -> Option<String> {
@@ -1779,7 +1791,7 @@ impl MetadataRecord {
         }
         // Level-2 seeding, as in `set_filename`.
         if self.data_format.is_none() {
-            self.data_format = Some(extension.to_string());
+            self.data_format = format_of_extension(Some(extension.to_string()));
         }
     }
 
