@@ -35,6 +35,9 @@ the protocol.
   WebSocket, a very thin HTML client, sizes; seven problems found.
 - [Spike S1 layout data findings](../../archive/2026-11-25-ui-runner-spike-layout.md) — a free
   grid whose children carry their place, in a terminal, egui, HTML and across the protocol.
+- [Viewers and editors an application can add](./presentation-extension.md) — own value kinds in
+  built-in elements and custom argument editors: five candidate solutions and a recommendation
+  (presentation rules whose entries are commands). Proposed 2026-11-26.
 - [Plan](./plan.md) — target architecture sketch, designs D1–D21 with dependencies, spikes S1–S4,
   milestones M0–M7 and Orest's decisions.
 

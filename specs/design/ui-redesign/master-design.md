@@ -1225,6 +1225,12 @@ pub trait Projector<V>: MaybeSend + Sync {
 
 The capability lookup, the list of forms and the paging contract are D2's to settle.
 
+**Proposed change (2026-11-26).** [presentation-extension.md](./presentation-extension.md)
+proposes that the extension point is not the projector but a table of presentation rules, from
+a type, an argument kind or a media type and a role to a command or an element. It answers how
+an application such as DPL adds viewers for its own values and custom argument editors. Awaiting
+Orest.
+
 ### 15.1 Values in a client part
 
 A client part has no environment (§4.1). It can still link `liquers-core`, which builds for
