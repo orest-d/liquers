@@ -337,6 +337,7 @@ question are both measure-first items.
 <!-- BEGIN generated: issues -->
 | Issue | Pri | Cx | Design |
 |---|---|---|---|
+| [`COMMAND-SPECIALIZATION-BY-INPUT-TYPE-MISSING`](issues/COMMAND-SPECIALIZATION-BY-INPUT-TYPE-MISSING.md) | P1 | L | `command-specialization-by-input-type` |
 | [`UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE`](issues/UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE.md) | P1 | XL | `ui-redesign` |
 <!-- END generated: issues -->
 

@@ -359,3 +359,7 @@ its refinements 1 to 5 are unchanged. No branch element is added to pipelines.
 
 This makes `command-specialization-by-input-type` and `command-io-type-declarations` (both in
 review) prerequisites of the UI redesign, with the four changes of 7.4.
+
+Orest (2026-11-26) will think about it. The discussion is recorded in
+[`command-specialization-by-input-type/type-dispatch-discussion.md`](../command-specialization-by-input-type/type-dispatch-discussion.md),
+and the issue `COMMAND-SPECIALIZATION-BY-INPUT-TYPE-MISSING` is P1.
