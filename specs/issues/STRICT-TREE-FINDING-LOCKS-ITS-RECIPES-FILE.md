@@ -2,7 +2,7 @@
 id: STRICT-TREE-FINDING-LOCKS-ITS-RECIPES-FILE
 kind: issue
 title: One error finding in a strict recipe tree makes its recipes.yaml unreadable and unwritable in the recipes editor
-status: draft
+status: closed
 priority: P1
 complexity: M
 area: [core/assets, lib/ui, lib/egui]
@@ -42,3 +42,14 @@ editor shows the findings, and a failed write shows as unsaved edits.
 ## Workaround
 
 Fix `recipes.yaml` outside Liquers.
+
+## Resolution
+
+2026-11-26, design `strict-tree-editing` (PR #292, commits 722943d, eb546af): the provider no
+longer refuses a strict folder that fails its check; it serves the recipes as plain recipes, and
+the editors show the findings as a notice. `recipes.yaml` stays readable and writable. Evidence:
+`invalid_strict_folder_downgrades_to_plain_recipes`,
+`recipes_yaml_of_an_invalid_tree_is_readable_and_writable` (`liquers-core/tests/recipe_tree.rs`),
+`invalid_tree_shows_a_notice` (`liquers-lib`), and DPL's egui workflow re-run against the branch
+(new project, New node, net and wave query, rename, quit, reopen, `{}`; an invalid strict file still
+saves and shows the notice).

@@ -20,16 +20,20 @@
 //! - [`check_tree`]: the whole check — roots and result, cycles, shape, orphans, dangling
 //!   references, name collisions, undeclared sources — as a [`TreeReport`] of findings.
 //! - [`TreeEditor`]: edits one folder's recipes in memory, keeping only edits that add no error —
-//!   rename a node (rewriting every reference and queueing the stored file's move), add a child,
-//!   delete, move a reference, declare a source — and saves them through the asset manager.
+//!   add an empty node, rename a node (rewriting every reference, making the name unique and
+//!   queueing the stored file's move), add a child, delete, move a reference, declare a source —
+//!   and saves them through the asset manager. It normalises what it edits: an empty list becomes
+//!   an empty tree, and a tree with a node keeps a `result`.
 //!
 //! A node's name is its filename without the extension (`wheel` for `wheel.glb`): the name a
-//! Node argument (`ArgumentType::Node`) is given in a query, `attach-wheel`.
+//! Node argument (`ArgumentType::Node`) is given in a query, `attach-wheel`. A `.node` file
+//! (`1.node`) is a node of any type; with an empty query it is an empty node, not a source.
 //!
 //! # Where it is used
 //!
-//! `DefaultRecipeProvider` runs [`check_tree`] on a strict folder and refuses the whole file on an
-//! error; `liquers-validate --recipes` adds the report (`ValidationReport::tree`); the editors of
+//! The recipes editor of `liquers-lib` runs [`check_tree`] and shows an invalid tree as plain
+//! recipes (the provider no longer refuses one; design `strict-tree-editing`);
+//! `liquers-validate --recipes` adds the report (`ValidationReport::tree`); the editors of
 //! `liquers-lib` list node choices for a Node argument and rename through [`TreeEditor`].
 //!
 //! # Related concepts

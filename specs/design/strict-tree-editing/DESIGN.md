@@ -4,8 +4,8 @@ kind: design
 title: An invalid recipe tree downgrades to plain recipes instead of being refused, and a new node is an empty .node recipe
 form: compact
 workflow: liquers-project
-status: approved
-phase: implementation
+status: in_review
+phase: documentation
 area: [core/assets, lib/ui, lib/egui]
 issues: [STRICT-TREE-FINDING-LOCKS-ITS-RECIPES-FILE, RECIPES-EDITOR-NEW-RECIPE-BREAKS-A-STRICT-TREE]
 affects_docs: [reference/RECIPE_TREES.md, reference/UI_INTERFACE_FSD.md]
@@ -40,6 +40,8 @@ editor is empty and read-only. Found by DPL, whose projects are strict trees (or
   node not listed can still be a root, because the tree logic finds all roots itself (a
   `RecipeList` method). Invalid entries are removed, and an empty list may be dropped (AC-17). The
   tree/DAG vocabulary is to be clarified later (`RECIPE-TREE-VOCABULARY-SAYS-TREE-FOR-A-DAG`).
+- **2026-11-26 21:10** Implemented (Phase 4 steps 1 to 6) and documented (Phase 5); DPL's egui
+  workflow passes against the branch. Phase 5 is presented for review before `complete`.
 
 ## Phase 1: High-Level Design
 
@@ -299,17 +301,18 @@ recipe_tree`, `cargo test -p liquers-lib --lib ui::recipes`, plus DPL's workflow
 
 ### Steps
 
-- [ ] 1. `metadata.rs`, `recipes.rs` `is_source_declaration`, `command_metadata.rs` — `.node`
-  (AC-5, AC-12) — `cargo test -p liquers-core --test recipe_tree`
-- [ ] 2. `recipes.rs` `cached_recipes`, `assets.rs` — downgrade, unplannable recipes, `.node`
-  read error (AC-1, AC-2, AC-8, AC-10, AC-12) — same
-- [ ] 3. `recipe_tree.rs` — `normalize`, `roots`, `unique_filename`, `add_empty`, `rename`,
-  findings (AC-11, AC-14 to AC-17) — `cargo test -p liquers-core --lib recipe_tree`, same
-- [ ] 4. `liquers-lib` recipes state, form and element — New, unique names, notice, unsaved
-  (AC-4, AC-5, AC-9, AC-14, AC-15) — `cargo test -p liquers-lib --lib ui::recipes`
-- [ ] 5. egui and web panels — glyphs, dialog, notice (AC-6, AC-7, AC-9) — same, plus a
-  screenshot through DPL
-- [ ] 6. Specs: `RECIPE_TREES.md`, `UI_INTERFACE_FSD.md` §Recipe editors, issue statuses, scope
+- [x] 1. `metadata.rs`, `recipes.rs` `is_source_declaration`, `command_metadata.rs` — `.node`
+  (AC-5, AC-12) — `cargo test -p liquers-core --test recipe_tree` — 722943d
+- [x] 2. `recipes.rs` `cached_recipes`, `assets.rs` — downgrade, unplannable recipes, `.node`
+  read error (AC-1, AC-2, AC-8, AC-10, AC-12) — same — 722943d, 2d9dfee
+- [x] 3. `recipe_tree.rs` — `normalize`, `roots`, `unique_filename`, `add_empty`, `rename`,
+  findings (AC-11, AC-14 to AC-17) — `cargo test -p liquers-core --lib recipe_tree`, same —
+  722943d, eb546af
+- [x] 4. `liquers-lib` recipes state, form and element — New, unique names, notice, unsaved
+  (AC-4, AC-5, AC-9, AC-14, AC-15) — `cargo test -p liquers-lib --lib ui::recipes` — 9def70b
+- [x] 5. egui and web panels — glyphs, dialog, notice (AC-6, AC-7, AC-9) — same, plus a
+  screenshot through DPL — 9def70b
+- [x] 6. Specs: `RECIPE_TREES.md`, `UI_INTERFACE_FSD.md` §Recipe editors, issue statuses, scope
   notes in `recipe-tree` and `recipes-editor`, module docs (`check_api_docs.py`)
 
 ### Validation
@@ -318,3 +321,44 @@ recipe_tree`, `cargo test -p liquers-lib --lib ui::recipes`, plus DPL's workflow
 `python3 scripts/check_api_docs.py` on the touched files, `python3 scripts/docs_index.py --check`.
 CI cannot run (Actions limit), so the local runs are the record.
 
+## Phase 5: Documentation
+
+**Implemented and tested.** All of Phase 2: the provider serves an invalid strict folder as plain
+recipes; an unplannable recipe with a filename is an error asset; `.node` files (no level-2
+format, read by metadata, accepted by every Node argument); `TreeEditor` normalises lists, keeps a
+result, finds roots (`RecipeList::roots`), makes names unique (`unique_filename`, `add_empty`,
+`rename`, `duplicate`); the recipes panel's New, unique re-keying, filename-keeping query edits,
+`tree_notice`, `unsaved`; the egui toolbar's Phosphor icons and both New dialogs without an
+extension. Every Phase 3 test exists and passes: `cargo test -p liquers-core` (1,452 unit tests and
+the integration suites, `recipe_tree` 29), `cargo test -p liquers-lib --lib --tests` (614 unit tests
+and the integration suites), `cargo test -p liquers-lib --features webui --lib recipes` (41).
+GitHub Actions could not run (account limit), so these local runs are the record.
+
+**Conformance.** As approved, with three additions found while implementing:
+`Duplicate` also makes its name unique (AC-14 covers every new name); `set_result(None)` in a tree
+with nodes picks a found root again (AC-16); and `TreeEditor::save` skips the data rename of a node
+that was never stored. The last was found by driving DPL's egui workflow against this branch:
+renaming a new `1.node` to `wave.obj` failed with "Key not found", because a folder listing names
+recipe files too. Test: `rename_of_an_unstored_listed_node_saves`.
+
+**Workflow check.** DPL's egui application, built against this branch (local `[patch]`), passes the
+workflow of the original report: New Project, ＋ → `1.node` (valid tree on disk), query
+`net/wave-z-x-0.1-6.28` → `net/wave-z-x-0.1-6.28/1.node`, filename `wave.obj` → renamed with the
+result, Ctrl+Q, restart: the project lists `wave` and `{}` shows the recipe. A hand-added
+`-R/../other/…` recipe in the strict file is written, the notice appears, and ＋ still works.
+Screenshots: DPL project files `egui-workflow/fixed/`. The web panel is covered by its markup tests
+only; the DPL web UI was not driven.
+
+**Issues.** `STRICT-TREE-FINDING-LOCKS-ITS-RECIPES-FILE` and
+`RECIPES-EDITOR-NEW-RECIPE-BREAKS-A-STRICT-TREE` closed with resolutions;
+`RECIPE-TREE-CANNOT-BE-EXPORTED-AS-AN-ARCHIVE` notes that the archive must run the check itself
+(AC-13); `RECIPE-TREE-VOCABULARY-SAYS-TREE-FOR-A-DAG` stays open. No new issue.
+
+**Language integration.** Not needed, as decided: `liquers-py` and `liquers-web` reach this
+through the provider and the core Node checks. `LANGUAGE-INTEGRATION_GUIDE.md` §RECIPE has the
+sentence on trees and `.node`.
+
+**Where it lives now.** `reference/RECIPE_TREES.md` (declaration, `.node`, enforcement, check,
+`TreeEditor`), `reference/UI_INTERFACE_FSD.md` §Recipe editors; module docs of `recipe_tree.rs`,
+`recipes.rs`, `metadata.rs` (new), `ui/recipes/mod.rs`, `egui/recipes.rs`; scope notes in
+`design/recipe-tree/` and `design/recipes-editor/`.

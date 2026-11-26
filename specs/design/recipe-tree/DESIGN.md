@@ -57,6 +57,11 @@ portable archive is a separate design built on this one
   assumptions wait for confirmation before implementation (Phase 1 `## Design Readiness`).
 - **2026-11-23** Decision 2: a source recipe's asset metadata carries the recipe's title and
   description with status `Source` (or `Error`); AC-27 revised. Decision 1 (AC-28) confirmed the same evening; implementation started.
+- **2026-11-26** Scope note: design `strict-tree-editing` changes this contract. The provider no
+  longer refuses a strict folder that fails its check (AC-24 here): it serves plain recipes, and
+  the editors show the findings. Roots are display hints (`UnknownRoot` a warning,
+  `RootsBesideResult` not reported), names are made unique instead of refused, and `.node` files
+  are empty nodes. See [`../strict-tree-editing/`](../strict-tree-editing/DESIGN.md).
 
 ## Phases
 

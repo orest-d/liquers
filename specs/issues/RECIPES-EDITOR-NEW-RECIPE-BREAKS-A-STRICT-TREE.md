@@ -2,7 +2,7 @@
 id: RECIPES-EDITOR-NEW-RECIPE-BREAKS-A-STRICT-TREE
 kind: issue
 title: The recipes editor's New recipe writes a missing source, which the provider refuses in a strict tree
-status: draft
+status: closed
 priority: P1
 complexity: S
 area: [lib/ui, lib/egui, core/assets]
@@ -28,3 +28,12 @@ query is written; the dialog can take a query; the toolbar uses Phosphor glyphs.
 ## Workaround
 
 Write the recipe in the YAML view in one valid step.
+
+## Resolution
+
+2026-11-26, design `strict-tree-editing` (PR #292, commits 722943d, 9def70b): New adds an empty
+node `<n>.node` (`TreeEditor::add_empty`), which is not a source and is valid in any tree; its
+query and filename are set in its window, a query typed without a filename keeps the node's, and a
+filename renames the node uniquely. Evidence: `new_adds_an_empty_node_and_writes_a_valid_tree`,
+`query_edit_keeps_the_node_filename`, `filename_edit_renames_uniquely` (`liquers-lib`),
+`empty_node_evaluates_to_none_and_is_no_source` (`liquers-core`), and the DPL egui workflow.
