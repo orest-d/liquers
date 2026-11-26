@@ -205,6 +205,25 @@ The three update modes of the editors become three ways to use one working copy:
   frontend (master design §10.4). The working copy is the next level: what the field hands over
   when an edit is accepted.
 
+### 7.1 In signal and slot language (2026-11-26)
+
+Orest asked whether a signal and slot architecture has an equivalent of a working copy. The
+signal and slot core has none: a connection passes a change on at once. The equivalent is a
+known pattern one layer up, where widgets are bound to a model:
+
+| Elsewhere | What it is | Here |
+|---|---|---|
+| Qt `QDataWidgetMapper` with `ManualSubmit`, `submit()`, `revert()` | widgets edit a buffer, written to the model on submit | working copy, `commit`, `discard` |
+| Qt `QSqlTableModel` edit strategies `OnFieldChange`, `OnRowChange`, `OnManualSubmit` | when the buffered edits are written | the update modes: apply immediately, on demand |
+| Qt proxy models (`QAbstractProxyModel`) | an object between the views and the model with the model's interface | a working copy is an accessor in front of an accessor |
+| WPF `IEditableObject`: `BeginEdit`, `EndEdit`, `CancelEdit`; `UpdateSourceTrigger=Explicit` | a transaction on a bound object | `begin_edit`, `commit`, `discard` |
+| Form libraries (`values`, `initialValues`, `dirty`, `reset`, `submit`) | a draft beside the initial values | draft, base value, `is_modified` |
+
+So in the vocabulary of master design §9.1 a working copy is a **buffering proxy**: an object
+with the same properties as the value it stands in front of, plus the properties `modified` and
+`status`, the actions `commit` and `discard`, and the events `committed` and `conflict`. Editors
+are connected to it, not to the value. The update mode is its submit policy.
+
 ## 8. Issues it touches
 
 | Issue | Effect |
