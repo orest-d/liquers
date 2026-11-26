@@ -33,6 +33,10 @@ editor is empty and read-only. Found by DPL, whose projects are strict trees (or
   tree with a valid recipe always has a result. Strictness is a promise, not a gate, for now: GUI
   editing through `TreeEditor` keeps trees valid, while a hand-edited or plain-edited file is never
   invalidated as a whole and stays salvageable, so an expert can knowingly use plain recipes.
+- **2026-11-26 18:50** Orest on `roots`: a display aid, optional. Any node may be listed, and a
+  node not listed can still be a root, because the tree logic finds all roots itself (a
+  `RecipeList` method). Invalid entries are removed, and an empty list may be dropped (AC-17). The
+  tree/DAG vocabulary is to be clarified later (`RECIPE-TREE-VOCABULARY-SAYS-TREE-FOR-A-DAG`).
 
 ## Phase 1: High-Level Design
 
@@ -122,6 +126,14 @@ plain recipe.
   THEN `TreeEditor` sets `result` to the first root, else the first such recipe. The result may be
   an error asset (AC-10).
 
+- **AC-17** Roots are optional display hints
+  WHEN `tree.roots` lists nodes, names something that is not a node, is empty, or sits beside a
+  `result`
+  THEN the listed nodes are shown as roots in addition to the roots the tree logic finds
+  (`RecipeList::roots()`: the declared ones, the result, and every node nothing depends on). An
+  entry that is not a node is removed, an empty list is dropped, and listing roots beside a
+  `result` is no longer an error (`RootsBesideResult`, `UnknownRoot` become repairs).
+
 Out of scope: the archive itself; DPL's New Node and repair view (DPL's own design).
 
 ### Language Integration
@@ -148,8 +160,8 @@ Orest's answers of 2026-11-26 18:32:
 1. An empty node is a filename-only query with extension `node`: not a source, it evaluates to
    `None` (AC-5).
 2. Setting a filename renames the node, uniquely (AC-14, AC-15).
-3. The safe repairs are adding `tree: {}`, dropping a `result` or `roots` entry that names no node,
-   and keeping a result (AC-11, AC-16).
+3. The safe repairs are adding `tree: {}`, dropping a `result` or `roots` entry that names no node
+   (and an empty `roots`), and keeping a result (AC-11, AC-16, AC-17).
 4. Strictness is a promise checked on save and on archive, not a gate on evaluation, for now. It
    may be tightened once the GUI editing works well.
 

@@ -8,10 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 274
+Total rows: 275
 - P1: 3
 - P2: 69
-- P3: 202
+- P3: 203
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -142,6 +142,7 @@ Total rows: 274
 | [`REC-ROWID-REFUSES-A-MANIFEST-STORED-AS-TEXT`](issues/REC-ROWID-REFUSES-A-MANIFEST-STORED-AS-TEXT.md) | issue | ns-rec/rowid on a manifest key fails with unknown data format 'txt' where the other record commands read it | draft |  |  | P3 | S | records |  | 2026-11-14 |
 | [`RECIPE-MISSING-RECIPE-IS-A-GENERAL-ERROR`](issues/RECIPE-MISSING-RECIPE-IS-A-GENERAL-ERROR.md) | issue | Asking a recipe provider for a recipe it does not have raises a General error, not KeyNotFound | draft |  |  | P3 | S | core/assets;core/error |  | 2026-11-01 |
 | [`RECIPE-OVERRIDES-MISS-A-FINAL-PIPELINE-COMMAND`](issues/RECIPE-OVERRIDES-MISS-A-FINAL-PIPELINE-COMMAND.md) | issue | Recipe argument and link overrides do not reach a pipeline command that is the query's last action | draft |  |  | P3 | S | core/plan | [notation](design/composite-command-definition/notation-and-integration.md)  [phase1](design/composite-command-definition/phase1-high-level-design.md)  [phase2](design/composite-command-definition/phase2-architecture.md)  [phase3](design/composite-command-definition/phase3-examples.md)  [phase4](design/composite-command-definition/phase4-implementation.md)  [phase5](design/composite-command-definition/phase5-documentation.md)  [pipeline](design/composite-command-definition/pipeline-and-plan.md)  [pipeline](design/composite-command-definition/pipeline-structure-and-sources.md)  [recipe](design/composite-command-definition/recipe-and-pipeline-structures.md)  | 2026-11-04 |
+| [`RECIPE-TREE-VOCABULARY-SAYS-TREE-FOR-A-DAG`](issues/RECIPE-TREE-VOCABULARY-SAYS-TREE-FOR-A-DAG.md) | issue | The recipe-tree vocabulary says tree, roots and sub-nodes for what is a DAG | draft |  |  | P3 | S | core/assets;lib/ui | [design](design/strict-tree-editing/DESIGN.md) | 2026-11-26 |
 | [`RECIPES-EDITOR-SAVE-AS-HAS-NO-FILE-DIALOG`](issues/RECIPES-EDITOR-SAVE-AS-HAS-NO-FILE-DIALOG.md) | issue | Save as in the egui recipes panel asks for a typed path instead of a file dialog | draft |  |  | P3 | S | lib/egui |  | 2026-11-24 |
 | [`RECORD-ACCESSOR-STEPS-HAVE-NO-COMMANDS`](issues/RECORD-ACCESSOR-STEPS-HAVE-NO-COMMANDS.md) | feature | Record rows, columns and cells cannot be projected from a query | draft |  |  | P3 | S | lib/value;records |  | 2026-11-16 |
 | [`RUSTDOC-PRIVATE-INTRA-DOC-LINKS-RECUR`](issues/RUSTDOC-PRIVATE-INTRA-DOC-LINKS-RECUR.md) | issue | Public rustdoc in liquers-core and liquers-records links private items again | draft |  |  | P3 | S | docs;core/plan;core/assets;records |  | 2026-11-03 |
