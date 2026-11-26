@@ -1543,8 +1543,10 @@ impl TreeEditor {
         Ok(filename)
     }
 
-    /// The filename of the node `node` names: a filename, or a name shared by no other node.
-    fn resolve(&self, node: &str) -> Result<String, Error> {
+    /// The filename of the node `node` names: a filename, or a name shared by no other node
+    /// (`net` for `net.obj`). An unknown name, or one several nodes share, is refused. Commands
+    /// that take a node by name resolve it here (design `recipes-editor-open-action`, AC-8).
+    pub fn resolve(&self, node: &str) -> Result<String, Error> {
         let (graph, _) = analyse(&self.list, self.listing.as_deref(), &self.cmr);
         if graph.nodes.contains_key(node) {
             return Ok(node.to_owned());
@@ -2558,5 +2560,14 @@ recipes:
         assert_eq!(slots.len(), 1);
         assert_eq!((slots[0].action, slots[0].arg.as_str(), slots[0].extension.as_str()), (0, "part", "glb"));
         assert!(editor.child_slots("body").expect("slots").is_empty());
+    }
+
+    #[test]
+    fn resolve_finds_a_node_by_name() {
+        // Design `recipes-editor-open-action`, AC-8: a command given a node name finds its file.
+        let editor = TreeEditor::new(car(""), Some(listing()), Arc::new(cmr())).expect("editor");
+        assert_eq!(editor.resolve("wheel").expect("by name"), "wheel.glb");
+        assert_eq!(editor.resolve("car.glb").expect("by filename"), "car.glb");
+        assert!(editor.resolve("bicycle").is_err());
     }
 }

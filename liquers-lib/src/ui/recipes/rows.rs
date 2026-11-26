@@ -289,7 +289,7 @@ impl MenuAction {
         match self {
             MenuAction::View => format!("rc:view:{filename}"),
             MenuAction::Metadata => format!("rc:metadata:{filename}"),
-            MenuAction::Edit => format!("rc:open:{filename}"),
+            MenuAction::Edit => format!("rc:edit:{filename}"),
             MenuAction::Evaluate => format!("rc:evaluate:{filename}"),
             MenuAction::Rename => format!("rc:rename:{filename}"),
             MenuAction::Duplicate => format!("rc:duplicate:{filename}"),

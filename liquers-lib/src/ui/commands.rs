@@ -452,10 +452,34 @@ pub fn key_editor(state: &State<Value>, mode: String) -> Result<Value, Error> {
 /// Command: lui/recipes_editor
 /// A narrow side panel editing the `recipes.yaml` the state accessor reads (design
 /// `recipes-editor`): an outline or the tree of dependencies, recipe windows and a YAML window.
-/// Text, or no state, is edited in memory.
+/// Text, or no state, is edited in memory. `namespace` and `command`, both or neither, name the
+/// command a row click runs on the clicked node's key instead of opening the recipe form (design
+/// `recipes-editor-open-action`); a command the registry does not have is refused.
 #[liquers_macro::command_version]
-pub fn recipes_editor(state: &State<Value>) -> Result<Value, Error> {
+pub fn recipes_editor<E: Environment<Value = Value>>(
+    state: &State<Value>,
+    namespace: String,
+    command: String,
+    context: Context<E>,
+) -> Result<Value, Error> {
     use super::recipes::RecipesElement;
+    let open_command = match (namespace.is_empty(), command.is_empty()) {
+        (true, true) => None,
+        (false, false) => {
+            let registry = context.get_envref().command_metadata_snapshot();
+            if registry.find_command("", &namespace, &command).is_none() {
+                return Err(Error::general_error(format!(
+                    "recipes_editor: there is no command '{command}' in namespace '{namespace}' to run on a click"
+                )));
+            }
+            Some((namespace, command))
+        }
+        (true, false) | (false, true) => {
+            return Err(Error::general_error(format!(
+                "recipes_editor: the open command needs both a namespace and a command name, not '{namespace}' and '{command}'"
+            )))
+        }
+    };
     let element = if state.is_none() {
         RecipesElement::new("Recipes", EditorBinding::Memory(String::new()))
     } else {
@@ -464,6 +488,10 @@ pub fn recipes_editor(state: &State<Value>) -> Result<Value, Error> {
             Ok(accessor) => RecipesElement::from_accessor("Recipes", accessor),
             Err(_) => RecipesElement::new("Recipes", EditorBinding::Memory(value.try_into_string()?)),
         }
+    };
+    let element = match open_command {
+        Some((namespace, command)) => element.with_open_command(namespace, command),
+        None => element,
     };
     Ok(Value::from(crate::value::ExtValue::UIElement {
         value: Arc::new(element),
@@ -709,10 +737,16 @@ macro_rules! register_lui_commands {
         version: auto
         )?;
         register_command!($cr,
-            fn recipes_editor(state) -> result
+            fn recipes_editor(state, namespace: String = "" (
+                label: "Open namespace",
+                description: "Namespace of the command a row click runs on the node's key (empty: open the recipe form)"
+            ), command: String = "" (
+                label: "Open command",
+                description: "Name of the command a row click runs on the node's key (empty: open the recipe form)"
+            ), context) -> result
             namespace: "lui"
             label: "Recipes editor"
-            doc: "A side panel editing the recipes.yaml the state accessor reads: outline, dependencies, recipe and YAML windows"
+            doc: "A side panel editing the recipes.yaml the state accessor reads: outline, dependencies, recipe and YAML windows; a row click opens the recipe form or runs the given command on the node"
         version: auto
         )?;
         register_command!($cr,

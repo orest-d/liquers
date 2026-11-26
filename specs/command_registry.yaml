@@ -68,6 +68,8 @@
 #             and lui/recipe_editor (recipe editor elements).
 # 2026-11-25  composite-variadic-arguments: impl_version of commands_doc only (its Multiplicity
 #             column names the shape of a variadic argument). No signature changed.
+# 2026-11-26  recipes-editor-open-action: lui/recipes_editor takes `namespace` and `command`
+#             (both "" by default), the open command a row click runs on the node's key.
 # CHANGELOG-END
 commands:
 - realm: store_config
@@ -899,16 +901,29 @@ commands:
 - namespace: lui
   name: recipes_editor
   label: Recipes editor
-  doc: 'A side panel editing the recipes.yaml the state accessor reads: outline, dependencies, recipe and YAML windows'
+  doc: 'A side panel editing the recipes.yaml the state accessor reads: outline, dependencies, recipe and YAML windows; a row click opens the recipe form or runs the given command on the node'
   state_argument:
     name: state
     label: state
     default: None
     gui_info: !TextField 40
+  arguments:
+  - name: namespace
+    label: Open namespace
+    description: 'Namespace of the command a row click runs on the node''s key (empty: open the recipe form)'
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  - name: command
+    label: Open command
+    description: 'Name of the command a row click runs on the node''s key (empty: open the recipe form)'
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 3fc5151f69685904049eb8192156a5e8
+  impl_version: 0791ed1068f6ef7463c94c406add607f
 - namespace: lui
   name: recipe_editor
   label: Recipe editor

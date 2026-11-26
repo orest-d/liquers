@@ -14,6 +14,7 @@ use liquers_core::parse::parse_key;
 use liquers_core::query::Key;
 use liquers_core::state::State;
 use liquers_core::store::AsyncMemoryStore;
+use liquers_core::value::ValueInterface;
 use liquers_macro::register_command;
 
 use liquers_lib::environment::{CommandRegistryAccess, DefaultEnvironment};
@@ -39,6 +40,16 @@ fn shout(state: &State<Value>) -> Result<Value, Error> {
     Ok(Value::from(format!("{}!", state.try_into_string()?)))
 }
 
+/// The keys `clicked` was run on (design `recipes-editor-open-action`).
+static CLICKED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// An open command: records the key it gets as its input.
+fn clicked(state: &State<Value>) -> Result<Value, Error> {
+    let key = state.data_unchecked().try_into_key().map(|k| k.encode()).unwrap_or_else(|_| "?".to_owned());
+    CLICKED.lock().expect("lock").push(key);
+    Ok(Value::from("clicked"))
+}
+
 const PANEL: &str = "-R-key/reports/recipes.yaml/-/ns-acc/accessor";
 const SCENES: &str = "-R-key/scenes/recipes.yaml/-/ns-acc/accessor";
 
@@ -59,6 +70,8 @@ fn register(env: &mut CommandEnvironment) -> Result<(), Error> {
     liquers_lib::register_core_commands!(cr)?;
     liquers_lib::register_accessor_commands!(cr)?;
     register_command!(cr, fn shout(state) -> result)?;
+    register_command!(cr, fn clicked(state) -> result namespace: "test")?;
+    liquers_lib::register_lui_commands!(cr)?;
     Ok(())
 }
 
@@ -229,3 +242,43 @@ async fn save_as_writes_a_file() {
     assert!(message.expect("notice").starts_with("Saved"));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// `recipes-editor-open-action` AC-2, AC-6: `lui/recipes_editor-<ns>-<command>` keeps the open
+/// command; an unknown command or half of one is refused.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn recipes_editor_takes_an_open_command() {
+    use liquers_lib::value::ExtValueInterface;
+    let envref = environment().await;
+    let state = envref
+        .evaluate(&format!("{PANEL}/ns-lui/recipes_editor-test-clicked"))
+        .await
+        .expect("evaluate")
+        .get()
+        .await
+        .expect("panel");
+    let element = state.value().expect("value").as_ui_element().expect("element").clone_boxed();
+    let panel = element.as_any().and_then(|a| a.downcast_ref::<RecipesElement>()).expect("panel");
+    assert_eq!(panel.open_command(), Some(&liquers_lib::ui::recipes::OpenCommand::new("test", "clicked")));
+    for query in ["ns-lui/recipes_editor-test-missing", "ns-lui/recipes_editor-test"] {
+        let result = match envref.evaluate(&format!("{PANEL}/{query}")).await {
+            Ok(asset) => asset.get().await.and_then(|s| s.value().map(|_| ())),
+            Err(e) => Err(e),
+        };
+        assert!(result.is_err(), "{query} should be refused");
+    }
+}
+
+/// `recipes-editor-open-action` AC-7: through the runner, a click runs the open command on the
+/// node's key and opens no recipe window.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn click_runs_the_open_command_through_the_runner() {
+    let element = RecipesElement::new("Recipes", EditorBinding::Accessor(PANEL.to_owned())).with_open_command("test", "clicked");
+    let mut h = Harness::new(Box::new(element)).await;
+    h.panel(vec![RecipesCommand::Open("loud.txt".into())]).await;
+    h.settle().await;
+    let clicked = CLICKED.lock().expect("lock").clone();
+    assert!(clicked.iter().any(|k| k.contains("reports/loud.txt")), "{clicked:?}");
+    let forms = h.panel_state(|p| p.state().expect("state").forms().len()).await;
+    assert_eq!(forms, 0);
+}
+

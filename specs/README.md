@@ -533,6 +533,7 @@ deliberately folded behind a broader line.
 - design `recipe-override-addressing`
 - design `recipe-plan-declarations`
 - design `recipe-preview-shares-plan-analysis`
+- design `recipes-editor-open-action`
 - design `recipes-yaml-read-errors-propagate`
 - design `record-batch-private-fields`
 - design `record-decimal-field-type`

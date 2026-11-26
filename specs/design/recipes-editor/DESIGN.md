@@ -41,6 +41,9 @@ new `Value` variant.
   no extension field), makes used names unique instead of refused, adds the invalid-tree notice
   and the unsaved marker, and draws the egui toolbar with Phosphor icons. See
   [`../strict-tree-editing/`](../strict-tree-editing/DESIGN.md).
+- **2026-11-26** Scope note: design `recipes-editor-open-action` lets a host replace AC-4's row
+  click by an open command (`lui/recipes_editor-<ns>-<command>`); the row menu's Edit keeps
+  opening the window. See [`../recipes-editor-open-action/`](../recipes-editor-open-action/DESIGN.md).
 
 ## Phases
 
