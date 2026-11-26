@@ -38,6 +38,8 @@ the protocol.
 - [Viewers and editors an application can add](./presentation-extension.md) — own value kinds in
   built-in elements and custom argument editors: five candidate solutions and a recommendation
   (presentation rules whose entries are commands). Proposed 2026-11-26.
+- [A working copy of an accessor](./accessor-working-copy.md) — drafts, live preview, synchronous
+  editing and locks as one overlay accessor. Proposed 2026-11-26.
 - [Plan](./plan.md) — target architecture sketch, designs D1–D21 with dependencies, spikes S1–S4,
   milestones M0–M7 and Orest's decisions.
 
