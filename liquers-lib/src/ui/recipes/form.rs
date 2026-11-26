@@ -7,6 +7,7 @@ use liquers_core::command_metadata::CommandMetadataRegistry;
 use liquers_core::error::Error;
 use liquers_core::metadata::Version;
 use liquers_core::parse::parse_query;
+use liquers_core::query::{Query, QuerySegment};
 use liquers_core::recipes::Recipe;
 use liquers_core::value::ValueInterface;
 
@@ -80,6 +81,18 @@ fn query_value(recipe: &Recipe) -> Result<Value, Error> {
     match (&recipe.pipeline, recipe.query.is_empty()) {
         (Some(pipeline), true) => Ok(Value::from_pipeline(pipeline.clone())),
         (Some(_), false) | (None, true) | (None, false) => Ok(Value::from_query(&parse_query(&recipe.query)?)),
+    }
+}
+
+/// `query` ending in `filename`: a transform query takes it as its last segment's filename, a
+/// resource query as a segment of its own (`-R/data/x.csv/-/1.node`), an empty query is the
+/// filename alone. A filename `query` already has is replaced.
+pub fn query_with_filename(query: &Query, filename: &str) -> String {
+    let query = query.clone().without_filename();
+    match query.segments.last() {
+        None => filename.to_owned(),
+        Some(QuerySegment::Transform(_)) => format!("{}/{filename}", query.encode()),
+        Some(QuerySegment::Resource(_)) => format!("{}/-/{filename}", query.encode()),
     }
 }
 
@@ -181,7 +194,13 @@ impl RecipeForm {
                     self.query.on_written(zero());
                     match value.try_into_query() {
                         Ok(q) => {
-                            recipe.query = q.encode();
+                            // An edited query without a filename keeps the recipe's: the filename
+                            // names the node, and only a rename changes it (design
+                            // `strict-tree-editing`, AC-14).
+                            recipe.query = match (q.filename(), self.filename()) {
+                                (None, Some(filename)) => query_with_filename(&q, &filename),
+                                (Some(_), Some(_)) | (Some(_), None) | (None, None) => q.encode(),
+                            };
                             recipe.pipeline = None;
                         }
                         Err(_) => {

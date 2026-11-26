@@ -1536,7 +1536,6 @@ impl TreeEditor {
         Ok(filename)
     }
 
-
     /// The filename of the node `node` names: a filename, or a name shared by no other node.
     fn resolve(&self, node: &str) -> Result<String, Error> {
         let (graph, _) = analyse(&self.list, self.listing.as_deref(), &self.cmr);

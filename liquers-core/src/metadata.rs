@@ -1,3 +1,40 @@
+//! What is known about an asset besides its value: status, type, data format, versions, log and
+//! progress, as stored next to the data and reported to a user.
+//!
+//! # Main components
+//!
+//! - [`Metadata`]: the stored form, a [`MetadataRecord`] or legacy JSON.
+//! - [`MetadataRecord`]: the record of one asset (key, type identifier, data format, status).
+//! - [`Status`]: where an asset is in its lifecycle.
+//! - [`AssetInfo`]: the short form listings and editors show.
+//! - [`Version`]: an opaque content version.
+//! - [`NODE_EXTENSION`]: the extension of a node whose format only its metadata says.
+//!
+//! # Where it is used
+//!
+//! [`crate::assets`] reads and writes it with every value, [`crate::store`] keeps it beside the
+//! data, and [`crate::recipes`] seeds it from a recipe. Most other modules only read it.
+//!
+//! # Related concepts
+//!
+//! - [`crate::command_metadata`]: what a *command* declares, not what an asset is.
+//! - [`crate::state`]: a value together with its metadata.
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_core::metadata::{MetadataRecord, NODE_EXTENSION};
+//!
+//! let mut record = MetadataRecord::new();
+//! record.with_filename("table.csv".to_owned());
+//! assert_eq!(record.data_format.as_deref(), Some("csv"));
+//! let mut node = MetadataRecord::new();
+//! node.with_filename(format!("1.{NODE_EXTENSION}"));
+//! assert_eq!(node.data_format, None, "a .node file is read by its metadata");
+//! ```
+//!
+//! More: `liquers-core/tests/recipe_tree.rs` (`node_file_round_trips_by_metadata`).
+
 #![allow(unused_imports)]
 #![allow(dead_code)]
 
