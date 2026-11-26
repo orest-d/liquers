@@ -5,8 +5,11 @@
 //! The recipe list is not a value type. The panel reads and writes `recipes.yaml` as document
 //! text through a value accessor, keeps a working copy as a
 //! [`TreeEditor`](liquers_core::recipe_tree::TreeEditor) (so a rename rewrites the references to
-//! the node, and an edit that would add a cycle is refused), and opens one [`RecipeForm`] per
-//! recipe, keyed by filename. A single recipe is edited through the `acc/recipe_file` accessor,
+//! the node, a used name is made unique, and an edit that would add a cycle is refused), and opens
+//! one [`RecipeForm`] per recipe, keyed by filename. New adds an empty `<n>.node` node; a file with
+//! a `tree:` section that fails its check is edited as plain recipes under a notice
+//! ([`RecipesState::tree_notice`]), and edits a failed write left in memory are marked
+//! ([`RecipesState::unsaved`]). A single recipe is edited through the `acc/recipe_file` accessor,
 //! which finds the recipe by its filename, not by its position.
 //!
 //! # Main components

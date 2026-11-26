@@ -153,18 +153,19 @@ fn form_follows_its_recipe_after_reordering() {
     assert_eq!(state.form("b.csv").expect("form").recipe().title, "Bee");
 }
 
-/// AC-7: New appends a recipe with a free filename and opens it.
+/// AC-7: New appends a recipe with a free filename and opens it; the name is the first free
+/// integer (design `strict-tree-editing`, AC-5).
 #[test]
 fn new_recipe_opens_its_form() {
     let mut state = panel(FLAT);
     let effect = state
         .apply(RecipesCommand::New { title: "Summary table".into(), extension: ".csv".into() })
         .expect("new");
-    assert!(written_text(&effect).contains("summary"));
+    assert!(written_text(&effect).contains("1.csv"));
     let last = state.rows().last().expect("row").clone();
     assert_eq!(last.title, "Summary table");
     let filename = last.filename.expect("filename");
-    assert!(filename.ends_with(".csv"));
+    assert_eq!(filename, "1.csv");
     assert!(state.form(&filename).is_some());
 }
 
@@ -322,8 +323,8 @@ fn apply_immediately_writes_each_edit() {
 fn refused_edit_changes_nothing() {
     let mut state = panel(CAR);
     let before = state.document_text();
-    // Renaming onto a used name is refused.
-    assert!(state.apply(RecipesCommand::Rename { from: "wheel".into(), to: "car".into() }).is_err());
+    // Renaming to a name that is no filename is refused (a used name is made unique instead).
+    assert!(state.apply(RecipesCommand::Rename { from: "wheel".into(), to: "a/b".into() }).is_err());
     assert_eq!(state.document_text(), before);
     assert!(state.message().is_some());
     // A query edit that would add a cycle is refused and the form is restored.
@@ -451,7 +452,7 @@ fn missing_document_is_an_empty_list() {
     assert!(state.rows().is_empty());
     assert!(state.read_only().is_none());
     let effect = state.apply(RecipesCommand::New { title: "First".into(), extension: "txt".into() }).expect("new");
-    assert!(written_text(&effect).contains("first.txt"));
+    assert!(written_text(&effect).contains("1.txt"));
 }
 
 /// AC-15: a file that does not parse loads read-only, with the YAML window open to repair it.
@@ -526,4 +527,93 @@ fn recipe_window_browse_lists_the_store() {
         entries: vec![DirectoryEntry { name: "x.csv".into(), is_dir: false }],
         error: None,
     });
+}
+
+/// strict-tree-editing AC-5, AC-2: New adds `1.node` with an empty query, and the tree written is
+/// valid, with the new node as its result.
+#[test]
+fn new_adds_an_empty_node_and_writes_a_valid_tree() {
+    let mut state = RecipesState::new(registry()).with_folder(Some("p".into()));
+    state.on_snapshot(&Value::from("tree: {dependencies: strict}\nrecipes: []\n"), Some(fp(1))).expect("snapshot");
+    let effect = state.apply(RecipesCommand::New { title: String::new(), extension: String::new() }).expect("new");
+    let written = written_text(&effect);
+    let list: RecipeList = serde_yaml::from_str(&written).expect("list");
+    assert_eq!(list.recipes[0].query, "1.node");
+    assert_eq!(list.tree.and_then(|t| t.result).as_deref(), Some("1.node"));
+    assert!(state.report().errors.is_empty(), "{:?}", state.report().errors);
+    assert!(state.tree_notice().is_none());
+    assert!(state.form("1.node").is_some());
+}
+
+/// strict-tree-editing AC-14: a query typed without a filename keeps the node's filename.
+#[test]
+fn query_edit_keeps_the_node_filename() {
+    let mut state = RecipesState::new(registry()).with_folder(Some("p".into()));
+    state.on_snapshot(&Value::from("tree: {}\nrecipes: []\n"), Some(fp(1))).expect("snapshot");
+    state.apply(RecipesCommand::New { title: String::new(), extension: String::new() }).expect("new");
+    state.on_written(fp(2));
+    let effect = state
+        .apply(RecipesCommand::Form {
+            id: "1.node".into(),
+            command: FormCommand::Editor(EditorCommand::SetText("-R/data/x.csv/-/head".into())),
+        })
+        .expect("query");
+    assert!(written_text(&effect).contains("-R/data/x.csv/-/head/1.node"), "{}", written_text(&effect));
+    assert_eq!(state.form("1.node").expect("form").recipe().query, "-R/data/x.csv/-/head/1.node");
+}
+
+/// strict-tree-editing AC-14: a filename set in the form or typed into the query renames the
+/// node, made unique, and its window follows.
+#[test]
+fn filename_edit_renames_uniquely() {
+    let mut state = panel(CAR);
+    state.apply(RecipesCommand::Open("car.glb".into())).expect("open");
+    state
+        .apply(RecipesCommand::Form { id: "car.glb".into(), command: FormCommand::SetFilename("tyre".into()) })
+        .expect("rename");
+    assert!(state.list().expect("list").get("tyre1.glb").is_some());
+    assert!(state.form("tyre1.glb").is_some());
+    state.on_written(fp(2));
+    state
+        .apply(RecipesCommand::Form {
+            id: "tyre1.glb".into(),
+            command: FormCommand::Editor(EditorCommand::SetText("-R/./body.glb/-/attach-wheel/body.glb".into())),
+        })
+        .expect("query rename");
+    assert!(state.list().expect("list").get("body1.glb").is_some(), "{}", state.document_text());
+    assert!(state.form("body1.glb").is_some());
+}
+
+/// strict-tree-editing AC-15: plain recipes get no duplicate filename either.
+#[test]
+fn plain_recipes_refuse_duplicate_filenames() {
+    let mut state = panel(FLAT);
+    state.apply(RecipesCommand::Rename { from: "b.csv".into(), to: "a".into() }).expect("rename");
+    assert!(!state.is_tree());
+    let list = state.list().expect("list");
+    assert!(list.get("a.csv").is_some() && list.get("a1.csv").is_some(), "{}", state.document_text());
+}
+
+/// strict-tree-editing AC-9: a `tree:` section that fails its check is shown as plain recipes.
+#[test]
+fn invalid_tree_shows_a_notice() {
+    assert!(panel(CAR).tree_notice().is_none());
+    let state = panel("tree: {dependencies: strict}\nrecipes:\n  - {query: \"-R/../x/y.glb/-/attach-y/bad.glb\"}\n");
+    let notice = state.tree_notice().expect("notice");
+    assert!(notice.starts_with("Not a valid recipe tree: plain recipes."), "{notice}");
+    assert!(state.read_only().is_none(), "still editable");
+}
+
+/// strict-tree-editing AC-4: a failed write keeps the edits and says they are unsaved.
+#[test]
+fn failed_write_marks_unsaved() {
+    let mut state = panel(FLAT);
+    state.apply(RecipesCommand::Duplicate("a.csv".into())).expect("duplicate");
+    state.on_write_failed(&liquers_core::error::Error::general_error("disk full".to_owned()));
+    assert!(state.unsaved().is_some_and(|e| e.contains("disk full")));
+    assert!(state.message().is_some_and(|m| m.starts_with("Unsaved edits:")));
+    let retry = state.apply(RecipesCommand::Update).expect("update");
+    assert!(matches!(retry, RecipesEffect::Write { .. }));
+    state.on_written(fp(2));
+    assert!(state.unsaved().is_none());
 }

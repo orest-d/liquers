@@ -3,7 +3,7 @@ title: GitHub Actions Guide
 kind: guide
 audience: internal
 area: [build, docs]
-reviewed: 2026-11-11
+reviewed: 2026-11-26
 ---
 # GitHub Actions Guide
 
@@ -17,11 +17,11 @@ workflow is described here in the pull request that adds it.
 |---|---|---|---|
 | `build-matrix.yml` | PRs and `main` pushes touching a crate, `Cargo.toml`, `.cargo/` or the script | `scripts/check-build-matrix.sh`: every feature configuration, library and test targets, and wasm32; a `rustdoc` job that denies broken intra-doc links on the clean crates (`API_DOCUMENTATION_GUIDE.md` §10) | read only; none |
 | `docs-check.yml` | PRs and `main` pushes touching `specs/`, `docs/`, a crate's `src/`, `liquers-py/python/`, the index and API-doc scripts or the skill scripts | `docs_index.py --check`, `check_api_docs.py` (module docs against `API_DOCUMENTATION_GUIDE.md` §3, warnings only), and the unit tests of both scripts and of the `liquers-project` skill scripts | read only; none |
-| `liquers-py-package.yml` | PRs touching `liquers-py` packaging or sources, the packaging scripts or either py workflow | builds the Linux x86_64 abi3 wheel as the release does, checks it, runs the installed-wheel tests; publishes nothing | read only; none |
+| `liquers-py-package.yml` | PRs touching `liquers-py` packaging (not `src/`, which `liquers-py-tests.yml` covers), the packaging scripts or either py workflow | builds the Linux x86_64 abi3 wheel as the release does, checks it, runs the installed-wheel tests; publishes nothing | read only; none |
 | `liquers-py-release.yml` | `liquers-py-v*` tags; PRs changing the workflow; manual | builds, checks and tests the sdist and fifteen wheels; on a tag publishes to a GitHub release, TestPyPI, then PyPI after the `pypi` environment's approval | release: `contents: write`; publish: `id-token: write` (trusted publishing), environments `testpypi`, `pypi`; no secrets |
-| `liquers-py-tests.yml` | PRs and `main` pushes touching a crate `liquers-py` builds from | `scripts/test-liquers-py.sh` on CPython 3.10, 3.14 and free-threaded 3.14t, under `xvfb-run` (with `libxkbcommon-x11-0` and `mesa-vulkan-drivers`) so the `gui` window tests run | read only; none |
+| `liquers-py-tests.yml` | PRs and `main` pushes touching a crate `liquers-py` builds from | `scripts/test-liquers-py.sh` on CPython 3.14 for PRs, and also 3.10 and free-threaded 3.14t for `main` pushes and manual runs, under `xvfb-run` (with `libxkbcommon-x11-0` and `mesa-vulkan-drivers`) so the `gui` window tests run | read only; none |
 | `liquers-web-tests.yml` | PRs and `main` pushes touching a crate `liquers-web` builds from, `docs/guides/web/` or `JAVASCRIPT_GUIDE.md` | the wasm32 conformance suites under Node, with and without `records`; then the JavaScript examples of `JAVASCRIPT_GUIDE.md` and of the Web user guide, against a `records` build | read only; none |
-| `docs-site.yml` | PRs touching `docs/`, `specs/`, `liquers-docs/`, the three docs scripts or the workflow; `main` pushes also on every crate and `Cargo.toml` | checks and builds the user guides, every API reference (Rust crates, Python, JavaScript) and the browser module published at `pkg/liquers-web/`; deploys to GitHub Pages from `main` | build: read only; deploy: `pages: write`, `id-token: write`; no secrets |
+| `docs-site.yml` | PRs touching `docs/`, `specs/`, `liquers-docs/`, the three docs scripts or the workflow; `main` pushes also on every crate and `Cargo.toml` | on PRs a light `check` job (`liquers-docs check`, draft and release rules); the full build runs on PRs only with the `docs-preview` label or on a manual run. On `main`: checks and builds the user guides, every API reference (Rust crates, Python, JavaScript) and the browser module published at `pkg/liquers-web/`; deploys to GitHub Pages from `main` | build: read only; deploy: `pages: write`, `id-token: write`; no secrets |
 
 All of them also run on `workflow_dispatch` (the *Run workflow* button). The Rust ones share a
 pattern: `dtolnay/rust-toolchain@stable`, `Swatinem/rust-cache@v2` (saved only from `main`
@@ -29,6 +29,23 @@ where the cache would otherwise be thrashed), and, where
 the build is large, a *Free runner disk* step that removes preinstalled toolchains the job does
 not use. `Cargo.lock` is not committed, so a job that needs an exact dependency version resolves
 it first (`cargo generate-lockfile` in `liquers-web-tests.yml`).
+
+## 1a. Keeping Actions time down
+
+The repository is public, so its standard GitHub-hosted runners cost no account minutes, but runs
+still share the account's concurrent-job limit and slow every pull request's feedback. Agent
+sessions push often, so each workflow follows these rules:
+
+- **One run per pull request.** A top-level `concurrency:` group keyed on the pull request number
+  (`github.ref` elsewhere) cancels the run in progress when a newer push arrives. Runs on `main`
+  are never cancelled (`cancel-in-progress` is true only for `pull_request`).
+- **Drafts are skipped.** The Rust workflows list `ready_for_review` among their `pull_request`
+  types and guard each job with `github.event_name != 'pull_request' || !github.event.pull_request.draft`;
+  marking a draft ready runs them. `docs-check.yml` is cheap and runs on drafts too.
+- **Full coverage on `main`, the common case on PRs.** `liquers-py-tests.yml` runs one Python on
+  a PR and three on `main`; `docs-site.yml` runs only `liquers-docs check` on a PR. To get the
+  full site build for a PR, add the `docs-preview` label (it applies from the next push) or run
+  the workflow manually on the branch.
 
 ## 2. `docs-site.yml`: the documentation site
 
@@ -86,8 +103,8 @@ pull request; the asset names in the install step follow each project's release 
 1. Name the file after what it checks or produces (`<crate>-tests.yml`, `<thing>.yml`).
 2. Start from the closest existing workflow and keep its conventions: a comment at the top saying
    what it runs and where its design is, `paths:` filters so it runs only when its inputs change
-   (and on the workflow file itself), `workflow_dispatch`, and `permissions: contents: read`
-   unless it must write.
+   (and on the workflow file itself), `workflow_dispatch`, `permissions: contents: read`
+   unless it must write, and the §1a `concurrency:` group and draft guard.
 3. Put the logic in a script under `scripts/` that also runs locally, and call it from one step.
    CI then proves the same command a developer runs.
 4. Describe it in §1 of this guide, in the same pull request.
@@ -105,6 +122,7 @@ npm is not implemented yet; it gets a design and a section here when it is.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-26 | §1a: concurrency groups cancel superseded PR runs; Rust workflows skip drafts; `liquers-py-tests.yml` runs one Python on PRs; `docs-site.yml` runs a light `check` job on PRs, the full build with `docs-preview`; `liquers-py-package.yml` no longer triggers on `liquers-py/src/`. §3 adds the convention. | reducing Actions usage |
 | 2026-11-11 | §1: `liquers-py-tests.yml` runs under a virtual display, so the window tests of `liquers-py` run. | `design/liquers-py-ui-window/` |
 | 2026-11-10 | §1: `liquers-web-tests.yml` also runs the guides' JavaScript examples; `docs-site.yml` publishes the browser module. | writing the Rust and Web guides |
 | 2026-11-09 | §2: the landing page (`docs/site/`) is the site's `index.html`; the home page moves to `overview.html`; *Verify outputs* checks the landing page's links. Maintaining the site as a whole: [`PROJECT_SITE_GUIDE.md`](PROJECT_SITE_GUIDE.md). | PR #266 |

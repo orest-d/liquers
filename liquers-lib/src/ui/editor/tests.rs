@@ -1138,10 +1138,16 @@ fn node_selector_rename_writes_document_and_data() {
         .map(|c| c.name.clone())
         .collect();
     assert!(names.contains(&"tire".to_string()), "{names:?}");
-    let error = state
+    // A used name is made unique (design `strict-tree-editing`, AC-14).
+    match state
         .apply(EditorCommand::RenameNode { from: "wheel".into(), to: "car".into() })
-        .expect_err("car is taken");
-    assert!(error.message.contains("car.glb"), "{error}");
+        .expect("car is taken: made unique")
+    {
+        EditorEffect::RenameData { editor, .. } => {
+            assert!(editor.recipes().get("car1.glb").is_some(), "{:?}", editor.recipes());
+        }
+        other => panic!("expected RenameData, got {other:?}"),
+    }
 }
 
 // "Insert action after": the picker inserts at the next sibling, also after the last step.

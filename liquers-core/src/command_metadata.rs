@@ -391,9 +391,33 @@ impl NodeArgument {
         self
     }
 
-    /// The filename a node name stands for: `<name>.<ext>`.
+    /// The filename a node name stands for: `<name>.<ext>`, or `name` itself when it is a
+    /// `.node` filename (`1.node`), which every Node argument accepts (design
+    /// `strict-tree-editing`, AC-12).
     pub fn filename(&self, name: &str) -> String {
-        format!("{}.{}", name, self.extension)
+        if Self::is_node_file(name) {
+            name.to_owned()
+        } else {
+            format!("{}.{}", name, self.extension)
+        }
+    }
+
+    /// The name a Node argument uses for `filename`: the stem for `<stem>.<ext>`, the whole
+    /// filename for a `.node` file, `None` for a file of another extension.
+    pub fn name_for(&self, filename: &str) -> Option<String> {
+        if Self::is_node_file(filename) {
+            return Some(filename.to_owned());
+        }
+        filename
+            .strip_suffix(&format!(".{}", self.extension))
+            .filter(|stem| !stem.is_empty())
+            .map(str::to_owned)
+    }
+
+    /// Whether `name` is a filename with the universal extension `node`.
+    fn is_node_file(name: &str) -> bool {
+        name.strip_suffix(&format!(".{}", crate::metadata::NODE_EXTENSION))
+            .is_some_and(|stem| !stem.is_empty())
     }
 
     /// The link `name` becomes: `-R/./<name>.<ext>` or `-R-key/./<name>.<ext>`.
@@ -419,9 +443,9 @@ impl NodeArgument {
             NodeLinkForm::Key => "-R-key/./",
         };
         let filename = text.strip_prefix(prefix)?;
-        let name = filename.strip_suffix(&format!(".{}", self.extension))?;
-        match self.link(name) {
-            Ok(link) if link.encode() == text => Some(name.to_owned()),
+        let name = self.name_for(filename)?;
+        match self.link(&name) {
+            Ok(link) if link.encode() == text => Some(name),
             Ok(_) | Err(_) => None,
         }
     }

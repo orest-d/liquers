@@ -1,3 +1,40 @@
+//! What is known about an asset besides its value: status, type, data format, versions, log and
+//! progress, as stored next to the data and reported to a user.
+//!
+//! # Main components
+//!
+//! - [`Metadata`]: the stored form, a [`MetadataRecord`] or legacy JSON.
+//! - [`MetadataRecord`]: the record of one asset (key, type identifier, data format, status).
+//! - [`Status`]: where an asset is in its lifecycle.
+//! - [`AssetInfo`]: the short form listings and editors show.
+//! - [`Version`]: an opaque content version.
+//! - [`NODE_EXTENSION`]: the extension of a node whose format only its metadata says.
+//!
+//! # Where it is used
+//!
+//! [`crate::assets`] reads and writes it with every value, [`crate::store`] keeps it beside the
+//! data, and [`crate::recipes`] seeds it from a recipe. Most other modules only read it.
+//!
+//! # Related concepts
+//!
+//! - [`crate::command_metadata`]: what a *command* declares, not what an asset is.
+//! - [`crate::state`]: a value together with its metadata.
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_core::metadata::{MetadataRecord, NODE_EXTENSION};
+//!
+//! let mut record = MetadataRecord::new();
+//! record.with_filename("table.csv".to_owned());
+//! assert_eq!(record.data_format.as_deref(), Some("csv"));
+//! let mut node = MetadataRecord::new();
+//! node.with_filename(format!("1.{NODE_EXTENSION}"));
+//! assert_eq!(node.data_format, None, "a .node file is read by its metadata");
+//! ```
+//!
+//! More: `liquers-core/tests/recipe_tree.rs` (`node_file_round_trips_by_metadata`).
+
 #![allow(unused_imports)]
 #![allow(dead_code)]
 
@@ -13,6 +50,18 @@ use crate::query::{Key, Position, Query};
 
 /// A version is a 128-bit integer that identifies a specific revision of an asset's content.
 /// Versions are opaque — only equality matters.
+/// The extension of a recipe-tree node that says nothing about its format (design
+/// `strict-tree-editing`): `1.node` is valid wherever a node of any extension is. A value stored
+/// under it is written in its type's default format and read back by its metadata, so the
+/// extension never seeds `data_format`.
+pub const NODE_EXTENSION: &str = "node";
+
+/// The level-2 data format an extension seeds: the extension itself, except
+/// [`NODE_EXTENSION`], which seeds none.
+fn format_of_extension(extension: Option<String>) -> Option<String> {
+    extension.filter(|e| e != NODE_EXTENSION)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Version(pub(crate) u128);
 
@@ -1156,7 +1205,7 @@ impl AssetInfo {
         // type is *not* written here — it derives from the effective format, and writing it would
         // make an ordinary filename look like a deliberate override.
         if self.data_format.is_none() {
-            self.data_format = self.extension();
+            self.data_format = format_of_extension(self.extension());
         }
         self
     }
@@ -1707,7 +1756,7 @@ impl MetadataRecord {
         // media type is *not* written here — it derives from the effective format, and writing it
         // would make an ordinary filename indistinguishable from a deliberate override.
         if self.data_format.is_none() {
-            self.data_format = self.extension();
+            self.data_format = format_of_extension(self.extension());
         }
         if self.unicode_icon.is_empty() {
             self.unicode_icon = self.default_unicode_icon().to_string();
@@ -1751,7 +1800,7 @@ impl MetadataRecord {
         // media type is *not* written here — it derives from the effective format, and writing it
         // would make an ordinary filename indistinguishable from a deliberate override.
         if self.data_format.is_none() {
-            self.data_format = self.extension();
+            self.data_format = format_of_extension(self.extension());
         }
     }
     pub fn extension(&self) -> Option<String> {
@@ -1779,7 +1828,7 @@ impl MetadataRecord {
         }
         // Level-2 seeding, as in `set_filename`.
         if self.data_format.is_none() {
-            self.data_format = Some(extension.to_string());
+            self.data_format = format_of_extension(Some(extension.to_string()));
         }
     }
 
