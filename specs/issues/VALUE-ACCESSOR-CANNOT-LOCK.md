@@ -66,3 +66,9 @@ Points the design must settle:
 
 Raised by Orest while answering question 6 of `specs/design/settable-value-accessor/` Phase 1
 (2026-11-15): locking is out of scope there, and this issue holds what is known for the later design.
+
+## Proposal 2026-11-26
+
+`specs/design/ui-redesign/accessor-working-copy.md` §5 proposes accessor-level locks (mechanism 2)
+as a lease held by a working copy of an accessor, taken as an option of `begin_edit` and released
+on commit, discard or drop. Asset-level locks stay open. Not decided.

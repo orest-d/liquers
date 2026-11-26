@@ -22,6 +22,24 @@ the protocol.
 
 - [Idea map](./idea-map.md) — every goal (G1–G14) and brainstormed addition (B1–B16), what exists,
   and the coverage table of every open UI-related issue.
+- [Review of the current architecture](./current-architecture-review.md) — the fundamental
+  problems of the old UI (F1–F11), their three root causes, and what is kept.
+- [Master design](./master-design.md) — the over-arching design the D-designs rely on: one
+  runtime (session, lifecycle, messages, effects), native and portable views, clients from very
+  thin to thick, protocol levels, decision register and a use-case walkthrough. Proposed
+  2026-11-23, revised the same day after Orest's review.
+- [Spike S1 stage 1 findings](../../archive/2026-11-23-ui-runner-spike.md) — the runner built under
+  egui, a terminal, a retained host and a split pair; eight problems found.
+- [Spike S1 stage 2 findings](../../archive/2026-11-24-ui-runner-spike-web.md) — the same runner
+  in a browser: DOM host, DOM and Leptos native views, thick, mixed and thin clients over
+  WebSocket, a very thin HTML client, sizes; seven problems found.
+- [Spike S1 layout data findings](../../archive/2026-11-25-ui-runner-spike-layout.md) — a free
+  grid whose children carry their place, in a terminal, egui, HTML and across the protocol.
+- [Viewers and editors an application can add](./presentation-extension.md) — own value kinds in
+  built-in elements and custom argument editors: five candidate solutions and a recommendation
+  (presentation rules whose entries are commands). Proposed 2026-11-26.
+- [A working copy of an accessor](./accessor-working-copy.md) — drafts, live preview, synchronous
+  editing and locks as one overlay accessor. Proposed 2026-11-26.
 - [Plan](./plan.md) — target architecture sketch, designs D1–D21 with dependencies, spikes S1–S4,
   milestones M0–M7 and Orest's decisions.
 
@@ -29,4 +47,5 @@ the protocol.
 
 - [ ] Idea map reviewed by Orest
 - [x] Plan questions answered by Orest, 2026-11-22 (plan §7)
-- [ ] M0 started: spikes S1/S2, and D1 `ui-core-crate` created with Phase 1
+- [x] M0 started: spike S2 done (PR #282), D1 `ui-core-crate` Phase 1 written and its questions answered (2026-11-23)
+- [ ] Master design approved by Orest (its §28 questions 1–3; the two main points agreed in principle 2026-11-23)

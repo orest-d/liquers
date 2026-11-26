@@ -26,3 +26,12 @@ to the variant this design selects.
 - [Phase 2](./phase2-architecture.md)
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
+
+## Discussion 2026-11-26: type dispatch as a general mechanism
+
+[type-dispatch-discussion.md](./type-dispatch-discussion.md) records a discussion from the UI
+redesign: the generic command of this design as the one mechanism for viewers and editors of
+application-defined values, and possibly serializers, instead of a branch element in pipelines.
+It lists four changes this design would need (open registration of variants, lookup without
+running, lazy arms, a default variant with conversion). Nothing is decided; the phases are
+unchanged. The issue was raised to P1 by Orest on that date.

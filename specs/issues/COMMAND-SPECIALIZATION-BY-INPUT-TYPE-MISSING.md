@@ -3,7 +3,7 @@ id: COMMAND-SPECIALIZATION-BY-INPUT-TYPE-MISSING
 kind: feature
 title: One command name cannot have variants chosen by the type of its input
 status: draft
-priority: P3
+priority: P1
 complexity: L
 area: [core/commands, core/plan]
 design: command-specialization-by-input-type
@@ -52,3 +52,9 @@ reported error naming the candidates. Depends on input types being declared
 
 Split out of `COMMAND-METADATA-ENHANCEMENTS` (scope B, "specialization model") during the
 2026-10-20 bulk design, which re-scoped that issue to global enums.
+
+## Priority
+
+Raised from P3 to P1 by Orest on 2026-11-26. The UI redesign may use generic commands as its one
+mechanism for viewers and editors of application-defined values (the need came from DPL); see
+`specs/design/command-specialization-by-input-type/type-dispatch-discussion.md`.

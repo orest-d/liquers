@@ -268,7 +268,8 @@ on wasm.
 - **Strict-tree editing (an invalid recipe tree is served as plain recipes with a notice instead of being refused; New adds an empty `.node` node; node names made unique; roots as display hints)** — complete → [`design/strict-tree-editing/`](design/strict-tree-editing/)
 - **Update modes for the query editors and console (on demand, live preview, apply immediately; ✓ and Enter; undo; a value display with a status bar instead of flicker; views follow upstream expiry by mode)** — complete → [`design/query-update-modes/`](design/query-update-modes/)
 - **Liquers UI from Python (the model, and an egui window)** — built → [`design/liquers-py-ui/`](design/liquers-py-ui/), [`design/liquers-py-ui-window/`](design/liquers-py-ui-window/)
-- **UI redesign: UI crate(s), egui, web and ratatui frontends, monolithic and split client-server, Tauri, sessions, themes, tools, charts, MIDI** — planned → [`design/ui-redesign/`](design/ui-redesign/) *(idea map and plan of designs D1–D21; investigation: [`design/ui-split-elements/`](design/ui-split-elements/); issue: [`issues/UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE.md`](issues/UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE.md))*
+- **UI redesign: UI crate(s), egui, web and ratatui frontends, monolithic and split client-server, Tauri, sessions, themes, tools, charts, MIDI** — planned → [`design/ui-redesign/`](design/ui-redesign/) *(idea map, review of the current architecture, master design (proposed) and plan of designs D1–D21; investigation: [`design/ui-split-elements/`](design/ui-split-elements/); issue: [`issues/UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE.md`](issues/UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE.md))*
+- **UI core crate (`liquers-ui`: one element model for every frontend, independent of `liquers-lib`)** — planned → [`design/ui-core-crate/`](design/ui-core-crate/) *(Phase 1 in review)*
 
 `design/ui-events/` built the interaction half of the browser backend — `webui-fixes` did the
 rendering half: backend-neutral `UIEvent`s delivered through `update()`, declared in `data-lq-*`
@@ -337,6 +338,7 @@ question are both measure-first items.
 <!-- BEGIN generated: issues -->
 | Issue | Pri | Cx | Design |
 |---|---|---|---|
+| [`COMMAND-SPECIALIZATION-BY-INPUT-TYPE-MISSING`](issues/COMMAND-SPECIALIZATION-BY-INPUT-TYPE-MISSING.md) | P1 | L | `command-specialization-by-input-type` |
 | [`UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE`](issues/UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE.md) | P1 | XL | `ui-redesign` |
 <!-- END generated: issues -->
 

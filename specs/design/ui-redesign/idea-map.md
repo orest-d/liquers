@@ -372,6 +372,9 @@ compose elements, bind them to data through accessors, override the theme.
   showing a query of another field).
 - Layout: existing horizontal/vertical/grid/tabs/windows plus docking (`egui_dock` or `craft-ui`'s
   docking, per the craft survey) and responsive rules for the web and mobile.
+  Docking and resizable horizontal and vertical layouts were found missing in the DPL project
+  (Orest, 2026-11-25) and are requirement R17 of the master design, which also covers custom
+  layouts (§10.10).
 - Theme overrides per document and per element (style queries, G8).
 - Reuse: components (a `UISpec` fragment with parameters), includes by key.
 - Validation of a `UISpec` (like `liquers-validate` for queries), and a `UISpec` editor element.
@@ -381,7 +384,8 @@ compose elements, bind them to data through accessors, override the theme.
 **Issues.** `ACCESSOR-CANNOT-BE-SENT-TO-A-CLIENT`, `VALUE-ACCESSOR-CANNOT-LOCK`,
 `YAML-DOCUMENT-EDIT-DROPS-COMMENTS`, `ACCESSOR-CANNOT-BE-IMPLEMENTED-IN-PYTHON-OR-JAVASCRIPT`,
 `UI-DOCUMENT-CANNOT-NAME-ITS-THEME`, `UI-EVENTS-HAVE-NO-POINTER-DRAG-OR-CHANGE-KINDS`,
-`COMMAND-COMPOSITE-VARIADIC-ARGUMENTS` (form editing of variadic arguments).
+`COMMAND-COMPOSITE-VARIADIC-ARGUMENTS` (form editing of variadic arguments; closed 2026-11-25,
+PR #288, and no longer part of this plan).
 
 ## G13. High-level function mapping
 
@@ -514,7 +518,7 @@ each (design ids from [`plan.md`](./plan.md)).
 | `YAML-DOCUMENT-EDIT-DROPS-COMMENTS` | P3 | M | G12 | D12 |
 | `ACCESSOR-CANNOT-BE-IMPLEMENTED-IN-PYTHON-OR-JAVASCRIPT` | P3 | L | G12/B12 | D12 (later part) |
 | `UI-ELEMENT-NESTED-IN-CONSOLE-HAS-NO-HANDLE` | P3 | M | G12 | D12 (with `console-mounts-nested-element`) |
-| `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS` | P3 | L | G12 | D12 (form side only) |
+| `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS` | P3 | L | G12 | done outside the plan (PR #288, 2026-11-25) |
 | `UI-EVENTS-HAVE-NO-POINTER-DRAG-OR-CHANGE-KINDS` | P3 | L | G13 | D13 |
 | `WEB-EDITOR-HAS-NO-KEYBOARD-MODEL` | P3 | M | B2/G13 | D13 (keyboard), D10 (icon images) |
 | `COMMANDS-HAVE-NO-TOOL-PALETTE` | P3 | M | B3 | D20 |
