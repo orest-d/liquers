@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 273
+Total rows: 274
 - P1: 1
-- P2: 69
+- P2: 70
 - P3: 203
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
@@ -18,6 +18,7 @@ Total rows: 273
 | [`UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE`](issues/UI-NOT-SEPARATED-BY-CRATE-AND-TECHNIQUE.md) | feature | The UI is one module of liquers-lib with one element trait for every technique and no client-server protocol | draft |  |  | P1 | XL | lib/ui;web;axum | [idea](design/ui-redesign/idea-map.md)  [plan.md](design/ui-redesign/plan.md)  | 2026-11-17 |
 | [`YAML-SCHEMA-FILE-CANNOT-BE-LINKED-AS-SCHEMA-TEXT`](issues/YAML-SCHEMA-FILE-CANNOT-BE-LINKED-AS-SCHEMA-TEXT.md) | issue | A plain .yaml schema file cannot be linked into to_record's schema argument | draft | needs-decision | not-eligible | P2 | S | records;lib/value | [design](design/schema-argument-structured-link/DESIGN.md) | 2026-10-20 |
 | [`MACRO-VALUE-STATE-KEYWORD-FAILS-OUTSIDE-CORE`](issues/MACRO-VALUE-STATE-KEYWORD-FAILS-OUTSIDE-CORE.md) | issue | register_command! with the value state keyword does not compile outside liquers-core | draft |  |  | P2 | S | macro |  | 2026-11-10 |
+| [`RECIPES-EDITOR-ROW-CLICK-ALWAYS-OPENS-THE-FORM`](issues/RECIPES-EDITOR-ROW-CLICK-ALWAYS-OPENS-THE-FORM.md) | feature | A click on a row of the recipes editor always opens Liquers' recipe form, and a host cannot send it to its own editor | draft |  |  | P2 | S | lib/ui;lib/egui | [design](design/recipes-editor-open-action/DESIGN.md) | 2026-11-26 |
 | [`SET-STATE-WITHOUT-DATA-FORMAT-IGNORES-THE-KEY-EXTENSION`](issues/SET-STATE-WITHOUT-DATA-FORMAT-IGNORES-THE-KEY-EXTENSION.md) | issue | set_state on a key with a known extension records application/octet-stream when the state names no format | draft |  |  | P2 | S | core/assets |  | 2026-11-10 |
 | [`UPSTREAM-COMMAND-VOLATILITY-INVISIBLE-TO-DEPENDENCY-WALK`](issues/UPSTREAM-COMMAND-VOLATILITY-INVISIBLE-TO-DEPENDENCY-WALK.md) | issue | A recipe preview misses volatility its upstream inherits from a volatile command | draft |  |  | P2 | S | core/plan |  | 2026-11-03 |
 | [`WEB-COMMAND-LOOKUP-IGNORES-NAMESPACE`](issues/WEB-COMMAND-LOOKUP-IGNORES-NAMESPACE.md) | issue | describeCommand and unregisterCommand take a bare name, so namespaced commands cannot be addressed | draft |  |  | P2 | S | web |  | 2026-10-26 |

@@ -532,6 +532,7 @@ deliberately folded behind a broader line.
 - design `recipe-override-addressing`
 - design `recipe-plan-declarations`
 - design `recipe-preview-shares-plan-analysis`
+- design `recipes-editor-open-action`
 - design `recipes-yaml-read-errors-propagate`
 - design `record-batch-private-fields`
 - design `record-decimal-field-type`
@@ -706,6 +707,7 @@ deliberately folded behind a broader line.
 - feature `QUERY-COST-IS-UNKNOWN-TO-THE-UI`
 - feature `RECIPE-TREE-CANNOT-BE-EXPORTED-AS-AN-ARCHIVE`
 - feature `RECIPE-TREES-NOT-IN-LANGUAGE-BINDINGS`
+- feature `RECIPES-EDITOR-ROW-CLICK-ALWAYS-OPENS-THE-FORM`
 - feature `RECORD-FIELD-TYPE-HAS-NO-DECIMAL`
 - feature `RECORD-FIELD-TYPE-HAS-NO-UUID-TIME-OR-INTERVAL`
 - feature `RECORD-SOURCE-ROWS-CANNOT-BE-STREAMED`
