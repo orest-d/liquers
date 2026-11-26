@@ -2,7 +2,7 @@
 id: RECIPES-EDITOR-ROW-CLICK-ALWAYS-OPENS-THE-FORM
 kind: feature
 title: A click on a row of the recipes editor always opens Liquers' recipe form, and a host cannot send it to its own editor
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [lib/ui, lib/egui]
@@ -26,3 +26,8 @@ project should edit it in DPL's recipe workbench, which has Live preview and a 3
 
 A host can name a command (namespace and name, given to `lui/recipes_editor`) that a row click runs on the clicked node; the row
 menu's Edit keeps opening the form.
+
+## Resolution
+
+Design `recipes-editor-open-action`: `lui/recipes_editor-<namespace>-<command>` names a command a
+row click runs on the node's key; the row menu's Edit opens the form.

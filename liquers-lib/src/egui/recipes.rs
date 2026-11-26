@@ -285,7 +285,7 @@ fn show_row(
             if row.repeated || row.cycle {
                 text = text.italics().color(color(palette.text.ink_muted));
             }
-            let open = state.form(&file).is_some();
+            let open = state.is_marked(&file);
             let response = ui.selectable_label(open, text);
             let tooltip = match label {
                 RecipeLabel::Title if !row.title.is_empty() => row.title_tooltip(),
@@ -348,7 +348,7 @@ fn show_row(
             match item.action {
                 MenuAction::View => commands.push(RecipesCommand::View(file.clone())),
                 MenuAction::Metadata => commands.push(RecipesCommand::Metadata(file.clone())),
-                MenuAction::Edit => commands.push(RecipesCommand::Open(file.clone())),
+                MenuAction::Edit => commands.push(RecipesCommand::Edit(file.clone())),
                 MenuAction::Evaluate => commands.push(RecipesCommand::Evaluate(file.clone())),
                 MenuAction::Rename => ui_state.renaming = Some((row.id.clone(), row.name.clone())),
                 MenuAction::Duplicate => commands.push(RecipesCommand::Duplicate(file.clone())),

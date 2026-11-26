@@ -593,6 +593,18 @@ findings) is drawn under the toolbar. A failed write keeps the edits pending and
 uses Phosphor icons (`list`, `tree-structure`, `brackets-curly`, `gear`, `plus`). The `continuous` flag writes each edit at once; otherwise edits wait for
 Update, and Revert reloads.
 
+**Open command.** `lui/recipes_editor-<namespace>-<command>` (or
+`RecipesElement::with_open_command`) names a command a row click runs instead of opening the recipe
+window (design `design/recipes-editor-open-action/`): the click submits
+`-R-key/<folder>/<file>/-/ns-<namespace>/<command>` with the panel as the current element
+(`RecipesEffect::Submit`) and marks the row (`RecipesState::is_marked`; web class `lq-open`). The row
+menu's Edit (`RecipesCommand::Edit`, browser `rc:edit:<file>`) always opens the window. Both
+arguments empty is the default; one of them empty, or a command the registry lacks, is refused. An
+open command takes the node as its input key; by convention it also accepts the folder's key with
+a node name as an argument (`-R-key/<folder>/-/ns-<namespace>/<command>-<name>`, resolved with
+`TreeEditor::resolve`): an empty name means the key is the node. The open command is serialized
+with the element.
+
 **Protocol.** Besides `AppMessage::Accessor` and `NodeContext` (whose `UpdateMessage::NodeContext`
 now carries the folder's `AssetInfo` by filename, the formats and a `notice`), the panel sends:
 `RenameData` when a rename moves stored data; `SubmitQuery` with `-R/<key>/-/ns-lui/add-child` (View)
@@ -1017,3 +1029,4 @@ Candidate universal operations identified across use cases:
 | 2026-11-24 | Editors: update modes (On demand, Live preview, Apply immediately), Undo / Redo, ✓ beside the query field, `host_controls`; the query console's update modes, debounce, typed-text validation, `ValueDisplay` (no flicker, status bar, dimming, preview frame), expiry by mode, Browse in the panel, `schedule_event` (`design/query-update-modes/` Part A). Those parts reviewed against the implementation. | — |
 | 2026-11-24 | Editor element modes and Live preview through `AppMessage::Preview` (recipe folder as `cwd`, `lq:preview-end`), the `mode` arguments, mode names `on_demand` / `preview` / `immediate`, the value display adopting a re-pointed query (`design/query-update-modes/` Part B). Those parts reviewed against the implementation. | — |
 | 2026-11-26 | Recipe editors: New adds an empty `.node` node, used names are made unique, a query without a filename keeps the node's, the invalid-tree notice, the unsaved marker, Phosphor toolbar icons. That subsection reviewed against the implementation. | `design/strict-tree-editing/` |
+| 2026-11-26 | Recipe editors: the open command (`lui/recipes_editor` `namespace` / `command`, `RecipesCommand::Edit`, `rc:edit`, marked rows). That paragraph reviewed against the implementation. | `design/recipes-editor-open-action/` |

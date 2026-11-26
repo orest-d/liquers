@@ -4,8 +4,8 @@ kind: design
 title: Let a host choose what a click on a recipes-editor row does
 form: compact
 workflow: liquers-project
-status: in_review
-phase: high-level
+status: approved
+phase: documentation
 area: [lib/ui, lib/egui]
 issues: [RECIPES-EDITOR-ROW-CLICK-ALWAYS-OPENS-THE-FORM]
 affects_docs: [reference/UI_INTERFACE_FSD.md]
@@ -26,6 +26,9 @@ clicked node, and the row menu's Edit still opens the form.
   editor; the command takes the node as a key state (`-R-key/folder/node.ext/-/ns-x/cmd`) or as a
   node name argument (`-R-key/folder/-/ns-x/cmd-node`), the second needing no extension. The open
   query with placeholders is replaced by this (open questions 1 and 2 answered).
+
+- **2026-11-26 21:57** Orest: `proceed all`. Open questions 3-5 take the recommended answers
+  (Design Readiness); Phases 2-4 written and implemented.
 
 ## Phase 1: High-Level Design
 
@@ -121,3 +124,123 @@ Not a new feature in the guide's sense: an option of an existing Rust UI element
    `resolve_node(list, name) -> Result<String, Error>` (name or filename → filename, as
    `TreeEditor::resolve` does today), recommended, so every open command resolves names the same
    way; or leave it to each command.
+
+### Design Readiness
+
+Pre-approved by `proceed all`; the remaining questions take the recommended answers:
+(3) no double click to the form; (4) a click sends the key form; (5) the helper is
+`TreeEditor::resolve`, made public, rather than a new free function (it already resolves a name or
+a filename, refusing an ambiguous name). No decision is left for the user.
+
+## Phase 2: Architecture
+
+### Solution
+
+The open command lives in `RecipesState`, where `RecipesCommand::Open` is answered, so egui and
+the web share it. `Open(file)` with an open command marks the row and returns
+`RecipesEffect::Submit(-R-key/<folder>/<file>/-/ns-<ns>/<command>)`, the effect View already uses;
+a new `RecipesCommand::Edit(file)` always opens the form, and the row menus send it (egui
+`MenuAction::Edit`, web `rc:edit:<file>`). `RecipesElement` keeps the open command (serialized)
+and hands it to the state it builds. `lui/recipes_editor` gains two string arguments and a
+`context`, to check the command against the command metadata registry.
+
+Rejected: a query template with placeholders (Orest's redirect); a callback (not serializable,
+not reachable from a query); a separate element (the panel's click is drawn inside egui code).
+
+**Known-issue preflight.** `LIQUERS-EDITOR-FOLLOW-NOT-SETTABLE-FROM-A-QUERY` (DPL): not related
+here, the open command is set from the query. `RECIPES-EDITOR-SAVE-AS-HAS-NO-FILE-DIALOG`,
+`WEB-RECIPES-EDITOR-CANNOT-DOWNLOAD`: unrelated. No blocker. Namespaces: `lui`.
+
+### Changes
+
+- `liquers-lib/src/ui/recipes/state.rs`: `pub struct OpenCommand { pub namespace: String, pub
+  name: String }` (`Serialize`, `Deserialize`, `PartialEq`) with `pub fn query(&self, key: &str) ->
+  String`; `RecipesState::with_open_command(Option<OpenCommand>)`, `open_command()`,
+  `is_marked(&self, file: &str) -> bool` (form open, or the row last clicked); new
+  `RecipesCommand::Edit(String)`.
+- `liquers-lib/src/ui/recipes/element.rs`: field `#[serde(default)] open_command:
+  Option<OpenCommand>`, `RecipesElement::with_open_command(namespace, name)`; `panel_commands`
+  reads `rc:edit:<file>`.
+- `liquers-lib/src/ui/recipes/rows.rs`: `MenuAction::Edit` sends `rc:edit:<file>`.
+- `liquers-lib/src/egui/recipes.rs`: the row menu's Edit pushes `RecipesCommand::Edit`; a row is
+  drawn selected when `is_marked`.
+- `liquers-lib/src/ui/web/recipes.rs`: class `lq-open` on a marked row's label, with a style.
+- `liquers-lib/src/ui/commands.rs`: `recipes_editor(state, namespace: String = "", command:
+  String = "", context)`; one of the two empty, or a command the registry lacks
+  (`find_command("", namespace, command)`), is `Error::general_error` naming it.
+- `liquers-core/src/recipe_tree.rs`: `TreeEditor::resolve` becomes `pub`.
+- `specs/command_registry.yaml` regenerated (the new arguments), with a CHANGELOG line.
+- Docs: `reference/UI_INTERFACE_FSD.md` §Recipe editors, `ui/recipes/mod.rs` module doc,
+  `reference/RECIPE_TREES.md` (`resolve` is public), a scope note in `recipes-editor`.
+
+### Risks
+
+Small: one new command variant (explicit matches over `RecipesCommand` add an arm), a changed
+command signature (registry regenerated; DPL's exported registry is DPL's own and unaffected), and
+the menu event renamed from `rc:open` to `rc:edit`, which only the panel itself sends.
+
+## Phase 3: Examples and Tests
+
+### Examples
+
+The problem example: `-R-key/projects/p/recipes.yaml/-/ns-acc/accessor/ns-lui/recipes_editor-lui-submit`
+in a test (a command that exists), then a click on `1.node` gives
+`Submit("-R-key/projects/p/1.node/-/ns-lui/submit")`.
+
+### Tests (`liquers-lib/src/ui/recipes/tests.rs` unless named)
+
+| Test | ACs |
+|---|---|
+| `open_without_open_command_opens_the_form` | AC-1 |
+| `open_with_open_command_submits_the_key_query` | AC-2, AC-7 |
+| `edit_opens_the_form_with_an_open_command` | AC-3 |
+| `clicked_row_is_marked` | AC-4 |
+| `open_command_survives_serialization` | AC-5 |
+| `menu_edit_sends_rc_edit` (`panel_commands`, `MenuAction::event`) | AC-3 |
+| `web_marks_the_open_row` (`ui/web/recipes.rs`) | AC-4 |
+| `recipes_editor_refuses_an_unknown_open_command`, `recipes_editor_takes_an_open_command` (`ui/commands.rs`) | AC-2, AC-6 |
+| `resolve_finds_a_node_by_name` (`liquers-core/src/recipe_tree.rs`) | AC-8 |
+
+## Phase 4: Implementation Plan
+
+1. `TreeEditor::resolve` public; core test. Validate: `cargo test -p liquers-core --lib recipe_tree`.
+2. State: `OpenCommand`, `Edit`, marking; tests. Validate: `cargo test -p liquers-lib --lib ui::recipes`.
+3. Element, `panel_commands`, rows, egui, web. Validate: the same, plus `--features webui`.
+4. `recipes_editor` arguments; registry export and CHANGELOG; `--test registry_export`.
+5. Docs, `check_api_docs.py`, `docs_index.py --check`. Rollback: revert the branch; nothing is
+   persisted beyond the optional serialized field.
+
+## Phase 5: Documentation
+
+### Built versus approved
+
+As approved, with one refinement: the clicked row's mark follows a rename (`rekey`). The helper of
+AC-8 is `TreeEditor::resolve`, made public (Design Readiness). The open command's query is
+`-R-key/<folder>/<file>/-/ns-<namespace>/<command>`; with an empty folder (a `recipes.yaml` at the
+store root) the key is the filename alone.
+
+### Documents
+
+- `reference/UI_INTERFACE_FSD.md` §Recipe editors: the open command paragraph; History row.
+- `reference/RECIPE_TREES.md` §Editing: `TreeEditor::resolve`; History row.
+- `liquers-lib/src/ui/recipes/mod.rs` module doc, and an executed example on `OpenCommand`. The
+  module's existing example failed since `strict-tree-editing` (it renamed a node whose query
+  used an unregistered `head`); it now renames a source and accepts the `SaveTree` effect.
+- `specs/command_registry.yaml` regenerated, CHANGELOG line.
+- `design/recipes-editor/DESIGN.md`: scope note.
+- User guides: none (the recipes editor is not in them).
+
+### Issues
+
+Closed: `RECIPES-EDITOR-ROW-CLICK-ALWAYS-OPENS-THE-FORM`. Filed: none.
+
+### Tests
+
+`liquers-core` `recipe_tree::tests::resolve_finds_a_node_by_name`; `liquers-lib` `ui::recipes::tests`
+(five open-command tests), `ui::web::recipes::tests::web_marks_the_open_row`, and
+`tests/ui_recipes_editor.rs` `recipes_editor_takes_an_open_command`,
+`click_runs_the_open_command_through_the_runner`. Run locally (GitHub Actions has no minutes until
+about 2026-12-01): `cargo test -p liquers-lib --lib --tests` (all 51 suites pass), `--features
+webui --lib recipes`, `--doc ui::recipes`, `--test registry_export`, `liquers-core --lib
+recipe_tree`. The wasm32 rows of `check-build-matrix.sh` were not run (no change is cfg-gated).
+

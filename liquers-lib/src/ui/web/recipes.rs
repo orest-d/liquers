@@ -47,6 +47,7 @@ pub const RECIPES_CSS: &str = r#"
 .lq-recipes-toolbar button[aria-pressed="true"] { font-weight: bold; }
 .lq-recipe-row { display: flex; align-items: center; gap: 0.25rem; white-space: nowrap; }
 .lq-recipe-row .lq-recipe-label { overflow: hidden; text-overflow: ellipsis; flex: 1; }
+.lq-recipe-row .lq-recipe-label.lq-open { font-weight: bold; text-decoration: underline; }
 .lq-recipe-row .lq-recipe-title { color: var(--lq-ink-muted); font-size: 0.8em; }
 .lq-status { display: inline-block; width: 0.55rem; height: 0.55rem; border-radius: 50%; }
 .lq-status-ok { background: var(--lq-success); }
@@ -121,6 +122,9 @@ fn row_html(row: &RecipeRow, state: &RecipesState) -> String {
     }
     if row.repeated || row.cycle {
         classes.push_str(" lq-repeated");
+    }
+    if state.is_marked(&file) {
+        classes.push_str(" lq-open");
     }
     html.push_str(&format!(
         "<button type=\"button\" class=\"{classes}\" data-lq-event=\"rc:open:{}\" title=\"{}\">{}</button>",
@@ -348,6 +352,22 @@ mod tests {
             )
             .expect("snapshot");
         state
+    }
+
+    /// `recipes-editor-open-action` AC-4: the row clicked last is marked; Edit sends `rc:edit`.
+    #[test]
+    fn web_marks_the_open_row() {
+        let mut state = RecipesState::new(Default::default())
+            .with_folder(Some("data".into()))
+            .with_open_command(Some(crate::ui::recipes::OpenCommand::new("lui", "submit")));
+        state
+            .on_snapshot(&Value::from("recipes:\n- {query: -R/x.csv/-/head/a.csv, title: A}\n"), None)
+            .expect("snapshot");
+        assert!(!recipes_html(&state, "Recipes").contains("lq-open"));
+        state.apply(RecipesCommand::Open("a.csv".into())).expect("open");
+        let html = recipes_html(&state, "Recipes");
+        assert!(html.contains("lq-recipe-label lq-open"), "{html}");
+        assert!(html.contains("data-lq-event=\"rc:edit:a.csv\""), "{html}");
     }
 
     /// AC-16 to AC-19: rows, tooltips, a status dot and the row menu.

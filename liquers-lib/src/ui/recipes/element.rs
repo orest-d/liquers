@@ -12,7 +12,7 @@ use liquers_core::value::ValueInterface;
 
 use super::form::{FormChange, FormCommand, RecipeForm};
 use super::rows::{RecipeLabel, RecipesView};
-use super::state::{RecipesCommand, RecipesEffect, RecipesState};
+use super::state::{OpenCommand, RecipesCommand, RecipesEffect, RecipesState};
 use crate::ui::editor::{EditorBinding, EditorCommand};
 use crate::ui::element::{UIElement, UpdateMessage, UpdateResponse};
 use crate::ui::event::{UIEvent, UIEventKind};
@@ -81,6 +81,9 @@ pub struct RecipesElement {
     view: RecipesView,
     #[serde(default = "yes")]
     continuous: bool,
+    /// What a row click runs instead of the recipe form (design `recipes-editor-open-action`).
+    #[serde(default)]
+    open_command: Option<OpenCommand>,
     #[serde(skip)]
     state: Option<RecipesState>,
     #[serde(skip)]
@@ -102,6 +105,7 @@ impl RecipesElement {
             label: RecipeLabel::Name,
             view: RecipesView::Outline,
             continuous: true,
+            open_command: None,
             state: None,
             bound: false,
             live: None,
@@ -125,6 +129,23 @@ impl RecipesElement {
     pub fn with_label(mut self, label: RecipeLabel) -> Self {
         self.label = label;
         self
+    }
+
+    /// A row click runs `ns-<namespace>/<name>` on the clicked node's key instead of opening the
+    /// recipe form; the row menu's Edit still opens it (builder style; design
+    /// `recipes-editor-open-action`).
+    pub fn with_open_command(mut self, namespace: impl Into<String>, name: impl Into<String>) -> Self {
+        let command = OpenCommand::new(namespace, name);
+        if let Some(state) = self.state.take() {
+            self.state = Some(state.with_open_command(Some(command.clone())));
+        }
+        self.open_command = Some(command);
+        self
+    }
+
+    /// What a row click runs, if not the recipe form.
+    pub fn open_command(&self) -> Option<&OpenCommand> {
+        self.open_command.as_ref()
     }
 
     /// The binding.
@@ -157,7 +178,8 @@ impl RecipesElement {
                     RecipesState::new(registry.clone())
                         .with_folder(self.folder())
                         .with_display(self.label, self.view)
-                        .with_continuous(self.continuous),
+                        .with_continuous(self.continuous)
+                        .with_open_command(self.open_command.clone()),
                 );
             }
         }
@@ -303,6 +325,7 @@ pub fn panel_commands(event: &UIEvent, state: &RecipesState) -> Vec<RecipesComma
     let arg = arg.to_owned();
     match verb {
         "open" => vec![RecipesCommand::Open(arg)],
+        "edit" => vec![RecipesCommand::Edit(arg)],
         "close" => vec![RecipesCommand::Close(arg)],
         "view" => vec![RecipesCommand::View(arg)],
         "metadata" => vec![RecipesCommand::Metadata(arg)],

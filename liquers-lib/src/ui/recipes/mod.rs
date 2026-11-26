@@ -12,9 +12,15 @@
 //! ([`RecipesState::unsaved`]). A single recipe is edited through the `acc/recipe_file` accessor,
 //! which finds the recipe by its filename, not by its position.
 //!
+//! A host can name an [`OpenCommand`] (`lui/recipes_editor-<namespace>-<command>`, or
+//! [`RecipesElement::with_open_command`]): a row click then runs it on the clicked node's key
+//! instead of opening the recipe form, and the row menu's Edit still opens the form (design
+//! `recipes-editor-open-action`).
+//!
 //! # Main components
 //!
-//! - [`RecipesElement`]: the panel, built by `ns-lui/recipes_editor`. Its model is a
+//! - [`RecipesElement`]: the panel, built by `ns-lui/recipes_editor`; [`OpenCommand`]: what a row
+//!   click runs instead of the form. The panel's model is a
 //!   [`RecipesState`], changed by [`RecipesCommand`]s, which return the [`RecipesEffect`] the
 //!   element performs (an accessor write, a tree save with stored-file renames, a query).
 //! - [`RecipeElement`]: one recipe as a form (`ns-lui/recipe_editor`).
@@ -42,11 +48,11 @@
 //! use liquers_lib::value::Value;
 //!
 //! let mut state = RecipesState::new(Default::default()).with_folder(Some("data".into()));
-//! state.on_snapshot(&Value::from("recipes:\n- {query: -R/data/x.csv/-/head/b.csv, title: B}\n"), None).unwrap();
+//! state.on_snapshot(&Value::from("recipes:\n- {query: b.csv, title: B}\n"), None).unwrap();
 //! assert_eq!(state.rows()[0].name, "b.csv");
 //! // The working copy changes at once; the write is what the effect asks for.
 //! let effect = state.apply(RecipesCommand::Rename { from: "b.csv".into(), to: "c".into() }).unwrap();
-//! assert!(matches!(effect, RecipesEffect::None | RecipesEffect::Write { .. }));
+//! assert!(matches!(effect, RecipesEffect::None | RecipesEffect::Write { .. } | RecipesEffect::SaveTree { .. }));
 //! ```
 
 mod element;
@@ -63,5 +69,5 @@ pub use rows::{
     findings_by_row, menu_items, status_label, MenuAction, MenuItem, RecipeLabel, RecipeRow, RecipesView, RowSource,
     RowStatus,
 };
-pub use state::{RecipesCommand, RecipesEffect, RecipesState, YamlBuffer};
+pub use state::{OpenCommand, RecipesCommand, RecipesEffect, RecipesState, YamlBuffer};
 pub use yaml::{parse_recipes, yaml_spans};

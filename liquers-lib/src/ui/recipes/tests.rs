@@ -617,3 +617,82 @@ fn failed_write_marks_unsaved() {
     state.on_written(fp(2));
     assert!(state.unsaved().is_none());
 }
+
+// Design `recipes-editor-open-action`.
+
+fn with_open_command(text: &str) -> RecipesState {
+    let mut state = RecipesState::new(registry())
+        .with_folder(Some("scenes/car".into()))
+        .with_open_command(Some(OpenCommand::new("dpl", "edit_node")));
+    state.on_snapshot(&Value::from(text), Some(fp(1))).expect("snapshot");
+    state
+}
+
+/// AC-1: with no open command, a click opens the recipe form as before.
+#[test]
+fn open_without_open_command_opens_the_form() {
+    let mut state = panel(FLAT);
+    let effect = state.apply(RecipesCommand::Open("a.csv".into())).expect("open");
+    assert!(matches!(effect, RecipesEffect::None));
+    assert!(state.form("a.csv").is_some());
+}
+
+/// AC-2, AC-7: a click submits the open command on the node's key; no form opens.
+#[test]
+fn open_with_open_command_submits_the_key_query() {
+    let mut state = with_open_command(FLAT);
+    let effect = state.apply(RecipesCommand::Open("a.csv".into())).expect("open");
+    match effect {
+        RecipesEffect::Submit(query) => assert_eq!(query, "-R-key/scenes/car/a.csv/-/ns-dpl/edit_node"),
+        other => panic!("expected a submit, got {other:?}"),
+    }
+    assert!(state.form("a.csv").is_none());
+    assert!(liquers_core::parse::parse_query("-R-key/scenes/car/a.csv/-/ns-dpl/edit_node").is_ok());
+}
+
+/// AC-3: Edit opens the form whatever the open command.
+#[test]
+fn edit_opens_the_form_with_an_open_command() {
+    let mut state = with_open_command(FLAT);
+    let effect = state.apply(RecipesCommand::Edit("b.csv".into())).expect("edit");
+    assert!(matches!(effect, RecipesEffect::None));
+    assert!(state.form("b.csv").is_some());
+}
+
+/// AC-4: the row clicked last is marked, and the mark follows a rename.
+#[test]
+fn clicked_row_is_marked() {
+    let mut state = with_open_command(FLAT);
+    assert!(!state.is_marked("a.csv"));
+    state.apply(RecipesCommand::Open("a.csv".into())).expect("open");
+    assert!(state.is_marked("a.csv") && !state.is_marked("b.csv"));
+    state.apply(RecipesCommand::Open("b.csv".into())).expect("open");
+    assert!(state.is_marked("b.csv") && !state.is_marked("a.csv"));
+    state.apply(RecipesCommand::Rename { from: "b.csv".into(), to: "c".into() }).expect("rename");
+    assert!(state.is_marked("c.csv"), "{:?}", names(&state));
+}
+
+/// AC-5: the open command is saved with the element; an element saved before loads with none.
+#[test]
+fn open_command_survives_serialization() {
+    let element = RecipesElement::new("Recipes", crate::ui::editor::EditorBinding::Memory(String::new()))
+        .with_open_command("dpl", "edit_node");
+    let json = serde_json::to_string(&element).expect("serialize");
+    let loaded: RecipesElement = serde_json::from_str(&json).expect("deserialize");
+    assert_eq!(loaded.open_command(), Some(&OpenCommand::new("dpl", "edit_node")));
+    let mut old: serde_json::Value = serde_json::from_str(&json).expect("json");
+    old.as_object_mut().expect("object").remove("open_command");
+    let loaded: RecipesElement = serde_json::from_value(old).expect("old form");
+    assert_eq!(loaded.open_command(), None);
+}
+
+/// AC-3: the row menu's Edit sends `rc:edit`, decoded to `Edit`; a click stays `rc:open`.
+#[test]
+fn menu_edit_sends_rc_edit() {
+    use crate::ui::event::{UIEvent, UIEventKind};
+    let state = panel(FLAT);
+    assert_eq!(MenuAction::Edit.event("a.csv"), "rc:edit:a.csv");
+    let event = UIEvent::new(UIEventKind::Named("rc:edit:a.csv".into()));
+    assert_eq!(panel_commands(&event, &state), vec![RecipesCommand::Edit("a.csv".into())]);
+}
+

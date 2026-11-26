@@ -166,6 +166,8 @@ merged, so any works); `None` when unknown.
 `TreeEditor::new(list, listing, cmr)` edits one folder's recipes in memory; a provider-set `cwd`
 is cleared, since it is never written. Every edit works on a copy and is kept only when the check
 reports no error the recipes did not already have; a refused edit changes nothing.
+`TreeEditor::resolve(node)` gives the filename a node name or filename names, refusing an unknown
+or ambiguous name; commands that take a node by name use it.
 
 **Normalising.** `new` and every commit normalise the list: an empty list gets a `tree:` section
 (a new editor holds an empty valid tree), and a list with one drops a `result` or `roots` entry
@@ -243,3 +245,4 @@ notice "Not a valid recipe tree: plain recipes" with the first findings and stay
 | 2026-11-23 | Created: declaration, nodes and names, source recipes, Node arguments, strict mode and its enforcement, the check, `TreeEditor`, the editors. | `design/recipe-tree/` |
 | 2026-11-24 | `TreeEditor::add`, `duplicate`, `set_recipe`, `set_result`, `replace`, `child_slots`; a new unstored source is allowed by `add` / `add_child`; the recipes panel and its dependencies view. Reviewed against the implementation. | `design/recipes-editor/` |
 | 2026-11-26 | An invalid strict folder is downgraded to plain recipes, not refused; unplannable recipes with a filename are error assets; `.node` files; roots are display hints (`RecipeList::roots`, `UnknownRoot` a warning, `RootsBesideResult` not reported); the editor normalises lists, keeps a result, makes names unique (`unique_filename`, `add_empty`); `save` skips unstored files. | `design/strict-tree-editing/` |
+| 2026-11-26 | `TreeEditor::resolve` is public: a command given a node name finds its filename. | `design/recipes-editor-open-action/` |

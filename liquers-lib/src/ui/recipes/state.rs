@@ -16,6 +16,44 @@ use super::yaml::parse_recipes;
 use crate::ui::editor::NodeContext;
 use crate::value::Value;
 
+/// The command a click on a row runs on the clicked node, instead of opening the recipe form
+/// (design `recipes-editor-open-action`): `-R-key/<folder>/<file>/-/ns-<namespace>/<name>`.
+///
+/// Such a command takes the node as its input key. By convention it also accepts the folder's key
+/// with a node name as its first argument (`-R-key/<folder>/-/ns-<namespace>/<name>-<node>`),
+/// resolved with [`TreeEditor::resolve`]: an empty name means the input key is the node.
+///
+/// ```
+/// use liquers_lib::ui::recipes::{OpenCommand, RecipesCommand, RecipesEffect, RecipesState};
+/// use liquers_lib::value::Value;
+///
+/// let mut state = RecipesState::new(Default::default())
+///     .with_folder(Some("data".into()))
+///     .with_open_command(Some(OpenCommand::new("dpl", "edit_node")));
+/// state.on_snapshot(&Value::from("recipes:\n- {query: -R/data/x.csv/-/head/b.csv}\n"), None).unwrap();
+/// let effect = state.apply(RecipesCommand::Open("b.csv".into())).unwrap();
+/// assert!(matches!(effect, RecipesEffect::Submit(q) if q == "-R-key/data/b.csv/-/ns-dpl/edit_node"));
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct OpenCommand {
+    /// The command's namespace, without `ns-`.
+    pub namespace: String,
+    /// The command's name.
+    pub name: String,
+}
+
+impl OpenCommand {
+    /// The open command `namespace/name`.
+    pub fn new(namespace: impl Into<String>, name: impl Into<String>) -> Self {
+        OpenCommand { namespace: namespace.into(), name: name.into() }
+    }
+
+    /// The query running the command on the node with key text `key`.
+    pub fn query(&self, key: &str) -> String {
+        format!("-R-key/{key}/-/ns-{}/{}", self.namespace, self.name)
+    }
+}
+
 /// An edit or action of the recipes panel, from a renderer.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RecipesCommand {
@@ -25,8 +63,12 @@ pub enum RecipesCommand {
     SetView(RecipesView),
     /// Collapse or expand a row of the dependencies view, by row id.
     Toggle(String),
-    /// Open (or focus) the recipe window of a row id (AC-4).
+    /// A click on a row: run the open command on it when there is one, else open (or focus) its
+    /// recipe window (AC-4; `recipes-editor-open-action` AC-7).
     Open(String),
+    /// Open (or focus) the recipe window of a row id, whatever the open command (the row menu's
+    /// Edit; `recipes-editor-open-action` AC-3).
+    Edit(String),
     /// Close a recipe window.
     Close(String),
     /// Rename a node or file (AC-8): `to` is a name keeping the extension, or a filename.
@@ -129,6 +171,10 @@ pub struct RecipesState {
     message: Option<String>,
     /// Why the last write failed, while its edits are still unsaved (AC-4).
     write_error: Option<String>,
+    /// What a click on a row runs, when not the recipe form.
+    open_command: Option<OpenCommand>,
+    /// The row last clicked while there is an open command, drawn selected.
+    selected: Option<String>,
 }
 
 /// The `folder/filename` key text of `filename` in `folder` (the root when empty).
@@ -175,6 +221,8 @@ impl RecipesState {
             report: TreeReport::default(),
             message: None,
             write_error: None,
+            open_command: None,
+            selected: None,
         }
     }
 
@@ -190,6 +238,23 @@ impl RecipesState {
         self.view = view;
         self.rebuild();
         self
+    }
+
+    /// Sets the command a row click runs (builder style); `None` opens the recipe form.
+    pub fn with_open_command(mut self, open_command: Option<OpenCommand>) -> Self {
+        self.open_command = open_command;
+        self
+    }
+
+    /// The command a row click runs, if not the recipe form.
+    pub fn open_command(&self) -> Option<&OpenCommand> {
+        self.open_command.as_ref()
+    }
+
+    /// Whether the row of `file` is drawn selected: its recipe window is open, or it is the row
+    /// last clicked while there is an open command.
+    pub fn is_marked(&self, file: &str) -> bool {
+        self.form(file).is_some() || self.selected.as_deref() == Some(file)
     }
 
     /// Apply immediately (`true`, the default) or on demand.
@@ -620,6 +685,9 @@ impl RecipesState {
                 form.id = to.to_owned();
             }
         }
+        if self.selected.as_deref() == Some(from) {
+            self.selected = Some(to.to_owned());
+        }
     }
 
     fn rename(&mut self, from: &str, to: &str) -> Result<RecipesEffect, Error> {
@@ -737,7 +805,18 @@ impl RecipesState {
                 self.rebuild();
                 Ok(RecipesEffect::None)
             }
-            RecipesCommand::Open(id) => {
+            RecipesCommand::Open(id) => match self.open_command.clone() {
+                Some(command) => {
+                    let query = command.query(&self.key(&id)?);
+                    self.selected = Some(id);
+                    Ok(RecipesEffect::Submit(query))
+                }
+                None => {
+                    self.open(&id)?;
+                    Ok(RecipesEffect::None)
+                }
+            },
+            RecipesCommand::Edit(id) => {
                 self.open(&id)?;
                 Ok(RecipesEffect::None)
             }
