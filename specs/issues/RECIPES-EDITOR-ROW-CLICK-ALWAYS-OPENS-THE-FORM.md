@@ -24,5 +24,5 @@ project should edit it in DPL's recipe workbench, which has Live preview and a 3
 
 ## Expected behaviour
 
-A host can give the panel a query to submit for a row click, with the clicked file in it; the row
+A host can name a command (namespace and name, given to `lui/recipes_editor`) that a row click runs on the clicked node; the row
 menu's Edit keeps opening the form.
