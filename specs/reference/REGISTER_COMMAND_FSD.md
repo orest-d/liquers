@@ -326,7 +326,7 @@ register_command!(cr,
 | `enum_ref: "..."` | Reference a global enum by name |
 | `node: local` | A Node argument: names a file of the working folder (`ArgumentType::Node`); needs `ext:` |
 | `ext: "glb"` | The Node's file extension, without the dot; needs `node:` |
-| `form: resource \| key` | How a Node name becomes a link: `-R/./<name>.<ext>` (default, the asset's value) or `-R-key/./<name>.<ext>` (the key; the argument must be `Key` or `Value`) |
+| `form: resource \| key \| recipe` | How a Node name becomes a link: `-R/./<name>.<ext>` (default, the asset's value), `-R-key/./<name>.<ext>` (the key; the argument must be `Key` or `Value`) or `-R-recipe/./<name>.<ext>` (the node's recipe; the argument must be `Value`) |
 
 `hint key: "..."` is rejected with *argument hints are not supported; `hint` would be ignored*.
 It used to be parsed and silently dropped. Argument-level hints remain open
@@ -393,7 +393,8 @@ When enum metadata is present and `gui:` is omitted, defaults are:
 
 A Node argument (`node:`) defaults to `NodeSelector`, which lists the folder's nodes of its
 extension. `node:` without `ext:`, `ext:` or `form:` without `node:`, a Node with `enum`, a
-`multiple` Node and a key-form Node whose type is not `Key` or `Value` are compile errors. A bare
+`multiple` Node, a key-form Node whose type is not `Key` or `Value` and a recipe-form Node whose
+type is not `Value` are compile errors. A bare
 name is planned as a link and needs a working directory; see `RECIPE_TREES.md` §Node arguments.
 
 ---
@@ -771,6 +772,7 @@ pub fn register_commands(mut env: DefaultEnvironment<Value>) -> Result<DefaultEn
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-25 | §Parameter Metadata: `form: recipe` and its type rule. | `design/node-argument-recipe-form/` |
 | 2026-11-25 | §Variadic Parameters: shapes of a `multiple` argument (tuples, a custom element type, a dictionary, a JSON value), the `columns:` key and the new compile-time rejections. | `design/composite-variadic-arguments/` |
 | 2026-11-23 | §Parameter Metadata: Node arguments (`node: local`, `ext:`, `form:`) and the `NodeSelector` widget. | `design/recipe-tree/` |
 | 2026-10-20 | Links to `reference/api/DOC_08_RECIPES_PLANS.md` follow its promotion to `reference/RECIPES_AND_PLANS.md`; the `expires:` grammar pointer now names the section that has it. | DOC-08 promotion |

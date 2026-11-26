@@ -760,6 +760,8 @@ enum NodeFormSpec {
     Resource,
     /// `-R-key/./<name>.<ext>`.
     Key,
+    /// `-R-recipe/./<name>.<ext>`.
+    Recipe,
 }
 
 /// The `node:` / `ext:` / `form:` options of an argument.
@@ -777,6 +779,9 @@ impl NodeParameterSpec {
                 quote! { liquers_core::command_metadata::NodeLinkForm::Resource }
             }
             NodeFormSpec::Key => quote! { liquers_core::command_metadata::NodeLinkForm::Key },
+            NodeFormSpec::Recipe => {
+                quote! { liquers_core::command_metadata::NodeLinkForm::Recipe }
+            }
         };
         quote! {
             liquers_core::command_metadata::ArgumentType::Node(
@@ -1467,21 +1472,28 @@ fn node_parameter_spec(
             }
             let form = match form {
                 Some(f) if f == "key" => NodeFormSpec::Key,
+                Some(f) if f == "recipe" => NodeFormSpec::Recipe,
                 Some(_) | None => NodeFormSpec::Resource,
             };
-            if form == NodeFormSpec::Key {
-                let type_name = match ty {
-                    syn::Type::Path(p) => p.path.get_ident().map(|i| i.to_string()),
-                    _ => None,
-                };
-                match type_name.as_deref() {
-                    Some("Key" | "Value") => {}
-                    _ => {
-                        return Err(syn::Error::new_spanned(
-                            ty,
-                            "a Node argument with `form: key` must be a `Key` or a `Value`",
-                        ));
-                    }
+            let type_name = match ty {
+                syn::Type::Path(p) => p.path.get_ident().map(|i| i.to_string()),
+                _ => None,
+            };
+            match (form, type_name.as_deref()) {
+                (NodeFormSpec::Resource, _)
+                | (NodeFormSpec::Key, Some("Key" | "Value"))
+                | (NodeFormSpec::Recipe, Some("Value")) => {}
+                (NodeFormSpec::Key, _) => {
+                    return Err(syn::Error::new_spanned(
+                        ty,
+                        "a Node argument with `form: key` must be a `Key` or a `Value`",
+                    ));
+                }
+                (NodeFormSpec::Recipe, _) => {
+                    return Err(syn::Error::new_spanned(
+                        ty,
+                        "a Node argument with `form: recipe` must be a `Value`",
+                    ));
                 }
             }
             Ok(Some(NodeParameterSpec {
@@ -1504,7 +1516,7 @@ enum CommandParameterStatement {
     Node(syn::Ident),
     /// `ext: "glb"` — the node's file extension.
     Ext(syn::LitStr),
-    /// `form: resource|key` — how the bare name becomes a link.
+    /// `form: resource|key|recipe` — how the bare name becomes a link.
     Form(syn::Ident),
 }
 
@@ -1572,10 +1584,12 @@ impl Parse for CommandParameterStatement {
             "form" => {
                 input.parse::<syn::Token![:]>()?;
                 let form: syn::Ident = input.call(syn::Ident::parse_any)?;
-                if form != "resource" && form != "key" {
+                if form != "resource" && form != "key" && form != "recipe" {
                     return Err(syn::Error::new(
                         form.span(),
-                        format!("unknown node form `{form}`; expected `resource` or `key`"),
+                        format!(
+                            "unknown node form `{form}`; expected `resource`, `key` or `recipe`"
+                        ),
                     ));
                 }
                 Ok(CommandParameterStatement::Form(form))
@@ -4009,6 +4023,12 @@ mod tests {
         };
         let info = param.argument_info_expression().unwrap().to_string();
         assert!(info.contains("NodeLinkForm :: Key"), "{info}");
+        // node-argument-recipe-form AC-3.
+        let param: CommandParameter = syn::parse_quote! {
+            part: Value (node: local, ext: "glb", form: recipe)
+        };
+        let info = param.argument_info_expression().unwrap().to_string();
+        assert!(info.contains("NodeLinkForm :: Recipe"), "{info}");
     }
 
     /// recipe-tree AC-17: the options that do not fit together are compile errors.
@@ -4022,6 +4042,10 @@ mod tests {
             quote! { part: Value (node: local, ext: ".glb") },
             quote! { part: String (node: local, ext: "glb", form: key) },
             quote! { part: String (node: local, ext: "glb", enum: ["a"]) },
+            // node-argument-recipe-form AC-3.
+            quote! { part: Key (node: local, ext: "glb", form: recipe) },
+            quote! { part: String (node: local, ext: "glb", form: recipe) },
+            quote! { part: Value (node: local, ext: "glb", form: other) },
         ];
         for case in cases {
             let parsed: syn::Result<CommandParameter> = syn::parse2(case.clone());

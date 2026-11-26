@@ -637,9 +637,11 @@ Notes:
 ```rust
 register_command!(cr, fn attach(state, part: Value (node: local, ext: "glb")) -> result)?;
 register_command!(cr, fn locate(dir: Key (node: local, ext: "glb", form: key)) -> result)?;
+register_command!(cr, fn describe(part: Value (node: local, ext: "glb", form: recipe)) -> result)?;
 ```
 
-`attach-wheel` passes the value of `./wheel.glb` (`form: key` passes the key); a link
+`attach-wheel` passes the value of `./wheel.glb` (`form: key` passes the key, `form: recipe` its
+recipe as a `Value::Recipe`, or none when it has no recipe); a link
 (`attach-~X~-R/data/x.glb~E`) works too. A bare name needs a working directory
 (`-R-cwd/scenes/car/-/…`, or a recipe of the folder). Editors list the folder's nodes and offer
 Rename. In a strict recipe tree it is the only way to reference another file from an argument
@@ -1204,6 +1206,7 @@ only) action is that command ([`AGENT_MEMORY_SERVICE.md`](../reference/AGENT_MEM
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-25 | §1: Node arguments, `form: recipe`. | `design/node-argument-recipe-form/` |
 | 2026-11-25 | §*Accepting a variable number of parameters*: new *Taking pairs, a dictionary or a JSON value* (shaped `multiple` arguments). | `design/composite-variadic-arguments/` |
 | 2026-11-23 | §1: Node arguments (`node: local, ext: "…"`, `form: key`). | `design/recipe-tree/` |
 | 2026-11-22 | §5: a bare `hint icon` name means the theme's icon set (Phosphor by default); `ph:` is always Phosphor. | `issues/THEME-ICON-SET-SETTING-IS-IGNORED.md` |
