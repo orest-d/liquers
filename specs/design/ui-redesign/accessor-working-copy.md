@@ -241,6 +241,10 @@ Orest (2026-11-26): approach this carefully. Ideally collaborative editing becom
 Then there may be a shared accessor across several sessions that coordinates the edits, and it
 may branch into working copies. The design has to enable that.
 
+**Left open by Orest (2026-11-26):** collaborative editing would be a good feature if it fits the
+design for a reasonable increase in complexity. It has to be weighed, these notes are kept, and it
+will be discussed again. Nothing in this section is decided.
+
 It does, if four things are decided now. None of them makes the single-user case harder.
 
 ### 10.1 The shape: working copies nest

@@ -641,6 +641,53 @@ Subscribe::query(&q)            // what
 - `Want::Raw` gives the value itself (`Arc<State<E::Value>>`). It works only in the process
   that holds the value, and is how `liquers-lib` elements reach a DataFrame directly.
 
+### 9.1 Shared UI values ("signals"), noted 2026-11-26
+
+Orest (2026-11-26) asked whether a signal and slot mechanism for the UI makes sense: assets give
+something similar, but an asset is heavy for a checkbox value shared by a few elements. A note of
+the discussion; nothing is decided.
+
+**What exists.** An asset is reactive in two ways: it notifies its subscribers (status, value
+produced, expired, removed), and when it changes its dependents expire and are evaluated again
+when asked. That is lazy dataflow between cached, named, asynchronous values, and it is the right
+tool for data. It is not a signal and slot connection: the "slot" can only be the re-evaluation
+of a query, and every value has an identity, metadata, a status and a job. The lighter thing
+that exists is `memory_accessor`, a variable in memory with get, set, change events and
+projections, but its API is asynchronous and it has no place in the UI tree.
+
+**What is missing.** Small state shared by elements that do not know each other: a view option
+in a toolbar read by a viewport, the selection shared by a table, a chart and a detail pane, a
+parameter that drives several queries, the zoom range of linked charts. Messages (§7) need the
+sender to know the receiver's handle. Accessors on stored values are slow and asynchronous for
+this.
+
+**Proposed shape: UI variables, as the light end of the accessor family.** Not a second
+architecture beside messages and bindings.
+
+- A variable is a small named value owned by the session, which is already the single owner of
+  the tree, so reading it is synchronous and needs no lock.
+- It is declared at a node and visible in that node's subtree, like a CSS custom property. Two
+  instances of one component do not clash, and a list item can have its "current row".
+- An element reads it through `cx`, sets it by an effect, and is told when one it reads has
+  changed. In a UISpec it is one more thing to bind to, written like any binding
+  (`checked: {var: show_grid}`), so an element does not know whether it is bound to a variable,
+  to a part of a working copy or to a stored value.
+- A query may name a variable as a placeholder. When the variable changes, the element's
+  subscription changes with it. This is the one bridge from UI state to assets, and the place
+  for a debounce.
+- Placement: a variable is local to a client (hover, collapsed, the zoom range of linked charts,
+  with no round trip) or belongs to the session and is synchronized by the runner protocol.
+- It is the same object as a working copy with no base
+  ([accessor-working-copy.md](./accessor-working-copy.md) §3): a synchronous cell in one domain.
+
+**What it would serve:** view options and toggles; master and detail, linked selection; parameters
+that drive queries (a slider, without writing a recipe); linked charts; enabling a button while a
+form is valid; MIDI and other controls writing a value (R13, M5); UI state that is saved and
+restored (§20); an editor that publishes a preview without knowing which view follows it.
+
+**Not for:** data (that stays in assets), values that must be stored (accessors), or commands
+("do this now" is a message, not a value).
+
 ## 10. The view tree
 
 ### 10.1 Shape
