@@ -688,6 +688,41 @@ restored (§20); an editor that publishes a preview without knowing which view f
 **Not for:** data (that stays in assets), values that must be stored (accessors), or commands
 ("do this now" is a message, not a value).
 
+**Elements advertise accessors (Orest, 2026-11-26).** Orest's intuition is the same: this
+overlaps the accessor mechanism. An element would advertise its own accessors, addressed by a
+handle and a name and requested from the runner, possibly by a command; and the accessor logic
+should be expressible in signal and slot language, which would help adoption. A sketch, not
+decided:
+
+| Signal and slot language (Qt) | Here |
+|---|---|
+| property (read, write, notify) | a **property** of an element: an accessor the element advertises |
+| signal that a property changed | the accessor's `Changed` event |
+| signal without a value (`clicked`) | an **event** the element emits (a message, §7) |
+| slot that sets a value | `set` on a property |
+| slot that does something (`clear`, `reload`) | an **action** of the element (a message or a command) |
+| `connect(signal, slot)` | a **binding**: a property bound to another property, to a variable or to a stored value; or an event bound to an action or a query |
+| queued connection | the only kind: a change is delivered as a message in a later turn |
+
+- **Advertised.** An element type declares its properties (name, type, readable, writable,
+  description), its events and its actions, as a command declares its arguments. The declaration
+  is published metadata, so a UISpec can be checked, an editor can offer the names, a test or an
+  agent can drive the UI through properties, and a control (MIDI) can be mapped to one.
+- **Addressed** by the element and the property name. The element is named by its stable `name`
+  (§14) or by a handle, or relatively with the position words of the `lui` commands (`current`,
+  `parent`). A command gives the accessor as a value, in the way the `acc` commands do, for
+  example `ns-lui/property-toolbar-show_grid`; projections then apply to it as to any accessor.
+- **Served by the runner.** The root of such an accessor belongs to the session: a read asks the
+  element, a write is a message to the element, which may refuse it, and a change is reported
+  when the element marks the property changed in `update`. Inside a turn an element reads another
+  element's property synchronously through `cx`; from a command or another domain it is
+  asynchronous.
+- **Variables are then not a separate concept.** A variable declared at a node is a property of
+  a state holder at that node, found by name from the subtree.
+- **Differences from Qt to state plainly.** A connection is never a direct call, so there is no
+  re-entrancy; setting a property to the value it has reports no change, so a cycle of two-way
+  bindings ends; a connection may cross domains in split mode and is then asynchronous.
+
 ## 10. The view tree
 
 ### 10.1 Shape
