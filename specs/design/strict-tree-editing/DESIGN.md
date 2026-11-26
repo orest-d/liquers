@@ -270,7 +270,7 @@ gives a banner, and `-R/p/bad.glb` still evaluates as a plain recipe.
 
 `liquers-core/tests/recipe_tree.rs`:
 - `invalid_strict_folder_downgrades_to_plain_recipes` (replaces `strict_folder_fails_as_a_whole`):
-  AC-1, AC-3 withdrawn, AC-8
+  AC-1, AC-8 (the withdrawn third scenario no longer applies)
 - `recipes_yaml_of_an_invalid_tree_is_readable_and_writable`: AC-1, AC-2
 - `unplannable_recipe_with_filename_is_an_error_asset`: AC-10
 - `dependency_on_an_error_node_is_an_error`: AC-10
