@@ -2,8 +2,7 @@
 id: COMPOSITE-VARIADIC-ARGUMENTS
 kind: design
 title: Complex values as variadic arguments (tuples, dictionaries, JSON values)
-status: in_review
-phase: implementation
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [core/commands, macro, core/plan, lib/ui, lib/egui]
@@ -26,6 +25,12 @@ the shape is a field of a variadic argument and not an argument type, there is n
 type, and a JSON value shape was added. Phases 3 and 4 were rewritten on 2026-11-25.
 
 Pre-approved after Phase 2 on 2026-11-25 (`proceed all`).
+
+**Complete 2026-11-25.** Implemented in the twelve steps of Phase 4 and merged as PR #288. What
+differs from the plan is in Phase 4, §Deviations during implementation. Follow-ups: declaring a
+shape from Python (`PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`) and from JavaScript
+(`WEB-COMMAND-CANNOT-DECLARE-VARIADIC-ARGUMENT`); the first user, per-child layout data, is part
+of `design/ui-redesign/`.
 
 ## Phases
 

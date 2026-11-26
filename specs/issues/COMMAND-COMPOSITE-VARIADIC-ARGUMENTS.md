@@ -2,7 +2,7 @@
 id: COMMAND-COMPOSITE-VARIADIC-ARGUMENTS
 kind: feature
 title: A variadic argument cannot carry a complex value such as pairs, tuples or a dictionary
-status: draft
+status: closed
 priority: P3
 complexity: L
 area: [core/commands, macro, lib/ui, lib/egui]
@@ -138,3 +138,15 @@ revised on 2026-11-25):
    a JSON value with a choice of form.
 
 Open questions are listed in the design's Phase 1, `## Design Readiness`.
+
+## Resolution
+
+Closed 2026-11-25 by `design/composite-variadic-arguments/`, merged as PR #288. A `multiple`
+argument declares a shape (`ArgumentInfo::shape`): `Vec<(A, B, …)>` or a type implementing
+`FromParameterGroup` for tuples, `BTreeMap<String, V>` or `serde_json::Map` for a dictionary,
+`serde_json::Value` for a JSON value. The plan types each position and refuses an incomplete
+element or a repeated key; recipes, pipelines, URL overrides and MCP take the natural JSON; the
+argument editor (egui and web) edits whole elements. Evidence:
+`liquers-core/tests/composite_variadic.rs` (11 tests), the `shaped_` and `variadic_shape_` unit
+tests, and the build matrix (49 configurations). Reference:
+`reference/REGISTER_COMMAND_FSD.md` §Variadic Parameters.
