@@ -806,12 +806,14 @@ impl RecipesState {
                 Ok(RecipesEffect::None)
             }
             RecipesCommand::Open(id) => match self.open_command.clone() {
-                Some(command) => {
+                // A recipe with no filename has a row id (`#<n>`, never a filename) but no key,
+                // so its form opens instead.
+                Some(command) if !id.starts_with('#') => {
                     let query = command.query(&self.key(&id)?);
                     self.selected = Some(id);
                     Ok(RecipesEffect::Submit(query))
                 }
-                None => {
+                Some(_) | None => {
                     self.open(&id)?;
                     Ok(RecipesEffect::None)
                 }

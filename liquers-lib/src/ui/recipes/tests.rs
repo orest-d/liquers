@@ -650,6 +650,16 @@ fn open_with_open_command_submits_the_key_query() {
     assert!(liquers_core::parse::parse_query("-R-key/scenes/car/a.csv/-/ns-dpl/edit_node").is_ok());
 }
 
+/// A recipe without a filename has no key: a click opens its form, even with an open command.
+#[test]
+fn open_command_skips_a_recipe_without_a_filename() {
+    let mut state = with_open_command("recipes:\n- {query: -R/data/a.csv/-/ns-pl/from_csv, title: Untitled}\n");
+    assert_eq!(state.rows()[0].id, "#0");
+    let effect = state.apply(RecipesCommand::Open("#0".into())).expect("open");
+    assert!(matches!(effect, RecipesEffect::None));
+    assert!(state.form("#0").is_some());
+}
+
 /// AC-3: Edit opens the form whatever the open command.
 #[test]
 fn edit_opens_the_form_with_an_open_command() {
