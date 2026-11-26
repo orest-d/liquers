@@ -4,8 +4,8 @@ kind: design
 title: A Node argument can pass a node's recipe (form recipe)
 form: compact
 workflow: liquers-project
+status: complete
 gh_pr: [290]
-phase: documentation
 readiness: ready
 autofix: not-eligible
 area: [core/commands, macro, core/assets]
@@ -15,7 +15,8 @@ created: 2026-11-25
 # A Node argument can pass a node's recipe (form recipe)
 
 Pre-approved after Phase 1 on 2026-11-25 (`proceed all`); the three open questions take their
-recommended answers (decisions 1–3 below).
+recommended answers (decisions 1–3 below). Maintainer approved Phase 5 on 2026-11-26; complete,
+merged in PR #290.
 
 ## Phase 1: High-Level Design
 
