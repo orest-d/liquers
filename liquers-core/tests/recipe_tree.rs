@@ -656,6 +656,27 @@ async fn move_reference_refused_when_shape_breaks() -> Result<(), Box<dyn std::e
     Ok(())
 }
 
+/// strict-tree-editing AC-12: a moved reference to a `.node` node keeps its full filename (found by
+/// review: the stem `1` would link `./1.glb`).
+#[tokio::test]
+async fn move_reference_keeps_a_node_filename() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = make_env(AsyncMemoryStore::new(&Key::new()))?;
+    let list: RecipeList = serde_yaml::from_str(
+        "recipes:\n  - {query: s.glb}\n  - {query: \"-R/./s.glb/-/1.node\"}\n  - {query: \"-R/./s.glb/-/attach-1.node/b.glb\"}\n  - {query: \"-R/./s.glb/-/attach/z.glb\"}\n",
+    )?;
+    let mut editor = TreeEditor::new(
+        list,
+        Some(vec!["s.glb".into()]),
+        Arc::new(envref.get_command_metadata_registry().clone()),
+    )?;
+    editor.move_reference("1.node", "b", "z", 0, "part")?;
+    let queries: Vec<&str> = editor.recipes().recipes.iter().map(|r| r.query.as_str()).collect();
+    assert!(queries.contains(&"-R/./s.glb/-/attach-1.node/z.glb"), "{queries:?}");
+    assert!(queries.contains(&"-R/./s.glb/-/attach/b.glb"), "{queries:?}");
+    assert!(editor.report().errors.is_empty(), "{:?}", editor.report().errors);
+    Ok(())
+}
+
 /// AC-14: a refused edit leaves the recipes as they were.
 #[tokio::test]
 async fn refused_edit_changes_nothing() -> Result<(), Box<dyn std::error::Error>> {

@@ -2012,7 +2012,12 @@ impl TreeEditor {
             &mut candidate.recipes[to_index],
             action,
             arg,
-            Source::Value(Json::String(node_name_text.clone())),
+            // A `.node` node is named by its filename in any Node argument (AC-12).
+            Source::Value(Json::String(if extension_of(&node_file) == crate::metadata::NODE_EXTENSION {
+                node_file.clone()
+            } else {
+                node_name_text.clone()
+            })),
         )?;
         self.commit(candidate, self.listing.clone(), self.renames.clone())
     }
