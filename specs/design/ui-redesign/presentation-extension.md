@@ -249,3 +249,113 @@ frontend that has no editor of that kind falls back to the text field.
    name), so that two kinds of JSON object can have different viewers?
 3. For DPL: is the own `Value` type still wanted once the built-in elements no longer depend on
    `liquers-lib`'s `Value`, or is `ExtValue::Foreign` enough when its viewers can be registered?
+
+## 7. A general mechanism: execution that depends on the type (2026-11-26)
+
+Orest agreed with a table keyed by type and proposed to make it general: not a table for viewers
+and editors, but one mechanism for execution paths that depend on the type, for example a
+pipeline element that branches on the type. It would serve viewers and editors, and also
+serializers and deserializers, and make pipeline commands more flexible. His concerns: pipelines
+slowly become more and more powerful, the branch costs performance, and the plan and the
+interpreter become more complex.
+
+### 7.1 The mechanism already has a design, placed elsewhere
+
+`command-specialization-by-input-type` (in review, not implemented) is a branch on the type. It
+puts the branch in the command registry, not in the pipeline: a **generic command** lists
+variants, each an existing command, and the variant is chosen by the type identifier of the
+input. It is chosen when the plan is built if the type is known then, and otherwise when the step
+runs (`Step::Dispatch`).
+
+With it, the table of §3 O5 needs no structure of its own:
+
+| Table of O5 | With generic commands |
+|---|---|
+| role (`view`, `edit`, `thumbnail`, `summary`, `text`) | the name of a generic command |
+| subject (a type identifier) | what the generic command selects on |
+| presenter | the variant: a command, an alias or a pipeline command |
+| the table | the command registry, exported and published as it is today |
+
+```
+-R/scene/net.obj/-/ns-lui/present-view       what §3 needed a table for
+-R/scene/net.obj/-/view                      the same as a generic command
+```
+
+### 7.2 A generic command or a branch element in a pipeline
+
+| | Generic command | Branch element in a pipeline |
+|---|---|---|
+| The pipeline | stays a straight line; the branch is inside one action | gets control flow |
+| As a query | representable: it is a command name | not representable as text |
+| An arm | a named command: documented, validated, tested, listed in the registry | anonymous elements inside one pipeline |
+| An arm that is several steps | a pipeline command as the variant | written in place |
+| Adding an arm from another crate (DPL adds `dpl.Mesh` to `view`) | register one more variant | edit the pipeline that holds the branch |
+| The plan | one new step kind; an arm is one step | nested plans per arm |
+| Pressure to grow | small: there is nothing to add but variants | large: a default arm, conditions on the value, loops |
+
+**Recommendation: the generic command.** It gives every use named in the request, and a pipeline
+command as a variant gives "an arm that is a pipeline" with two existing features and no new
+element. If a branch written in place is wanted later, it can be sugar for an unnamed generic
+command and reuse the same step, so nothing is lost by starting here.
+
+### 7.3 The three concerns
+
+1. **Pipelines growing more powerful.** The line to hold: selection is by type identifier only,
+   which is known from metadata. It is never by the content of a value. That is dispatch, as in a
+   trait or a method table, and not a conditional. A generic command cannot express `if`, and no
+   later step can turn it into one.
+2. **Performance.** When the type is declared the variant is chosen in the plan and running
+   costs nothing. Otherwise it is one map lookup per step. The real cost is in planning: the
+   design in review plans every variant in full inside `Step::Dispatch`. For `head` with two
+   variants that is fine. For `view` with thirty types, some of them pipeline commands, it is
+   not. See 7.4, point 3.
+3. **Plan and interpreter.** One new step kind. Pipeline frames, placeholders and realms are not
+   touched.
+
+### 7.4 What the design in review needs for this use
+
+1. **Open registration.** It recommends one place that lists all variants. For viewers the
+   opposite is needed: DPL adds a variant to a generic command that Liquers owns. So
+   `register_variant(generic, type, command)`, with a rule for two variants claiming one type
+   (the later registration wins and the registry says so), and variants from a configuration
+   document, as aliases and pipeline commands are data already.
+2. **Asking without running.** The UI needs "which variant would `view` choose for
+   `dpl.Mesh`?" as a registry lookup, with no plan and no value. This is what keeps a query off
+   the hot paths (a table column resolves its renderer once), and it works before the value is
+   loaded and in a client that cannot hold it.
+3. **Lazy arms.** For a generic command with many variants the plan should name the generic and
+   its candidates, and plan the chosen variant when the type is known. The price is that the
+   dependencies of such a step are not known before it runs. That has to be accepted or bounded
+   (a variant of a lazy generic may not read other assets), and it is the main open technical
+   point.
+4. **A default variant.** The fallback of §4 (convert, then the generic JSON, text and bytes
+   viewers) is the undeclared variant the design already has. Conversion during selection is
+   excluded there and would have to be allowed for this.
+
+### 7.5 Where it fits less well
+
+- **Argument editors.** There is no input state to select on. Two cases cover it. When the
+  argument has a value type (a key, a color, a query), its editor is `edit` for that type, which
+  is the same generic command that edits a value anywhere; rows 2 and 3 of §2 become one. When
+  the editor depends on something else (the columns of the table flowing in), the argument names
+  the editor command directly, `gui: editor "column_picker"`, and nothing is selected.
+- **Serializers and deserializers.** Selection by type and format matches what `TypeInfo`
+  already declares. But deserializing has no typed input (it selects on the type identifier and
+  format in metadata, not on a value), the store path is hot, and reading the configuration that
+  defines commands needs a deserializer first. Proposal: the built-in ones stay native and are
+  not routed through the interpreter; a generic `serialize` and `deserialize` exists for types
+  that have no native one, which is what lets a Python or JavaScript type bring its own format.
+- **Per user or per frontend choice.** The table of O5 had layers. A registry has one answer per
+  environment. Per frontend is not needed, because a variant returns an element and each frontend
+  has its implementation. Per user would need a session-level overlay; I would leave it out until
+  it is asked for.
+
+### 7.6 Revised recommendation
+
+Replace the table of O5 by generic commands: one type-dispatch mechanism in the command
+registry, used by the UI for `view`, `edit`, `summary`, `thumbnail` and `text`, usable by any
+command library (`head`), and available to serialization for foreign types. The ladder of §4 and
+its refinements 1 to 5 are unchanged. No branch element is added to pipelines.
+
+This makes `command-specialization-by-input-type` and `command-io-type-declarations` (both in
+review) prerequisites of the UI redesign, with the four changes of 7.4.
