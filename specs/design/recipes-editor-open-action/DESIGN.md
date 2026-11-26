@@ -71,7 +71,10 @@ folder gives the folder's key).
   WHEN an open command is written for the recipes editor
   THEN it takes the node either as its input state, a key (`-R-key/<d>/<f>/-/…`), or as a node-name
   argument on the folder's key (`-R-key/<d>/-/…/<command>-<name>`), where it resolves the name to
-  the node's file itself (no extension needed); Liquers offers the resolution as a helper.
+  the node's file itself (no extension needed); Liquers offers the resolution as a helper. The
+  command decides by the name: empty, the input key is the node; non-empty, the input key is the
+  folder. (Orest, 21:57: a `-R-cwd` variant was considered and dropped, since it would need the
+  cwd as a further argument.)
 - **AC-3** Edit still opens the form
   WHEN an open command is set and Edit is chosen in a row's menu (egui context menu; the web `⋯`
   menu, whose Edit now sends `rc:edit:<file>` instead of `rc:open:<file>`)
