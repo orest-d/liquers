@@ -2025,7 +2025,13 @@ impl TreeEditor {
             let to = folder.join(&rename.to);
             // The bytes move with their stored record as it is; only the key changes. The
             // removal goes through the asset manager, which tells the provider and the assets.
-            let (bytes, metadata) = store.get(&from).await?;
+            // A listing can name a node that was never stored (a recipe's file, listed by the
+            // provider): there is nothing to move then.
+            let (bytes, metadata) = match store.get(&from).await {
+                Ok(entry) => entry,
+                Err(e) if e.error_type == crate::error::ErrorType::KeyNotFound => continue,
+                Err(e) => return Err(e),
+            };
             let metadata = match metadata.metadata_record() {
                 Some(mut record) => {
                     record.key = Some(to.clone());

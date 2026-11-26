@@ -546,6 +546,26 @@ async fn rename_renames_stored_file_on_save() -> Result<(), Box<dyn std::error::
     Ok(())
 }
 
+/// strict-tree-editing AC-14: renaming a listed node that was never stored saves the recipes and
+/// moves nothing (found renaming `1.node` to `wave.obj` in DPL).
+#[tokio::test]
+async fn rename_of_an_unstored_listed_node_saves() -> Result<(), Box<dyn std::error::Error>> {
+    let store = AsyncMemoryStore::new(&Key::new());
+    seed_yaml(&store, "p/recipes.yaml", "tree: {result: 1.node}\nrecipes:\n  - {query: 1.node}\n").await?;
+    let envref = make_env(store)?;
+    let cmr = Arc::new(envref.get_command_metadata_registry().clone());
+    let list: RecipeList = serde_yaml::from_str("tree: {result: 1.node}\nrecipes:\n  - {query: 1.node}\n")?;
+    let mut editor = TreeEditor::new(list, Some(vec!["1.node".into(), "recipes.yaml".into()]), cmr)?;
+    editor.rename("1.node", "wave.obj")?;
+    assert_eq!(editor.pending_data_renames().len(), 1);
+    let folder = parse_key("p")?;
+    editor.save(&folder, envref.clone()).await?;
+    let (bytes, _) = envref.get_async_store().get(&parse_key("p/recipes.yaml")?).await?;
+    let saved = String::from_utf8(bytes)?;
+    assert!(saved.contains("wave.obj") && !saved.contains("1.node"), "{saved}");
+    Ok(())
+}
+
 /// AC-11: a child is added and named by its parent; a used name is refused.
 #[tokio::test]
 async fn add_child_refuses_used_name() -> Result<(), Box<dyn std::error::Error>> {
