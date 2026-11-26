@@ -10,7 +10,7 @@ created: 2026-11-26
 # A working copy of an accessor
 
 A proposal written 2026-11-26 after a discussion with Orest. It is not a design yet: nothing is
-implemented, no phase is opened, and §10 lists what Orest has to decide. It builds on
+implemented, no phase is opened, and §11 lists what Orest has to decide. It builds on
 [`reference/VALUE_ACCESSORS.md`](../../reference/VALUE_ACCESSORS.md) and belongs to the UI
 redesign ([master design](./master-design.md) §10.4 and D12, forms and bindings).
 
@@ -235,11 +235,94 @@ The three update modes of the editors become three ways to use one working copy:
    query edit one draft. That is the point, but a text editor with a half-typed, invalid query
    must not put it into the draft. The rule of today holds: only an accepted edit is written.
 
-## 10. Questions for Orest
+## 10. Collaborative editing (added 2026-11-26)
 
-1. Is one working copy per session and part the right unit, or should two elements of one
-   session be able to hold separate drafts of the same part?
+Orest (2026-11-26): approach this carefully. Ideally collaborative editing becomes possible.
+Then there may be a shared accessor across several sessions that coordinates the edits, and it
+may branch into working copies. The design has to enable that.
+
+It does, if four things are decided now. None of them makes the single-user case harder.
+
+### 10.1 The shape: working copies nest
+
+A working copy is an accessor, so a working copy can start from another working copy. That gives
+three levels, and the middle one is the shared accessor Orest describes:
+
+```
+base accessor          the committed value (store, asset)
+   ▲ commit = save
+shared working copy    one per edited value, on the server; several sessions take part;
+   ▲ commit = an edit  it puts the edits in one order
+local working copy     one per participant, in its own domain; synchronous (§3)
+```
+
+- A **local** working copy is what §2 to §4 describe. Its base is the shared working copy, and
+  it commits there after every accepted edit, not on Save.
+- The **shared** working copy is the coordinator. It is the only place where edits meet, so it
+  gives them one order, and nothing more exotic than that is needed for structured values. It is
+  close to what exists: a hub over a memory root, seeded from the base, already serializes its
+  writers, derives every projection again after a set, applies first writer wins per part, and
+  notifies its holders. What it adds is `commit` to the base and a list of participants.
+- **Save** is the commit of the shared working copy to the base. Any participant with the right
+  to write may ask for it, or it happens automatically.
+- The single-user case is the same shape with one participant, and the shared level may be left
+  out (a local working copy directly on the base, as in §2).
+
+### 10.2 What must be decided now
+
+1. **A change is a patch, not a new whole value.** A working copy records what was written
+   through it: the path of projection steps, the fingerprint the part had, and the new part.
+   Commit sends the patches. With whole values, two people who edit different arguments of one
+   query overwrite each other; with patches the shared copy applies both. This is also what
+   `rebase` of §4 needs, so it is not extra work.
+2. **A change log with sequence numbers.** Accessor events are wake-ups ("something changed,
+   read again"), and that is not enough here: a participant must apply the others' changes
+   without losing its own draft, its cursor or its selection. The shared working copy keeps its
+   patches in order and answers "the patches since number n", the way `log(since)` works. A
+   local copy applies them and rebases its uncommitted patches on top.
+3. **Participants, not an owner.** A working copy has an address and a set of participants.
+   §5's single owner is the case of one. Who may join, and who may save, is a permission and
+   belongs to the session model.
+4. **A merge rule per kind of step.** The default is the rule of the hub: patches of disjoint
+   parts both apply, two patches of the same part conflict and the later one is refused and
+   reported as `Stale`. A step kind may bring a better rule. The one that matters is text, see
+   10.3.
+
+### 10.3 What it does not give by itself
+
+- **Two people typing in one text.** With the default rule, a text is one part, so the second
+  writer is refused. Real concurrent text editing needs a text operation (insert and delete at a
+  position) and a rule to transform it against a concurrent one, or a text type that merges by
+  itself (a CRDT). Point 4 leaves the place for it: a text step whose patches are operations.
+  With a server that orders the edits, the simpler of the known techniques is enough. I would
+  not build it in the first version, but I would test the patch and log contract against it
+  before fixing that contract.
+- **Presence.** Who is editing which part, cursors and selections of the others. It is
+  per-participant data attached to the shared working copy and sent with the change stream. A
+  lease (§5) is then the strong form of presence: the same record, with writes refused.
+- **Undo.** In a shared draft, undo must take back one's own patches and leave the others'.
+  With a patch log this is "apply the inverse of my last patch if the part is unchanged since",
+  which is possible for structured parts and hard for text.
+- **Working offline.** A local copy that reconnects after a long time is a large rebase. Not
+  proposed.
+
+### 10.4 What changes in the rest of this proposal
+
+- §2: a working copy holds its uncommitted patches, not only a draft value.
+- §4: `rebase` is the normal path, run on every change from the shared copy, not an exception.
+- §5: ownership becomes participation; a lease is a record of the shared working copy.
+- §6: the published draft and the change log are one stream. A view that previews the result
+  follows the shared working copy, so all participants see the same preview.
+- §9: one more risk. The patch and log contract is the hard part to change later, because the
+  clients and both language bindings will depend on it.
+
+## 11. Questions for Orest
+
+1. Is the three-level shape of §10.1 (base, shared working copy on the server, local working
+   copies) what you meant by a shared accessor that branches into working copies?
 2. Locks: start with optimistic only, and add the lease later, or both at once?
 3. Should a draft survive a restart (risk 2), at least in the monolithic desktop case?
 4. Is this a design of its own (it changes `liquers-core`'s accessor module and both bindings),
    to be done before D12, or a part of D12?
+5. Concurrent typing in one text (§10.3): a goal of the first version, or only something the
+   contract must not rule out?
