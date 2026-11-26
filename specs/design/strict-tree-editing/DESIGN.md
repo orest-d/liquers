@@ -110,7 +110,8 @@ plain recipe.
 - **AC-14** Setting a filename renames the node, uniquely
   WHEN a filename is given for a node in the recipe form, or through the action editor's Filename
   (for example a query edit ending in `net.obj`, or the first command's declared `filename`)
-  THEN the node is renamed, and its references with it. When `net.obj` is taken, the name becomes
+  THEN the node is renamed through `TreeEditor::rename`, which rewrites every reference to it (Node
+  arguments, `-R/./<file>` segments and links, overrides, the tree declaration). When `net.obj` is taken, the name becomes
   the first free one of `net1.obj`, `net2.obj`, and so on. A name that is only an integer takes the
   first free integer. Names compare by node name, so `net.obj` and `net.png` collide.
 - **AC-15** Duplicate filenames are illegal in plain recipes too
